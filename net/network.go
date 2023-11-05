@@ -3,31 +3,7 @@ package net
 import (
 	"container/heap"
 	"fmt"
-	"reflect"
 )
-
-// A tipset CID is represented by an opaque string.
-type TipSet = string
-
-// An EC chain suffix.
-type ECChain struct {
-	// The last finalised tipset on which this suffix is based.
-	Base TipSet
-	// The epoch of the base tipset.
-	BaseEpoch int64
-	// Chain of tipsets after base.
-	Tail []TipSet
-}
-
-// Compares two ECChains for equality
-func (c *ECChain) Eq(other *ECChain) bool {
-	return reflect.DeepEqual(c, other)
-}
-
-// Receives an updated EC chain.
-type ECReceiver interface {
-	ReceiveCanonicalChain(chain ECChain)
-}
 
 // A consensus message.
 // Opaque to the network, expected to be cast by the receiver.

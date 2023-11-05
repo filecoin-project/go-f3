@@ -87,11 +87,7 @@ func (i *instance) receive(sender string, msg GraniteMessage) {
 	switch msg.Step {
 	case SHARE:
 		if !msg.Value.Eq(&i.input) {
-			i.decide(net.ECChain{
-				Base:      i.input.Base,
-				BaseEpoch: i.input.BaseEpoch,
-				Tail:      []net.TipSet{},
-			})
+			i.decide(i.input.BaseChain())
 		}
 	case DECIDE:
 		// Ignore

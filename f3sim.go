@@ -21,7 +21,7 @@ func main() {
 	genesis := net.ECChain{
 		Base:      "genesis",
 		BaseEpoch: 100,
-		Tail:      []net.TipSet{},
+		Suffix:    []net.TipSet{},
 	}
 
 	// Create participants and add to network.
