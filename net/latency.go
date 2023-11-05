@@ -15,7 +15,8 @@ type LogNormalLatency struct {
 	mean float64
 }
 
-func NewLogNormal(rng *rand.Rand, mean float64) *LogNormalLatency {
+func NewLogNormal(seed int64, mean float64) *LogNormalLatency {
+	rng := rand.New(rand.NewSource(seed))
 	return &LogNormalLatency{rng: rng, mean: mean}
 }
 
