@@ -10,9 +10,9 @@ type Participant struct {
 	ntwk  net.NetworkSink
 	mpool []GraniteMessage
 
-	chain      net.ECChain
-	instanceID int
-	instance   *instance
+	instance     *instance
+	nextChain    net.ECChain
+	nextInstance int
 }
 
 func NewParticipant(id string, ntwk net.NetworkSink) *Participant {
@@ -26,27 +26,32 @@ func (p *Participant) ID() string {
 // Receives a new canonical EC chain for the instance.
 // This becomes the instance's preferred value to finalise.
 func (p *Participant) ReceiveCanonicalChain(chain net.ECChain) {
-	p.chain = chain
+	p.nextChain = chain
 	if p.instance == nil {
-		p.instanceID += 1
-		p.instance = newInstance(p.ntwk, p.id, p.instanceID, p.chain)
+		p.instance = newInstance(p.ntwk, p.id, p.nextInstance, p.nextChain)
 		p.instance.start()
+		p.ntwk.SetAlarm(p.id, p.ntwk.Time()+10)
+		p.nextInstance += 1
 	}
 }
 
 // Receives a Granite message from some other participant.
 func (p *Participant) ReceiveMessage(sender string, msg net.Message) {
 	gmsg := msg.(GraniteMessage)
-	if gmsg.Instance == p.instanceID && p.instance != nil {
+	if gmsg.Instance == p.nextInstance && p.instance != nil {
 		p.instance.receive(sender, gmsg)
-		if p.decided() {
-			// Decided, terminate instance.
-			p.instance = nil
-		}
-	} else if gmsg.Instance > p.instanceID {
+	} else if gmsg.Instance > p.nextInstance {
 		// Queue messages for later instances
 		p.mpool = append(p.mpool, gmsg)
 	}
+}
+
+func (p *Participant) ReceiveAlarm() {
+	if !p.decided() {
+		p.instance.decide(p.nextChain)
+	}
+	// Decided, terminate instance.
+	p.instance = nil
 }
 
 const SHARE = "SHARE"
@@ -78,22 +83,24 @@ func (i *instance) start() {
 }
 
 func (i *instance) receive(sender string, msg GraniteMessage) {
-	// Placeholder algorithm: accept if any peer agrees, else decide nil.
+	// Placeholder algorithm: require all peers to agree, else decide current input.
 	switch msg.Step {
 	case SHARE:
-		if msg.Value.Eq(&i.input) {
-			i.decide(msg.Value)
-		} else {
-			i.decide(net.ECChain{})
+		if !msg.Value.Eq(&i.input) {
+			i.decide(net.ECChain{
+				Base:      i.input.Base,
+				BaseEpoch: i.input.BaseEpoch,
+				Tail:      []net.TipSet{},
+			})
 		}
 	case DECIDE:
-		// no-op
+		// Ignore
 	}
 }
 
 func (i *instance) decide(value net.ECChain) {
 	i.decision = value
-	fmt.Printf("Participant %s decided %v\n", i.participantID, i.decision)
+	fmt.Printf("granite: %s decided %v\n", i.participantID, i.decision)
 	i.broadcast(DECIDE, i.decision)
 }
 

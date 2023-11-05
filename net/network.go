@@ -36,6 +36,7 @@ type Message interface{}
 // Receives a consensus message.
 type MessageReceiver interface {
 	ReceiveMessage(sender string, msg Message)
+	ReceiveAlarm()
 }
 
 // Interface which network participants must implement.
@@ -47,7 +48,12 @@ type Receiver interface {
 
 // Endpoint to which participants can send messages to others
 type NetworkSink interface {
+	// Sends a message to all other participants.
 	Broadcast(sender string, msg Message)
+	// Returns the current network time.
+	Time() float64
+	// Sets an alarm to fire at the given timestamp.
+	SetAlarm(sender string, at float64)
 }
 
 type Network struct {
@@ -92,12 +98,31 @@ func (n *Network) Broadcast(sender string, msg Message) {
 	}
 }
 
+func (n *Network) Time() float64 {
+	return n.clock
+}
+
+func (n *Network) SetAlarm(sender string, at float64) {
+	heap.Push(&n.queue,
+		messageInFlight{
+			source:    sender,
+			dest:      sender,
+			payload:   "ALARM",
+			deliverAt: at,
+		})
+}
+
 func (n *Network) Tick() bool {
 	var msg messageInFlight
 	msg = heap.Pop(&n.queue).(messageInFlight)
 	n.clock = msg.deliverAt
-	fmt.Printf("net [%.3f]: delivering %s->%s: %v\n", n.clock, msg.source, msg.dest, msg.payload)
-	n.participants[msg.dest].ReceiveMessage(msg.source, msg.payload)
+	if msg.payload == "ALARM" {
+		fmt.Printf("net [%.3f]: alarm for %s\n", n.clock, msg.source)
+		n.participants[msg.dest].ReceiveAlarm()
+	} else {
+		fmt.Printf("net [%.3f]: delivering %s->%s: %v\n", n.clock, msg.source, msg.dest, msg.payload)
+		n.participants[msg.dest].ReceiveMessage(msg.source, msg.payload)
+	}
 	return n.queue.Len() > 0
 }
 
