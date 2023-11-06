@@ -93,7 +93,7 @@ func (n *Network) Tick() bool {
 	msg = heap.Pop(&n.queue).(messageInFlight)
 	n.clock = msg.deliverAt
 	if msg.payload == "ALARM" {
-		fmt.Printf("net [%.3f]: alarm for %s\n", n.clock, msg.source)
+		fmt.Printf("net [%.3f]: delivering alarm for %s\n", n.clock, msg.source)
 		n.participants[msg.dest].ReceiveAlarm()
 	} else {
 		fmt.Printf("net [%.3f]: delivering %s->%s: %v\n", n.clock, msg.source, msg.dest, msg.payload)

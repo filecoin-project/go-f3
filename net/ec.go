@@ -2,6 +2,7 @@ package net
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -61,6 +62,14 @@ func (t *TipSet) Eq(other *TipSet) bool {
 	return reflect.DeepEqual(t, other)
 }
 
+func (t *TipSet) String() string {
+	var b strings.Builder
+	b.WriteString(t.CID)
+	b.WriteString("@")
+	b.WriteString(strconv.FormatInt(t.Epoch, 10))
+	return b.String()
+}
+
 // An EC chain suffix.
 type ECChain struct {
 	// The last finalised tipset on which this suffix is based.
@@ -116,6 +125,22 @@ func (c *ECChain) HasPrefix(prefix []TipSet) bool {
 		}
 	}
 	return true
+}
+
+func (c *ECChain) String() string {
+	var b strings.Builder
+	b.WriteString("{")
+	b.WriteString(c.Base.String())
+	b.WriteString(" [")
+	for i, t := range c.Suffix {
+		b.WriteString(t.String())
+		if i < len(c.Suffix)-1 {
+			b.WriteString(", ")
+		}
+	}
+	b.WriteString("]")
+	b.WriteString("}")
+	return b.String()
 }
 
 // Receives an updated EC chain.

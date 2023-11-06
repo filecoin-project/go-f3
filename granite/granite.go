@@ -6,6 +6,10 @@ import (
 	"sort"
 )
 
+// TODO
+// - Implement message validation logic (or prove it unnecessary)
+// - Implement detection of equivocations
+
 type Participant struct {
 	id    string
 	ntwk  net.NetworkSink
@@ -51,7 +55,7 @@ func (p *Participant) ReceiveMessage(sender string, msg net.Message) {
 		p.mpool = append(p.mpool, gmsg)
 	}
 	if p.decided() {
-		p.finalised = p.granite.decision
+		p.finalised = p.granite.current.Head()
 		p.granite = nil
 	}
 }
@@ -62,12 +66,13 @@ func (p *Participant) ReceiveAlarm() {
 	}
 	p.granite.receiveAlarm()
 	if p.decided() {
-		p.finalised = p.granite.decision
+		p.finalised = p.granite.current.Head()
 		p.granite = nil
 	}
 }
 
 const QUALITY = "QUALITY"
+const PREPARE = "PREPARE"
 const DECIDE = "DECIDE"
 
 type GraniteMessage struct {
@@ -77,44 +82,59 @@ type GraniteMessage struct {
 	Value    net.ECChain
 }
 
+func (m GraniteMessage) String() string {
+	// FIXME This needs value receiver to work, for reasons I cannot figure out.
+	return fmt.Sprintf("%s(%s)", m.Step, &m.Value)
+}
+
 // A single Granite consensus instance.
 type instance struct {
 	ntwk          net.NetworkSink
 	participantID string
 	instanceID    int
 	delta         float64
-	// This instance's preferred value to finalise.
+	// The EC chain input to this instance.
 	input net.ECChain
-	// Messages received by this instance.
-	received []GraniteMessage
-	phase    string
-	// The value this instance has decided on (zero until a decision).
-	decision net.TipSet
+	phase string
+	// This instance's preferred value to finalise, as updated by the protocol.
+	current net.ECChain
+	// Valid QUALITY messages received by this instance.
+	quality []GraniteMessage
+	// Valid PREPARE values, by sender.
+	prepared map[string]net.ECChain
 }
 
 func newInstance(ntwk net.NetworkSink, participantID string, instanceID int, delta float64, input net.ECChain) *instance {
-	return &instance{ntwk: ntwk, participantID: participantID, instanceID: instanceID, delta: delta, input: input}
+	return &instance{ntwk: ntwk, participantID: participantID, instanceID: instanceID, delta: delta, input: input,
+		quality: []GraniteMessage{}, prepared: map[string]net.ECChain{}}
 }
 
 func (i *instance) start() {
-	// Start QUALITY phase.
-	i.phase = QUALITY
-	// Broadcast input value and wait 2Δ to receive from others.
-	i.broadcast(QUALITY, i.input)
-	i.alarmAfter(2 * i.delta)
-
+	i.beginQuality()
 }
 
 func (i *instance) receive(sender string, msg GraniteMessage) {
 	// Just collect all the messages until the alarm triggers the end of QUALITY phase.
-	i.received = append(i.received, msg)
+	if msg.Step == QUALITY && msg.Value.Base.Eq(&i.input.Base) {
+		i.quality = append(i.quality, msg)
+	} else if msg.Step == PREPARE && msg.Value.Base.Eq(&i.input.Base) {
+		i.prepared[sender] = msg.Value
+		i.tryPrepare()
+	}
 }
 
 func (i *instance) receiveAlarm() {
-	i.endQualityPhase()
+	i.endQuality()
 }
 
-func (i *instance) endQualityPhase() {
+func (i *instance) beginQuality() {
+	// Broadcast input value and wait 2Δ to receive from others.
+	i.phase = QUALITY
+	i.broadcast(QUALITY, i.input)
+	i.alarmAfter(2 * i.delta)
+}
+
+func (i *instance) endQuality() {
 	// QUALITY phase ends.
 	// Calculate the set of allowed proposals, and then find the best one.
 	type candidate struct {
@@ -132,26 +152,21 @@ func (i *instance) endQualityPhase() {
 		candidates[prefix.Head().CID] = candidate{prefix, base.PowerTable.Entries[i.participantID]}
 	}
 	// Add power to candidates from messages received.
-	for _, msg := range i.received {
-		if msg.Step == QUALITY && msg.Value.Base.Eq(&base) {
-			for j := range msg.Value.Suffix {
-				prefix := i.input.Prefix(j + 1)
-				if found, ok := candidates[prefix.Head().CID]; ok {
-					candidates[prefix.Head().CID] = candidate{
-						chain: found.chain,
-						power: found.power + base.PowerTable.Entries[msg.Sender],
-					}
-				} else {
-					// XXX: If the tipset isn't in our input chain, we can't verify its weight or power table.
-					// This boils down to just trusting the other nodes to have computed it correctly.
-					candidates[prefix.Head().CID] = candidate{prefix, base.PowerTable.Entries[msg.Sender]}
+	for _, msg := range i.quality {
+		for j := range msg.Value.Suffix {
+			prefix := i.input.Prefix(j + 1)
+			if found, ok := candidates[prefix.Head().CID]; ok {
+				candidates[prefix.Head().CID] = candidate{
+					chain: found.chain,
+					power: found.power + base.PowerTable.Entries[msg.Sender],
 				}
+			} else {
+				// XXX: If the tipset isn't in our input chain, we can't verify its weight or power table.
+				// This boils down to just trusting the other nodes to have computed it correctly.
+				candidates[prefix.Head().CID] = candidate{prefix, base.PowerTable.Entries[msg.Sender]}
 			}
-		} else {
-			i.log("discarded %v", msg)
 		}
 	}
-	i.received = nil
 
 	// Filter received tipsets to those with more than half of power in favour.
 	threshold := base.PowerTable.Total / 2
@@ -168,25 +183,64 @@ func (i *instance) endQualityPhase() {
 		return hi.Compare(&hj) > 0
 	})
 
-	// TODO: move on to subsequent phases.
 	// XXX: This can cause a participant to vote for a chain that is not its heaviest,
 	// or that it can't even validate, which is irrational.
 	if len(allowed) > 0 {
-		i.decide(allowed[0].chain)
+		i.current = allowed[0].chain
 	} else {
+		i.current = i.input.BaseChain()
+	}
+	i.beginPrepare()
+}
+
+func (i *instance) beginPrepare() {
+	// Broadcast preparation of value and wait for everyone to respond.
+	i.phase = PREPARE
+	i.broadcast(PREPARE, i.current)
+}
+
+func (i *instance) tryPrepare() {
+	if i.phase != PREPARE {
+		return
+	}
+	// Check if we have a quorum of PREPARE messages with the same value.
+	threshold := i.input.Base.PowerTable.Total * 2 / 3
+	base := i.input.Base
+	myHead := i.input.Head().CID
+	powers := map[net.CID]uint64{
+		myHead: base.PowerTable.Entries[i.participantID],
+	}
+	chains := map[net.CID]net.ECChain{
+		myHead: i.input,
+	}
+	for sender, proposal := range i.prepared {
+		powers[proposal.Head().CID] += base.PowerTable.Entries[sender]
+		chains[proposal.Head().CID] = proposal
+	}
+	for cid, power := range powers {
+		if power > threshold {
+			chain := chains[cid]
+			// XXX: This can cause a participant to vote for a chain that is not its heaviest,
+			// or that it can't even see.
+			// TODO: commit phase
+			i.decide(chain)
+			return
+		}
+	}
+	if len(i.prepared) >= len(base.PowerTable.Entries) {
 		i.decide(i.input.BaseChain())
 	}
-	i.phase = DECIDE
 }
 
 func (i *instance) decide(value net.ECChain) {
-	i.decision = value.Head()
-	i.log("decided %v", i.decision)
+	i.phase = DECIDE
+	i.current = value
+	i.log("decided %s", &i.current)
 	//i.broadcast(DECIDE, net.ECChain{Base: value.Head()})
 }
 
 func (p *Participant) decided() bool {
-	return p.granite != nil && !p.granite.decision.Eq(&net.TipSet{})
+	return p.granite != nil && p.granite.phase == DECIDE
 }
 
 func (i *instance) broadcast(step string, msg net.ECChain) {
