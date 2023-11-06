@@ -73,6 +73,7 @@ func (p *Participant) ReceiveAlarm() {
 
 const QUALITY = "QUALITY"
 const PREPARE = "PREPARE"
+const COMMIT = "COMMIT"
 const DECIDE = "DECIDE"
 
 type GraniteMessage struct {
@@ -102,11 +103,13 @@ type instance struct {
 	quality []GraniteMessage
 	// Valid PREPARE values, by sender.
 	prepared map[string]net.ECChain
+	// Valid COMMIT values, by sender.
+	committed map[string]net.ECChain
 }
 
 func newInstance(ntwk net.NetworkSink, participantID string, instanceID int, delta float64, input net.ECChain) *instance {
 	return &instance{ntwk: ntwk, participantID: participantID, instanceID: instanceID, delta: delta, input: input,
-		quality: []GraniteMessage{}, prepared: map[string]net.ECChain{}}
+		quality: []GraniteMessage{}, prepared: map[string]net.ECChain{}, committed: map[string]net.ECChain{}}
 }
 
 func (i *instance) start() {
@@ -120,6 +123,9 @@ func (i *instance) receive(sender string, msg GraniteMessage) {
 	} else if msg.Step == PREPARE && msg.Value.Base.Eq(&i.input.Base) {
 		i.prepared[sender] = msg.Value
 		i.tryPrepare()
+	} else if msg.Step == COMMIT && msg.Value.Base.Eq(&i.input.Base) {
+		i.committed[sender] = msg.Value
+		i.tryCommit()
 	}
 }
 
@@ -203,39 +209,35 @@ func (i *instance) tryPrepare() {
 	if i.phase != PREPARE {
 		return
 	}
-	// Check if we have a quorum of PREPARE messages with the same value.
-	threshold := i.input.Base.PowerTable.Total * 2 / 3
-	base := i.input.Base
-	myHead := i.input.Head().CID
-	powers := map[net.CID]uint64{
-		myHead: base.PowerTable.Entries[i.participantID],
+	if done, v := findQuorum(i.participantID, i.current, i.prepared); done {
+		// XXX: This can cause a participant to vote for a chain that is not its heaviest,
+		// or that it can't even see.
+		i.current = v
+		i.beginCommit()
 	}
-	chains := map[net.CID]net.ECChain{
-		myHead: i.input,
+}
+
+func (i *instance) beginCommit() {
+	i.phase = COMMIT
+	i.broadcast(COMMIT, i.current)
+
+}
+
+func (i *instance) tryCommit() {
+	if i.phase != COMMIT {
+		return
 	}
-	for sender, proposal := range i.prepared {
-		powers[proposal.Head().CID] += base.PowerTable.Entries[sender]
-		chains[proposal.Head().CID] = proposal
-	}
-	for cid, power := range powers {
-		if power > threshold {
-			chain := chains[cid]
-			// XXX: This can cause a participant to vote for a chain that is not its heaviest,
-			// or that it can't even see.
-			// TODO: commit phase
-			i.decide(chain)
-			return
-		}
-	}
-	if len(i.prepared) >= len(base.PowerTable.Entries) {
-		i.decide(i.input.BaseChain())
+	if done, v := findQuorum(i.participantID, i.current, i.committed); done {
+		// XXX: This can cause a participant to vote for a chain that is not its heaviest,
+		// or that it can't even see.
+		i.decide(v)
 	}
 }
 
 func (i *instance) decide(value net.ECChain) {
 	i.phase = DECIDE
 	i.current = value
-	i.log("decided %s", &i.current)
+	i.log("✓ decided %s", &i.current)
 	//i.broadcast(DECIDE, net.ECChain{Base: value.Head()})
 }
 
@@ -254,4 +256,30 @@ func (i *instance) alarmAfter(delay float64) {
 func (i *instance) log(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	fmt.Printf("granite [%s/%d]: %v\n", i.participantID, i.instanceID, msg)
+}
+
+func findQuorum(me string, chain net.ECChain, proposals map[string]net.ECChain) (bool, net.ECChain) {
+	pt := chain.Base.PowerTable
+	threshold := pt.Total * 2 / 3
+	// Initialise power for each tipset with own proposal and power.
+	powers := map[net.CID]uint64{
+		chain.Head().CID: pt.Entries[me],
+	}
+	chains := map[net.CID]net.ECChain{
+		chain.Head().CID: chain,
+	}
+	for sender, proposal := range proposals {
+		powers[proposal.Head().CID] += pt.Entries[sender]
+		chains[proposal.Head().CID] = proposal
+	}
+	for cid, power := range powers {
+		if power > threshold {
+			chain := chains[cid]
+			return true, chain
+		}
+	}
+	if len(proposals) >= len(pt.Entries) {
+		return true, chain.BaseChain()
+	}
+	return false, net.ECChain{}
 }

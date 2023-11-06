@@ -55,7 +55,7 @@ func main() {
 	for _, p := range participants {
 		d := p.Finalised()
 		if d.Eq(&net.TipSet{}) {
-			fmt.Printf("‼️ Participant %s did not finalise\n", p.ID())
+			fmt.Printf("‼️ Participant %s did not decide\n", p.ID())
 		}
 		if decision.Eq(&net.TipSet{}) {
 			decision = d
