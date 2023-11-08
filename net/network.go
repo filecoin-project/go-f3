@@ -30,7 +30,17 @@ type NetworkSink interface {
 	Time() float64
 	// Sets an alarm to fire at the given timestamp.
 	SetAlarm(sender string, at float64)
+	// Logs a message at the "logic" level
+	Log(format string, args ...interface{})
 }
+
+const (
+	TraceNone = iota
+	TraceSent
+	TraceRecvd
+	TraceLogic
+	TraceAll
+)
 
 type Network struct {
 	// Participants by ID.
@@ -40,14 +50,17 @@ type Network struct {
 	latency LatencyModel
 	// Timestamp of last event.
 	clock float64
+	// Trace level.
+	traceLevel int
 }
 
-func New(latency LatencyModel) *Network {
+func New(latency LatencyModel, traceLevel int) *Network {
 	return &Network{
 		participants: map[string]Receiver{},
 		queue:        messageQueue{},
 		clock:        0,
 		latency:      latency,
+		traceLevel:   traceLevel,
 	}
 }
 
@@ -59,7 +72,7 @@ func (n *Network) AddParticipant(p Receiver) {
 }
 
 func (n *Network) Broadcast(sender string, msg Message) {
-	fmt.Printf("net [%.3f]: received %v from %s\n", n.clock, msg, sender)
+	n.log(TraceSent, "%s ↗ %v", sender, msg)
 	for k := range n.participants {
 		if k != sender {
 			latency := n.latency.Sample()
@@ -88,18 +101,30 @@ func (n *Network) SetAlarm(sender string, at float64) {
 		})
 }
 
+func (n *Network) Log(format string, args ...interface{}) {
+	n.log(TraceLogic, format, args...)
+}
+
 func (n *Network) Tick() bool {
 	var msg messageInFlight
 	msg = heap.Pop(&n.queue).(messageInFlight)
 	n.clock = msg.deliverAt
 	if msg.payload == "ALARM" {
-		fmt.Printf("net [%.3f]: delivering alarm for %s\n", n.clock, msg.source)
+		n.log(TraceRecvd, "%s alarm ", msg.source)
 		n.participants[msg.dest].ReceiveAlarm()
 	} else {
-		fmt.Printf("net [%.3f]: delivering %s->%s: %v\n", n.clock, msg.source, msg.dest, msg.payload)
+		n.log(TraceRecvd, "%s ← %s: %v", msg.dest, msg.source, msg.payload)
 		n.participants[msg.dest].ReceiveMessage(msg.source, msg.payload)
 	}
 	return n.queue.Len() > 0
+}
+
+func (n *Network) log(level int, format string, args ...interface{}) {
+	if level <= n.traceLevel {
+		fmt.Printf("net [%.3f]: ", n.clock)
+		fmt.Printf(format, args...)
+		fmt.Printf("\n")
+	}
 }
 
 type messageInFlight struct {

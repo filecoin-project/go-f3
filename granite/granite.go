@@ -85,7 +85,7 @@ type GraniteMessage struct {
 
 func (m GraniteMessage) String() string {
 	// FIXME This needs value receiver to work, for reasons I cannot figure out.
-	return fmt.Sprintf("%s(%s)", m.Step, &m.Value)
+	return fmt.Sprintf("%s(%d %s)", m.Step, m.Instance, &m.Value)
 }
 
 // A single Granite consensus instance.
@@ -255,7 +255,7 @@ func (i *instance) alarmAfter(delay float64) {
 
 func (i *instance) log(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
-	fmt.Printf("granite [%s/%d]: %v\n", i.participantID, i.instanceID, msg)
+	i.ntwk.Log("%s/%d: %v", i.participantID, i.instanceID, msg)
 }
 
 func findQuorum(me string, chain net.ECChain, proposals map[string]net.ECChain) (bool, net.ECChain) {
