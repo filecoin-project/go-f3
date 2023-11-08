@@ -96,6 +96,7 @@ type instance struct {
 	delta         float64
 	// The EC chain input to this instance.
 	input net.ECChain
+	// Current phase of the protocol.
 	phase string
 	// This instance's preferred value to finalise, as updated by the protocol.
 	current net.ECChain
@@ -119,6 +120,7 @@ func (i *instance) start() {
 func (i *instance) receive(sender string, msg GraniteMessage) {
 	if msg.Step == QUALITY && msg.Value.Base.Eq(&i.input.Base) {
 		// Just collect all the messages until the alarm triggers the end of QUALITY phase.
+		// Note the message will be collected but ignored if QUALITY timeout has already passed.
 		i.quality = append(i.quality, msg)
 	} else if msg.Step == PREPARE && msg.Value.Base.Eq(&i.input.Base) {
 		i.prepared[sender] = msg.Value
@@ -191,6 +193,7 @@ func (i *instance) endQuality() {
 
 	// XXX: This can cause a participant to vote for a chain that is not its heaviest,
 	// or that it can't even validate, which is irrational.
+	// TODO: detect and log this.
 	if len(allowed) > 0 {
 		i.current = allowed[0].chain
 	} else {
@@ -214,6 +217,7 @@ func (i *instance) tryPrepare() {
 	if done, v := findQuorum(i.participantID, i.current, i.prepared); done {
 		// XXX: This can cause a participant to vote for a chain that is not its heaviest,
 		// or that it can't even see.
+		// TODO: detect and log this.
 		i.current = v
 		i.beginCommit()
 	}
@@ -231,8 +235,8 @@ func (i *instance) tryCommit() {
 		return
 	}
 	if done, v := findQuorum(i.participantID, i.current, i.committed); done {
-		// XXX: This can cause a participant to vote for a chain that is not its heaviest,
-		// or that it can't even see.
+		// A participant may be forced to decide a value that's not its preferred chain.
+		// The participant isn't influencing that decision against their interest, just accepting it.
 		i.decide(v)
 	}
 }
@@ -261,28 +265,35 @@ func (i *instance) log(format string, args ...interface{}) {
 	i.ntwk.Log("%s/%d: %v", i.participantID, i.instanceID, msg)
 }
 
-func findQuorum(me string, chain net.ECChain, proposals map[string]net.ECChain) (bool, net.ECChain) {
-	pt := chain.Base.PowerTable
+// Returns whether the proposals constitute a quorum of voting power, and if so, either the quorum chain or the base.
+func findQuorum(me string, preferred net.ECChain, proposals map[string]net.ECChain) (bool, net.ECChain) {
+	pt := preferred.Base.PowerTable
 	threshold := pt.Total * 2 / 3
-	// Initialise power for each tipset with own proposal and power.
+	// Initialise mapping of tipset->power with preferred proposal.
+	votingPower := pt.Entries[me]
 	powers := map[net.CID]uint64{
-		chain.Head().CID: pt.Entries[me],
+		preferred.Head().CID: pt.Entries[me],
 	}
+	// Mapping of chain tips to chains.
 	chains := map[net.CID]net.ECChain{
-		chain.Head().CID: chain,
+		preferred.Head().CID: preferred,
 	}
+
 	for sender, proposal := range proposals {
 		powers[proposal.Head().CID] += pt.Entries[sender]
 		chains[proposal.Head().CID] = proposal
+		votingPower += pt.Entries[sender]
 	}
+	// If any proposal has more than 2/3 of power, return it.
 	for cid, power := range powers {
 		if power > threshold {
 			chain := chains[cid]
 			return true, chain
 		}
 	}
-	if len(proposals) >= len(pt.Entries) {
-		return true, chain.BaseChain()
+	// If the proposals total more than 2/3 of power, return the base.
+	if votingPower > threshold {
+		return true, preferred.BaseChain()
 	}
 	return false, net.ECChain{}
 }
