@@ -117,8 +117,8 @@ func (i *instance) start() {
 }
 
 func (i *instance) receive(sender string, msg GraniteMessage) {
-	// Just collect all the messages until the alarm triggers the end of QUALITY phase.
 	if msg.Step == QUALITY && msg.Value.Base.Eq(&i.input.Base) {
+		// Just collect all the messages until the alarm triggers the end of QUALITY phase.
 		i.quality = append(i.quality, msg)
 	} else if msg.Step == PREPARE && msg.Value.Base.Eq(&i.input.Base) {
 		i.prepared[sender] = msg.Value
@@ -203,6 +203,8 @@ func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE
 	i.broadcast(PREPARE, i.current)
+	// Check whether we've already received enough PREPARE messages to proceed.
+	i.tryPrepare()
 }
 
 func (i *instance) tryPrepare() {
@@ -220,7 +222,8 @@ func (i *instance) tryPrepare() {
 func (i *instance) beginCommit() {
 	i.phase = COMMIT
 	i.broadcast(COMMIT, i.current)
-
+	// Check whether we've already received enough COMMIT messages to decide.
+	i.tryCommit()
 }
 
 func (i *instance) tryCommit() {
