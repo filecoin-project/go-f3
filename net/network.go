@@ -1,8 +1,8 @@
 package net
 
 import (
-	"container/heap"
 	"fmt"
+	"sort"
 )
 
 // A consensus message.
@@ -83,7 +83,7 @@ func (n *Network) Broadcast(sender string, msg Message) {
 	for k := range n.participants {
 		if k != sender {
 			latency := n.latency.Sample()
-			heap.Push(&n.queue,
+			n.queue.Insert(
 				messageInFlight{
 					source:    sender,
 					dest:      k,
@@ -99,13 +99,12 @@ func (n *Network) Time() float64 {
 }
 
 func (n *Network) SetAlarm(sender string, at float64) {
-	heap.Push(&n.queue,
-		messageInFlight{
-			source:    sender,
-			dest:      sender,
-			payload:   "ALARM",
-			deliverAt: at,
-		})
+	n.queue.Insert(messageInFlight{
+		source:    sender,
+		dest:      sender,
+		payload:   "ALARM",
+		deliverAt: at,
+	})
 }
 
 func (n *Network) Log(format string, args ...interface{}) {
@@ -115,7 +114,7 @@ func (n *Network) Log(format string, args ...interface{}) {
 ///// Adversary network interface
 
 func (n *Network) SendSynchronous(sender string, to string, msg Message) {
-	heap.Push(&n.queue,
+	n.queue.Insert(
 		messageInFlight{
 			source:    sender,
 			dest:      to,
@@ -125,8 +124,7 @@ func (n *Network) SendSynchronous(sender string, to string, msg Message) {
 }
 
 func (n *Network) Tick() bool {
-	var msg messageInFlight
-	msg = heap.Pop(&n.queue).(messageInFlight)
+	msg := n.queue.Remove(0)
 	n.clock = msg.deliverAt
 	if msg.payload == "ALARM" {
 		n.log(TraceRecvd, "%s alarm ", msg.source)
@@ -135,7 +133,7 @@ func (n *Network) Tick() bool {
 		n.log(TraceRecvd, "%s ← %s: %v", msg.dest, msg.source, msg.payload)
 		n.participants[msg.dest].ReceiveMessage(msg.source, msg.payload)
 	}
-	return n.queue.Len() > 0
+	return len(n.queue) > 0
 }
 
 func (n *Network) log(level int, format string, args ...interface{}) {
@@ -153,19 +151,22 @@ type messageInFlight struct {
 	deliverAt float64 // Timestamp at which to deliver the message
 }
 
-// Implements a queue (min-heap) of directed messages.
+// A queue of directed messages, maintained as an ordered list.
 type messageQueue []messageInFlight
 
-func (h messageQueue) Len() int           { return len(h) }
-func (h messageQueue) Less(i, j int) bool { return h[i].deliverAt < (h[j].deliverAt) }
-func (h messageQueue) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *messageQueue) Push(x interface{}) {
-	*h = append(*h, x.(messageInFlight))
+func (h *messageQueue) Insert(x messageInFlight) {
+	i := sort.Search(len(*h), func(i int) bool {
+		return (*h)[i].deliverAt >= x.deliverAt
+	})
+	*h = append(*h, messageInFlight{})
+	copy((*h)[i+1:], (*h)[i:])
+	(*h)[i] = x
 }
-func (h *messageQueue) Pop() interface{} {
-	old := *h
-	n := len(old)
-	x := old[n-1]
-	*h = old[0 : n-1]
-	return x
+
+// Removes an entry from the queue
+func (h *messageQueue) Remove(i int) messageInFlight {
+	v := (*h)[i]
+	copy((*h)[i:], (*h)[i+1:])
+	*h = (*h)[:len(*h)-1]
+	return v
 }
