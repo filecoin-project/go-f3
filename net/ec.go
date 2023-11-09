@@ -10,18 +10,18 @@ type CID = string
 
 // A power table maps participant IDs to power values.
 type PowerTable struct {
-	Entries map[string]uint64
-	Total   uint64
+	Entries map[string]uint
+	Total   uint
 }
 
 func NewPowerTable() PowerTable {
 	return PowerTable{
-		Entries: map[string]uint64{},
+		Entries: map[string]uint{},
 		Total:   0,
 	}
 }
 
-func (p *PowerTable) Add(id string, power uint64) {
+func (p *PowerTable) Add(id string, power uint) {
 	if p.Entries[id] != 0 {
 		panic("duplicate power entry")
 	}
@@ -30,14 +30,14 @@ func (p *PowerTable) Add(id string, power uint64) {
 }
 
 type TipSet struct {
-	Epoch      int64
+	Epoch      int
 	CID        CID
-	Weight     uint64
+	Weight     uint
 	PowerTable PowerTable
 }
 
 // Creates a new tipset.
-func NewTipSet(epoch int64, cid CID, weight uint64, powerTable PowerTable) TipSet {
+func NewTipSet(epoch int, cid CID, weight uint, powerTable PowerTable) TipSet {
 	return TipSet{
 		Epoch:      epoch,
 		CID:        cid,
@@ -66,7 +66,7 @@ func (t *TipSet) String() string {
 	var b strings.Builder
 	b.WriteString(t.CID)
 	b.WriteString("@")
-	b.WriteString(strconv.FormatInt(t.Epoch, 10))
+	b.WriteString(strconv.Itoa(t.Epoch))
 	return b.String()
 }
 
@@ -79,25 +79,62 @@ type ECChain struct {
 	Suffix []TipSet
 }
 
-// Returns the base of a chain with no suffix.
-func (c *ECChain) BaseChain() ECChain {
-	return ECChain{
+func NewChain(base TipSet, suffix ...TipSet) *ECChain {
+	return &ECChain{
+		Base:   base,
+		Suffix: suffix,
+	}
+}
+
+// Returns a copy of the base of a chain with no suffix.
+func (c *ECChain) BaseChain() *ECChain {
+	return &ECChain{
 		Base:   c.Base,
 		Suffix: nil,
 	}
 }
 
-// Returns the last tipset in the chain.
-func (c *ECChain) Head() TipSet {
+// Returns a pointer to the last tipset in the chain.
+func (c *ECChain) Head() *TipSet {
 	if len(c.Suffix) == 0 {
-		return c.Base
+		return &c.Base
 	}
-	return c.Suffix[len(c.Suffix)-1]
+	return &c.Suffix[len(c.Suffix)-1]
+}
+
+// Returns a new chain extending this chain with one tipset and the same head power table.
+func (c *ECChain) Extend(cid CID) *ECChain {
+	head := c.Head()
+	return &ECChain{
+		Base: c.Base,
+		Suffix: append(c.Suffix, TipSet{
+			Epoch:      head.Epoch + 1,
+			CID:        cid,
+			Weight:     head.Weight + 1,
+			PowerTable: head.PowerTable,
+		}),
+	}
+}
+
+func (c *ECChain) ExtendWith(cid CID, weight uint, powerTable PowerTable) *ECChain {
+	head := c.Head()
+	if weight < head.Weight {
+		panic("new tipset weight must be greater than current head weight")
+	}
+	return &ECChain{
+		Base: c.Base,
+		Suffix: append(c.Suffix, TipSet{
+			Epoch:      head.Epoch + 1,
+			CID:        cid,
+			Weight:     weight,
+			PowerTable: powerTable,
+		}),
+	}
 }
 
 // Returns a chain with suffix truncated to a maximum length.
-func (c *ECChain) Prefix(to int) ECChain {
-	return ECChain{
+func (c *ECChain) Prefix(to int) *ECChain {
+	return &ECChain{
 		Base:   c.Base,
 		Suffix: c.Suffix[:to],
 	}

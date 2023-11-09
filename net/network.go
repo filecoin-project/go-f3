@@ -34,6 +34,13 @@ type NetworkSink interface {
 	Log(format string, args ...interface{})
 }
 
+// Endpoint with which the adversary can control the network
+type AdversaryNetworkSink interface {
+	NetworkSink
+	// Sends a message to a single participant, immediately.
+	SendSynchronous(sender string, to string, msg Message)
+}
+
 const (
 	TraceNone = iota
 	TraceSent
@@ -103,6 +110,18 @@ func (n *Network) SetAlarm(sender string, at float64) {
 
 func (n *Network) Log(format string, args ...interface{}) {
 	n.log(TraceLogic, format, args...)
+}
+
+///// Adversary network interface
+
+func (n *Network) SendSynchronous(sender string, to string, msg Message) {
+	heap.Push(&n.queue,
+		messageInFlight{
+			source:    sender,
+			dest:      to,
+			payload:   msg,
+			deliverAt: n.clock,
+		})
 }
 
 func (n *Network) Tick() bool {

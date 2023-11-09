@@ -55,7 +55,7 @@ func (p *Participant) ReceiveMessage(sender string, msg net.Message) {
 		p.mpool = append(p.mpool, gmsg)
 	}
 	if p.decided() {
-		p.finalised = p.granite.current.Head()
+		p.finalised = *p.granite.current.Head()
 		p.granite = nil
 	}
 }
@@ -66,7 +66,7 @@ func (p *Participant) ReceiveAlarm() {
 	}
 	p.granite.receiveAlarm()
 	if p.decided() {
-		p.finalised = p.granite.current.Head()
+		p.finalised = *p.granite.current.Head()
 		p.granite = nil
 	}
 }
@@ -147,17 +147,17 @@ func (i *instance) endQuality() {
 	// Calculate the set of allowed proposals, and then find the best one.
 	type candidate struct {
 		chain net.ECChain
-		power uint64
+		power uint
 	}
 	base := i.input.Base
 	// Candidate chains indexed by final tipset CID.
 	candidates := map[net.CID]candidate{
-		base.CID: {i.input.BaseChain(), base.PowerTable.Entries[i.participantID]},
+		base.CID: {*i.input.BaseChain(), base.PowerTable.Entries[i.participantID]},
 	}
 	// Add non-empty prefixes of own input chain as a candidates.
 	for j := range i.input.Suffix {
 		prefix := i.input.Prefix(j + 1)
-		candidates[prefix.Head().CID] = candidate{prefix, base.PowerTable.Entries[i.participantID]}
+		candidates[prefix.Head().CID] = candidate{*prefix, base.PowerTable.Entries[i.participantID]}
 	}
 	// Add power to candidates from messages received.
 	for _, msg := range i.quality {
@@ -171,7 +171,7 @@ func (i *instance) endQuality() {
 			} else {
 				// XXX: If the tipset isn't in our input chain, we can't verify its weight or power table.
 				// This boils down to just trusting the other nodes to have computed it correctly.
-				candidates[prefix.Head().CID] = candidate{prefix, base.PowerTable.Entries[msg.Sender]}
+				candidates[prefix.Head().CID] = candidate{*prefix, base.PowerTable.Entries[msg.Sender]}
 			}
 		}
 	}
@@ -188,7 +188,7 @@ func (i *instance) endQuality() {
 	sort.Slice(allowed, func(i, j int) bool {
 		hi := allowed[i].chain.Head()
 		hj := allowed[j].chain.Head()
-		return hi.Compare(&hj) > 0
+		return hi.Compare(hj) > 0
 	})
 
 	// XXX: This can cause a participant to vote for a chain that is not its heaviest,
@@ -197,7 +197,7 @@ func (i *instance) endQuality() {
 	if len(allowed) > 0 {
 		i.current = allowed[0].chain
 	} else {
-		i.current = i.input.BaseChain()
+		i.current = *i.input.BaseChain()
 	}
 	i.beginPrepare()
 }
@@ -271,7 +271,7 @@ func findQuorum(me string, preferred net.ECChain, proposals map[string]net.ECCha
 	threshold := pt.Total * 2 / 3
 	// Initialise mapping of tipset->power with preferred proposal.
 	votingPower := pt.Entries[me]
-	powers := map[net.CID]uint64{
+	powers := map[net.CID]uint{
 		preferred.Head().CID: pt.Entries[me],
 	}
 	// Mapping of chain tips to chains.
@@ -293,7 +293,7 @@ func findQuorum(me string, preferred net.ECChain, proposals map[string]net.ECCha
 	}
 	// If the proposals total more than 2/3 of power, return the base.
 	if votingPower > threshold {
-		return true, preferred.BaseChain()
+		return true, *preferred.BaseChain()
 	}
 	return false, net.ECChain{}
 }

@@ -8,7 +8,7 @@ type Absent struct {
 }
 
 // A participant that never sends anything.
-func NewAbsent(id string, ntwk net.NetworkSink) net.Receiver {
+func NewAbsent(id string, ntwk net.NetworkSink) *Absent {
 	return &Absent{
 		id:   id,
 		ntwk: ntwk,

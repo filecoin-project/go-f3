@@ -8,74 +8,76 @@ import (
 )
 
 type Config struct {
-	ParticipantCount int
-	AdversaryCount   int
-	LatencySeed      int64
-	LatencyMean      float64
-	GraniteDelta     float64
+	// Honest participant count.
+	// Honest participants have one unit of power each.
+	HonestCount  int
+	LatencySeed  int64
+	LatencyMean  float64
+	GraniteDelta float64
 }
 
 type Simulation struct {
 	Network      *net.Network
 	Participants []*granite.Participant
-	Adversaries  []net.Receiver
+	Adversary    net.Receiver
+	Base         *net.ECChain
+	CIDGen       *CIDGen
 }
 
 type AdversaryFactory func(id string, ntwk net.NetworkSink) net.Receiver
 
-func NewSimulation(config *Config, adversary AdversaryFactory, traceLevel int) *Simulation {
+func NewSimulation(config *Config, traceLevel int) *Simulation {
 	// Create a network to deliver messages.
 	lat := net.NewLogNormal(config.LatencySeed, config.LatencyMean)
 	ntwk := net.New(lat, traceLevel)
 
 	// Create participants.
-	participants := make([]*granite.Participant, config.ParticipantCount-config.AdversaryCount)
+	genesisPower := net.NewPowerTable()
+	participants := make([]*granite.Participant, config.HonestCount)
 	for i := 0; i < len(participants); i++ {
 		participants[i] = granite.NewParticipant(fmt.Sprintf("P%d", i), ntwk, config.GraniteDelta)
 		ntwk.AddParticipant(participants[i])
-	}
-	adversaries := make([]net.Receiver, config.AdversaryCount)
-	for i := 0; i < len(adversaries); i++ {
-		adversaries[i] = adversary(fmt.Sprintf("A%d", i), ntwk)
-		ntwk.AddParticipant(adversaries[i])
+		genesisPower.Add(participants[i].ID(), 1)
 	}
 
 	// Create genesis tipset, which all participants are expected to agree on as a base.
-	genesisPower := net.NewPowerTable()
-	for _, participant := range participants {
-		genesisPower.Add(participant.ID(), 1)
-	}
-	for _, adversary := range adversaries {
-		genesisPower.Add(adversary.ID(), 1)
-	}
 	genesis := net.NewTipSet(100, "genesis", 1, genesisPower)
-	cidGen := NewCIDGen(0)
-
-	// Create a candidate tipset for decision.
-	candidate := net.ECChain{
-		Base: genesis,
-		Suffix: []net.TipSet{{
-			Epoch:      genesis.Epoch + 1,
-			CID:        cidGen.Sample(),
-			Weight:     genesis.Weight + 1,
-			PowerTable: genesis.PowerTable,
-		}},
-	}
-
-	for _, participant := range participants {
-		participant.ReceiveCanonicalChain(candidate)
-	}
-	for _, adversary := range adversaries {
-		adversary.ReceiveCanonicalChain(candidate)
-	}
-
+	baseChain := net.NewChain(genesis)
 	return &Simulation{
 		Network:      ntwk,
+		Base:         baseChain,
 		Participants: participants,
-		Adversaries:  adversaries,
+		Adversary:    nil,
+		CIDGen:       NewCIDGen(0),
 	}
 }
 
+func (s *Simulation) SetAdversary(adv net.Receiver, power uint) {
+	s.Adversary = adv
+	s.Network.AddParticipant(adv)
+	s.Base.Head().PowerTable.Add(adv.ID(), power)
+}
+
+type ChainCount struct {
+	Count int
+	Chain net.ECChain
+}
+
+// Delivers canonical chains to participants.
+func (s *Simulation) ReceiveChains(chains ...ChainCount) {
+	pidx := 0
+	for _, chain := range chains {
+		for i := 0; i < chain.Count; i++ {
+			s.Participants[pidx].ReceiveCanonicalChain(chain.Chain)
+			pidx += 1
+		}
+	}
+	if pidx != len(s.Participants) {
+		panic(fmt.Sprintf("%d participants but %d chains", len(s.Participants), pidx))
+	}
+}
+
+// Runs simulation, and returns whether all participants decided on the same value.
 func (s *Simulation) Run() bool {
 	// Run until there are no more messages, meaning termination or deadlock.
 	for s.Network.Tick() {
@@ -103,7 +105,7 @@ func (s *Simulation) PrintResults() {
 		if thisFin.Eq(&net.TipSet{}) {
 			fmt.Printf("‼️ Participant %s did not decide\n", p.ID())
 		} else if !thisFin.Eq(&firstFin) {
-			fmt.Printf("‼️ Participant %s finalised %v, but %s finalised %v\n", p.ID(), thisFin, s.Participants[0].ID(), firstFin)
+			fmt.Printf("‼️ Participant %s decided %v, but %s decided %v\n", p.ID(), thisFin, s.Participants[0].ID(), firstFin)
 		}
 	}
 }

@@ -23,17 +23,20 @@ func main() {
 		fmt.Printf("Iteration %d: seed=%d, mean=%f\n", i, seed, *latencyMean)
 
 		cfg := sim.Config{
-			ParticipantCount: *participantCount,
-			AdversaryCount:   0,
-			LatencySeed:      *latencySeed,
-			LatencyMean:      *latencyMean,
-			GraniteDelta:     *graniteDelta,
+			HonestCount:  *participantCount,
+			LatencySeed:  *latencySeed,
+			LatencyMean:  *latencyMean,
+			GraniteDelta: *graniteDelta,
 		}
+		sm := sim.NewSimulation(&cfg, *traceLevel)
 
-		simu := sim.NewSimulation(&cfg, nil, *traceLevel)
-		ok := simu.Run()
+		// Same chain for everyone.
+		candidate := sm.Base.Extend(sm.CIDGen.Sample())
+		sm.ReceiveChains(sim.ChainCount{Count: *participantCount, Chain: *candidate})
+
+		ok := sm.Run()
 		if !ok {
-			simu.PrintResults()
+			sm.PrintResults()
 		}
 	}
 }

@@ -10,17 +10,21 @@ import (
 
 func TestAbsent(t *testing.T) {
 	for i := 0; i < 1000; i++ {
-		simu := sim.NewSimulation(&sim.Config{
-			ParticipantCount: 4,
-			AdversaryCount:   1,
-			LatencySeed:      int64(i),
-			LatencyMean:      0.100,
-			GraniteDelta:     0.200,
-		}, adversary.NewAbsent, net.TraceNone)
+		sm := sim.NewSimulation(&sim.Config{
+			HonestCount:  3,
+			LatencySeed:  int64(i),
+			LatencyMean:  0.100,
+			GraniteDelta: 0.200,
+		}, net.TraceNone)
 
-		ok := simu.Run()
+		// Adversary has 1/4 of power.
+		sm.SetAdversary(adversary.NewAbsent("A", sm.Network), 1)
+		a := sm.Base.Extend(sm.CIDGen.Sample())
+		sm.ReceiveChains(sim.ChainCount{len(sm.Participants), *a})
+
+		ok := sm.Run()
 		if !ok {
-			simu.PrintResults()
+			sm.PrintResults()
 		}
 		require.True(t, ok)
 	}
