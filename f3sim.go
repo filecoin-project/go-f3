@@ -24,12 +24,13 @@ func main() {
 
 		cfg := sim.Config{
 			ParticipantCount: *participantCount,
+			AdversaryCount:   0,
 			LatencySeed:      *latencySeed,
 			LatencyMean:      *latencyMean,
 			GraniteDelta:     *graniteDelta,
 		}
 
-		simu := sim.NewSimulation(&cfg, *traceLevel)
+		simu := sim.NewSimulation(&cfg, nil, *traceLevel)
 		ok := simu.Run()
 		if !ok {
 			simu.PrintResults()

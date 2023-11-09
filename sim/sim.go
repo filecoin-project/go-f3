@@ -9,6 +9,7 @@ import (
 
 type Config struct {
 	ParticipantCount int
+	AdversaryCount   int
 	LatencySeed      int64
 	LatencyMean      float64
 	GraniteDelta     float64
@@ -17,24 +18,35 @@ type Config struct {
 type Simulation struct {
 	Network      *net.Network
 	Participants []*granite.Participant
+	Adversaries  []net.Receiver
 }
 
-func NewSimulation(config *Config, traceLevel int) *Simulation {
+type AdversaryFactory func(id string, ntwk net.NetworkSink) net.Receiver
+
+func NewSimulation(config *Config, adversary AdversaryFactory, traceLevel int) *Simulation {
 	// Create a network to deliver messages.
 	lat := net.NewLogNormal(config.LatencySeed, config.LatencyMean)
 	ntwk := net.New(lat, traceLevel)
 
 	// Create participants.
-	participants := make([]*granite.Participant, config.ParticipantCount)
+	participants := make([]*granite.Participant, config.ParticipantCount-config.AdversaryCount)
 	for i := 0; i < len(participants); i++ {
 		participants[i] = granite.NewParticipant(fmt.Sprintf("P%d", i), ntwk, config.GraniteDelta)
 		ntwk.AddParticipant(participants[i])
+	}
+	adversaries := make([]net.Receiver, config.AdversaryCount)
+	for i := 0; i < len(adversaries); i++ {
+		adversaries[i] = adversary(fmt.Sprintf("A%d", i), ntwk)
+		ntwk.AddParticipant(adversaries[i])
 	}
 
 	// Create genesis tipset, which all participants are expected to agree on as a base.
 	genesisPower := net.NewPowerTable()
 	for _, participant := range participants {
 		genesisPower.Add(participant.ID(), 1)
+	}
+	for _, adversary := range adversaries {
+		genesisPower.Add(adversary.ID(), 1)
 	}
 	genesis := net.NewTipSet(100, "genesis", 1, genesisPower)
 	cidGen := NewCIDGen(0)
@@ -53,10 +65,14 @@ func NewSimulation(config *Config, traceLevel int) *Simulation {
 	for _, participant := range participants {
 		participant.ReceiveCanonicalChain(candidate)
 	}
+	for _, adversary := range adversaries {
+		adversary.ReceiveCanonicalChain(candidate)
+	}
 
 	return &Simulation{
 		Network:      ntwk,
 		Participants: participants,
+		Adversaries:  adversaries,
 	}
 }
 
