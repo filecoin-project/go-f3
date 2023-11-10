@@ -19,11 +19,15 @@ func (a *Absent) ID() string {
 	return a.id
 }
 
-func (a Absent) ReceiveCanonicalChain(chain net.ECChain) {
+func (a *Absent) ReceiveCanonicalChain(_ net.ECChain) {
 }
 
-func (a Absent) ReceiveMessage(sender string, msg net.Message) {
+func (a *Absent) ReceiveMessage(_ string, _ net.Message) {
 }
 
-func (a Absent) ReceiveAlarm() {
+func (a *Absent) ReceiveAlarm() {
+}
+
+func (a *Absent) AllowMessage(_ string, _ string, _ net.Message) bool {
+	return true
 }

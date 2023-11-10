@@ -16,9 +16,9 @@ func TestAbsent(t *testing.T) {
 			LatencyMean:  0.100,
 			GraniteDelta: 0.200,
 		}, net.TraceNone)
-
 		// Adversary has 1/4 of power.
 		sm.SetAdversary(adversary.NewAbsent("A", sm.Network), 1)
+
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{len(sm.Participants), *a})
 

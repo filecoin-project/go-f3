@@ -22,6 +22,11 @@ type Receiver interface {
 	MessageReceiver
 }
 
+type AdversaryInterceptor interface {
+	Receiver
+	AllowMessage(from string, to string, msg Message) bool
+}
+
 // Endpoint to which participants can send messages to others
 type NetworkSink interface {
 	// Sends a message to all other participants.
@@ -37,6 +42,8 @@ type NetworkSink interface {
 // Endpoint with which the adversary can control the network
 type AdversaryNetworkSink interface {
 	NetworkSink
+	// Sends a message to all other participants, immediately.
+	BroadcastSynchronous(sender string, msg Message)
 	// Sends a message to a single participant, immediately.
 	SendSynchronous(sender string, to string, msg Message)
 }
@@ -57,17 +64,20 @@ type Network struct {
 	latency LatencyModel
 	// Timestamp of last event.
 	clock float64
+	// Whether global stabilisation time has passed, so adversary can't control network.
+	globalStabilisationElapsed bool
 	// Trace level.
 	traceLevel int
 }
 
 func New(latency LatencyModel, traceLevel int) *Network {
 	return &Network{
-		participants: map[string]Receiver{},
-		queue:        messageQueue{},
-		clock:        0,
-		latency:      latency,
-		traceLevel:   traceLevel,
+		participants:               map[string]Receiver{},
+		queue:                      messageQueue{},
+		clock:                      0,
+		latency:                    latency,
+		globalStabilisationElapsed: false,
+		traceLevel:                 traceLevel,
 	}
 }
 
@@ -123,8 +133,40 @@ func (n *Network) SendSynchronous(sender string, to string, msg Message) {
 		})
 }
 
-func (n *Network) Tick() bool {
-	msg := n.queue.Remove(0)
+func (n *Network) BroadcastSynchronous(sender string, msg Message) {
+	n.log(TraceSent, "%s ↗ %v", sender, msg)
+	for k := range n.participants {
+		if k != sender {
+			n.queue.Insert(
+				messageInFlight{
+					source:    sender,
+					dest:      k,
+					payload:   msg,
+					deliverAt: n.clock,
+				})
+		}
+	}
+}
+
+func (n *Network) Tick(adv AdversaryInterceptor) bool {
+	// Find first message the adversary will allow.
+	i := 0
+	if adv != nil && !n.globalStabilisationElapsed {
+		for ; i < len(n.queue); i++ {
+			msg := n.queue[i]
+			if adv.AllowMessage(msg.source, msg.dest, msg.payload) {
+				break
+			}
+		}
+		// If adversary blocks everything, assume GST has passed.
+		if i == len(n.queue) {
+			n.Log("GST elapsed")
+			n.globalStabilisationElapsed = true
+			i = 0
+		}
+	}
+
+	msg := n.queue.Remove(i)
 	n.clock = msg.deliverAt
 	if msg.payload == "ALARM" {
 		n.log(TraceRecvd, "%s alarm ", msg.source)

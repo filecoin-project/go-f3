@@ -14,7 +14,7 @@ type Participant struct {
 	id    string
 	ntwk  net.NetworkSink
 	delta float64 // Message propagation time parameter
-	mpool []GraniteMessage
+	mpool []GMessage
 
 	nextChain    net.ECChain
 	nextInstance int
@@ -47,7 +47,7 @@ func (p *Participant) ReceiveCanonicalChain(chain net.ECChain) {
 
 // Receives a Granite message from some other participant.
 func (p *Participant) ReceiveMessage(sender string, msg net.Message) {
-	gmsg := msg.(GraniteMessage)
+	gmsg := msg.(GMessage)
 	if p.granite != nil && gmsg.Instance == p.granite.instanceID {
 		p.granite.receive(sender, gmsg)
 	} else if gmsg.Instance >= p.nextInstance {
@@ -76,14 +76,14 @@ const PREPARE = "PREPARE"
 const COMMIT = "COMMIT"
 const DECIDE = "DECIDE"
 
-type GraniteMessage struct {
+type GMessage struct {
 	Instance int
 	Sender   string
 	Step     string
 	Value    net.ECChain
 }
 
-func (m GraniteMessage) String() string {
+func (m GMessage) String() string {
 	// FIXME This needs value receiver to work, for reasons I cannot figure out.
 	return fmt.Sprintf("%s(%d %s)", m.Step, m.Instance, &m.Value)
 }
@@ -101,7 +101,7 @@ type instance struct {
 	// This instance's preferred value to finalise, as updated by the protocol.
 	current net.ECChain
 	// Valid QUALITY messages received by this instance.
-	quality []GraniteMessage
+	quality []GMessage
 	// Valid PREPARE values, by sender.
 	prepared map[string]net.ECChain
 	// Valid COMMIT values, by sender.
@@ -110,14 +110,14 @@ type instance struct {
 
 func newInstance(ntwk net.NetworkSink, participantID string, instanceID int, delta float64, input net.ECChain) *instance {
 	return &instance{ntwk: ntwk, participantID: participantID, instanceID: instanceID, delta: delta, input: input,
-		quality: []GraniteMessage{}, prepared: map[string]net.ECChain{}, committed: map[string]net.ECChain{}}
+		quality: []GMessage{}, prepared: map[string]net.ECChain{}, committed: map[string]net.ECChain{}}
 }
 
 func (i *instance) start() {
 	i.beginQuality()
 }
 
-func (i *instance) receive(sender string, msg GraniteMessage) {
+func (i *instance) receive(sender string, msg GMessage) {
 	if msg.Step == QUALITY && msg.Value.Base.Eq(&i.input.Base) {
 		// Just collect all the messages until the alarm triggers the end of QUALITY phase.
 		// Note the message will be collected but ignored if QUALITY timeout has already passed.
@@ -253,7 +253,7 @@ func (p *Participant) decided() bool {
 }
 
 func (i *instance) broadcast(step string, msg net.ECChain) {
-	i.ntwk.Broadcast(i.participantID, GraniteMessage{i.instanceID, i.participantID, step, msg})
+	i.ntwk.Broadcast(i.participantID, GMessage{i.instanceID, i.participantID, step, msg})
 }
 
 func (i *instance) alarmAfter(delay float64) {

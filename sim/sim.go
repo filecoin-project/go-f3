@@ -19,7 +19,7 @@ type Config struct {
 type Simulation struct {
 	Network      *net.Network
 	Participants []*granite.Participant
-	Adversary    net.Receiver
+	Adversary    net.AdversaryInterceptor
 	Base         *net.ECChain
 	CIDGen       *CIDGen
 }
@@ -52,7 +52,7 @@ func NewSimulation(config *Config, traceLevel int) *Simulation {
 	}
 }
 
-func (s *Simulation) SetAdversary(adv net.Receiver, power uint) {
+func (s *Simulation) SetAdversary(adv net.AdversaryInterceptor, power uint) {
 	s.Adversary = adv
 	s.Network.AddParticipant(adv)
 	s.Base.Head().PowerTable.Add(adv.ID(), power)
@@ -63,7 +63,7 @@ type ChainCount struct {
 	Chain net.ECChain
 }
 
-// Delivers canonical chains to participants.
+// Delivers canonical chains to honest participants.
 func (s *Simulation) ReceiveChains(chains ...ChainCount) {
 	pidx := 0
 	for _, chain := range chains {
@@ -80,7 +80,7 @@ func (s *Simulation) ReceiveChains(chains ...ChainCount) {
 // Runs simulation, and returns whether all participants decided on the same value.
 func (s *Simulation) Run() bool {
 	// Run until there are no more messages, meaning termination or deadlock.
-	for s.Network.Tick() {
+	for s.Network.Tick(s.Adversary) {
 	}
 	first := s.Participants[0].Finalised()
 	for _, p := range s.Participants {
