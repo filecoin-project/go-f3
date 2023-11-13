@@ -34,5 +34,6 @@ func TestWitholdCommit1(t *testing.T) {
 	}
 	// The adversary could convince the victim to decide a, so all must decide a.
 	require.True(t, ok)
-	require.Equal(t, *a.Head(), sm.Participants[0].Finalised())
+	decision, _ := sm.Participants[0].Finalised()
+	require.Equal(t, *a.Head(), decision)
 }

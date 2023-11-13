@@ -18,10 +18,16 @@ type Participant struct {
 	delta float64 // Message propagation time parameter
 	mpool []GMessage
 
-	nextChain    net.ECChain
+	// Chain to use as input for the next Granite instance.
+	nextChain net.ECChain
+	// Instance identifier for the next Granite instance.
 	nextInstance int
-	granite      *instance
-	finalised    net.TipSet
+	// Current Granite instance.
+	granite *instance
+	// The output from the last decided Granite instance.
+	finalised net.TipSet
+	// The round number at which the last instance was decided.
+	finalisedRound int
 }
 
 func NewParticipant(id string, ntwk net.NetworkSink, delta float64) *Participant {
@@ -39,8 +45,8 @@ func (p *Participant) CurrentRound() int {
 	return p.granite.round
 }
 
-func (p *Participant) Finalised() net.TipSet {
-	return p.finalised
+func (p *Participant) Finalised() (net.TipSet, int) {
+	return p.finalised, p.finalisedRound
 }
 
 // Receives a new canonical EC chain for the instance.
@@ -63,10 +69,7 @@ func (p *Participant) ReceiveMessage(sender string, msg net.Message) {
 		// Queue messages for later instances
 		p.mpool = append(p.mpool, gmsg)
 	}
-	if p.decided() {
-		p.finalised = *p.granite.value.Head()
-		p.granite = nil
-	}
+	p.handleDecision()
 }
 
 func (p *Participant) ReceiveAlarm() {
@@ -74,8 +77,13 @@ func (p *Participant) ReceiveAlarm() {
 		panic("unexpected alarm")
 	}
 	p.granite.receiveAlarm()
+	p.handleDecision()
+}
+
+func (p *Participant) handleDecision() {
 	if p.decided() {
 		p.finalised = *p.granite.value.Head()
+		p.finalisedRound = p.granite.round
 		p.granite = nil
 	}
 }

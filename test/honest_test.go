@@ -20,7 +20,9 @@ func TestSingleton(t *testing.T) {
 	sm.ReceiveChains(sim.ChainCount{1, *a})
 
 	require.True(t, sm.Run())
-	require.Equal(t, *a.Head(), sm.Participants[0].Finalised())
+	decision, round := sm.Participants[0].Finalised()
+	require.Equal(t, *a.Head(), decision)
+	require.Equal(t, 0, round)
 }
 
 func TestSyncPair(t *testing.T) {
@@ -34,7 +36,9 @@ func TestSyncPair(t *testing.T) {
 	sm.ReceiveChains(sim.ChainCount{len(sm.Participants), *a})
 
 	require.True(t, sm.Run())
-	require.Equal(t, *a.Head(), sm.Participants[0].Finalised())
+	decision, round := sm.Participants[0].Finalised()
+	require.Equal(t, *a.Head(), decision)
+	require.Equal(t, 0, round)
 }
 
 func TestASyncPair(t *testing.T) {
@@ -48,7 +52,9 @@ func TestASyncPair(t *testing.T) {
 	sm.ReceiveChains(sim.ChainCount{len(sm.Participants), *a})
 
 	require.True(t, sm.Run())
-	require.Equal(t, *sm.Base.Head(), sm.Participants[0].Finalised())
+	decision, round := sm.Participants[0].Finalised()
+	require.Equal(t, *sm.Base.Head(), decision)
+	require.Equal(t, 0, round)
 }
 
 func TestSyncPairDisagree(t *testing.T) {
@@ -64,7 +70,9 @@ func TestSyncPairDisagree(t *testing.T) {
 
 	require.True(t, sm.Run())
 	// Decide base chain as the only common value, even when synchronous.
-	require.Equal(t, *sm.Base.Head(), sm.Participants[0].Finalised())
+	decision, round := sm.Participants[0].Finalised()
+	require.Equal(t, *sm.Base.Head(), decision)
+	require.Equal(t, 0, round)
 }
 
 func TestSyncAgreement(t *testing.T) {
@@ -79,7 +87,9 @@ func TestSyncAgreement(t *testing.T) {
 		sm.ReceiveChains(sim.ChainCount{len(sm.Participants), *a})
 		require.True(t, sm.Run())
 		// Synchronous, agreeing groups always decide the candidate.
-		require.Equal(t, *a.Head(), sm.Participants[0].Finalised())
+		decision, round := sm.Participants[0].Finalised()
+		require.Equal(t, *a.Head(), decision)
+		require.Equal(t, 0, round)
 	}
 }
 
@@ -97,7 +107,7 @@ func TestAsyncAgreement(t *testing.T) {
 
 		//sm.PrintResults()
 		require.True(t, sm.Run())
-		// Can't assert which of the base or candidate is decided.
+		// Can't assert which of the base or candidate is decided, or in which round.
 	}
 }
 
@@ -115,7 +125,9 @@ func TestSyncHalves(t *testing.T) {
 
 		require.True(t, sm.Run())
 		// Groups split 50/50 always decide the base.
-		require.Equal(t, *sm.Base.Head(), sm.Participants[0].Finalised())
+		decision, round := sm.Participants[0].Finalised()
+		require.Equal(t, *sm.Base.Head(), decision)
+		require.Equal(t, 0, round)
 	}
 }
 
@@ -133,7 +145,9 @@ func TestAsyncHalves(t *testing.T) {
 
 		require.True(t, sm.Run())
 		// Groups split 50/50 always decide the base.
-		require.Equal(t, *sm.Base.Head(), sm.Participants[0].Finalised())
+		decision, round := sm.Participants[0].Finalised()
+		require.Equal(t, *sm.Base.Head(), decision)
+		require.Equal(t, 0, round)
 	}
 }
 
@@ -152,6 +166,8 @@ func TestRequireStrongQuorumToProgress(t *testing.T) {
 
 		require.True(t, sm.Run())
 		// Must decide base.
-		require.Equal(t, *sm.Base.Head(), sm.Participants[0].Finalised())
+		decision, _ := sm.Participants[0].Finalised()
+		require.Equal(t, *sm.Base.Head(), decision)
+		//require.Equal(t, 0, round)
 	}
 }

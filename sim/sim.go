@@ -87,9 +87,9 @@ func (s *Simulation) Run() bool {
 	if s.Participants[0].CurrentRound() >= MAX_ROUNDS {
 		return false
 	}
-	first := s.Participants[0].Finalised()
+	first, _ := s.Participants[0].Finalised()
 	for _, p := range s.Participants {
-		f := p.Finalised()
+		f, _ := p.Finalised()
 		if f.Eq(&net.TipSet{}) {
 			return false
 		}
@@ -107,7 +107,7 @@ func (s *Simulation) PrintResults() {
 	}
 	var firstFin net.TipSet
 	for _, p := range s.Participants {
-		thisFin := p.Finalised()
+		thisFin, _ := p.Finalised()
 		if firstFin.Eq(&net.TipSet{}) {
 			firstFin = thisFin
 		}
