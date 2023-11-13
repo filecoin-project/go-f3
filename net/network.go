@@ -59,6 +59,8 @@ const (
 type Network struct {
 	// Participants by ID.
 	participants map[string]Receiver
+	// Participant IDs for deterministic iteration
+	participantIDs []string
 	// Messages received by the network but not yet delivered to all participants.
 	queue   messageQueue
 	latency LatencyModel
@@ -73,6 +75,7 @@ type Network struct {
 func New(latency LatencyModel, traceLevel int) *Network {
 	return &Network{
 		participants:               map[string]Receiver{},
+		participantIDs:             []string{},
 		queue:                      messageQueue{},
 		clock:                      0,
 		latency:                    latency,
@@ -85,12 +88,13 @@ func (n *Network) AddParticipant(p Receiver) {
 	if n.participants[p.ID()] != nil {
 		panic("duplicate participant ID")
 	}
+	n.participantIDs = append(n.participantIDs, p.ID())
 	n.participants[p.ID()] = p
 }
 
 func (n *Network) Broadcast(sender string, msg Message) {
 	n.log(TraceSent, "%s ↗ %v", sender, msg)
-	for k := range n.participants {
+	for _, k := range n.participantIDs {
 		if k != sender {
 			latency := n.latency.Sample()
 			n.queue.Insert(
@@ -135,7 +139,7 @@ func (n *Network) SendSynchronous(sender string, to string, msg Message) {
 
 func (n *Network) BroadcastSynchronous(sender string, msg Message) {
 	n.log(TraceSent, "%s ↗ %v", sender, msg)
-	for k := range n.participants {
+	for _, k := range n.participantIDs {
 		if k != sender {
 			n.queue.Insert(
 				messageInFlight{

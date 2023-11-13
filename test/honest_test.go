@@ -85,6 +85,7 @@ func TestSyncAgreement(t *testing.T) {
 
 func TestAsyncAgreement(t *testing.T) {
 	for i := 0; i < 1000; i++ {
+		//fmt.Println("Iteration", i)
 		sm := sim.NewSimulation(&sim.Config{
 			HonestCount:  3,
 			LatencySeed:  int64(i),
@@ -94,6 +95,7 @@ func TestAsyncAgreement(t *testing.T) {
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{len(sm.Participants), *a})
 
+		//sm.PrintResults()
 		require.True(t, sm.Run())
 		// We can't assert which of the base or candidate is decided, as network latency
 		// may prevent candidate getting enough initial power.

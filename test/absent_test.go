@@ -10,6 +10,7 @@ import (
 
 func TestAbsent(t *testing.T) {
 	for i := 0; i < 1000; i++ {
+		//fmt.Println("Iteration", i)
 		sm := sim.NewSimulation(&sim.Config{
 			HonestCount:  3,
 			LatencySeed:  int64(i),

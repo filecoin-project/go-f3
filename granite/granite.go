@@ -30,6 +30,13 @@ func (p *Participant) ID() string {
 	return p.id
 }
 
+func (p *Participant) CurrentRound() int {
+	if p.granite == nil {
+		return -1
+	}
+	return p.granite.round
+}
+
 func (p *Participant) Finalised() net.TipSet {
 	return p.finalised
 }
@@ -55,7 +62,7 @@ func (p *Participant) ReceiveMessage(sender string, msg net.Message) {
 		p.mpool = append(p.mpool, gmsg)
 	}
 	if p.decided() {
-		p.finalised = *p.granite.current.Head()
+		p.finalised = *p.granite.value.Head()
 		p.granite = nil
 	}
 }
@@ -66,7 +73,7 @@ func (p *Participant) ReceiveAlarm() {
 	}
 	p.granite.receiveAlarm()
 	if p.decided() {
-		p.finalised = *p.granite.current.Head()
+		p.finalised = *p.granite.value.Head()
 		p.granite = nil
 	}
 }
@@ -78,14 +85,16 @@ const DECIDE = "DECIDE"
 
 type GMessage struct {
 	Instance int
+	Round    int
 	Sender   string
 	Step     string
 	Value    net.ECChain
+	Bottom   bool
 }
 
 func (m GMessage) String() string {
 	// FIXME This needs value receiver to work, for reasons I cannot figure out.
-	return fmt.Sprintf("%s(%d %s)", m.Step, m.Instance, &m.Value)
+	return fmt.Sprintf("%s(%d/%d %s)", m.Step, m.Instance, m.Round, &m.Value)
 }
 
 // A single Granite consensus instance.
@@ -96,21 +105,27 @@ type instance struct {
 	delta         float64
 	// The EC chain input to this instance.
 	input net.ECChain
-	// Current phase of the protocol.
+	// Current round number.
+	round int
+	// Current phase in the round.
 	phase string
-	// This instance's preferred value to finalise, as updated by the protocol.
-	current net.ECChain
+	// This instance's proposal for the current round.
+	// This is set after the QUALITY phase, and changes only at the end of a full round.
+	proposal net.ECChain
+	// The value to be transmitted at the next phase.
+	// This value may change away from the proposal between phases.
+	value net.ECChain
 	// Valid QUALITY messages received by this instance.
 	quality []GMessage
-	// Valid PREPARE values, by sender.
-	prepared map[string]net.ECChain
-	// Valid COMMIT values, by sender.
-	committed map[string]net.ECChain
+	// Valid PREPARE values, by round, by sender.
+	prepared map[int]map[string]net.ECChain
+	// Valid COMMIT values, by round, by sender.
+	committed map[int]map[string]net.ECChain
 }
 
 func newInstance(ntwk net.NetworkSink, participantID string, instanceID int, delta float64, input net.ECChain) *instance {
 	return &instance{ntwk: ntwk, participantID: participantID, instanceID: instanceID, delta: delta, input: input,
-		quality: []GMessage{}, prepared: map[string]net.ECChain{}, committed: map[string]net.ECChain{}}
+		quality: []GMessage{}, prepared: map[int]map[string]net.ECChain{}, committed: map[int]map[string]net.ECChain{}}
 }
 
 func (i *instance) start() {
@@ -118,15 +133,25 @@ func (i *instance) start() {
 }
 
 func (i *instance) receive(sender string, msg GMessage) {
-	if msg.Step == QUALITY && msg.Value.Base.Eq(&i.input.Base) {
+	valueValid := func(msg *GMessage) bool {
+		return msg.Bottom || msg.Value.Base.Eq(&i.input.Base)
+	}
+	round := msg.Round
+	if msg.Step == QUALITY && valueValid(&msg) {
 		// Just collect all the messages until the alarm triggers the end of QUALITY phase.
 		// Note the message will be collected but ignored if QUALITY timeout has already passed.
 		i.quality = append(i.quality, msg)
-	} else if msg.Step == PREPARE && msg.Value.Base.Eq(&i.input.Base) {
-		i.prepared[sender] = msg.Value
+	} else if msg.Step == PREPARE && valueValid(&msg) {
+		if _, exists := i.prepared[round]; !exists {
+			i.prepared[round] = make(map[string]net.ECChain)
+		}
+		i.prepared[round][sender] = msg.Value
 		i.tryPrepare()
-	} else if msg.Step == COMMIT && msg.Value.Base.Eq(&i.input.Base) {
-		i.committed[sender] = msg.Value
+	} else if msg.Step == COMMIT && valueValid(&msg) {
+		if _, exists := i.committed[round]; !exists {
+			i.committed[round] = make(map[string]net.ECChain)
+		}
+		i.committed[round][sender] = msg.Value
 		i.tryCommit()
 	}
 }
@@ -151,9 +176,7 @@ func (i *instance) endQuality() {
 	}
 	base := i.input.Base
 	// Candidate chains indexed by final tipset CID.
-	candidates := map[net.CID]candidate{
-		base.CID: {*i.input.BaseChain(), base.PowerTable.Entries[i.participantID]},
-	}
+	candidates := map[net.CID]candidate{}
 	// Add non-empty prefixes of own input chain as a candidates.
 	for j := range i.input.Suffix {
 		prefix := i.input.Prefix(j + 1)
@@ -162,7 +185,7 @@ func (i *instance) endQuality() {
 	// Add power to candidates from messages received.
 	for _, msg := range i.quality {
 		for j := range msg.Value.Suffix {
-			prefix := i.input.Prefix(j + 1)
+			prefix := msg.Value.Prefix(j + 1)
 			if found, ok := candidates[prefix.Head().CID]; ok {
 				candidates[prefix.Head().CID] = candidate{
 					chain: found.chain,
@@ -191,21 +214,22 @@ func (i *instance) endQuality() {
 		return hi.Compare(hj) > 0
 	})
 
-	// XXX: This can cause a participant to vote for a chain that is not its heaviest,
-	// or that it can't even validate, which is irrational.
-	// TODO: detect and log this.
 	if len(allowed) > 0 {
-		i.current = allowed[0].chain
+		// XXX: This can cause a participant to vote for a chain that is not its heaviest,
+		// or that it can't even validate, which is irrational.
+		// TODO: detect and log this.
+		i.proposal = allowed[0].chain
 	} else {
-		i.current = *i.input.BaseChain()
+		i.proposal = *i.input.BaseChain()
 	}
+	i.value = i.proposal
 	i.beginPrepare()
 }
 
 func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE
-	i.broadcast(PREPARE, i.current)
+	i.broadcast(PREPARE, i.value)
 	// Check whether we've already received enough PREPARE messages to proceed.
 	i.tryPrepare()
 }
@@ -214,18 +238,18 @@ func (i *instance) tryPrepare() {
 	if i.phase != PREPARE {
 		return
 	}
-	if done, v := findQuorum(i.participantID, i.current, i.prepared); done {
+	if done, v := findQuorum(i.participantID, i.value, i.prepared[i.round], i.input.Base.PowerTable); done {
 		// XXX: This can cause a participant to vote for a chain that is not its heaviest,
 		// or that it can't even see.
 		// TODO: detect and log this.
-		i.current = v
+		i.value = v
 		i.beginCommit()
 	}
 }
 
 func (i *instance) beginCommit() {
 	i.phase = COMMIT
-	i.broadcast(COMMIT, i.current)
+	i.broadcast(COMMIT, i.value)
 	// Check whether we've already received enough COMMIT messages to decide.
 	i.tryCommit()
 }
@@ -234,18 +258,36 @@ func (i *instance) tryCommit() {
 	if i.phase != COMMIT {
 		return
 	}
-	if done, v := findQuorum(i.participantID, i.current, i.committed); done {
+	if done, v := findQuorum(i.participantID, i.value, i.committed[i.round], i.input.Base.PowerTable); done {
 		// A participant may be forced to decide a value that's not its preferred chain.
 		// The participant isn't influencing that decision against their interest, just accepting it.
-		i.decide(v)
+		if !v.Eq(&net.ECChain{}) {
+			i.decide(v)
+		} else {
+			// Adopt any non-empty value committed by another participant.
+			// (There can only be one, since they needed a strong quorum to commit it).
+			// XXX: only with message validation justifying it!
+			for _, v := range i.committed[i.round] {
+				if !v.Eq(&net.ECChain{}) {
+					i.proposal = v
+				}
+			}
+			i.beginNextRound()
+		}
 	}
 }
 
+func (i *instance) beginNextRound() {
+	i.round += 1
+	i.value = i.proposal
+	i.log("x moving to round %d with %s", i.round, i.value.String())
+	i.beginPrepare()
+}
+
 func (i *instance) decide(value net.ECChain) {
+	i.log("✓ decided %s", &i.value)
 	i.phase = DECIDE
-	i.current = value
-	i.log("✓ decided %s", &i.current)
-	//i.broadcast(DECIDE, net.ECChain{Base: value.Head()})
+	i.value = value
 }
 
 func (p *Participant) decided() bool {
@@ -253,7 +295,8 @@ func (p *Participant) decided() bool {
 }
 
 func (i *instance) broadcast(step string, msg net.ECChain) {
-	i.ntwk.Broadcast(i.participantID, GMessage{i.instanceID, i.participantID, step, msg})
+	bottom := msg.Eq(&net.ECChain{})
+	i.ntwk.Broadcast(i.participantID, GMessage{i.instanceID, i.round, i.participantID, step, msg, bottom})
 }
 
 func (i *instance) alarmAfter(delay float64) {
@@ -265,24 +308,23 @@ func (i *instance) log(format string, args ...interface{}) {
 	i.ntwk.Log("%s/%d: %v", i.participantID, i.instanceID, msg)
 }
 
-// Returns whether the proposals constitute a quorum of voting power, and if so, either the quorum chain or the base.
-func findQuorum(me string, preferred net.ECChain, proposals map[string]net.ECChain) (bool, net.ECChain) {
-	pt := preferred.Base.PowerTable
-	threshold := pt.Total * 2 / 3
+// Returns whether the proposals constitute a quorum of voting power, and if so, either the quorum chain or empty (bottom).
+func findQuorum(me string, mine net.ECChain, proposals map[string]net.ECChain, power net.PowerTable) (bool, net.ECChain) {
+	threshold := power.Total * 2 / 3
 	// Initialise mapping of tipset->power with preferred proposal.
-	votingPower := pt.Entries[me]
+	votingPower := power.Entries[me]
 	powers := map[net.CID]uint{
-		preferred.Head().CID: pt.Entries[me],
+		mine.Head().CID: power.Entries[me],
 	}
 	// Mapping of chain tips to chains.
 	chains := map[net.CID]net.ECChain{
-		preferred.Head().CID: preferred,
+		mine.Head().CID: mine,
 	}
 
 	for sender, proposal := range proposals {
-		powers[proposal.Head().CID] += pt.Entries[sender]
+		powers[proposal.Head().CID] += power.Entries[sender]
 		chains[proposal.Head().CID] = proposal
-		votingPower += pt.Entries[sender]
+		votingPower += power.Entries[sender]
 	}
 	// If any proposal has more than 2/3 of power, return it.
 	for cid, power := range powers {
@@ -291,9 +333,9 @@ func findQuorum(me string, preferred net.ECChain, proposals map[string]net.ECCha
 			return true, chain
 		}
 	}
-	// If the proposals total more than 2/3 of power, return the base.
+	// If the proposals total more than 2/3 of power, return bottom.
 	if votingPower > threshold {
-		return true, *preferred.BaseChain()
+		return true, net.ECChain{}
 	}
 	return false, net.ECChain{}
 }

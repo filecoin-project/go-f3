@@ -7,6 +7,8 @@ import (
 	"math/rand"
 )
 
+const MAX_ROUNDS = 10
+
 type Config struct {
 	// Honest participant count.
 	// Honest participants have one unit of power each.
@@ -80,7 +82,10 @@ func (s *Simulation) ReceiveChains(chains ...ChainCount) {
 // Runs simulation, and returns whether all participants decided on the same value.
 func (s *Simulation) Run() bool {
 	// Run until there are no more messages, meaning termination or deadlock.
-	for s.Network.Tick(s.Adversary) {
+	for s.Network.Tick(s.Adversary) && s.Participants[0].CurrentRound() <= MAX_ROUNDS {
+	}
+	if s.Participants[0].CurrentRound() >= MAX_ROUNDS {
+		return false
 	}
 	first := s.Participants[0].Finalised()
 	for _, p := range s.Participants {
@@ -96,6 +101,10 @@ func (s *Simulation) Run() bool {
 }
 
 func (s *Simulation) PrintResults() {
+	if s.Participants[0].CurrentRound() >= MAX_ROUNDS {
+		fmt.Println("‼️ Max rounds reached without decision")
+		return
+	}
 	var firstFin net.TipSet
 	for _, p := range s.Participants {
 		thisFin := p.Finalised()

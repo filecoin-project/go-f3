@@ -47,18 +47,21 @@ func (w *WitholdCommit) Begin() {
 	// but only the one victim will see our COMMIT.
 	w.ntwk.BroadcastSynchronous(w.id, granite.GMessage{
 		Instance: 0,
+		Round:    0,
 		Sender:   w.id,
 		Step:     granite.QUALITY,
 		Value:    w.victimValue,
 	})
 	w.ntwk.BroadcastSynchronous(w.id, granite.GMessage{
 		Instance: 0,
+		Round:    0,
 		Sender:   w.id,
 		Step:     granite.PREPARE,
 		Value:    w.victimValue,
 	})
 	w.ntwk.SendSynchronous(w.id, w.victims[0], granite.GMessage{
 		Instance: 0,
+		Round:    0,
 		Sender:   w.id,
 		Step:     granite.COMMIT,
 		Value:    w.victimValue,
