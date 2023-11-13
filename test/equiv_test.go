@@ -21,8 +21,8 @@ func TestWitholdCommit1(t *testing.T) {
 
 	a := sm.Base.Extend(sm.CIDGen.Sample())
 	b := sm.Base.Extend(sm.CIDGen.Sample())
-	// Of 7 nodes, 4 victims will prefer chain a, 3 will prefer chain b.
-	// The adversary will target the first, and withhold COMMIT from others.
+	// Of 7 nodes, 4 victims will prefer chain a, 3 others will prefer chain b.
+	// The adversary will target the first, and withhold COMMIT from the rest.
 	victims := []string{"P0", "P1", "P2", "P3"}
 	adv.SetVictim(victims, *a)
 
@@ -32,6 +32,7 @@ func TestWitholdCommit1(t *testing.T) {
 	if !ok {
 		sm.PrintResults()
 	}
+	// The adversary could convince the victim to decide a, so all must decide a.
 	require.True(t, ok)
 	require.Equal(t, *a.Head(), sm.Participants[0].Finalised())
 }

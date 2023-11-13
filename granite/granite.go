@@ -206,6 +206,9 @@ func (i *instance) beginConverge() {
 }
 
 func (i *instance) endConverge() {
+	// XXX: This can lead to a node proposing a chain that's not a prefix of its input chain.
+	// (If the QUALITY threshold is only 1/2 with honest nodes).
+	// Is it safe if QUALITY threshold is >2/3?
 	i.value = findMinTicketProposal(i.converged[i.round], i.round)
 	i.beginPrepare()
 }
@@ -222,10 +225,10 @@ func (i *instance) tryPrepare() {
 		return
 	}
 	if done, v := findQuorum(i.participantID, i.value, i.prepared[i.round], i.input.Base.PowerTable); done {
-		// XXX: This can cause a participant to vote for a chain that is not its heaviest,
-		// or that it can't even see.
-		// TODO: detect and log this.
-		i.value = v
+		// INCENTIVE-COMPATIBLE: Only commit a prepared value if it's equal to this node's proposal.
+		if !v.Eq(&i.proposal) {
+			i.value = net.ECChain{}
+		}
 		i.beginCommit()
 	}
 }
@@ -241,16 +244,19 @@ func (i *instance) tryCommit() {
 		return
 	}
 	if done, v := findQuorum(i.participantID, i.value, i.committed[i.round], i.input.Base.PowerTable); done {
-		// A participant may be forced to decide a value that's not its preferred chain.
-		// The participant isn't influencing that decision against their interest, just accepting it.
-		if !v.Eq(&net.ECChain{}) {
+		if !v.IsZero() {
+			// A participant may be forced to decide a value that's not its preferred chain.
+			// The participant isn't influencing that decision against their interest, just accepting it.
 			i.decide(v)
 		} else {
 			// Adopt any non-empty value committed by another participant.
 			// (There can only be one, since they needed a strong quorum to commit it).
 			// XXX: only with message validation justifying it!
 			for _, v := range i.committed[i.round] {
-				if !v.Eq(&net.ECChain{}) {
+				if !v.IsZero() {
+					if !v.Eq(&i.proposal) {
+						i.log("⚠️ swaying from %s to %s", &i.proposal, &v)
+					}
 					i.proposal = v
 				}
 			}
@@ -277,7 +283,7 @@ func (p *Participant) decided() bool {
 }
 
 func (i *instance) broadcast(step string, msg net.ECChain) GMessage {
-	bottom := msg.Eq(&net.ECChain{})
+	bottom := msg.IsZero()
 	gmsg := GMessage{i.instanceID, i.round, i.participantID, step, msg, bottom}
 	i.ntwk.Broadcast(i.participantID, gmsg)
 	return gmsg
@@ -295,6 +301,8 @@ func (i *instance) log(format string, args ...interface{}) {
 ///// Helpers
 
 // Finds the highest weight chain prefix with at least half of power in favour.
+// The first proposal is assumed to be the node's own proposal, and any result
+// must be compatible with it.
 func findBestQualityProposal(proposals []GMessage, base net.TipSet) net.ECChain {
 	// Calculate the set of prefixes with sufficient weight, and then find the best one.
 	type candidate struct {
@@ -303,8 +311,9 @@ func findBestQualityProposal(proposals []GMessage, base net.TipSet) net.ECChain 
 	}
 	// Candidate chains indexed by final tipset CID.
 	candidates := map[net.CID]candidate{}
+	incentiveCompatible := map[net.CID]struct{}{}
 	// Add power to candidates from messages received.
-	for _, msg := range proposals {
+	for i, msg := range proposals {
 		for j := range msg.Value.Suffix {
 			prefix := msg.Value.Prefix(j + 1)
 			if found, ok := candidates[prefix.Head().CID]; ok {
@@ -314,12 +323,16 @@ func findBestQualityProposal(proposals []GMessage, base net.TipSet) net.ECChain 
 				}
 			} else {
 				candidates[prefix.Head().CID] = candidate{*prefix, base.PowerTable.Entries[msg.Sender]}
+				// The first message is assumed to be ours, so specifies the incentive-compatible set.
+				if i == 0 {
+					incentiveCompatible[prefix.Head().CID] = struct{}{}
+				}
 			}
 		}
 	}
 
 	// Filter received tipsets to those with strictly more than half of power in favour.
-	threshold := base.PowerTable.Total / 2
+	threshold := 2 * base.PowerTable.Total / 3
 	allowed := []candidate{}
 	for _, c := range candidates {
 		if c.power > threshold {
@@ -335,13 +348,15 @@ func findBestQualityProposal(proposals []GMessage, base net.TipSet) net.ECChain 
 
 	var proposal net.ECChain
 	if len(allowed) > 0 {
-		// XXX: If a tipset isn't in our input chain, we can't verify its weight or power table.
-		// This boils down to just trusting the other nodes to have computed it correctly.
-		// This can cause a participant to vote for a chain that is not its heaviest,
-		// or that it can't even validate, which is irrational.
-		// TODO: detect and log this.
-		proposal = allowed[0].chain
-	} else {
+		// INCENTIVE-COMPATIBLE: Accept only tipsets that are on this node's input chain.
+		// Note: this binary accept/reject of the heaviest is stricter than necessary.
+		// We could instead filter the proposals earlier on and take the heaviest tipset
+		// that _is_ on our input chain.
+		if _, ok := incentiveCompatible[allowed[0].chain.Head().CID]; ok {
+			proposal = allowed[0].chain
+		}
+	}
+	if proposal.IsZero() {
 		proposal = *net.NewChain(base)
 	}
 	return proposal

@@ -97,8 +97,7 @@ func TestAsyncAgreement(t *testing.T) {
 
 		//sm.PrintResults()
 		require.True(t, sm.Run())
-		// We can't assert which of the base or candidate is decided, as network latency
-		// may prevent candidate getting enough initial power.
+		// Can't assert which of the base or candidate is decided.
 	}
 }
 
@@ -115,7 +114,7 @@ func TestSyncHalves(t *testing.T) {
 		sm.ReceiveChains(sim.ChainCount{n / 2, *a}, sim.ChainCount{n / 2, *b})
 
 		require.True(t, sm.Run())
-		// Synchronous groups split 50/50 always decide the base.
+		// Groups split 50/50 always decide the base.
 		require.Equal(t, *sm.Base.Head(), sm.Participants[0].Finalised())
 	}
 }
@@ -133,6 +132,26 @@ func TestAsyncHalves(t *testing.T) {
 		sm.ReceiveChains(sim.ChainCount{2, *a}, sim.ChainCount{2, *b})
 
 		require.True(t, sm.Run())
+		// Groups split 50/50 always decide the base.
+		require.Equal(t, *sm.Base.Head(), sm.Participants[0].Finalised())
+	}
+}
+
+func TestRequireStrongQuorumToProgress(t *testing.T) {
+	for i := 0; i < 1000; i++ {
+		sm := sim.NewSimulation(&sim.Config{
+			HonestCount:  30,
+			LatencySeed:  int64(i),
+			LatencyMean:  0.100,
+			GraniteDelta: 0.200,
+		}, net.TraceNone)
+		a := sm.Base.Extend(sm.CIDGen.Sample())
+		b := sm.Base.Extend(sm.CIDGen.Sample())
+		// No strict > quorum.
+		sm.ReceiveChains(sim.ChainCount{20, *a}, sim.ChainCount{10, *b})
+
+		require.True(t, sm.Run())
+		// Must decide base.
 		require.Equal(t, *sm.Base.Head(), sm.Participants[0].Finalised())
 	}
 }

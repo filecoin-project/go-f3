@@ -86,6 +86,10 @@ func NewChain(base TipSet, suffix ...TipSet) *ECChain {
 	}
 }
 
+func (c *ECChain) IsZero() bool {
+	return c.Base.Eq(&TipSet{}) && len(c.Suffix) == 0
+}
+
 // Returns a copy of the base of a chain with no suffix.
 func (c *ECChain) BaseChain() *ECChain {
 	return &ECChain{
