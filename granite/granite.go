@@ -1,6 +1,8 @@
 package granite
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"github.com/anorth/f3sim/net"
 	"sort"
@@ -79,6 +81,7 @@ func (p *Participant) ReceiveAlarm() {
 }
 
 const QUALITY = "QUALITY"
+const CONVERGE = "CONVERGE"
 const PREPARE = "PREPARE"
 const COMMIT = "COMMIT"
 const DECIDE = "DECIDE"
@@ -117,6 +120,8 @@ type instance struct {
 	value net.ECChain
 	// Valid QUALITY messages received by this instance.
 	quality []GMessage
+	// Valid CONVERGE messages received, by round
+	converged map[int][]GMessage
 	// Valid PREPARE values, by round, by sender.
 	prepared map[int]map[string]net.ECChain
 	// Valid COMMIT values, by round, by sender.
@@ -125,7 +130,8 @@ type instance struct {
 
 func newInstance(ntwk net.NetworkSink, participantID string, instanceID int, delta float64, input net.ECChain) *instance {
 	return &instance{ntwk: ntwk, participantID: participantID, instanceID: instanceID, delta: delta, input: input,
-		quality: []GMessage{}, prepared: map[int]map[string]net.ECChain{}, committed: map[int]map[string]net.ECChain{}}
+		converged: map[int][]GMessage{}, quality: []GMessage{}, prepared: map[int]map[string]net.ECChain{},
+		committed: map[int]map[string]net.ECChain{}}
 }
 
 func (i *instance) start() {
@@ -141,6 +147,9 @@ func (i *instance) receive(sender string, msg GMessage) {
 		// Just collect all the messages until the alarm triggers the end of QUALITY phase.
 		// Note the message will be collected but ignored if QUALITY timeout has already passed.
 		i.quality = append(i.quality, msg)
+	} else if msg.Step == CONVERGE && valueValid(&msg) {
+		// Collect messages until the alarm triggers the end of CONVERGE phase.
+		i.converged[round] = append(i.converged[round], msg)
 	} else if msg.Step == PREPARE && valueValid(&msg) {
 		if _, exists := i.prepared[round]; !exists {
 			i.prepared[round] = make(map[string]net.ECChain)
@@ -157,11 +166,15 @@ func (i *instance) receive(sender string, msg GMessage) {
 }
 
 func (i *instance) receiveAlarm() {
-	i.endQuality()
+	if i.round == 0 {
+		i.endQuality()
+	} else {
+		i.endConverge()
+	}
 }
 
 func (i *instance) beginQuality() {
-	// Broadcast input value and wait 2Δ to receive from others.
+	// Broadcast proposal value and wait 2Δ to receive from others.
 	i.phase = QUALITY
 	i.broadcast(QUALITY, i.input)
 	i.alarmAfter(2 * i.delta)
@@ -226,6 +239,28 @@ func (i *instance) endQuality() {
 	i.beginPrepare()
 }
 
+func (i *instance) beginConverge() {
+	i.phase = CONVERGE
+	i.broadcast(CONVERGE, i.proposal)
+	i.alarmAfter(2 * i.delta)
+}
+
+func (i *instance) endConverge() {
+	var minTicket []byte
+	var minValue net.ECChain
+	// Emulate a ticket draw by hashing the sender and round number.
+	for _, v := range i.converged[i.round] {
+		input := fmt.Sprintf("%s%d", v.Sender, i.round)
+		digest := sha256.Sum224([]byte(input))
+		if minTicket == nil || bytes.Compare(digest[:], minTicket[:]) < 0 {
+			minTicket = digest[:]
+			minValue = v.Value
+		}
+	}
+	i.value = minValue
+	i.beginPrepare()
+}
+
 func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE
@@ -281,7 +316,7 @@ func (i *instance) beginNextRound() {
 	i.round += 1
 	i.value = i.proposal
 	i.log("x moving to round %d with %s", i.round, i.value.String())
-	i.beginPrepare()
+	i.beginConverge()
 }
 
 func (i *instance) decide(value net.ECChain) {
