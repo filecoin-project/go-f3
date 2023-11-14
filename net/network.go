@@ -22,7 +22,7 @@ type Receiver interface {
 	MessageReceiver
 }
 
-type AdversaryInterceptor interface {
+type AdversaryReceiver interface {
 	Receiver
 	AllowMessage(from string, to string, msg Message) bool
 }
@@ -43,9 +43,9 @@ type NetworkSink interface {
 type AdversaryNetworkSink interface {
 	NetworkSink
 	// Sends a message to all other participants, immediately.
+	// Note that the adversary can subsequently delay delivery to some participants,
+	// before messages are actually received.
 	BroadcastSynchronous(sender string, msg Message)
-	// Sends a message to a single participant, immediately.
-	SendSynchronous(sender string, to string, msg Message)
 }
 
 const (
@@ -127,16 +127,6 @@ func (n *Network) Log(format string, args ...interface{}) {
 
 ///// Adversary network interface
 
-func (n *Network) SendSynchronous(sender string, to string, msg Message) {
-	n.queue.Insert(
-		messageInFlight{
-			source:    sender,
-			dest:      to,
-			payload:   msg,
-			deliverAt: n.clock,
-		})
-}
-
 func (n *Network) BroadcastSynchronous(sender string, msg Message) {
 	n.log(TraceSent, "%s ↗ %v", sender, msg)
 	for _, k := range n.participantIDs {
@@ -152,7 +142,7 @@ func (n *Network) BroadcastSynchronous(sender string, msg Message) {
 	}
 }
 
-func (n *Network) Tick(adv AdversaryInterceptor) bool {
+func (n *Network) Tick(adv AdversaryReceiver) bool {
 	// Find first message the adversary will allow.
 	i := 0
 	if adv != nil && !n.globalStabilisationElapsed {

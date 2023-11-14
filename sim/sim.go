@@ -21,7 +21,7 @@ type Config struct {
 type Simulation struct {
 	Network      *net.Network
 	Participants []*granite.Participant
-	Adversary    net.AdversaryInterceptor
+	Adversary    net.AdversaryReceiver
 	Base         *net.ECChain
 	CIDGen       *CIDGen
 }
@@ -54,7 +54,7 @@ func NewSimulation(config *Config, traceLevel int) *Simulation {
 	}
 }
 
-func (s *Simulation) SetAdversary(adv net.AdversaryInterceptor, power uint) {
+func (s *Simulation) SetAdversary(adv net.AdversaryReceiver, power uint) {
 	s.Adversary = adv
 	s.Network.AddParticipant(adv)
 	s.Base.Head().PowerTable.Add(adv.ID(), power)

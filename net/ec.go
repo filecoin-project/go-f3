@@ -155,13 +155,15 @@ func (c *ECChain) SameBase(other *ECChain) bool {
 }
 
 // Checks whether a chain suffix has some prefix.
-// Note this doesn't check the base.
-func (c *ECChain) HasPrefix(prefix []TipSet) bool {
-	if len(prefix) > len(c.Suffix) {
+func (c *ECChain) HasPrefix(other *ECChain) bool {
+	if !c.Base.Eq(&other.Base) {
 		return false
 	}
-	for i := range prefix {
-		if !c.Suffix[i].Eq(&prefix[i]) {
+	if len(other.Suffix) > len(c.Suffix) {
+		return false
+	}
+	for i := range other.Suffix {
+		if !c.Suffix[i].Eq(&other.Suffix[i]) {
 			return false
 		}
 	}

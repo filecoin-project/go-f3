@@ -59,7 +59,7 @@ func (w *WitholdCommit) Begin() {
 		Step:     granite.PREPARE,
 		Value:    w.victimValue,
 	})
-	w.ntwk.SendSynchronous(w.id, w.victims[0], granite.GMessage{
+	w.ntwk.BroadcastSynchronous(w.id, granite.GMessage{
 		Instance: 0,
 		Round:    0,
 		Sender:   w.id,
@@ -69,13 +69,23 @@ func (w *WitholdCommit) Begin() {
 }
 
 func (w *WitholdCommit) AllowMessage(_ string, to string, msg net.Message) bool {
-	// Block messages to the victims except those confirming the victim value
 	gmsg, ok := msg.(granite.GMessage)
 	if ok {
+		toMainVictim := to == w.victims[0]
+		toAnyVictim := false
 		for _, v := range w.victims {
-			if to == v && !gmsg.Value.Eq(&w.victimValue) {
-				return false
+			if to == v {
+				toAnyVictim = true
 			}
+		}
+		if toAnyVictim && !gmsg.Value.Eq(&w.victimValue) {
+			// Delay all messages to the victims except those confirming the victim value.
+			// This ensures the primary victim will decide in round 0.
+			return false
+		} else if !toMainVictim && gmsg.Sender == w.id {
+			// Delay messages from self to all except the primary victim.
+			// This ensures all others will initially move on from round 0 with no decision.
+			return false
 		}
 	}
 	return true

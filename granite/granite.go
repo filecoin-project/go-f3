@@ -44,7 +44,6 @@ func (p *Participant) CurrentRound() int {
 	}
 	return p.granite.round
 }
-
 func (p *Participant) Finalised() (net.TipSet, int) {
 	return p.finalised, p.finalisedRound
 }
@@ -65,19 +64,19 @@ func (p *Participant) ReceiveMessage(sender string, msg net.Message) {
 	gmsg := msg.(GMessage)
 	if p.granite != nil && gmsg.Instance == p.granite.instanceID {
 		p.granite.receive(sender, gmsg)
+		p.handleDecision()
 	} else if gmsg.Instance >= p.nextInstance {
 		// Queue messages for later instances
 		p.mpool = append(p.mpool, gmsg)
 	}
-	p.handleDecision()
 }
 
 func (p *Participant) ReceiveAlarm() {
-	if p.granite == nil || p.decided() {
-		panic("unexpected alarm")
+	// TODO include instance ID in alarm message, and filter here.
+	if p.granite != nil {
+		p.granite.receiveAlarm()
+		p.handleDecision()
 	}
-	p.granite.receiveAlarm()
-	p.handleDecision()
 }
 
 func (p *Participant) handleDecision() {
@@ -86,6 +85,10 @@ func (p *Participant) handleDecision() {
 		p.finalisedRound = p.granite.round
 		p.granite = nil
 	}
+}
+
+func (p *Participant) decided() bool {
+	return p.granite != nil && p.granite.phase == DECIDE
 }
 
 const QUALITY = "QUALITY"
@@ -159,6 +162,9 @@ func (i *instance) start() {
 }
 
 func (i *instance) receive(sender string, msg GMessage) {
+	if i.decided() {
+		panic("received message after decision")
+	}
 	round := msg.Round
 	if msg.Step == QUALITY && msg.Value.Base.Eq(&i.input.Base) {
 		// Just collect all the messages until the alarm triggers the end of QUALITY phase.
@@ -178,7 +184,7 @@ func (i *instance) receive(sender string, msg GMessage) {
 			i.committed[round] = make(map[string]net.ECChain)
 		}
 		i.committed[round][sender] = msg.Value
-		i.tryCommit()
+		i.tryCommit(round)
 	} else {
 		panic(fmt.Sprintf("unexpected message %v", msg))
 	}
@@ -232,7 +238,7 @@ func (i *instance) tryPrepare() {
 	if i.phase != PREPARE {
 		return
 	}
-	if done, v := findQuorum(i.participantID, i.value, i.prepared[i.round], i.input.Base.PowerTable); done {
+	if done, v := findQuorum(i.prepared[i.round], i.input.Base.PowerTable); done {
 		// INCENTIVE-COMPATIBLE: Only commit a prepared value if it's equal to this node's proposal.
 		if !v.Eq(&i.proposal) {
 			i.value = net.ECChain{}
@@ -247,23 +253,26 @@ func (i *instance) beginCommit() {
 	i.receive(i.participantID, msg)
 }
 
-func (i *instance) tryCommit() {
-	if i.phase != COMMIT {
-		return
-	}
-	if done, v := findQuorum(i.participantID, i.value, i.committed[i.round], i.input.Base.PowerTable); done {
+func (i *instance) tryCommit(round int) {
+	// Unlike all previous phases, the COMMIT phase stays open to new messages even after an initial quorum is reached.
+	// A subsequent COMMIT message can cause the node to decide, if it forms a quorum in agreement.
+	// It can't change the value propagated to the next round, though.
+	//if i.phase != COMMIT {
+	//	return
+	//}
+	if done, v := findQuorum(i.committed[round], i.input.Base.PowerTable); done {
 		if !v.IsZero() {
 			// A participant may be forced to decide a value that's not its preferred chain.
 			// The participant isn't influencing that decision against their interest, just accepting it.
-			i.decide(v)
-		} else {
+			i.decide(v, round)
+		} else if i.phase == COMMIT {
 			// Adopt any non-empty value committed by another participant.
 			// (There can only be one, since they needed a strong quorum to commit it).
 			// XXX: only with message validation justifying it!
 			for _, v := range i.committed[i.round] {
 				if !v.IsZero() {
-					if !v.Eq(&i.proposal) {
-						i.log("⚠️ swaying from %s to %s", &i.proposal, &v)
+					if !i.input.HasPrefix(&v) {
+						i.log("⚠️ swaying from %s to %s", &i.input, &v)
 					}
 					i.proposal = v
 				}
@@ -280,14 +289,16 @@ func (i *instance) beginNextRound() {
 	i.beginConverge()
 }
 
-func (i *instance) decide(value net.ECChain) {
-	i.log("✓ decided %s", &i.value)
+func (i *instance) decide(value net.ECChain, round int) {
+	i.log("✅ decided %s in round %d", &i.value, round)
 	i.phase = DECIDE
+	// Round is a parameter since a late COMMIT message can result in a decision for a round prior to the current one.
+	i.round = round
 	i.value = value
 }
 
-func (p *Participant) decided() bool {
-	return p.granite != nil && p.granite.phase == DECIDE
+func (i *instance) decided() bool {
+	return i.phase == DECIDE
 }
 
 func (i *instance) broadcast(step string, msg net.ECChain) GMessage {
@@ -387,7 +398,7 @@ func findMinTicketProposal(proposals []GMessage, round int) net.ECChain {
 }
 
 // Returns whether the proposals constitute a quorum of voting power, and if so, either the quorum chain or empty (bottom).
-func findQuorum(me string, mine net.ECChain, proposals map[string]net.ECChain, power net.PowerTable) (bool, net.ECChain) {
+func findQuorum(proposals map[string]net.ECChain, power net.PowerTable) (bool, net.ECChain) {
 	threshold := power.Total * 2 / 3
 	votingPower := uint(0)
 	tipsetPower := map[net.CID]uint{}

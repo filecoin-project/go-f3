@@ -15,14 +15,17 @@ func TestWitholdCommit1(t *testing.T) {
 		LatencySeed:  int64(i),
 		LatencyMean:  0.01, // Near-synchrony
 		GraniteDelta: 0.200,
-	}, net.TraceNone)
+	}, net.TraceAll)
 	adv := adversary.NewWitholdCommit("A", sm.Network)
 	sm.SetAdversary(adv, 3) // Adversary has 30% of 10 total power.
 
 	a := sm.Base.Extend(sm.CIDGen.Sample())
 	b := sm.Base.Extend(sm.CIDGen.Sample())
-	// Of 7 nodes, 4 victims will prefer chain a, 3 others will prefer chain b.
-	// The adversary will target the first, and withhold COMMIT from the rest.
+	// Of 7 nodes, 4 victims will prefer chain A, 3 others will prefer chain B.
+	// The adversary will target the first to decide, and withhold COMMIT from the rest.
+	// After the victim decides in round 0, the adversary stops participating.
+	// Now there are 3 nodes on each side (and one decided), with total power 6/10, less than quorum.
+	// The B side must be swayed to the A side by observing that some nodes on the A side reached a COMMIT.
 	victims := []string{"P0", "P1", "P2", "P3"}
 	adv.SetVictim(victims, *a)
 
