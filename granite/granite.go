@@ -224,6 +224,10 @@ func (i *instance) endConverge() {
 	// (If the QUALITY threshold is only 1/2 with honest nodes).
 	// Is it safe if QUALITY threshold is >2/3?
 	i.value = findMinTicketProposal(i.converged[i.round], i.round)
+	if !i.input.HasPrefix(&i.value) {
+		i.log("⚠️ swayed from %s to %s by min ticket", &i.input, &i.value)
+	}
+	// TODO update proposal too if ECKnowsAbout
 	i.beginPrepare()
 }
 
@@ -239,8 +243,10 @@ func (i *instance) tryPrepare() {
 		return
 	}
 	if done, v := findQuorum(i.prepared[i.round], i.input.Base.PowerTable); done {
-		// INCENTIVE-COMPATIBLE: Only commit a prepared value if it's equal to this node's proposal.
+		// INCENTIVE-COMPATIBLE: Only commit a value equal to this node's proposal.
 		if !v.Eq(&i.proposal) {
+			// TODO: update our proposal to accept a prefix of it, if that gained quorum, else baseChain
+			// But still set value to bottom.
 			i.value = net.ECChain{}
 		}
 		i.beginCommit()
@@ -272,7 +278,7 @@ func (i *instance) tryCommit(round int) {
 			for _, v := range i.committed[i.round] {
 				if !v.IsZero() {
 					if !i.input.HasPrefix(&v) {
-						i.log("⚠️ swaying from %s to %s", &i.input, &v)
+						i.log("⚠️ swaying from %s to %s by existence of COMMIT", &i.input, &v)
 					}
 					i.proposal = v
 				}
