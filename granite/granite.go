@@ -71,10 +71,10 @@ func (p *Participant) ReceiveMessage(sender string, msg net.Message) {
 	}
 }
 
-func (p *Participant) ReceiveAlarm() {
+func (p *Participant) ReceiveAlarm(payload string) {
 	// TODO include instance ID in alarm message, and filter here.
 	if p.granite != nil {
-		p.granite.receiveAlarm()
+		p.granite.receiveAlarm(payload)
 		p.handleDecision()
 	}
 }
@@ -123,16 +123,18 @@ type instance struct {
 	round int
 	// Current phase in the round.
 	phase string
+	// Earliest at which the PREPARE phase can end.
+	prepareTimeout float64
 	// This instance's proposal for the current round.
 	// This is set after the QUALITY phase, and changes only at the end of a full round.
 	proposal net.ECChain
 	// The value to be transmitted at the next phase.
 	// This value may change away from the proposal between phases.
 	value net.ECChain
-	// Valid QUALITY messages received by this instance.
-	quality []GMessage
-	// Valid CONVERGE messages received, by round
-	converged map[int][]GMessage
+	// Valid QUALITY values, by sender.
+	quality map[string]net.ECChain
+	// Valid CONVERGE messages received, by round, by sender.
+	converged map[int]map[string]net.ECChain
 	// Valid PREPARE values, by round, by sender.
 	prepared map[int]map[string]net.ECChain
 	// Valid COMMIT values, by round, by sender.
@@ -148,10 +150,10 @@ func newInstance(ntwk net.NetworkSink, participantID string, instanceID int, del
 		input:         input,
 		round:         0,
 		phase:         "",
-		proposal:      input,
+		proposal:      *input.BaseChain(),
 		value:         net.ECChain{},
-		quality:       []GMessage{},
-		converged:     map[int][]GMessage{},
+		quality:       map[string]net.ECChain{},
+		converged:     map[int]map[string]net.ECChain{},
 		prepared:      map[int]map[string]net.ECChain{},
 		committed:     map[int]map[string]net.ECChain{},
 	}
@@ -169,45 +171,41 @@ func (i *instance) receive(sender string, msg GMessage) {
 	if msg.Step == QUALITY && msg.Value.Base.Eq(&i.input.Base) {
 		// Just collect all the messages until the alarm triggers the end of QUALITY phase.
 		// Note the message will be collected but ignored if QUALITY timeout has already passed.
-		i.quality = append(i.quality, msg)
+		i.quality[sender] = msg.Value
 	} else if msg.Step == CONVERGE && msg.Value.Base.Eq(&i.input.Base) {
 		// Collect messages until the alarm triggers the end of CONVERGE phase.
-		i.converged[round] = append(i.converged[round], msg)
+		setRoundValue(i.converged, round, sender, msg.Value)
 	} else if msg.Step == PREPARE && msg.Value.Base.Eq(&i.input.Base) {
-		if _, exists := i.prepared[round]; !exists {
-			i.prepared[round] = make(map[string]net.ECChain)
-		}
-		i.prepared[round][sender] = msg.Value
+		setRoundValue(i.prepared, round, sender, msg.Value)
 		i.tryPrepare()
 	} else if msg.Step == COMMIT && (msg.Bottom || msg.Value.Base.Eq(&i.input.Base)) {
-		if _, exists := i.committed[round]; !exists {
-			i.committed[round] = make(map[string]net.ECChain)
-		}
-		i.committed[round][sender] = msg.Value
+		setRoundValue(i.committed, round, sender, msg.Value)
 		i.tryCommit(round)
 	} else {
 		panic(fmt.Sprintf("unexpected message %v", msg))
 	}
 }
 
-func (i *instance) receiveAlarm() {
-	if i.round == 0 {
+func (i *instance) receiveAlarm(payload string) {
+	if payload == QUALITY {
 		i.endQuality()
-	} else {
+	} else if payload == CONVERGE {
 		i.endConverge()
+	} else if payload == PREPARE {
+		i.tryPrepare()
 	}
 }
 
 func (i *instance) beginQuality() {
-	// Broadcast proposal value and wait 2Δ to receive from others.
+	// Broadcast input value and wait 2Δ to receive from others.
 	i.phase = QUALITY
-	msg := i.broadcast(QUALITY, i.proposal)
+	msg := i.broadcast(QUALITY, i.input)
 	i.receive(i.participantID, msg)
-	i.alarmAfter(2 * i.delta)
+	i.alarmAfter(QUALITY, 2*i.delta)
 }
 
 func (i *instance) endQuality() {
-	i.proposal = findBestQualityProposal(i.quality, i.input.Base)
+	i.proposal = findBestQualityProposal(i.quality, i.participantID, i.input.Base)
 	i.value = i.proposal
 	i.beginPrepare()
 }
@@ -216,37 +214,44 @@ func (i *instance) beginConverge() {
 	i.phase = CONVERGE
 	msg := i.broadcast(CONVERGE, i.proposal)
 	i.receive(i.participantID, msg)
-	i.alarmAfter(2 * i.delta)
+	i.alarmAfter(CONVERGE, 2*i.delta)
 }
 
 func (i *instance) endConverge() {
 	// XXX: This can lead to a node proposing a chain that's not a prefix of its input chain.
-	// (If the QUALITY threshold is only 1/2 with honest nodes).
-	// Is it safe if QUALITY threshold is >2/3?
 	i.value = findMinTicketProposal(i.converged[i.round], i.round)
 	if !i.input.HasPrefix(&i.value) {
 		i.log("⚠️ swayed from %s to %s by min ticket", &i.input, &i.value)
 	}
-	// TODO update proposal too if ECKnowsAbout
+	// TODO update proposal too if ECKnowsAbout(value)
 	i.beginPrepare()
 }
 
 func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE
+	i.prepareTimeout = i.ntwk.Time() + 2*i.delta
 	msg := i.broadcast(PREPARE, i.value)
 	i.receive(i.participantID, msg)
+	i.alarmAfter(PREPARE, 2*i.delta)
 }
 
 func (i *instance) tryPrepare() {
 	if i.phase != PREPARE {
 		return
 	}
+	// Wait at least 2Δ.
+	if i.ntwk.Time() < i.prepareTimeout {
+		return
+	}
 	if done, v := findQuorum(i.prepared[i.round], i.input.Base.PowerTable); done {
 		// INCENTIVE-COMPATIBLE: Only commit a value equal to this node's proposal.
-		if !v.Eq(&i.proposal) {
-			// TODO: update our proposal to accept a prefix of it, if that gained quorum, else baseChain
-			// But still set value to bottom.
+		if v.Eq(&i.proposal) {
+			i.value = v
+		} else {
+			// Update our proposal for next round to accept a prefix of it, if that gained quorum, else baseChain.
+			findBestQualityProposal(i.prepared[i.round], i.participantID, i.input.Base)
+			// Commit bottom in this round anyway.
 			i.value = net.ECChain{}
 		}
 		i.beginCommit()
@@ -275,12 +280,13 @@ func (i *instance) tryCommit(round int) {
 			// Adopt any non-empty value committed by another participant.
 			// (There can only be one, since they needed a strong quorum to commit it).
 			// XXX: only with message validation justifying it!
-			for _, v := range i.committed[i.round] {
+			for sender, v := range i.committed[i.round] {
 				if !v.IsZero() {
 					if !i.input.HasPrefix(&v) {
-						i.log("⚠️ swaying from %s to %s by existence of COMMIT", &i.input, &v)
+						i.log("⚠️ swaying from %s to %s by COMMIT from %s", &i.input, &v, sender)
 					}
 					i.proposal = v
+					break
 				}
 			}
 			i.beginNextRound()
@@ -290,8 +296,7 @@ func (i *instance) tryCommit(round int) {
 
 func (i *instance) beginNextRound() {
 	i.round += 1
-	i.value = i.proposal
-	i.log("x moving to round %d with %s", i.round, i.value.String())
+	i.log("x moving to round %d with %s", i.round, i.proposal.String())
 	i.beginConverge()
 }
 
@@ -314,8 +319,8 @@ func (i *instance) broadcast(step string, msg net.ECChain) GMessage {
 	return gmsg
 }
 
-func (i *instance) alarmAfter(delay float64) {
-	i.ntwk.SetAlarm(i.participantID, i.ntwk.Time()+delay)
+func (i *instance) alarmAfter(payload string, delay float64) {
+	i.ntwk.SetAlarm(i.participantID, payload, i.ntwk.Time()+delay)
 }
 
 func (i *instance) log(format string, args ...interface{}) {
@@ -325,10 +330,17 @@ func (i *instance) log(format string, args ...interface{}) {
 
 ///// Helpers
 
+func setRoundValue(collection map[int]map[string]net.ECChain, round int, sender string, value net.ECChain) {
+	if _, exists := collection[round]; !exists {
+		collection[round] = make(map[string]net.ECChain)
+	}
+	collection[round][sender] = value
+}
+
 // Finds the highest weight chain prefix with at least half of power in favour.
 // The first proposal is assumed to be the node's own proposal, and any result
 // must be compatible with it.
-func findBestQualityProposal(proposals []GMessage, base net.TipSet) net.ECChain {
+func findBestQualityProposal(proposals map[string]net.ECChain, me string, base net.TipSet) net.ECChain {
 	// Calculate the set of prefixes with sufficient weight, and then find the best one.
 	type candidate struct {
 		chain net.ECChain
@@ -336,27 +348,34 @@ func findBestQualityProposal(proposals []GMessage, base net.TipSet) net.ECChain 
 	}
 	// Candidate chains indexed by final tipset CID.
 	candidates := map[net.CID]candidate{}
-	incentiveCompatible := map[net.CID]struct{}{}
-	// Add power to candidates from messages received.
-	for i, msg := range proposals {
-		for j := range msg.Value.Suffix {
-			prefix := msg.Value.Prefix(j + 1)
+	// Establish the incentive-compatible set of values, which are the prefixes of our proposal.
+	mine := proposals[me]
+	for j := range mine.Suffix {
+		prefix := mine.Prefix(j + 1)
+		candidates[prefix.Head().CID] = candidate{*prefix, base.PowerTable.Entries[me]}
+	}
+
+	// Add up power in support of each non-empty prefix of each message received.
+	// Chains that are not a prefix of our input are ignored.
+	for sender, value := range proposals {
+		if sender == me {
+			continue
+		}
+		for j := range value.Suffix {
+			prefix := value.Prefix(j + 1)
 			if found, ok := candidates[prefix.Head().CID]; ok {
 				candidates[prefix.Head().CID] = candidate{
 					chain: found.chain,
-					power: found.power + base.PowerTable.Entries[msg.Sender],
+					power: found.power + base.PowerTable.Entries[sender],
 				}
 			} else {
-				candidates[prefix.Head().CID] = candidate{*prefix, base.PowerTable.Entries[msg.Sender]}
-				// The first message is assumed to be ours, so specifies the incentive-compatible set.
-				if i == 0 {
-					incentiveCompatible[prefix.Head().CID] = struct{}{}
-				}
+				// INCENTIVE-COMPATIBLE: Not a prefix of our proposal (and no longer prefix can be either).
+				break
 			}
 		}
 	}
 
-	// Filter received tipsets to those with strictly more than half of power in favour.
+	// Filter received tipsets to those with strictly enough power in favour.
 	threshold := 2 * base.PowerTable.Total / 3
 	allowed := []candidate{}
 	for _, c := range candidates {
@@ -364,6 +383,7 @@ func findBestQualityProposal(proposals []GMessage, base net.TipSet) net.ECChain 
 			allowed = append(allowed, c)
 		}
 	}
+
 	// Sort allowed candidates by tipset weight, descending.
 	sort.Slice(allowed, func(i, j int) bool {
 		hi := allowed[i].chain.Head()
@@ -371,33 +391,24 @@ func findBestQualityProposal(proposals []GMessage, base net.TipSet) net.ECChain 
 		return hi.Compare(hj) > 0
 	})
 
-	var proposal net.ECChain
 	if len(allowed) > 0 {
-		// INCENTIVE-COMPATIBLE: Accept only tipsets that are on this node's input chain.
-		// Note: this binary accept/reject of the heaviest is stricter than necessary.
-		// We could instead filter the proposals earlier on and take the heaviest tipset
-		// that _is_ on our input chain.
-		if _, ok := incentiveCompatible[allowed[0].chain.Head().CID]; ok {
-			proposal = allowed[0].chain
-		}
+		return allowed[0].chain
+	} else {
+		return *net.NewChain(base)
 	}
-	if proposal.IsZero() {
-		proposal = *net.NewChain(base)
-	}
-	return proposal
 }
 
 // Finds the lowest ticket value from a set of proposals.
-func findMinTicketProposal(proposals []GMessage, round int) net.ECChain {
+func findMinTicketProposal(proposals map[string]net.ECChain, round int) net.ECChain {
 	var minTicket []byte
 	var minValue net.ECChain
 	// Emulate a ticket draw by hashing the sender and round number.
-	for _, v := range proposals {
-		input := fmt.Sprintf("%s%d", v.Sender, round)
+	for sender, value := range proposals {
+		input := fmt.Sprintf("%s%d", sender, round)
 		digest := sha256.Sum224([]byte(input))
 		if minTicket == nil || bytes.Compare(digest[:], minTicket[:]) < 0 {
 			minTicket = digest[:]
-			minValue = v.Value
+			minValue = value
 		}
 	}
 	return minValue

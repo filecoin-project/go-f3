@@ -25,7 +25,7 @@ func (a *Absent) ReceiveCanonicalChain(_ net.ECChain) {
 func (a *Absent) ReceiveMessage(_ string, _ net.Message) {
 }
 
-func (a *Absent) ReceiveAlarm() {
+func (a *Absent) ReceiveAlarm(_ string) {
 }
 
 func (a *Absent) AllowMessage(_ string, _ string, _ net.Message) bool {

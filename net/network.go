@@ -3,6 +3,7 @@ package net
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // A consensus message.
@@ -12,7 +13,7 @@ type Message interface{}
 // Receives a consensus message.
 type MessageReceiver interface {
 	ReceiveMessage(sender string, msg Message)
-	ReceiveAlarm()
+	ReceiveAlarm(payload string)
 }
 
 // Interface which network participants must implement.
@@ -34,7 +35,7 @@ type NetworkSink interface {
 	// Returns the current network time.
 	Time() float64
 	// Sets an alarm to fire at the given timestamp.
-	SetAlarm(sender string, at float64)
+	SetAlarm(sender string, payload string, at float64)
 	// Logs a message at the "logic" level
 	Log(format string, args ...interface{})
 }
@@ -112,11 +113,11 @@ func (n *Network) Time() float64 {
 	return n.clock
 }
 
-func (n *Network) SetAlarm(sender string, at float64) {
+func (n *Network) SetAlarm(sender string, payload string, at float64) {
 	n.queue.Insert(messageInFlight{
 		source:    sender,
 		dest:      sender,
-		payload:   "ALARM",
+		payload:   "ALARM:" + payload,
 		deliverAt: at,
 	})
 }
@@ -162,9 +163,10 @@ func (n *Network) Tick(adv AdversaryReceiver) bool {
 
 	msg := n.queue.Remove(i)
 	n.clock = msg.deliverAt
-	if msg.payload == "ALARM" {
-		n.log(TraceRecvd, "%s alarm ", msg.source)
-		n.participants[msg.dest].ReceiveAlarm()
+	payloadStr, ok := msg.payload.(string)
+	if ok && strings.HasPrefix(payloadStr, "ALARM:") {
+		n.log(TraceRecvd, "%s %s", msg.source, payloadStr)
+		n.participants[msg.dest].ReceiveAlarm(strings.TrimPrefix(payloadStr, "ALARM:"))
 	} else {
 		n.log(TraceRecvd, "%s ← %s: %v", msg.dest, msg.source, msg.payload)
 		n.participants[msg.dest].ReceiveMessage(msg.source, msg.payload)

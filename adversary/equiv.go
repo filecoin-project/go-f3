@@ -39,7 +39,7 @@ func (w *WitholdCommit) ReceiveCanonicalChain(_ net.ECChain) {
 func (w *WitholdCommit) ReceiveMessage(_ string, _ net.Message) {
 }
 
-func (w *WitholdCommit) ReceiveAlarm() {
+func (w *WitholdCommit) ReceiveAlarm(_ string) {
 }
 
 func (w *WitholdCommit) Begin() {
@@ -78,14 +78,25 @@ func (w *WitholdCommit) AllowMessage(_ string, to string, msg net.Message) bool 
 				toAnyVictim = true
 			}
 		}
-		if toAnyVictim && !gmsg.Value.Eq(&w.victimValue) {
-			// Delay all messages to the victims except those confirming the victim value.
-			// This ensures the primary victim will decide in round 0.
-			return false
-		} else if !toMainVictim && gmsg.Sender == w.id {
-			// Delay messages from self to all except the primary victim.
-			// This ensures all others will initially move on from round 0 with no decision.
-			return false
+		if gmsg.Step == granite.QUALITY {
+			// Don't allow victims to see dissenting QUALITY.
+			if toAnyVictim && !gmsg.Value.Eq(&w.victimValue) {
+				return false
+			}
+		} else if gmsg.Step == granite.PREPARE {
+			// Don't allow victims to see dissenting PREPARE.
+			if toAnyVictim && !gmsg.Value.Eq(&w.victimValue) {
+				return false
+			}
+		} else if gmsg.Step == granite.COMMIT {
+			// Allow only the main victim to see our COMMIT.
+			if !toMainVictim && gmsg.Sender == w.id {
+				return false
+			}
+			// Don't allow the main victim to see any dissenting COMMIts.
+			if toMainVictim && !gmsg.Value.Eq(&w.victimValue) {
+				return false
+			}
 		}
 	}
 	return true
