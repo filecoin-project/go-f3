@@ -12,8 +12,8 @@ func main() {
 	iterations := flag.Int("iterations", 1, "number of simulation iterations")
 	participantCount := flag.Int("participants", 3, "number of participants")
 	latencySeed := flag.Int64("latency-seed", time.Now().UnixMilli(), "random seed for network latency")
-	latencyMean := flag.Float64("latency-mean", 0.100, "mean network latency")
-	graniteDelta := flag.Float64("granite-delta", 0.200, "granite delta parameter")
+	latencyMean := flag.Float64("latency-mean", 0.500, "mean network latency")
+	graniteDelta := flag.Float64("granite-delta", 3.000, "granite delta parameter")
 	traceLevel := flag.Int("trace", net.TraceNone, "trace verbosity level")
 	flag.Parse()
 
