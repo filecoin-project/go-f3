@@ -170,6 +170,19 @@ func (c *ECChain) HasPrefix(other *ECChain) bool {
 	return true
 }
 
+// Checks whether a chain has some tipset (including as its base).
+func (c *ECChain) HasTipset(t *TipSet) bool {
+	if t.Eq(&c.Base) {
+		return true
+	}
+	for _, t2 := range c.Suffix {
+		if t2.Eq(t) {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *ECChain) String() string {
 	var b strings.Builder
 	b.WriteString("{")
