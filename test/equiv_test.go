@@ -14,8 +14,8 @@ func TestWitholdCommit1(t *testing.T) {
 		HonestCount:  7,
 		LatencySeed:  int64(i),
 		LatencyMean:  0.01, // Near-synchrony
-		GraniteDelta: 0.200,
-	}, net.TraceAll)
+		GraniteDelta: DELTA,
+	}, net.TraceNone)
 	adv := adversary.NewWitholdCommit("A", sm.Network)
 	sm.SetAdversary(adv, 3) // Adversary has 30% of 10 total power.
 
@@ -31,7 +31,7 @@ func TestWitholdCommit1(t *testing.T) {
 
 	adv.Begin()
 	sm.ReceiveChains(sim.ChainCount{4, *a}, sim.ChainCount{3, *b})
-	ok := sm.Run()
+	ok := sm.Run(MAX_ROUNDS)
 	if !ok {
 		sm.PrintResults()
 	}
