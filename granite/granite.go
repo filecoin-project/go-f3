@@ -294,6 +294,7 @@ func (i *instance) endQuality(round int) {
 	allowed := i.quality.ListQuorumAgreedValues()
 	i.proposal = findFirstPrefixOf(allowed, i.proposal)
 	i.value = i.proposal
+	i.log("adopting proposal and value %s", &i.proposal)
 	i.beginPrepare()
 }
 
@@ -305,15 +306,15 @@ func (i *instance) beginConverge() {
 }
 
 func (i *instance) endConverge(round int) {
-	// XXX: This can lead to a node proposing a chain that's not a prefix of its input chain.
 	i.value = i.rounds[round].converged.findMinTicketProposal()
-	//if i.value.IsZero() {
-	//	panic("no min ticket proposal")
-	//}
-	if !i.input.HasPrefix(&i.value) {
-		i.log("⚠️ swayed from %s to %s by min ticket", &i.input, &i.value)
+	if i.isAcceptable(&i.value) {
+		if !i.value.Eq(&i.proposal) {
+			i.proposal = i.value
+			i.log("adopting proposal %s after converge", &i.proposal)
+		}
+	} else {
+		i.log("⚠️ voting from %s to %s by min ticket", &i.input, &i.value)
 	}
-	// TODO update proposal too if ECKnowsAbout(value)
 	i.beginPrepare()
 }
 
@@ -348,8 +349,13 @@ func (i *instance) tryPrepare(round int) {
 			i.value = i.proposal
 		} else {
 			// Update our proposal for next round to accept a prefix of it, if that gained quorum, else baseChain.
-			prefixes := prepared.ListQuorumAgreedPrefixValues()
-			i.proposal = findFirstPrefixOf(prefixes, i.proposal)
+			// Note: these two lines were present in an earlier version of the algorithm, but have been removed.
+			// The attempt to improve progress by adopting a prefix of our proposal more likely to gain quorum.
+			// They can cause problems with a proposal incompatible with a value preventing message validation.
+			//prefixes := prepared.ListQuorumAgreedPrefixValues()
+			//i.proposal = findFirstPrefixOf(prefixes, i.proposal)
+			//i.log("adopting proposal %s after prepare", &i.proposal)
+
 			// Commit bottom in this round anyway.
 			i.value = net.ECChain{}
 		}
@@ -384,10 +390,13 @@ func (i *instance) tryCommit(round int) {
 			// (There can only be one, since they needed to see a strong quorum of PREPARE to commit it).
 			for _, v := range committed.ListAllValues() {
 				if !v.IsZero() {
-					if !i.input.HasPrefix(&v) {
+					if !i.isAcceptable(&v) {
 						i.log("⚠️ swaying from %s to %s by COMMIT", &i.input, &v)
 					}
-					i.proposal = v
+					if !v.Eq(&i.proposal) {
+						i.proposal = v
+						i.log("adopting proposal %s after commit", &i.proposal)
+					}
 					break
 				}
 
@@ -399,8 +408,15 @@ func (i *instance) tryCommit(round int) {
 
 func (i *instance) beginNextRound() {
 	i.round += 1
-	i.log("x moving to round %d with %s", i.round, i.proposal.String())
+	i.log("moving to round %d with %s", i.round, i.proposal.String())
 	i.beginConverge()
+}
+
+// Returns whether a chain is acceptable as a proposal for this instance to vote for.
+// This is "EC Compatible" in the pseudocode.
+func (i *instance) isAcceptable(c *net.ECChain) bool {
+	// TODO: expand to include subsequently notified chains.
+	return i.input.HasPrefix(c)
 }
 
 func (i *instance) decide(value net.ECChain, round int) {

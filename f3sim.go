@@ -14,6 +14,7 @@ func main() {
 	latencySeed := flag.Int64("latency-seed", time.Now().UnixMilli(), "random seed for network latency")
 	latencyMean := flag.Float64("latency-mean", 0.500, "mean network latency")
 	graniteDelta := flag.Float64("granite-delta", 3.000, "granite delta parameter")
+	maxRounds := flag.Int("max-rounds", 10, "max rounds to allow before failing")
 	traceLevel := flag.Int("trace", net.TraceNone, "trace verbosity level")
 	flag.Parse()
 
@@ -34,7 +35,7 @@ func main() {
 		candidate := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{Count: *participantCount, Chain: *candidate})
 
-		ok := sm.Run()
+		ok := sm.Run(*maxRounds)
 		if !ok {
 			sm.PrintResults()
 		}

@@ -1,7 +1,6 @@
 package test
 
 import (
-	"fmt"
 	"github.com/anorth/f3sim/net"
 	"github.com/anorth/f3sim/sim"
 	"github.com/stretchr/testify/require"
@@ -10,17 +9,12 @@ import (
 
 ///// Tests with no adversaries.
 
-const DELTA = 0.200
-const LATENCY_SYNC = 0
-const LATENCY_ASYNC = 0.100
-const ASYNC_ITERS = 5000
-
 func TestSingleton(t *testing.T) {
 	sm := sim.NewSimulation(newSyncConfig(1), net.TraceNone)
 	a := sm.Base.Extend(sm.CIDGen.Sample())
 	sm.ReceiveChains(sim.ChainCount{1, *a})
 
-	require.True(t, sm.Run())
+	require.True(t, sm.Run(MAX_ROUNDS))
 	expectRoundDecision(t, sm, 0, a.Head())
 }
 
@@ -29,7 +23,7 @@ func TestSyncPair(t *testing.T) {
 	a := sm.Base.Extend(sm.CIDGen.Sample())
 	sm.ReceiveChains(sim.ChainCount{len(sm.Participants), *a})
 
-	require.True(t, sm.Run())
+	require.True(t, sm.Run(MAX_ROUNDS))
 	expectRoundDecision(t, sm, 0, a.Head())
 }
 
@@ -39,7 +33,7 @@ func TestASyncPair(t *testing.T) {
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{len(sm.Participants), *a})
 
-		require.True(t, sm.Run())
+		require.True(t, sm.Run(MAX_ROUNDS))
 		// Can't guarantee progress when async.
 		expectEventualDecision(t, sm, a.Head(), sm.Base.Head())
 	}
@@ -51,7 +45,7 @@ func TestSyncPairDisagree(t *testing.T) {
 	b := sm.Base.Extend(sm.CIDGen.Sample())
 	sm.ReceiveChains(sim.ChainCount{1, *a}, sim.ChainCount{1, *b})
 
-	require.True(t, sm.Run())
+	require.True(t, sm.Run(MAX_ROUNDS))
 	// Decide base chain as the only common value, even when synchronous.
 	expectRoundDecision(t, sm, 0, sm.Base.Head())
 }
@@ -63,7 +57,7 @@ func TestAsyncPairDisagree(t *testing.T) {
 		b := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{1, *a}, sim.ChainCount{1, *b})
 
-		require.True(t, sm.Run())
+		require.True(t, sm.Run(MAX_ROUNDS))
 		// Decide base chain as the only common value.
 		expectRoundDecision(t, sm, 0, sm.Base.Head())
 	}
@@ -74,21 +68,22 @@ func TestSyncAgreement(t *testing.T) {
 		sm := sim.NewSimulation(newSyncConfig(n), net.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{len(sm.Participants), *a})
-		require.True(t, sm.Run())
+		require.True(t, sm.Run(MAX_ROUNDS))
 		// Synchronous, agreeing groups always decide the candidate.
 		expectRoundDecision(t, sm, 0, a.Head())
 	}
 }
 
 func TestAsyncAgreement(t *testing.T) {
-	for n := 3; n <= 20; n++ {
+	// These iterations are much slower, so we can't test as many participants.
+	for n := 3; n <= 16; n++ {
 		for i := 0; i < ASYNC_ITERS; i++ {
-			fmt.Println("n=", n, "i=", i)
-			sm := sim.NewSimulation(newAsyncConfig(n, i), net.TraceAll)
+			//fmt.Println("n =", n, "i =", i)
+			sm := sim.NewSimulation(newAsyncConfig(n, i), net.TraceNone)
 			a := sm.Base.Extend(sm.CIDGen.Sample())
 			sm.ReceiveChains(sim.ChainCount{len(sm.Participants), *a})
 
-			require.True(t, sm.Run())
+			require.True(t, sm.Run(MAX_ROUNDS))
 			// Can't guarantee progress when async.
 			expectEventualDecision(t, sm, sm.Base.Head(), a.Head())
 		}
@@ -102,23 +97,24 @@ func TestSyncHalves(t *testing.T) {
 		b := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{n / 2, *a}, sim.ChainCount{n / 2, *b})
 
-		require.True(t, sm.Run())
+		require.True(t, sm.Run(MAX_ROUNDS))
 		// Groups split 50/50 always decide the base.
 		expectRoundDecision(t, sm, 0, sm.Base.Head())
 	}
 }
 
 func TestAsyncHalves(t *testing.T) {
-	// TODO: bigger halves
-	for i := 0; i < ASYNC_ITERS; i++ {
-		sm := sim.NewSimulation(newAsyncConfig(4, i), net.TraceNone)
-		a := sm.Base.Extend(sm.CIDGen.Sample())
-		b := sm.Base.Extend(sm.CIDGen.Sample())
-		sm.ReceiveChains(sim.ChainCount{2, *a}, sim.ChainCount{2, *b})
+	for n := 4; n <= 16; n += 2 {
+		for i := 0; i < ASYNC_ITERS; i++ {
+			sm := sim.NewSimulation(newAsyncConfig(n, i), net.TraceNone)
+			a := sm.Base.Extend(sm.CIDGen.Sample())
+			b := sm.Base.Extend(sm.CIDGen.Sample())
+			sm.ReceiveChains(sim.ChainCount{n / 2, *a}, sim.ChainCount{n / 2, *b})
 
-		require.True(t, sm.Run())
-		// Groups split 50/50 always decide the base.
-		expectRoundDecision(t, sm, 0, sm.Base.Head())
+			require.True(t, sm.Run(MAX_ROUNDS))
+			// Groups split 50/50 always decide the base.
+			expectRoundDecision(t, sm, 0, sm.Base.Head())
+		}
 	}
 }
 
@@ -130,7 +126,7 @@ func TestRequireStrongQuorumToProgress(t *testing.T) {
 		// No strict > quorum.
 		sm.ReceiveChains(sim.ChainCount{20, *a}, sim.ChainCount{10, *b})
 
-		require.True(t, sm.Run())
+		require.True(t, sm.Run(MAX_ROUNDS))
 		// Must decide base, but can't tell which round.
 		expectEventualDecision(t, sm, sm.Base.Head())
 	}
