@@ -46,6 +46,11 @@ func NewTipSet(epoch int, cid CID, weight uint, powerTable PowerTable) TipSet {
 	}
 }
 
+// Checks whether a tipset is the zero value.
+func (t *TipSet) IsZero() bool {
+	return t.Epoch == 0 && t.CID == "" && t.Weight == 0 && len(t.PowerTable.Entries) == 0
+}
+
 // Compares two tipsets by weight, breaking ties with CID.
 // Note that the real weight function breaks ties with VRF tickets.
 func (t *TipSet) Compare(other *TipSet) int {
@@ -59,7 +64,10 @@ func (t *TipSet) Compare(other *TipSet) int {
 
 // Compares tipsets for equality.
 func (t *TipSet) Eq(other *TipSet) bool {
-	return reflect.DeepEqual(t, other)
+	return t.Epoch == other.Epoch &&
+		t.CID == other.CID &&
+		t.Weight == other.Weight &&
+		reflect.DeepEqual(t.PowerTable, other.PowerTable)
 }
 
 func (t *TipSet) String() string {
@@ -87,7 +95,7 @@ func NewChain(base TipSet, suffix ...TipSet) *ECChain {
 }
 
 func (c *ECChain) IsZero() bool {
-	return c.Base.Eq(&TipSet{}) && len(c.Suffix) == 0
+	return c.Base.IsZero() && len(c.Suffix) == 0
 }
 
 // Returns a copy of the base of a chain with no suffix.

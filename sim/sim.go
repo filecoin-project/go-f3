@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/anorth/f3sim/granite"
 	"github.com/anorth/f3sim/net"
-	"math/rand"
 )
 
 type Config struct {
@@ -47,7 +46,7 @@ func NewSimulation(simConfig Config, graniteConfig granite.Config, traceLevel in
 		Base:         baseChain,
 		Participants: participants,
 		Adversary:    nil,
-		CIDGen:       NewCIDGen(0),
+		CIDGen:       NewCIDGen(0x264803e715714f95), // Seed from Drand
 	}
 }
 
@@ -112,20 +111,43 @@ func (s *Simulation) PrintResults() {
 	}
 }
 
+// A CID generator.
+// This uses a fast xorshift PRNG to generate random CIDs.
+// The statistical properties of these CIDs are not important to correctness.
 type CIDGen struct {
-	rng *rand.Rand
+	xorshiftState uint64
 }
 
-func NewCIDGen(seed int64) *CIDGen {
-	return &CIDGen{rng: rand.New(rand.NewSource(seed))}
+func NewCIDGen(seed uint64) *CIDGen {
+	return &CIDGen{seed}
 }
 
 func (c *CIDGen) Sample() net.CID {
 	b := make([]rune, 8)
 	for i := range b {
-		b[i] = alphanum[rand.Intn(len(alphanum))]
+		b[i] = alphanum[c.nextN(len(alphanum))]
 	}
 	return string(b)
+}
+
+func (c *CIDGen) nextN(n int) uint64 {
+	bucketSize := uint64(1<<63) / uint64(n)
+	limit := bucketSize * uint64(n)
+	for {
+		x := c.next()
+		if x < limit {
+			return x / bucketSize
+		}
+	}
+}
+
+func (c *CIDGen) next() uint64 {
+	x := c.xorshiftState
+	x ^= x << 13
+	x ^= x >> 7
+	x ^= x << 17
+	c.xorshiftState = x
+	return x
 }
 
 var alphanum = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")

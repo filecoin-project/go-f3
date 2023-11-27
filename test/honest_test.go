@@ -1,6 +1,7 @@
 package test
 
 import (
+	"fmt"
 	"github.com/anorth/f3sim/net"
 	"github.com/anorth/f3sim/sim"
 	"github.com/stretchr/testify/require"
@@ -40,7 +41,7 @@ func TestASyncPair(t *testing.T) {
 }
 
 func TestSyncPairDisagree(t *testing.T) {
-	sm := sim.NewSimulation(newSyncConfig(2), GraniteConfig(), net.TraceNone)
+	sm := sim.NewSimulation(newSyncConfig(2), GraniteConfig(), net.TraceAll)
 	a := sm.Base.Extend(sm.CIDGen.Sample())
 	b := sm.Base.Extend(sm.CIDGen.Sample())
 	sm.ReceiveChains(sim.ChainCount{1, *a}, sim.ChainCount{1, *b})
@@ -160,7 +161,7 @@ func expectRoundDecision(t *testing.T, sm *sim.Simulation, expectedRound int, ex
 			return
 		}
 	}
-	require.Fail(t, "decided %s, expected one of %s", decision, expected)
+	require.Fail(t, fmt.Sprintf("decided %s, expected one of %s", &decision, expected))
 }
 
 func expectEventualDecision(t *testing.T, sm *sim.Simulation, expected ...*net.TipSet) {
@@ -170,5 +171,5 @@ func expectEventualDecision(t *testing.T, sm *sim.Simulation, expected ...*net.T
 			return
 		}
 	}
-	require.Fail(t, "decided %s, expected one of %s", decision, expected)
+	require.Fail(t, fmt.Sprintf("decided %s, expected one of %s", &decision, expected))
 }

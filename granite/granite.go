@@ -106,7 +106,6 @@ type GMessage struct {
 	Sender   string
 	Step     string
 	Value    net.ECChain
-	Bottom   bool
 }
 
 func (m GMessage) String() string {
@@ -221,6 +220,9 @@ func (i *instance) receiveOne(msg GMessage) (int, string) {
 		i.rounds[msg.Round] = round
 	}
 
+	if !(msg.Value.IsZero() || msg.Value.Base.Eq(&i.input.Base)) {
+		panic(fmt.Sprintf("unexpected message base chain %s", &msg.Value.Base))
+	}
 	// A message must have both
 	// - value allowed by the QUALITY phase, and
 	// - justification from tne previous phase
@@ -232,25 +234,25 @@ func (i *instance) receiveOne(msg GMessage) (int, string) {
 	var newAllowedValues []net.ECChain
 	var nextRound int
 	var nextPhase string
-	if msg.Step == QUALITY && msg.Round == 0 && msg.Value.Base.Eq(&i.input.Base) {
+	if msg.Step == QUALITY && msg.Round == 0 {
 		// Just collect all the messages until the alarm triggers the end of QUALITY phase.
 		// Messages continue being collected after QUALITY timeout passes, in case they justify later messages.
 		newAllowedValues = i.quality.Receive(msg.Sender, msg.Value)
 		nextRound = msg.Round
 		// FIXME: quality is a gate for all phases, so all phases need to be reprocessed.
 		nextPhase = PREPARE
-	} else if msg.Step == CONVERGE && msg.Round > 0 && msg.Value.Base.Eq(&i.input.Base) {
+	} else if msg.Step == CONVERGE && msg.Round > 0 {
 		// TODO: check ticket validity
 		// Collect messages until the alarm triggers the end of CONVERGE phase.
 		newAllowedValues = round.converged.Receive(msg.Sender, msg.Value)
 		nextRound = msg.Round
 		nextPhase = PREPARE
-	} else if msg.Step == PREPARE && msg.Value.Base.Eq(&i.input.Base) {
+	} else if msg.Step == PREPARE {
 		newAllowedValues = round.prepared.Receive(msg.Sender, msg.Value)
 		i.tryPrepare(msg.Round) // FIXME should try the next step only after adding justifications from this step.
 		nextRound = msg.Round
 		nextPhase = COMMIT
-	} else if msg.Step == COMMIT && (msg.Bottom || msg.Value.Base.Eq(&i.input.Base)) {
+	} else if msg.Step == COMMIT {
 		newAllowedValues = round.committed.Receive(msg.Sender, msg.Value)
 		i.tryCommit(msg.Round) // FIXME should try the next step only after adding justifications from this step.
 		nextRound = msg.Round + 1
@@ -433,8 +435,7 @@ func (i *instance) decided() bool {
 }
 
 func (i *instance) broadcast(step string, msg net.ECChain) GMessage {
-	bottom := msg.IsZero()
-	gmsg := GMessage{i.instanceID, i.round, i.participantID, step, msg, bottom}
+	gmsg := GMessage{i.instanceID, i.round, i.participantID, step, msg}
 	i.ntwk.Broadcast(i.participantID, gmsg)
 	return gmsg
 }
