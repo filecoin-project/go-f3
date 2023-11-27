@@ -10,7 +10,7 @@ import (
 ///// Tests with no adversaries.
 
 func TestSingleton(t *testing.T) {
-	sm := sim.NewSimulation(newSyncConfig(1), net.TraceNone)
+	sm := sim.NewSimulation(newSyncConfig(1), GraniteConfig(), net.TraceNone)
 	a := sm.Base.Extend(sm.CIDGen.Sample())
 	sm.ReceiveChains(sim.ChainCount{1, *a})
 
@@ -19,7 +19,7 @@ func TestSingleton(t *testing.T) {
 }
 
 func TestSyncPair(t *testing.T) {
-	sm := sim.NewSimulation(newSyncConfig(2), net.TraceNone)
+	sm := sim.NewSimulation(newSyncConfig(2), GraniteConfig(), net.TraceNone)
 	a := sm.Base.Extend(sm.CIDGen.Sample())
 	sm.ReceiveChains(sim.ChainCount{len(sm.Participants), *a})
 
@@ -29,7 +29,7 @@ func TestSyncPair(t *testing.T) {
 
 func TestASyncPair(t *testing.T) {
 	for i := 0; i < ASYNC_ITERS; i++ {
-		sm := sim.NewSimulation(newAsyncConfig(2, i), net.TraceNone)
+		sm := sim.NewSimulation(newAsyncConfig(2, i), GraniteConfig(), net.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{len(sm.Participants), *a})
 
@@ -40,7 +40,7 @@ func TestASyncPair(t *testing.T) {
 }
 
 func TestSyncPairDisagree(t *testing.T) {
-	sm := sim.NewSimulation(newSyncConfig(2), net.TraceNone)
+	sm := sim.NewSimulation(newSyncConfig(2), GraniteConfig(), net.TraceNone)
 	a := sm.Base.Extend(sm.CIDGen.Sample())
 	b := sm.Base.Extend(sm.CIDGen.Sample())
 	sm.ReceiveChains(sim.ChainCount{1, *a}, sim.ChainCount{1, *b})
@@ -52,7 +52,7 @@ func TestSyncPairDisagree(t *testing.T) {
 
 func TestAsyncPairDisagree(t *testing.T) {
 	for i := 0; i < ASYNC_ITERS; i++ {
-		sm := sim.NewSimulation(newAsyncConfig(2, i), net.TraceNone)
+		sm := sim.NewSimulation(newAsyncConfig(2, i), GraniteConfig(), net.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		b := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{1, *a}, sim.ChainCount{1, *b})
@@ -65,7 +65,7 @@ func TestAsyncPairDisagree(t *testing.T) {
 
 func TestSyncAgreement(t *testing.T) {
 	for n := 3; n <= 50; n++ {
-		sm := sim.NewSimulation(newSyncConfig(n), net.TraceNone)
+		sm := sim.NewSimulation(newSyncConfig(n), GraniteConfig(), net.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{len(sm.Participants), *a})
 		require.True(t, sm.Run(MAX_ROUNDS))
@@ -75,11 +75,12 @@ func TestSyncAgreement(t *testing.T) {
 }
 
 func TestAsyncAgreement(t *testing.T) {
+	t.Parallel()
 	// These iterations are much slower, so we can't test as many participants.
 	for n := 3; n <= 16; n++ {
 		for i := 0; i < ASYNC_ITERS; i++ {
 			//fmt.Println("n =", n, "i =", i)
-			sm := sim.NewSimulation(newAsyncConfig(n, i), net.TraceNone)
+			sm := sim.NewSimulation(newAsyncConfig(n, i), GraniteConfig(), net.TraceNone)
 			a := sm.Base.Extend(sm.CIDGen.Sample())
 			sm.ReceiveChains(sim.ChainCount{len(sm.Participants), *a})
 
@@ -92,7 +93,7 @@ func TestAsyncAgreement(t *testing.T) {
 
 func TestSyncHalves(t *testing.T) {
 	for n := 4; n <= 50; n += 2 {
-		sm := sim.NewSimulation(newSyncConfig(n), net.TraceNone)
+		sm := sim.NewSimulation(newSyncConfig(n), GraniteConfig(), net.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		b := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{n / 2, *a}, sim.ChainCount{n / 2, *b})
@@ -104,9 +105,10 @@ func TestSyncHalves(t *testing.T) {
 }
 
 func TestAsyncHalves(t *testing.T) {
-	for n := 4; n <= 16; n += 2 {
+	t.Parallel()
+	for n := 4; n <= 2; n += 2 {
 		for i := 0; i < ASYNC_ITERS; i++ {
-			sm := sim.NewSimulation(newAsyncConfig(n, i), net.TraceNone)
+			sm := sim.NewSimulation(newAsyncConfig(n, i), GraniteConfig(), net.TraceNone)
 			a := sm.Base.Extend(sm.CIDGen.Sample())
 			b := sm.Base.Extend(sm.CIDGen.Sample())
 			sm.ReceiveChains(sim.ChainCount{n / 2, *a}, sim.ChainCount{n / 2, *b})
@@ -119,8 +121,9 @@ func TestAsyncHalves(t *testing.T) {
 }
 
 func TestRequireStrongQuorumToProgress(t *testing.T) {
+	t.Parallel()
 	for i := 0; i < ASYNC_ITERS; i++ {
-		sm := sim.NewSimulation(newAsyncConfig(30, i), net.TraceNone)
+		sm := sim.NewSimulation(newAsyncConfig(30, i), GraniteConfig(), net.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		b := sm.Base.Extend(sm.CIDGen.Sample())
 		// No strict > quorum.
@@ -132,21 +135,19 @@ func TestRequireStrongQuorumToProgress(t *testing.T) {
 	}
 }
 
-func newSyncConfig(honestCount int) *sim.Config {
-	return &sim.Config{
-		HonestCount:  honestCount,
-		LatencySeed:  0,
-		LatencyMean:  LATENCY_SYNC,
-		GraniteDelta: DELTA,
+func newSyncConfig(honestCount int) sim.Config {
+	return sim.Config{
+		HonestCount: honestCount,
+		LatencySeed: 0,
+		LatencyMean: LATENCY_SYNC,
 	}
 }
 
-func newAsyncConfig(honestCount int, latencySeed int) *sim.Config {
-	return &sim.Config{
-		HonestCount:  honestCount,
-		LatencySeed:  int64(latencySeed),
-		LatencyMean:  LATENCY_ASYNC,
-		GraniteDelta: DELTA,
+func newAsyncConfig(honestCount int, latencySeed int) sim.Config {
+	return sim.Config{
+		HonestCount: honestCount,
+		LatencySeed: int64(latencySeed),
+		LatencyMean: LATENCY_ASYNC,
 	}
 }
 

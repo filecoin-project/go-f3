@@ -10,12 +10,11 @@ import (
 
 func TestWitholdCommit1(t *testing.T) {
 	i := 0
-	sm := sim.NewSimulation(&sim.Config{
-		HonestCount:  7,
-		LatencySeed:  int64(i),
-		LatencyMean:  0.01, // Near-synchrony
-		GraniteDelta: DELTA,
-	}, net.TraceNone)
+	sm := sim.NewSimulation(sim.Config{
+		HonestCount: 7,
+		LatencySeed: int64(i),
+		LatencyMean: 0.01, // Near-synchrony
+	}, GraniteConfig(), net.TraceNone)
 	adv := adversary.NewWitholdCommit("A", sm.Network)
 	sm.SetAdversary(adv, 3) // Adversary has 30% of 10 total power.
 

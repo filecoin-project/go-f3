@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/anorth/f3sim/granite"
 	"github.com/anorth/f3sim/net"
 	"github.com/anorth/f3sim/sim"
 	"time"
@@ -13,9 +14,12 @@ func main() {
 	participantCount := flag.Int("participants", 3, "number of participants")
 	latencySeed := flag.Int64("latency-seed", time.Now().UnixMilli(), "random seed for network latency")
 	latencyMean := flag.Float64("latency-mean", 0.500, "mean network latency")
-	graniteDelta := flag.Float64("granite-delta", 3.000, "granite delta parameter")
 	maxRounds := flag.Int("max-rounds", 10, "max rounds to allow before failing")
 	traceLevel := flag.Int("trace", net.TraceNone, "trace verbosity level")
+
+	graniteDelta := flag.Float64("granite-delta", 6.000, "granite delta parameter")
+	graniteDeltaRate := flag.Float64("granite-delta-rate", 2.000, "change in delta for each round")
+
 	flag.Parse()
 
 	for i := 0; i < *iterations; i++ {
@@ -23,13 +27,16 @@ func main() {
 		seed := *latencySeed + int64(i)
 		fmt.Printf("Iteration %d: seed=%d, mean=%f\n", i, seed, *latencyMean)
 
-		cfg := sim.Config{
-			HonestCount:  *participantCount,
-			LatencySeed:  *latencySeed,
-			LatencyMean:  *latencyMean,
-			GraniteDelta: *graniteDelta,
+		simConfig := sim.Config{
+			HonestCount: *participantCount,
+			LatencySeed: *latencySeed,
+			LatencyMean: *latencyMean,
 		}
-		sm := sim.NewSimulation(&cfg, *traceLevel)
+		graniteConfig := granite.Config{
+			Delta:     *graniteDelta,
+			DeltaRate: *graniteDeltaRate,
+		}
+		sm := sim.NewSimulation(simConfig, graniteConfig, *traceLevel)
 
 		// Same chain for everyone.
 		candidate := sm.Base.Extend(sm.CIDGen.Sample())

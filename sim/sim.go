@@ -10,10 +10,9 @@ import (
 type Config struct {
 	// Honest participant count.
 	// Honest participants have one unit of power each.
-	HonestCount  int
-	LatencySeed  int64
-	LatencyMean  float64
-	GraniteDelta float64
+	HonestCount int
+	LatencySeed int64
+	LatencyMean float64
 }
 
 type Simulation struct {
@@ -26,16 +25,16 @@ type Simulation struct {
 
 type AdversaryFactory func(id string, ntwk net.NetworkSink) net.Receiver
 
-func NewSimulation(config *Config, traceLevel int) *Simulation {
+func NewSimulation(simConfig Config, graniteConfig granite.Config, traceLevel int) *Simulation {
 	// Create a network to deliver messages.
-	lat := net.NewLogNormal(config.LatencySeed, config.LatencyMean)
+	lat := net.NewLogNormal(simConfig.LatencySeed, simConfig.LatencyMean)
 	ntwk := net.New(lat, traceLevel)
 
 	// Create participants.
 	genesisPower := net.NewPowerTable()
-	participants := make([]*granite.Participant, config.HonestCount)
+	participants := make([]*granite.Participant, simConfig.HonestCount)
 	for i := 0; i < len(participants); i++ {
-		participants[i] = granite.NewParticipant(fmt.Sprintf("P%d", i), ntwk, config.GraniteDelta)
+		participants[i] = granite.NewParticipant(fmt.Sprintf("P%d", i), ntwk, graniteConfig)
 		ntwk.AddParticipant(participants[i])
 		genesisPower.Add(participants[i].ID(), 1)
 	}

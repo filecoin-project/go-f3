@@ -8,16 +8,18 @@ import (
 	"sort"
 )
 
-// TODO
-// - Implement message validation logic (or prove it unnecessary)
-// - Implement detection of equivocations
-// - Attempt to reduce lots of heavy ECChain copying by using pointers or head CIDs instead.
+type Config struct {
+	// Initial delay for partial synchrony.
+	Delta float64
+	// Change to delta in each round after the first.
+	DeltaRate float64
+}
 
 type Participant struct {
-	id    string
-	ntwk  net.NetworkSink
-	delta float64 // Message propagation time parameter
-	mpool []GMessage
+	id     string
+	ntwk   net.NetworkSink
+	config Config
+	mpool  []GMessage
 
 	// Chain to use as input for the next Granite instance.
 	nextChain net.ECChain
@@ -31,8 +33,8 @@ type Participant struct {
 	finalisedRound int
 }
 
-func NewParticipant(id string, ntwk net.NetworkSink, delta float64) *Participant {
-	return &Participant{id: id, ntwk: ntwk, delta: delta}
+func NewParticipant(id string, ntwk net.NetworkSink, config Config) *Participant {
+	return &Participant{id: id, ntwk: ntwk, config: config}
 }
 
 func (p *Participant) ID() string {
@@ -54,7 +56,7 @@ func (p *Participant) Finalised() (net.TipSet, int) {
 func (p *Participant) ReceiveCanonicalChain(chain net.ECChain) {
 	p.nextChain = chain
 	if p.granite == nil {
-		p.granite = newInstance(p.ntwk, p.id, p.nextInstance, p.delta, p.nextChain)
+		p.granite = newInstance(p.ntwk, p.id, p.nextInstance, p.config, p.nextChain)
 		p.granite.Start()
 		p.nextInstance += 1
 	}
@@ -117,7 +119,7 @@ type instance struct {
 	ntwk          net.NetworkSink
 	participantID string
 	instanceID    int
-	delta         float64
+	config        Config
 	// The EC chain input to this instance.
 	input net.ECChain
 	// Current round number.
@@ -149,12 +151,12 @@ type roundState struct {
 	committed *commitState
 }
 
-func newInstance(ntwk net.NetworkSink, participantID string, instanceID int, delta float64, input net.ECChain) *instance {
+func newInstance(ntwk net.NetworkSink, participantID string, instanceID int, config Config, input net.ECChain) *instance {
 	return &instance{
 		ntwk:          ntwk,
 		participantID: participantID,
 		instanceID:    instanceID,
-		delta:         delta,
+		config:        config,
 		input:         input,
 		round:         0,
 		phase:         "",
@@ -274,7 +276,7 @@ func (i *instance) receiveOne(msg GMessage) (int, string) {
 
 func (i *instance) receiveAlarm(payload string) {
 	if payload == QUALITY {
-		i.endQuality(i.round)
+		i.endQuality()
 	} else if payload == CONVERGE {
 		i.endConverge(i.round)
 	} else if payload == PREPARE {
@@ -287,10 +289,10 @@ func (i *instance) beginQuality() {
 	i.phase = QUALITY
 	msg := i.broadcast(QUALITY, i.input)
 	i.Receive(msg)
-	i.alarmAfter(QUALITY, 2*i.delta)
+	i.alarmAfterSynchrony(QUALITY)
 }
 
-func (i *instance) endQuality(round int) {
+func (i *instance) endQuality() {
 	allowed := i.quality.ListQuorumAgreedValues()
 	i.proposal = findFirstPrefixOf(allowed, i.proposal)
 	i.value = i.proposal
@@ -302,7 +304,7 @@ func (i *instance) beginConverge() {
 	i.phase = CONVERGE
 	msg := i.broadcast(CONVERGE, i.proposal)
 	i.Receive(msg)
-	i.alarmAfter(CONVERGE, 2*i.delta)
+	i.alarmAfterSynchrony(CONVERGE)
 }
 
 func (i *instance) endConverge(round int) {
@@ -321,10 +323,9 @@ func (i *instance) endConverge(round int) {
 func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE
-	i.prepareTimeout = i.ntwk.Time() + 2*i.delta
+	i.prepareTimeout = i.alarmAfterSynchrony(PREPARE)
 	msg := i.broadcast(PREPARE, i.value)
 	i.Receive(msg)
-	i.alarmAfter(PREPARE, 2*i.delta)
 }
 
 func (i *instance) tryPrepare(round int) {
@@ -438,8 +439,13 @@ func (i *instance) broadcast(step string, msg net.ECChain) GMessage {
 	return gmsg
 }
 
-func (i *instance) alarmAfter(payload string, delay float64) {
-	i.ntwk.SetAlarm(i.participantID, payload, i.ntwk.Time()+delay)
+// Sets an alarm to be delivered after a synchrony delay.
+// The delay duration increases with each round.
+// Returns the absolute time at which the alarm will fire.
+func (i *instance) alarmAfterSynchrony(payload string) float64 {
+	timeout := i.ntwk.Time() + i.config.Delta + (float64(i.round) * i.config.DeltaRate)
+	i.ntwk.SetAlarm(i.participantID, payload, timeout)
+	return timeout
 }
 
 func (i *instance) log(format string, args ...interface{}) {
