@@ -15,12 +15,18 @@ type Config struct {
 	DeltaRate float64
 }
 
+type VRFer interface {
+	VRFTicketSource
+	VRFTicketVerifier
+}
+
 type Participant struct {
 	id     string
-	ntwk   net.NetworkSink
 	config Config
-	mpool  []GMessage
+	ntwk   net.NetworkSink
+	vrf    VRFer
 
+	mpool []GMessage
 	// Chain to use as input for the next Granite instance.
 	nextChain net.ECChain
 	// Instance identifier for the next Granite instance.
@@ -33,8 +39,8 @@ type Participant struct {
 	finalisedRound int
 }
 
-func NewParticipant(id string, ntwk net.NetworkSink, config Config) *Participant {
-	return &Participant{id: id, ntwk: ntwk, config: config}
+func NewParticipant(id string, config Config, ntwk net.NetworkSink, vrf VRFer) *Participant {
+	return &Participant{id: id, config: config, ntwk: ntwk, vrf: vrf}
 }
 
 func (p *Participant) ID() string {
@@ -53,10 +59,10 @@ func (p *Participant) Finalised() (net.TipSet, int) {
 
 // Receives a new canonical EC chain for the instance.
 // This becomes the instance's preferred value to finalise.
-func (p *Participant) ReceiveCanonicalChain(chain net.ECChain) {
+func (p *Participant) ReceiveCanonicalChain(chain net.ECChain, beacon []byte) {
 	p.nextChain = chain
 	if p.granite == nil {
-		p.granite = newInstance(p.ntwk, p.id, p.nextInstance, p.config, p.nextChain)
+		p.granite = newInstance(p.config, p.ntwk, p.vrf, p.id, p.nextInstance, chain, beacon)
 		p.granite.Start()
 		p.nextInstance += 1
 	}
@@ -105,6 +111,7 @@ type GMessage struct {
 	Round    int
 	Sender   string
 	Step     string
+	Ticket   []byte
 	Value    net.ECChain
 }
 
@@ -115,12 +122,15 @@ func (m GMessage) String() string {
 
 // A single Granite consensus instance.
 type instance struct {
+	config        Config
 	ntwk          net.NetworkSink
+	vrf           VRFer
 	participantID string
 	instanceID    int
-	config        Config
 	// The EC chain input to this instance.
 	input net.ECChain
+	// The beacon value used for tickets in this instance.
+	beacon []byte
 	// Current round number.
 	round int
 	// Current phase in the round.
@@ -150,13 +160,15 @@ type roundState struct {
 	committed *commitState
 }
 
-func newInstance(ntwk net.NetworkSink, participantID string, instanceID int, config Config, input net.ECChain) *instance {
+func newInstance(config Config, ntwk net.NetworkSink, vrf VRFer, participantID string, instanceID int, input net.ECChain, beacon []byte) *instance {
 	return &instance{
+		config:        config,
 		ntwk:          ntwk,
+		vrf:           vrf,
 		participantID: participantID,
 		instanceID:    instanceID,
-		config:        config,
 		input:         input,
+		beacon:        beacon,
 		round:         0,
 		phase:         "",
 		proposal:      input,
@@ -241,8 +253,8 @@ func (i *instance) receiveOne(msg GMessage) (int, string) {
 		nextRound = msg.Round
 		// FIXME: quality is a gate for all phases, so all phases need to be reprocessed.
 		nextPhase = PREPARE
-	} else if msg.Step == CONVERGE && msg.Round > 0 {
-		// TODO: check ticket validity
+	} else if msg.Step == CONVERGE && msg.Round > 0 &&
+		i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Round, msg.Sender, msg.Ticket) {
 		// Collect messages until the alarm triggers the end of CONVERGE phase.
 		newAllowedValues = round.converged.Receive(msg.Sender, msg.Value)
 		nextRound = msg.Round
@@ -289,7 +301,7 @@ func (i *instance) receiveAlarm(payload string) {
 func (i *instance) beginQuality() {
 	// Broadcast input value and wait 2Δ to receive from others.
 	i.phase = QUALITY
-	msg := i.broadcast(QUALITY, i.input)
+	msg := i.broadcast(QUALITY, i.input, nil)
 	i.Receive(msg)
 	i.alarmAfterSynchrony(QUALITY)
 }
@@ -304,7 +316,8 @@ func (i *instance) endQuality() {
 
 func (i *instance) beginConverge() {
 	i.phase = CONVERGE
-	msg := i.broadcast(CONVERGE, i.proposal)
+	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
+	msg := i.broadcast(CONVERGE, i.proposal, ticket)
 	i.Receive(msg)
 	i.alarmAfterSynchrony(CONVERGE)
 }
@@ -326,7 +339,7 @@ func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE
 	i.prepareTimeout = i.alarmAfterSynchrony(PREPARE)
-	msg := i.broadcast(PREPARE, i.value)
+	msg := i.broadcast(PREPARE, i.value, nil)
 	i.Receive(msg)
 }
 
@@ -369,7 +382,7 @@ func (i *instance) tryPrepare(round int) {
 
 func (i *instance) beginCommit() {
 	i.phase = COMMIT
-	msg := i.broadcast(COMMIT, i.value)
+	msg := i.broadcast(COMMIT, i.value, nil)
 	i.Receive(msg)
 }
 
@@ -434,8 +447,8 @@ func (i *instance) decided() bool {
 	return i.phase == DECIDE
 }
 
-func (i *instance) broadcast(step string, msg net.ECChain) GMessage {
-	gmsg := GMessage{i.instanceID, i.round, i.participantID, step, msg}
+func (i *instance) broadcast(step string, value net.ECChain, ticket []byte) GMessage {
+	gmsg := GMessage{i.instanceID, i.round, i.participantID, step, ticket, value}
 	i.ntwk.Broadcast(i.participantID, gmsg)
 	return gmsg
 }

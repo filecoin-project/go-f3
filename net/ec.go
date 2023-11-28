@@ -209,5 +209,5 @@ func (c *ECChain) String() string {
 
 // Receives an updated EC chain.
 type ECReceiver interface {
-	ReceiveCanonicalChain(chain ECChain)
+	ReceiveCanonicalChain(chain ECChain, beacon []byte)
 }

@@ -19,7 +19,7 @@ func (a *Absent) ID() string {
 	return a.id
 }
 
-func (a *Absent) ReceiveCanonicalChain(_ net.ECChain) {
+func (a *Absent) ReceiveCanonicalChain(_ net.ECChain, _ []byte) {
 }
 
 func (a *Absent) ReceiveMessage(_ string, _ net.Message) {

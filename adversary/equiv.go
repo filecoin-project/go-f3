@@ -33,7 +33,7 @@ func (w *WitholdCommit) ID() string {
 	return w.id
 }
 
-func (w *WitholdCommit) ReceiveCanonicalChain(_ net.ECChain) {
+func (w *WitholdCommit) ReceiveCanonicalChain(_ net.ECChain, _ []byte) {
 }
 
 func (w *WitholdCommit) ReceiveMessage(_ string, _ net.Message) {

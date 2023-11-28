@@ -28,12 +28,13 @@ func NewSimulation(simConfig Config, graniteConfig granite.Config, traceLevel in
 	// Create a network to deliver messages.
 	lat := net.NewLogNormal(simConfig.LatencySeed, simConfig.LatencyMean)
 	ntwk := net.New(lat, traceLevel)
+	vrf := granite.NewFakeVRF()
 
 	// Create participants.
 	genesisPower := net.NewPowerTable()
 	participants := make([]*granite.Participant, simConfig.HonestCount)
 	for i := 0; i < len(participants); i++ {
-		participants[i] = granite.NewParticipant(fmt.Sprintf("P%d", i), ntwk, graniteConfig)
+		participants[i] = granite.NewParticipant(fmt.Sprintf("P%d", i), graniteConfig, ntwk, vrf)
 		ntwk.AddParticipant(participants[i])
 		genesisPower.Add(participants[i].ID(), 1)
 	}
@@ -64,9 +65,10 @@ type ChainCount struct {
 // Delivers canonical chains to honest participants.
 func (s *Simulation) ReceiveChains(chains ...ChainCount) {
 	pidx := 0
+	beacon := []byte("beacon")
 	for _, chain := range chains {
 		for i := 0; i < chain.Count; i++ {
-			s.Participants[pidx].ReceiveCanonicalChain(chain.Chain)
+			s.Participants[pidx].ReceiveCanonicalChain(chain.Chain, beacon)
 			pidx += 1
 		}
 	}
