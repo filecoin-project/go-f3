@@ -1,8 +1,6 @@
 package f3
 
 import (
-	"bytes"
-	"crypto/sha256"
 	"fmt"
 	"github.com/anorth/f3sim/net"
 	"sort"
@@ -31,7 +29,7 @@ type GMessage struct {
 	Round    int
 	Sender   string
 	Step     string
-	Ticket   []byte
+	Ticket   Ticket
 	Value    net.ECChain
 }
 
@@ -97,14 +95,14 @@ func newInstance(config GraniteConfig, ntwk net.NetworkSink, vrf VRFer, particip
 		validation:    newValidationQueue(input.Base.CID),
 		quality:       newQualityState(input.Base.CID, input.BasePowerTable),
 		rounds: map[int]*roundState{
-			0: newRoundState(0, input.BasePowerTable),
+			0: newRoundState(input.BasePowerTable),
 		},
 	}
 }
 
-func newRoundState(round int, powerTable net.PowerTable) *roundState {
+func newRoundState(powerTable net.PowerTable) *roundState {
 	return &roundState{
-		converged: newConvergeState(round),
+		converged: newConvergeState(),
 		prepared:  newPrepareState(powerTable),
 		committed: newCommitState(powerTable),
 	}
@@ -149,7 +147,7 @@ func (i *instance) drainInbox() {
 func (i *instance) receiveOne(msg GMessage) (int, string) {
 	round, ok := i.rounds[msg.Round]
 	if !ok {
-		round = newRoundState(msg.Round, i.input.BasePowerTable)
+		round = newRoundState(i.input.BasePowerTable)
 		i.rounds[msg.Round] = round
 	}
 
@@ -177,7 +175,7 @@ func (i *instance) receiveOne(msg GMessage) (int, string) {
 	} else if msg.Step == CONVERGE && msg.Round > 0 &&
 		i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Round, msg.Sender, msg.Ticket) {
 		// Collect messages until the alarm triggers the end of CONVERGE phase.
-		newAllowedValues = round.converged.Receive(msg.Sender, msg.Value)
+		newAllowedValues = round.converged.Receive(msg.Value, msg.Ticket)
 		nextRound = msg.Round
 		nextPhase = PREPARE
 	} else if msg.Step == PREPARE {
@@ -368,7 +366,7 @@ func (i *instance) decided() bool {
 	return i.phase == DECIDE
 }
 
-func (i *instance) broadcast(step string, value net.ECChain, ticket []byte) GMessage {
+func (i *instance) broadcast(step string, value net.ECChain, ticket Ticket) GMessage {
 	gmsg := GMessage{i.instanceID, i.round, i.participantID, step, ticket, value}
 	i.ntwk.Broadcast(i.participantID, gmsg)
 	return gmsg
@@ -803,26 +801,26 @@ func (c *commitState) ListAllValues() []net.ECChain {
 //// CONVERGE phase helpers /////
 
 type convergeState struct {
-	values  map[net.CID]net.ECChain
-	senders map[net.CID][]string
-	round   int
+	// Chains indexed by head CID
+	values map[net.CID]net.ECChain
+	// Tickets provided by proposers of each chain.
+	tickets map[net.CID][]Ticket
 }
 
-func newConvergeState(round int) *convergeState {
+func newConvergeState() *convergeState {
 	return &convergeState{
 		values:  map[net.CID]net.ECChain{},
-		senders: map[net.CID][]string{},
-		// TODO: remove round here when tickets are propagated with messages
-		round: round,
+		tickets: map[net.CID][]Ticket{},
 	}
 }
 
 // Receives a new CONVERGE value from a sender.
 // Returns values that are newly justified for the next phase: any value the first time it is received.
-func (c *convergeState) Receive(sender string, value net.ECChain) []net.ECChain {
-	_, found := c.values[value.Head().CID]
-	c.values[value.Head().CID] = value
-	c.senders[value.Head().CID] = append(c.senders[value.Head().CID], sender)
+func (c *convergeState) Receive(value net.ECChain, ticket Ticket) []net.ECChain {
+	key := value.Head().CID
+	_, found := c.values[key]
+	c.values[key] = value
+	c.tickets[key] = append(c.tickets[key], ticket)
 	if !found {
 		return []net.ECChain{value}
 	}
@@ -830,15 +828,12 @@ func (c *convergeState) Receive(sender string, value net.ECChain) []net.ECChain 
 }
 
 func (c *convergeState) findMinTicketProposal() net.ECChain {
-	var minTicket []byte
+	var minTicket Ticket
 	var minValue net.ECChain
-	// Emulate a ticket draw by hashing the sender and round number.
 	for cid, value := range c.values {
-		for _, sender := range c.senders[cid] {
-			input := fmt.Sprintf("%s%d", sender, c.round)
-			digest := sha256.Sum224([]byte(input))
-			if minTicket == nil || bytes.Compare(digest[:], minTicket[:]) < 0 {
-				minTicket = digest[:]
+		for _, ticket := range c.tickets[cid] {
+			if minTicket == nil || ticket.Compare(minTicket) < 0 {
+				minTicket = ticket
 				minValue = value
 			}
 		}
