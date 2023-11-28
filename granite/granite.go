@@ -20,6 +20,7 @@ type VRFer interface {
 	VRFTicketVerifier
 }
 
+// An F3 participant runs repeated instances of Granite to finalise longer chains.
 type Participant struct {
 	id     string
 	config Config
@@ -59,12 +60,12 @@ func (p *Participant) Finalised() (net.TipSet, int) {
 
 // Receives a new canonical EC chain for the instance.
 // This becomes the instance's preferred value to finalise.
-func (p *Participant) ReceiveCanonicalChain(chain net.ECChain, beacon []byte) {
+func (p *Participant) ReceiveCanonicalChain(chain net.ECChain) {
 	p.nextChain = chain
 	if p.granite == nil {
-		p.granite = newInstance(p.config, p.ntwk, p.vrf, p.id, p.nextInstance, chain, beacon)
-		p.granite.Start()
+		p.granite = newInstance(p.config, p.ntwk, p.vrf, p.id, p.nextInstance, chain)
 		p.nextInstance += 1
+		p.granite.Start()
 	}
 }
 
@@ -129,7 +130,9 @@ type instance struct {
 	instanceID    int
 	// The EC chain input to this instance.
 	input net.ECChain
-	// The beacon value used for tickets in this instance.
+	// The power table for the base chain, used for power in this instance.
+	powerTable net.PowerTable
+	// The beacon value from the base chain, used for tickets in this instance.
 	beacon []byte
 	// Current round number.
 	round int
@@ -160,7 +163,7 @@ type roundState struct {
 	committed *commitState
 }
 
-func newInstance(config Config, ntwk net.NetworkSink, vrf VRFer, participantID string, instanceID int, input net.ECChain, beacon []byte) *instance {
+func newInstance(config Config, ntwk net.NetworkSink, vrf VRFer, participantID string, instanceID int, input net.ECChain) *instance {
 	return &instance{
 		config:        config,
 		ntwk:          ntwk,
@@ -168,15 +171,14 @@ func newInstance(config Config, ntwk net.NetworkSink, vrf VRFer, participantID s
 		participantID: participantID,
 		instanceID:    instanceID,
 		input:         input,
-		beacon:        beacon,
 		round:         0,
 		phase:         "",
 		proposal:      input,
 		value:         net.ECChain{},
 		validation:    newValidationQueue(input.Base.CID),
-		quality:       newQualityState(input.Base.CID, input.Base.PowerTable),
+		quality:       newQualityState(input.Base.CID, input.BasePowerTable),
 		rounds: map[int]*roundState{
-			0: newRoundState(0, input.Base.PowerTable),
+			0: newRoundState(0, input.BasePowerTable),
 		},
 	}
 }
@@ -228,7 +230,7 @@ func (i *instance) drainInbox() {
 func (i *instance) receiveOne(msg GMessage) (int, string) {
 	round, ok := i.rounds[msg.Round]
 	if !ok {
-		round = newRoundState(msg.Round, i.input.Base.PowerTable)
+		round = newRoundState(msg.Round, i.input.BasePowerTable)
 		i.rounds[msg.Round] = round
 	}
 
@@ -944,7 +946,7 @@ func findFirstPrefixOf(candidates []net.ECChain, preferred net.ECChain) net.ECCh
 	if len(candidates) > 0 {
 		return candidates[0]
 	} else {
-		return *net.NewChain(preferred.Base)
+		return *preferred.BaseChain()
 	}
 }
 

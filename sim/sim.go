@@ -40,8 +40,8 @@ func NewSimulation(simConfig Config, graniteConfig granite.Config, traceLevel in
 	}
 
 	// Create genesis tipset, which all participants are expected to agree on as a base.
-	genesis := net.NewTipSet(100, "genesis", 1, genesisPower)
-	baseChain := net.NewChain(genesis)
+	genesis := net.NewTipSet(100, "genesis", 1)
+	baseChain := net.NewChain(genesis, genesisPower, []byte("beacon"))
 	return &Simulation{
 		Network:      ntwk,
 		Base:         baseChain,
@@ -54,7 +54,7 @@ func NewSimulation(simConfig Config, graniteConfig granite.Config, traceLevel in
 func (s *Simulation) SetAdversary(adv net.AdversaryReceiver, power uint) {
 	s.Adversary = adv
 	s.Network.AddParticipant(adv)
-	s.Base.Head().PowerTable.Add(adv.ID(), power)
+	s.Base.BasePowerTable.Add(adv.ID(), power)
 }
 
 type ChainCount struct {
@@ -65,10 +65,9 @@ type ChainCount struct {
 // Delivers canonical chains to honest participants.
 func (s *Simulation) ReceiveChains(chains ...ChainCount) {
 	pidx := 0
-	beacon := []byte("beacon")
 	for _, chain := range chains {
 		for i := 0; i < chain.Count; i++ {
-			s.Participants[pidx].ReceiveCanonicalChain(chain.Chain, beacon)
+			s.Participants[pidx].ReceiveCanonicalChain(chain.Chain)
 			pidx += 1
 		}
 	}

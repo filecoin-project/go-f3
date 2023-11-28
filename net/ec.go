@@ -30,25 +30,23 @@ func (p *PowerTable) Add(id string, power uint) {
 }
 
 type TipSet struct {
-	Epoch      int
-	CID        CID
-	Weight     uint
-	PowerTable PowerTable
+	Epoch  int
+	CID    CID
+	Weight uint
 }
 
 // Creates a new tipset.
-func NewTipSet(epoch int, cid CID, weight uint, powerTable PowerTable) TipSet {
+func NewTipSet(epoch int, cid CID, weight uint) TipSet {
 	return TipSet{
-		Epoch:      epoch,
-		CID:        cid,
-		Weight:     weight,
-		PowerTable: powerTable,
+		Epoch:  epoch,
+		CID:    cid,
+		Weight: weight,
 	}
 }
 
 // Checks whether a tipset is the zero value.
 func (t *TipSet) IsZero() bool {
-	return t.Epoch == 0 && t.CID == "" && t.Weight == 0 && len(t.PowerTable.Entries) == 0
+	return t.Epoch == 0 && t.CID == "" && t.Weight == 0
 }
 
 // Compares two tipsets by weight, breaking ties with CID.
@@ -66,8 +64,7 @@ func (t *TipSet) Compare(other *TipSet) int {
 func (t *TipSet) Eq(other *TipSet) bool {
 	return t.Epoch == other.Epoch &&
 		t.CID == other.CID &&
-		t.Weight == other.Weight &&
-		reflect.DeepEqual(t.PowerTable, other.PowerTable)
+		t.Weight == other.Weight
 }
 
 func (t *TipSet) String() string {
@@ -78,19 +75,27 @@ func (t *TipSet) String() string {
 	return b.String()
 }
 
-// An EC chain suffix.
+// An EC chain comprising a base tipset and (possibly empty) suffix.
+// The power table and beacon derived from the base tipset are included.
 type ECChain struct {
 	// The last finalised tipset on which this suffix is based.
 	Base TipSet
+	// Power table from the base tipset.
+	BasePowerTable PowerTable
+	// Random beacon from the base tipset.
+	BaseBeacon []byte
+
 	// Chain of tipsets after base, one per epoch.
 	// (Note a real implementation will have to handle empty tipsets somehow).
 	Suffix []TipSet
 }
 
-func NewChain(base TipSet, suffix ...TipSet) *ECChain {
+func NewChain(base TipSet, power PowerTable, beacon []byte, suffix ...TipSet) *ECChain {
 	return &ECChain{
-		Base:   base,
-		Suffix: suffix,
+		Base:           base,
+		BasePowerTable: power,
+		BaseBeacon:     beacon,
+		Suffix:         suffix,
 	}
 }
 
@@ -99,11 +104,11 @@ func (c *ECChain) IsZero() bool {
 }
 
 // Returns a copy of the base of a chain with no suffix.
+// Note that the power table and beacon are shallow copies.
 func (c *ECChain) BaseChain() *ECChain {
-	return &ECChain{
-		Base:   c.Base,
-		Suffix: nil,
-	}
+	base := *c
+	base.Suffix = nil
+	return &base
 }
 
 // Returns a pointer to the last tipset in the chain.
@@ -114,42 +119,23 @@ func (c *ECChain) Head() *TipSet {
 	return &c.Suffix[len(c.Suffix)-1]
 }
 
-// Returns a new chain extending this chain with one tipset and the same head power table.
+// Returns a new chain extending this chain with one tipset.
 func (c *ECChain) Extend(cid CID) *ECChain {
-	head := c.Head()
-	return &ECChain{
-		Base: c.Base,
-		Suffix: append(c.Suffix, TipSet{
-			Epoch:      head.Epoch + 1,
-			CID:        cid,
-			Weight:     head.Weight + 1,
-			PowerTable: head.PowerTable,
-		}),
-	}
-}
-
-func (c *ECChain) ExtendWith(cid CID, weight uint, powerTable PowerTable) *ECChain {
-	head := c.Head()
-	if weight < head.Weight {
-		panic("new tipset weight must be greater than current head weight")
-	}
-	return &ECChain{
-		Base: c.Base,
-		Suffix: append(c.Suffix, TipSet{
-			Epoch:      head.Epoch + 1,
-			CID:        cid,
-			Weight:     weight,
-			PowerTable: powerTable,
-		}),
-	}
+	base := *c
+	head := base.Head()
+	base.Suffix = append(base.Suffix, TipSet{
+		Epoch:  head.Epoch + 1,
+		CID:    cid,
+		Weight: head.Weight + 1,
+	})
+	return &base
 }
 
 // Returns a chain with suffix truncated to a maximum length.
 func (c *ECChain) Prefix(to int) *ECChain {
-	return &ECChain{
-		Base:   c.Base,
-		Suffix: c.Suffix[:to],
-	}
+	base := *c
+	base.Suffix = base.Suffix[:to]
+	return &base
 }
 
 // Compares two ECChains for equality.
@@ -209,5 +195,5 @@ func (c *ECChain) String() string {
 
 // Receives an updated EC chain.
 type ECReceiver interface {
-	ReceiveCanonicalChain(chain ECChain, beacon []byte)
+	ReceiveCanonicalChain(chain ECChain)
 }
