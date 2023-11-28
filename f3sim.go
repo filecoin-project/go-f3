@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/anorth/f3sim/granite"
+	"github.com/anorth/f3sim/f3"
 	"github.com/anorth/f3sim/net"
 	"github.com/anorth/f3sim/sim"
 	"time"
@@ -32,7 +32,7 @@ func main() {
 			LatencySeed: *latencySeed,
 			LatencyMean: *latencyMean,
 		}
-		graniteConfig := granite.Config{
+		graniteConfig := f3.GraniteConfig{
 			Delta:     *graniteDelta,
 			DeltaRate: *graniteDeltaRate,
 		}

@@ -1,6 +1,6 @@
 package test
 
-import "github.com/anorth/f3sim/granite"
+import "github.com/anorth/f3sim/f3"
 
 // Configuration constants used across most tests.
 // These values are not intended to reflect real-world conditions.
@@ -13,8 +13,8 @@ const MAX_ROUNDS = 10
 const ASYNC_ITERS = 5000
 
 // Returns a default Granite configuration.
-func GraniteConfig() granite.Config {
-	return granite.Config{
+func GraniteConfig() f3.GraniteConfig {
+	return f3.GraniteConfig{
 		Delta:     DELTA,
 		DeltaRate: DELTA_RATE,
 	}

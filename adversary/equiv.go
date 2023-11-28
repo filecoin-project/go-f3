@@ -1,7 +1,7 @@
 package adversary
 
 import (
-	"github.com/anorth/f3sim/granite"
+	"github.com/anorth/f3sim/f3"
 	"github.com/anorth/f3sim/net"
 )
 
@@ -45,31 +45,31 @@ func (w *WitholdCommit) ReceiveAlarm(_ string) {
 func (w *WitholdCommit) Begin() {
 	// All victims need to see QUALITY and PREPARE in order to send their COMMIT,
 	// but only the one victim will see our COMMIT.
-	w.ntwk.BroadcastSynchronous(w.id, granite.GMessage{
+	w.ntwk.BroadcastSynchronous(w.id, f3.GMessage{
 		Instance: 0,
 		Round:    0,
 		Sender:   w.id,
-		Step:     granite.QUALITY,
+		Step:     f3.QUALITY,
 		Value:    w.victimValue,
 	})
-	w.ntwk.BroadcastSynchronous(w.id, granite.GMessage{
+	w.ntwk.BroadcastSynchronous(w.id, f3.GMessage{
 		Instance: 0,
 		Round:    0,
 		Sender:   w.id,
-		Step:     granite.PREPARE,
+		Step:     f3.PREPARE,
 		Value:    w.victimValue,
 	})
-	w.ntwk.BroadcastSynchronous(w.id, granite.GMessage{
+	w.ntwk.BroadcastSynchronous(w.id, f3.GMessage{
 		Instance: 0,
 		Round:    0,
 		Sender:   w.id,
-		Step:     granite.COMMIT,
+		Step:     f3.COMMIT,
 		Value:    w.victimValue,
 	})
 }
 
 func (w *WitholdCommit) AllowMessage(_ string, to string, msg net.Message) bool {
-	gmsg, ok := msg.(granite.GMessage)
+	gmsg, ok := msg.(f3.GMessage)
 	if ok {
 		toMainVictim := to == w.victims[0]
 		toAnyVictim := false
@@ -78,17 +78,17 @@ func (w *WitholdCommit) AllowMessage(_ string, to string, msg net.Message) bool 
 				toAnyVictim = true
 			}
 		}
-		if gmsg.Step == granite.QUALITY {
+		if gmsg.Step == f3.QUALITY {
 			// Don't allow victims to see dissenting QUALITY.
 			if toAnyVictim && !gmsg.Value.Eq(&w.victimValue) {
 				return false
 			}
-		} else if gmsg.Step == granite.PREPARE {
+		} else if gmsg.Step == f3.PREPARE {
 			// Don't allow victims to see dissenting PREPARE.
 			if toAnyVictim && !gmsg.Value.Eq(&w.victimValue) {
 				return false
 			}
-		} else if gmsg.Step == granite.COMMIT {
+		} else if gmsg.Step == f3.COMMIT {
 			// Allow only the main victim to see our COMMIT.
 			if !toMainVictim && gmsg.Sender == w.id {
 				return false

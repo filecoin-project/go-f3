@@ -2,7 +2,7 @@ package sim
 
 import (
 	"fmt"
-	"github.com/anorth/f3sim/granite"
+	"github.com/anorth/f3sim/f3"
 	"github.com/anorth/f3sim/net"
 )
 
@@ -16,7 +16,7 @@ type Config struct {
 
 type Simulation struct {
 	Network      *net.Network
-	Participants []*granite.Participant
+	Participants []*f3.Participant
 	Adversary    net.AdversaryReceiver
 	Base         *net.ECChain
 	CIDGen       *CIDGen
@@ -24,17 +24,17 @@ type Simulation struct {
 
 type AdversaryFactory func(id string, ntwk net.NetworkSink) net.Receiver
 
-func NewSimulation(simConfig Config, graniteConfig granite.Config, traceLevel int) *Simulation {
+func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel int) *Simulation {
 	// Create a network to deliver messages.
 	lat := net.NewLogNormal(simConfig.LatencySeed, simConfig.LatencyMean)
 	ntwk := net.New(lat, traceLevel)
-	vrf := granite.NewFakeVRF()
+	vrf := f3.NewFakeVRF()
 
 	// Create participants.
 	genesisPower := net.NewPowerTable()
-	participants := make([]*granite.Participant, simConfig.HonestCount)
+	participants := make([]*f3.Participant, simConfig.HonestCount)
 	for i := 0; i < len(participants); i++ {
-		participants[i] = granite.NewParticipant(fmt.Sprintf("P%d", i), graniteConfig, ntwk, vrf)
+		participants[i] = f3.NewParticipant(fmt.Sprintf("P%d", i), graniteConfig, ntwk, vrf)
 		ntwk.AddParticipant(participants[i])
 		genesisPower.Add(participants[i].ID(), 1)
 	}
