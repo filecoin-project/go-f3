@@ -12,30 +12,30 @@ type Message interface{}
 
 // Receives a consensus message.
 type MessageReceiver interface {
-	ReceiveMessage(sender string, msg Message)
+	ReceiveMessage(sender ActorID, msg Message)
 	ReceiveAlarm(payload string)
 }
 
 // Interface which network participants must implement.
 type Receiver interface {
-	ID() string
+	ID() ActorID
 	ECReceiver
 	MessageReceiver
 }
 
 type AdversaryReceiver interface {
 	Receiver
-	AllowMessage(from string, to string, msg Message) bool
+	AllowMessage(from ActorID, to ActorID, msg Message) bool
 }
 
 // Endpoint to which participants can send messages to others
 type NetworkSink interface {
 	// Sends a message to all other participants.
-	Broadcast(sender string, msg Message)
+	Broadcast(sender ActorID, msg Message)
 	// Returns the current network time.
 	Time() float64
 	// Sets an alarm to fire at the given timestamp.
-	SetAlarm(sender string, payload string, at float64)
+	SetAlarm(sender ActorID, payload string, at float64)
 	// Logs a message at the "logic" level
 	Log(format string, args ...interface{})
 }
@@ -46,7 +46,7 @@ type AdversaryNetworkSink interface {
 	// Sends a message to all other participants, immediately.
 	// Note that the adversary can subsequently delay delivery to some participants,
 	// before messages are actually received.
-	BroadcastSynchronous(sender string, msg Message)
+	BroadcastSynchronous(sender ActorID, msg Message)
 }
 
 const (
@@ -59,9 +59,9 @@ const (
 
 type Network struct {
 	// Participants by ID.
-	participants map[string]Receiver
+	participants map[ActorID]Receiver
 	// Participant IDs for deterministic iteration
-	participantIDs []string
+	participantIDs []ActorID
 	// Messages received by the network but not yet delivered to all participants.
 	queue   messageQueue
 	latency LatencyModel
@@ -75,8 +75,8 @@ type Network struct {
 
 func New(latency LatencyModel, traceLevel int) *Network {
 	return &Network{
-		participants:               map[string]Receiver{},
-		participantIDs:             []string{},
+		participants:               map[ActorID]Receiver{},
+		participantIDs:             []ActorID{},
 		queue:                      messageQueue{},
 		clock:                      0,
 		latency:                    latency,
@@ -93,8 +93,8 @@ func (n *Network) AddParticipant(p Receiver) {
 	n.participants[p.ID()] = p
 }
 
-func (n *Network) Broadcast(sender string, msg Message) {
-	n.log(TraceSent, "%s ↗ %v", sender, msg)
+func (n *Network) Broadcast(sender ActorID, msg Message) {
+	n.log(TraceSent, "P%d ↗ %v", sender, msg)
 	for _, k := range n.participantIDs {
 		if k != sender {
 			latency := n.latency.Sample()
@@ -113,7 +113,7 @@ func (n *Network) Time() float64 {
 	return n.clock
 }
 
-func (n *Network) SetAlarm(sender string, payload string, at float64) {
+func (n *Network) SetAlarm(sender ActorID, payload string, at float64) {
 	n.queue.Insert(messageInFlight{
 		source:    sender,
 		dest:      sender,
@@ -128,8 +128,8 @@ func (n *Network) Log(format string, args ...interface{}) {
 
 ///// Adversary network interface
 
-func (n *Network) BroadcastSynchronous(sender string, msg Message) {
-	n.log(TraceSent, "%s ↗ %v", sender, msg)
+func (n *Network) BroadcastSynchronous(sender ActorID, msg Message) {
+	n.log(TraceSent, "P%d ↗ %v", sender, msg)
 	for _, k := range n.participantIDs {
 		if k != sender {
 			n.queue.Insert(
@@ -165,10 +165,10 @@ func (n *Network) Tick(adv AdversaryReceiver) bool {
 	n.clock = msg.deliverAt
 	payloadStr, ok := msg.payload.(string)
 	if ok && strings.HasPrefix(payloadStr, "ALARM:") {
-		n.log(TraceRecvd, "%s %s", msg.source, payloadStr)
+		n.log(TraceRecvd, "P%d %s", msg.source, payloadStr)
 		n.participants[msg.dest].ReceiveAlarm(strings.TrimPrefix(payloadStr, "ALARM:"))
 	} else {
-		n.log(TraceRecvd, "%s ← %s: %v", msg.dest, msg.source, msg.payload)
+		n.log(TraceRecvd, "P%d ← P%d: %v", msg.dest, msg.source, msg.payload)
 		n.participants[msg.dest].ReceiveMessage(msg.source, msg.payload)
 	}
 	return len(n.queue) > 0
@@ -183,8 +183,8 @@ func (n *Network) log(level int, format string, args ...interface{}) {
 }
 
 type messageInFlight struct {
-	source    string  // ID of the sender
-	dest      string  // ID of the receiver
+	source    ActorID // ID of the sender
+	dest      ActorID // ID of the receiver
 	payload   Message // Message body
 	deliverAt float64 // Timestamp at which to deliver the message
 }

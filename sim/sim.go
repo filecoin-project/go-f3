@@ -34,7 +34,7 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 	genesisPower := net.NewPowerTable()
 	participants := make([]*f3.Participant, simConfig.HonestCount)
 	for i := 0; i < len(participants); i++ {
-		participants[i] = f3.NewParticipant(fmt.Sprintf("P%d", i), graniteConfig, ntwk, vrf)
+		participants[i] = f3.NewParticipant(net.ActorID(i), graniteConfig, ntwk, vrf)
 		ntwk.AddParticipant(participants[i])
 		genesisPower.Add(participants[i].ID(), 1)
 	}

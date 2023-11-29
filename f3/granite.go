@@ -27,7 +27,7 @@ const DECIDE = "DECIDE"
 type GMessage struct {
 	Instance int
 	Round    int
-	Sender   string
+	Sender   net.ActorID
 	Step     string
 	Ticket   Ticket
 	Value    net.ECChain
@@ -43,7 +43,7 @@ type instance struct {
 	config        GraniteConfig
 	ntwk          net.NetworkSink
 	vrf           VRFer
-	participantID string
+	participantID net.ActorID
 	instanceID    int
 	// The EC chain input to this instance.
 	input net.ECChain
@@ -80,7 +80,7 @@ type roundState struct {
 	committed *commitState
 }
 
-func newInstance(config GraniteConfig, ntwk net.NetworkSink, vrf VRFer, participantID string, instanceID int, input net.ECChain) *instance {
+func newInstance(config GraniteConfig, ntwk net.NetworkSink, vrf VRFer, participantID net.ActorID, instanceID int, input net.ECChain) *instance {
 	return &instance{
 		config:        config,
 		ntwk:          ntwk,
@@ -383,7 +383,7 @@ func (i *instance) alarmAfterSynchrony(payload string) float64 {
 
 func (i *instance) log(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
-	i.ntwk.Log("%s/%d: %v", i.participantID, i.instanceID, msg)
+	i.ntwk.Log("%d/%d: %v", i.participantID, i.instanceID, msg)
 }
 
 ///// Message validation/justification helpers /////
@@ -501,7 +501,7 @@ func (v *validationQueue) PopJustified(round int, phase string) []GMessage {
 // Supports receiving multiple values from each sender, and hence multiple strong quorum values.
 type quorumState struct {
 	// CID of each chain received, by sender. Allows detecting and ignoring duplicates.
-	received map[string]senderSent
+	received map[net.ActorID]senderSent
 	// The power supporting each chain so far.
 	chainPower map[net.CID]chainPower
 	// Set of chains that have reached the threshold power so far.
@@ -528,7 +528,7 @@ type chainPower struct {
 // Creates a new, empty quorum state.
 func newQuorumState(powerTable net.PowerTable) *quorumState {
 	return &quorumState{
-		received:            map[string]senderSent{},
+		received:            map[net.ActorID]senderSent{},
 		chainPower:          map[net.CID]chainPower{},
 		withQuorumAgreement: map[net.CID]struct{}{},
 		sendersTotalPower:   0,
@@ -538,7 +538,7 @@ func newQuorumState(powerTable net.PowerTable) *quorumState {
 
 // Receives a new chain from a sender.
 // Returns whether the chain produced a new quorum in agreement on that chain (can be true multiple times).
-func (q *quorumState) Receive(sender string, value net.ECChain) bool {
+func (q *quorumState) Receive(sender net.ActorID, value net.ECChain) bool {
 	threshold := q.powerTable.Total * 2 / 3
 
 	head := value.Head().CID
@@ -642,7 +642,7 @@ func newQualityState(base net.CID, powerTable net.PowerTable) *qualityState {
 // Receives a new QUALITY value from a sender.
 // Returns a collection of chains (including prefixes) that reached quorum as a result of the new value,
 // and did not have quorum before.
-func (q *qualityState) Receive(sender string, value net.ECChain) []net.ECChain {
+func (q *qualityState) Receive(sender net.ActorID, value net.ECChain) []net.ECChain {
 	var newlyAllowed []net.ECChain
 	// Add each non-empty prefix of the chain to the quorum state.
 	for j := range value.Suffix {
@@ -690,7 +690,7 @@ func newPrepareState(power net.PowerTable) *prepareState {
 // Returns values that are newly justified for the next phase:
 // - a chain that reached strong quorum as a result of the new value,
 // - bottom if the collection created a disagreeing quorum,
-func (p *prepareState) Receive(sender string, value net.ECChain) []net.ECChain {
+func (p *prepareState) Receive(sender net.ActorID, value net.ECChain) []net.ECChain {
 	wasBelowQuorum := !p.chains.ReceivedFromQuorum()
 	wasInAgreement := p.chains.HasAgreement()
 
@@ -751,7 +751,7 @@ func newCommitState(power net.PowerTable) *commitState {
 // Returns values that are newly justified for the next phase:
 // - any value contained in commits
 // - anything, if commits agreed on ⏊
-func (c *commitState) Receive(sender string, value net.ECChain) []net.ECChain {
+func (c *commitState) Receive(sender net.ActorID, value net.ECChain) []net.ECChain {
 	seenValue := c.chains.HasReceived(&value)
 	hadQuorum := c.chains.ReceivedFromQuorum()
 	foundQuorumValue := c.chains.Receive(sender, value)

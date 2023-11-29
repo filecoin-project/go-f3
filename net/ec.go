@@ -6,22 +6,23 @@ import (
 	"strings"
 )
 
+type ActorID uint64
 type CID = string
 
 // A power table maps participant IDs to power values.
 type PowerTable struct {
-	Entries map[string]uint
+	Entries map[ActorID]uint
 	Total   uint
 }
 
 func NewPowerTable() PowerTable {
 	return PowerTable{
-		Entries: map[string]uint{},
+		Entries: map[ActorID]uint{},
 		Total:   0,
 	}
 }
 
-func (p *PowerTable) Add(id string, power uint) {
+func (p *PowerTable) Add(id ActorID, power uint) {
 	if p.Entries[id] != 0 {
 		panic("duplicate power entry")
 	}

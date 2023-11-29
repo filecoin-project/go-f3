@@ -4,7 +4,7 @@ import "github.com/anorth/f3sim/net"
 
 // An F3 participant runs repeated instances of Granite to finalise longer chains.
 type Participant struct {
-	id     string
+	id     net.ActorID
 	config GraniteConfig
 	ntwk   net.NetworkSink
 	vrf    VRFer
@@ -22,11 +22,11 @@ type Participant struct {
 	finalisedRound int
 }
 
-func NewParticipant(id string, config GraniteConfig, ntwk net.NetworkSink, vrf VRFer) *Participant {
+func NewParticipant(id net.ActorID, config GraniteConfig, ntwk net.NetworkSink, vrf VRFer) *Participant {
 	return &Participant{id: id, config: config, ntwk: ntwk, vrf: vrf}
 }
 
-func (p *Participant) ID() string {
+func (p *Participant) ID() net.ActorID {
 	return p.id
 }
 
@@ -52,7 +52,7 @@ func (p *Participant) ReceiveCanonicalChain(chain net.ECChain) {
 }
 
 // Receives a Granite message from some other participant.
-func (p *Participant) ReceiveMessage(_ string, msg net.Message) {
+func (p *Participant) ReceiveMessage(_ net.ActorID, msg net.Message) {
 	gmsg := msg.(GMessage)
 	if p.granite != nil && gmsg.Instance == p.granite.instanceID {
 		p.granite.Receive(gmsg)
