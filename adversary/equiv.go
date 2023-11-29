@@ -33,7 +33,7 @@ func (w *WitholdCommit) ID() net.ActorID {
 	return w.id
 }
 
-func (w *WitholdCommit) ReceiveCanonicalChain(_ net.ECChain) {
+func (w *WitholdCommit) ReceiveCanonicalChain(_ net.ECChain, _ net.PowerTable, _ []byte) {
 }
 
 func (w *WitholdCommit) ReceiveMessage(_ net.ActorID, _ net.Message) {

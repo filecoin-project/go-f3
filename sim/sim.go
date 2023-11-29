@@ -16,9 +16,11 @@ type Config struct {
 
 type Simulation struct {
 	Network      *net.Network
+	Base         *net.ECChain
+	PowerTable   net.PowerTable
+	Beacon       []byte
 	Participants []*f3.Participant
 	Adversary    net.AdversaryReceiver
-	Base         *net.ECChain
 	CIDGen       *CIDGen
 }
 
@@ -41,10 +43,12 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 
 	// Create genesis tipset, which all participants are expected to agree on as a base.
 	genesis := net.NewTipSet(100, "genesis", 1)
-	baseChain := net.NewChain(genesis, genesisPower, []byte("beacon"))
+	baseChain := net.NewChain(genesis /*, genesisPower, []byte("beacon")*/)
 	return &Simulation{
 		Network:      ntwk,
 		Base:         baseChain,
+		PowerTable:   genesisPower,
+		Beacon:       []byte("beacon"),
 		Participants: participants,
 		Adversary:    nil,
 		CIDGen:       NewCIDGen(0x264803e715714f95), // Seed from Drand
@@ -54,7 +58,7 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 func (s *Simulation) SetAdversary(adv net.AdversaryReceiver, power uint) {
 	s.Adversary = adv
 	s.Network.AddParticipant(adv)
-	s.Base.BasePowerTable.Add(adv.ID(), power)
+	s.PowerTable.Add(adv.ID(), power)
 }
 
 type ChainCount struct {
@@ -67,7 +71,7 @@ func (s *Simulation) ReceiveChains(chains ...ChainCount) {
 	pidx := 0
 	for _, chain := range chains {
 		for i := 0; i < chain.Count; i++ {
-			s.Participants[pidx].ReceiveCanonicalChain(chain.Chain)
+			s.Participants[pidx].ReceiveCanonicalChain(chain.Chain, s.PowerTable, s.Beacon)
 			pidx += 1
 		}
 	}

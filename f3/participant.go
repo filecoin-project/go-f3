@@ -42,10 +42,10 @@ func (p *Participant) Finalised() (net.TipSet, int) {
 
 // Receives a new canonical EC chain for the instance.
 // This becomes the instance's preferred value to finalise.
-func (p *Participant) ReceiveCanonicalChain(chain net.ECChain) {
+func (p *Participant) ReceiveCanonicalChain(chain net.ECChain, power net.PowerTable, beacon []byte) {
 	p.nextChain = chain
 	if p.granite == nil {
-		p.granite = newInstance(p.config, p.ntwk, p.vrf, p.id, p.nextInstance, chain)
+		p.granite = newInstance(p.config, p.ntwk, p.vrf, p.id, p.nextInstance, chain, power, beacon)
 		p.nextInstance += 1
 		p.granite.Start()
 	}

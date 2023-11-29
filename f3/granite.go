@@ -80,7 +80,15 @@ type roundState struct {
 	committed *commitState
 }
 
-func newInstance(config GraniteConfig, ntwk net.NetworkSink, vrf VRFer, participantID net.ActorID, instanceID int, input net.ECChain) *instance {
+func newInstance(
+	config GraniteConfig,
+	ntwk net.NetworkSink,
+	vrf VRFer,
+	participantID net.ActorID,
+	instanceID int,
+	input net.ECChain,
+	powerTable net.PowerTable,
+	beacon []byte) *instance {
 	return &instance{
 		config:        config,
 		ntwk:          ntwk,
@@ -88,14 +96,16 @@ func newInstance(config GraniteConfig, ntwk net.NetworkSink, vrf VRFer, particip
 		participantID: participantID,
 		instanceID:    instanceID,
 		input:         input,
+		powerTable:    powerTable,
+		beacon:        beacon,
 		round:         0,
 		phase:         "",
 		proposal:      input,
 		value:         net.ECChain{},
 		validation:    newValidationQueue(input.Base.CID),
-		quality:       newQualityState(input.Base.CID, input.BasePowerTable),
+		quality:       newQualityState(input.Base.CID, powerTable),
 		rounds: map[int]*roundState{
-			0: newRoundState(input.BasePowerTable),
+			0: newRoundState(powerTable),
 		},
 	}
 }
@@ -147,7 +157,7 @@ func (i *instance) drainInbox() {
 func (i *instance) receiveOne(msg GMessage) (int, string) {
 	round, ok := i.rounds[msg.Round]
 	if !ok {
-		round = newRoundState(i.input.BasePowerTable)
+		round = newRoundState(i.powerTable)
 		i.rounds[msg.Round] = round
 	}
 

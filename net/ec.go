@@ -81,22 +81,15 @@ func (t *TipSet) String() string {
 type ECChain struct {
 	// The last finalised tipset on which this suffix is based.
 	Base TipSet
-	// Power table from the base tipset.
-	BasePowerTable PowerTable
-	// Random beacon from the base tipset.
-	BaseBeacon []byte
-
 	// Chain of tipsets after base, one per epoch.
 	// (Note a real implementation will have to handle empty tipsets somehow).
 	Suffix []TipSet
 }
 
-func NewChain(base TipSet, power PowerTable, beacon []byte, suffix ...TipSet) *ECChain {
+func NewChain(base TipSet, suffix ...TipSet) *ECChain {
 	return &ECChain{
-		Base:           base,
-		BasePowerTable: power,
-		BaseBeacon:     beacon,
-		Suffix:         suffix,
+		Base:   base,
+		Suffix: suffix,
 	}
 }
 
@@ -196,5 +189,5 @@ func (c *ECChain) String() string {
 
 // Receives an updated EC chain.
 type ECReceiver interface {
-	ReceiveCanonicalChain(chain ECChain)
+	ReceiveCanonicalChain(chain ECChain, power PowerTable, beacon []byte)
 }
