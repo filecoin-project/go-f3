@@ -89,6 +89,9 @@ func newInstance(
 	input net.ECChain,
 	powerTable net.PowerTable,
 	beacon []byte) *instance {
+	if input.IsZero() {
+		panic("input is empty")
+	}
 	return &instance{
 		config:        config,
 		ntwk:          ntwk,
@@ -102,8 +105,8 @@ func newInstance(
 		phase:         "",
 		proposal:      input,
 		value:         net.ECChain{},
-		validation:    newValidationQueue(input.Base.CID),
-		quality:       newQualityState(input.Base.CID, powerTable),
+		validation:    newValidationQueue(input.Base().CID),
+		quality:       newQualityState(input.Base().CID, powerTable),
 		rounds: map[int]*roundState{
 			0: newRoundState(powerTable),
 		},
@@ -161,13 +164,13 @@ func (i *instance) receiveOne(msg GMessage) (int, string) {
 		i.rounds[msg.Round] = round
 	}
 
-	if !(msg.Value.IsZero() || msg.Value.Base.Eq(&i.input.Base)) {
-		panic(fmt.Sprintf("unexpected message base chain %s", &msg.Value.Base))
+	if !(msg.Value.IsZero() || msg.Value.HasBase(i.input.Base())) {
+		panic(fmt.Sprintf("unexpected base %s", &msg.Value))
 	}
 	// A message must have both
 	// - value allowed by the QUALITY phase, and
 	// - justification from tne previous phase
-	if !((msg.Step == QUALITY || i.quality.AllowsValue(msg.Value.Head().CID)) && i.validation.IsJustified(&msg)) {
+	if !((msg.Step == QUALITY || i.quality.AllowsValue(msg.Value)) && i.validation.IsJustified(&msg)) {
 		i.validation.Enqueue(msg)
 		return 0, ""
 	}
@@ -208,7 +211,7 @@ func (i *instance) receiveOne(msg GMessage) (int, string) {
 			// Bottom as an allowed value is a sentinel for justifying any CONVERGE.
 			i.validation.JustifyAll(nextRound, nextPhase)
 		} else {
-			i.validation.AddJustified(nextRound, nextPhase, v.Head().CID)
+			i.validation.AddJustified(nextRound, nextPhase, v.HeadCIDOrZero())
 		}
 	}
 	if len(newAllowedValues) > 0 {
@@ -253,8 +256,8 @@ func (i *instance) beginConverge() {
 
 func (i *instance) endConverge(round int) {
 	i.value = i.rounds[round].converged.findMinTicketProposal()
-	if i.isAcceptable(&i.value) {
-		if !i.value.Eq(&i.proposal) {
+	if i.isAcceptable(i.value) {
+		if !i.value.Eq(i.proposal) {
 			i.proposal = i.value
 			i.log("adopting proposal %s after converge", &i.proposal)
 		}
@@ -290,7 +293,7 @@ func (i *instance) tryPrepare(round int) {
 		}
 
 		// INCENTIVE-COMPATIBLE: Only commit a value equal to this node's proposal.
-		if v.Eq(&i.proposal) {
+		if v.Eq(i.proposal) {
 			i.value = i.proposal
 		} else {
 			// Update our proposal for next round to accept a prefix of it, if that gained quorum, else baseChain.
@@ -335,10 +338,10 @@ func (i *instance) tryCommit(round int) {
 			// (There can only be one, since they needed to see a strong quorum of PREPARE to commit it).
 			for _, v := range committed.ListAllValues() {
 				if !v.IsZero() {
-					if !i.isAcceptable(&v) {
+					if !i.isAcceptable(v) {
 						i.log("⚠️ swaying from %s to %s by COMMIT", &i.input, &v)
 					}
-					if !v.Eq(&i.proposal) {
+					if !v.Eq(i.proposal) {
 						i.proposal = v
 						i.log("adopting proposal %s after commit", &i.proposal)
 					}
@@ -359,7 +362,7 @@ func (i *instance) beginNextRound() {
 
 // Returns whether a chain is acceptable as a proposal for this instance to vote for.
 // This is "EC Compatible" in the pseudocode.
-func (i *instance) isAcceptable(c *net.ECChain) bool {
+func (i *instance) isAcceptable(c net.ECChain) bool {
 	// TODO: expand to include subsequently notified chains.
 	return i.input.HasPrefix(c)
 }
@@ -393,7 +396,7 @@ func (i *instance) alarmAfterSynchrony(payload string) float64 {
 
 func (i *instance) log(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
-	i.ntwk.Log("%d/%d: %v", i.participantID, i.instanceID, msg)
+	i.ntwk.Log("P%d/%d: %v", i.participantID, i.instanceID, msg)
 }
 
 ///// Message validation/justification helpers /////
@@ -439,13 +442,13 @@ func (v *validationQueue) IsJustified(msg *GMessage) bool {
 	if msg.Round == 0 && msg.Step == PREPARE {
 		return true
 	}
-	// PREPARE for base chain is always justified.
-	if msg.Step == PREPARE && msg.Value.Base.CID == v.base {
+	// PREPARE for base chain or bottom is always justified.
+	if msg.Step == PREPARE && (msg.Value.IsZero() || msg.Value.Base().CID == v.base) {
 		return true
 	}
 	if rv, ok := v.rounds[msg.Round]; ok {
 		if pv, ok := rv[msg.Step]; ok {
-			_, ok := pv.justified[msg.Value.Head().CID]
+			_, ok := pv.justified[msg.Value.HeadCIDOrZero()]
 			ok = ok || pv.justifiesAll
 			return ok
 		}
@@ -470,6 +473,26 @@ func (v *validationQueue) Enqueue(msg GMessage) {
 	pv.pending = append(pv.pending, msg)
 }
 
+func (v *validationQueue) PopJustified(round int, phase string) []GMessage {
+	if phase == QUALITY {
+		return nil
+	}
+	pv := v.getPhase(round, phase)
+	var justified []GMessage
+	// Remove all justified entries, in-place.
+	n := 0
+	for _, msg := range pv.pending {
+		if v.IsJustified(&msg) {
+			justified = append(justified, msg)
+		} else {
+			pv.pending[n] = msg
+			n += 1
+		}
+	}
+	pv.pending = pv.pending[:n]
+	return justified
+}
+
 func (v *validationQueue) getPhase(round int, phase string) *phaseValidationQueue {
 	var rv map[string]*phaseValidationQueue
 	rv, ok := v.rounds[round]
@@ -484,26 +507,6 @@ func (v *validationQueue) getPhase(round int, phase string) *phaseValidationQueu
 
 	pv := rv[phase]
 	return pv
-}
-
-func (v *validationQueue) PopJustified(round int, phase string) []GMessage {
-	if phase == QUALITY {
-		return nil
-	}
-	pv := v.getPhase(round, phase)
-	var justified []GMessage
-	// Remove all justified entries, in-place.
-	n := 0
-	for _, msg := range pv.pending {
-		if _, ok := pv.justified[msg.Value.Head().CID]; ok {
-			justified = append(justified, msg)
-		} else {
-			pv.pending[n] = msg
-			n += 1
-		}
-	}
-	pv.pending = pv.pending[:n]
-	return justified
 }
 
 // Accumulates values from a collection of senders and incrementally calculates
@@ -551,7 +554,7 @@ func newQuorumState(powerTable net.PowerTable) *quorumState {
 func (q *quorumState) Receive(sender net.ActorID, value net.ECChain) bool {
 	threshold := q.powerTable.Total * 2 / 3
 
-	head := value.Head().CID
+	head := value.HeadCIDOrZero()
 	ss, ok := q.received[sender]
 	if ok {
 		// Don't double-count the same chain head for a single participant.
@@ -589,8 +592,8 @@ func (q *quorumState) Receive(sender net.ActorID, value net.ECChain) bool {
 }
 
 // Checks whether a value has been received before.
-func (q *quorumState) HasReceived(value *net.ECChain) bool {
-	_, ok := q.chainPower[value.Head().CID]
+func (q *quorumState) HasReceived(value net.ECChain) bool {
+	_, ok := q.chainPower[value.HeadCIDOrZero()]
 	return ok
 }
 
@@ -655,8 +658,8 @@ func newQualityState(base net.CID, powerTable net.PowerTable) *qualityState {
 func (q *qualityState) Receive(sender net.ActorID, value net.ECChain) []net.ECChain {
 	var newlyAllowed []net.ECChain
 	// Add each non-empty prefix of the chain to the quorum state.
-	for j := range value.Suffix {
-		prefix := *value.Prefix(j + 1)
+	for j := range value.Suffix() {
+		prefix := value.Prefix(j + 1)
 		foundQuorumValue := q.prefixes.Receive(sender, prefix)
 		if foundQuorumValue {
 			newlyAllowed = append(newlyAllowed, prefix)
@@ -666,8 +669,8 @@ func (q *qualityState) Receive(sender net.ActorID, value net.ECChain) []net.ECCh
 }
 
 // Checks whether a chain head is allowed by the received QUALITY messages.
-func (q *qualityState) AllowsValue(cid net.CID) bool {
-	return cid == "" || cid == q.base || q.prefixes.HasQuorumAgreement(cid)
+func (q *qualityState) AllowsValue(t net.ECChain) bool {
+	return t.IsZero() || t.Head().CID == q.base || q.prefixes.HasQuorumAgreement(t.Head().CID)
 }
 
 // Returns a list of chains allowed by the received QUALITY values, in descending weight order.
@@ -762,7 +765,7 @@ func newCommitState(power net.PowerTable) *commitState {
 // - any value contained in commits
 // - anything, if commits agreed on ⏊
 func (c *commitState) Receive(sender net.ActorID, value net.ECChain) []net.ECChain {
-	seenValue := c.chains.HasReceived(&value)
+	seenValue := c.chains.HasReceived(value)
 	hadQuorum := c.chains.ReceivedFromQuorum()
 	foundQuorumValue := c.chains.Receive(sender, value)
 	nowHasQuorum := c.chains.ReceivedFromQuorum()
@@ -827,6 +830,9 @@ func newConvergeState() *convergeState {
 // Receives a new CONVERGE value from a sender.
 // Returns values that are newly justified for the next phase: any value the first time it is received.
 func (c *convergeState) Receive(value net.ECChain, ticket Ticket) []net.ECChain {
+	if value.IsZero() {
+		panic("bottom cannot be justified for CONVERGE")
+	}
 	key := value.Head().CID
 	_, found := c.values[key]
 	c.values[key] = value
@@ -859,7 +865,7 @@ func findFirstPrefixOf(candidates []net.ECChain, preferred net.ECChain) net.ECCh
 	// Filter the candidates (in place) to those that are a prefix of the preferred value.
 	n := 0
 	for _, v := range candidates {
-		if preferred.HasPrefix(&v) {
+		if preferred.HasPrefix(v) {
 			candidates[n] = v
 			n += 1
 		}
@@ -870,13 +876,18 @@ func findFirstPrefixOf(candidates []net.ECChain, preferred net.ECChain) net.ECCh
 	if len(candidates) > 0 {
 		return candidates[0]
 	} else {
-		return *preferred.BaseChain()
+		return preferred.BaseChain()
 	}
 }
 
 // Sorts chains by weight of their head, descending
 func sortByWeight(chains []net.ECChain) {
 	sort.Slice(chains, func(i, j int) bool {
+		if chains[i].IsZero() {
+			return false
+		} else if chains[j].IsZero() {
+			return true
+		}
 		hi := chains[i].Head()
 		hj := chains[j].Head()
 		return hi.Compare(hj) > 0

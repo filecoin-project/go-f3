@@ -80,12 +80,12 @@ func (w *WitholdCommit) AllowMessage(_ net.ActorID, to net.ActorID, msg net.Mess
 		}
 		if gmsg.Step == f3.QUALITY {
 			// Don't allow victims to see dissenting QUALITY.
-			if toAnyVictim && !gmsg.Value.Eq(&w.victimValue) {
+			if toAnyVictim && !gmsg.Value.Eq(w.victimValue) {
 				return false
 			}
 		} else if gmsg.Step == f3.PREPARE {
 			// Don't allow victims to see dissenting PREPARE.
-			if toAnyVictim && !gmsg.Value.Eq(&w.victimValue) {
+			if toAnyVictim && !gmsg.Value.Eq(w.victimValue) {
 				return false
 			}
 		} else if gmsg.Step == f3.COMMIT {
@@ -94,7 +94,7 @@ func (w *WitholdCommit) AllowMessage(_ net.ActorID, to net.ActorID, msg net.Mess
 				return false
 			}
 			// Don't allow the main victim to see any dissenting COMMIts.
-			if toMainVictim && !gmsg.Value.Eq(&w.victimValue) {
+			if toMainVictim && !gmsg.Value.Eq(w.victimValue) {
 				return false
 			}
 		}

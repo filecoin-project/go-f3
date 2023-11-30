@@ -16,7 +16,7 @@ type Config struct {
 
 type Simulation struct {
 	Network      *net.Network
-	Base         *net.ECChain
+	Base         net.ECChain
 	PowerTable   net.PowerTable
 	Beacon       []byte
 	Participants []*f3.Participant
@@ -43,7 +43,7 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 
 	// Create genesis tipset, which all participants are expected to agree on as a base.
 	genesis := net.NewTipSet(100, "genesis", 1)
-	baseChain := net.NewChain(genesis /*, genesisPower, []byte("beacon")*/)
+	baseChain := net.NewChain(genesis)
 	return &Simulation{
 		Network:      ntwk,
 		Base:         baseChain,

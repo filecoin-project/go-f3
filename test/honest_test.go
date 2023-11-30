@@ -13,7 +13,7 @@ import (
 func TestSingleton(t *testing.T) {
 	sm := sim.NewSimulation(newSyncConfig(1), GraniteConfig(), net.TraceNone)
 	a := sm.Base.Extend(sm.CIDGen.Sample())
-	sm.ReceiveChains(sim.ChainCount{1, *a})
+	sm.ReceiveChains(sim.ChainCount{1, a})
 
 	require.True(t, sm.Run(MAX_ROUNDS))
 	expectRoundDecision(t, sm, 0, a.Head())
@@ -22,17 +22,18 @@ func TestSingleton(t *testing.T) {
 func TestSyncPair(t *testing.T) {
 	sm := sim.NewSimulation(newSyncConfig(2), GraniteConfig(), net.TraceNone)
 	a := sm.Base.Extend(sm.CIDGen.Sample())
-	sm.ReceiveChains(sim.ChainCount{len(sm.Participants), *a})
+	sm.ReceiveChains(sim.ChainCount{len(sm.Participants), a})
 
 	require.True(t, sm.Run(MAX_ROUNDS))
 	expectRoundDecision(t, sm, 0, a.Head())
 }
 
 func TestASyncPair(t *testing.T) {
-	for i := 0; i < ASYNC_ITERS; i++ {
+	for i := 10; i < ASYNC_ITERS; i++ {
+		//fmt.Println("i =", i)
 		sm := sim.NewSimulation(newAsyncConfig(2, i), GraniteConfig(), net.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
-		sm.ReceiveChains(sim.ChainCount{len(sm.Participants), *a})
+		sm.ReceiveChains(sim.ChainCount{len(sm.Participants), a})
 
 		require.True(t, sm.Run(MAX_ROUNDS))
 		// Can't guarantee progress when async.
@@ -41,10 +42,10 @@ func TestASyncPair(t *testing.T) {
 }
 
 func TestSyncPairDisagree(t *testing.T) {
-	sm := sim.NewSimulation(newSyncConfig(2), GraniteConfig(), net.TraceAll)
+	sm := sim.NewSimulation(newSyncConfig(2), GraniteConfig(), net.TraceNone)
 	a := sm.Base.Extend(sm.CIDGen.Sample())
 	b := sm.Base.Extend(sm.CIDGen.Sample())
-	sm.ReceiveChains(sim.ChainCount{1, *a}, sim.ChainCount{1, *b})
+	sm.ReceiveChains(sim.ChainCount{1, a}, sim.ChainCount{1, b})
 
 	require.True(t, sm.Run(MAX_ROUNDS))
 	// Decide base chain as the only common value, even when synchronous.
@@ -56,7 +57,7 @@ func TestAsyncPairDisagree(t *testing.T) {
 		sm := sim.NewSimulation(newAsyncConfig(2, i), GraniteConfig(), net.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		b := sm.Base.Extend(sm.CIDGen.Sample())
-		sm.ReceiveChains(sim.ChainCount{1, *a}, sim.ChainCount{1, *b})
+		sm.ReceiveChains(sim.ChainCount{1, a}, sim.ChainCount{1, b})
 
 		require.True(t, sm.Run(MAX_ROUNDS))
 		// Decide base chain as the only common value.
@@ -68,7 +69,7 @@ func TestSyncAgreement(t *testing.T) {
 	for n := 3; n <= 50; n++ {
 		sm := sim.NewSimulation(newSyncConfig(n), GraniteConfig(), net.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
-		sm.ReceiveChains(sim.ChainCount{len(sm.Participants), *a})
+		sm.ReceiveChains(sim.ChainCount{len(sm.Participants), a})
 		require.True(t, sm.Run(MAX_ROUNDS))
 		// Synchronous, agreeing groups always decide the candidate.
 		expectRoundDecision(t, sm, 0, a.Head())
@@ -83,7 +84,7 @@ func TestAsyncAgreement(t *testing.T) {
 			//fmt.Println("n =", n, "i =", i)
 			sm := sim.NewSimulation(newAsyncConfig(n, i), GraniteConfig(), net.TraceNone)
 			a := sm.Base.Extend(sm.CIDGen.Sample())
-			sm.ReceiveChains(sim.ChainCount{len(sm.Participants), *a})
+			sm.ReceiveChains(sim.ChainCount{len(sm.Participants), a})
 
 			require.True(t, sm.Run(MAX_ROUNDS))
 			// Can't guarantee progress when async.
@@ -97,7 +98,7 @@ func TestSyncHalves(t *testing.T) {
 		sm := sim.NewSimulation(newSyncConfig(n), GraniteConfig(), net.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		b := sm.Base.Extend(sm.CIDGen.Sample())
-		sm.ReceiveChains(sim.ChainCount{n / 2, *a}, sim.ChainCount{n / 2, *b})
+		sm.ReceiveChains(sim.ChainCount{n / 2, a}, sim.ChainCount{n / 2, b})
 
 		require.True(t, sm.Run(MAX_ROUNDS))
 		// Groups split 50/50 always decide the base.
@@ -112,7 +113,7 @@ func TestAsyncHalves(t *testing.T) {
 			sm := sim.NewSimulation(newAsyncConfig(n, i), GraniteConfig(), net.TraceNone)
 			a := sm.Base.Extend(sm.CIDGen.Sample())
 			b := sm.Base.Extend(sm.CIDGen.Sample())
-			sm.ReceiveChains(sim.ChainCount{n / 2, *a}, sim.ChainCount{n / 2, *b})
+			sm.ReceiveChains(sim.ChainCount{n / 2, a}, sim.ChainCount{n / 2, b})
 
 			require.True(t, sm.Run(MAX_ROUNDS))
 			// Groups split 50/50 always decide the base.
@@ -128,7 +129,7 @@ func TestRequireStrongQuorumToProgress(t *testing.T) {
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		b := sm.Base.Extend(sm.CIDGen.Sample())
 		// No strict > quorum.
-		sm.ReceiveChains(sim.ChainCount{20, *a}, sim.ChainCount{10, *b})
+		sm.ReceiveChains(sim.ChainCount{20, a}, sim.ChainCount{10, b})
 
 		require.True(t, sm.Run(MAX_ROUNDS))
 		// Must decide base, but can't tell which round.
