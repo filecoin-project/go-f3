@@ -371,7 +371,7 @@ func (i *instance) tryPrepare() {
 	}
 
 	prepared := i.roundState(i.round).prepared
-	// TODO: (optimisation) Advance phase once quorum on our proposal is not possible.
+	// Optimisation: we could advance phase once quorum on our proposal is not possible.
 	foundQuorum := prepared.HasQuorumAgreement(i.proposal.Head().CID)
 	timeoutExpired := i.ntwk.Time() >= i.phaseTimeout
 
@@ -543,9 +543,6 @@ type quorumState struct {
 	received map[net.ActorID]senderSent
 	// The power supporting each chain so far.
 	chainPower map[net.CID]chainPower
-	// Set of chains that have reached the threshold power so far.
-	// TODO: this could be folded into the chainPower map.
-	withQuorumAgreement map[net.CID]struct{}
 	// Total power of all distinct senders from which some chain has been received so far.
 	sendersTotalPower uint
 	// Table of senders' power.
@@ -560,18 +557,18 @@ type senderSent struct {
 
 // A chain value and the total power supporting it.
 type chainPower struct {
-	chain net.ECChain
-	power uint
+	chain     net.ECChain
+	power     uint
+	hasQuorum bool
 }
 
 // Creates a new, empty quorum state.
 func newQuorumState(powerTable net.PowerTable) *quorumState {
 	return &quorumState{
-		received:            map[net.ActorID]senderSent{},
-		chainPower:          map[net.CID]chainPower{},
-		withQuorumAgreement: map[net.CID]struct{}{},
-		sendersTotalPower:   0,
-		powerTable:          powerTable,
+		received:          map[net.ActorID]senderSent{},
+		chainPower:        map[net.CID]chainPower{},
+		sendersTotalPower: 0,
+		powerTable:        powerTable,
 	}
 }
 
@@ -596,18 +593,18 @@ func (q *quorumState) Receive(sender net.ActorID, value net.ECChain) {
 	q.received[sender] = fromSender
 
 	candidate := chainPower{
-		chain: value,
-		power: q.powerTable.Entries[sender],
+		chain:     value,
+		power:     q.powerTable.Entries[sender],
+		hasQuorum: false,
 	}
 	if found, ok := q.chainPower[head]; ok {
 		candidate.power += found.power
 	}
-	q.chainPower[head] = candidate
-
 	threshold := q.powerTable.Total * 2 / 3
 	if candidate.power > threshold {
-		q.withQuorumAgreement[head] = struct{}{}
+		candidate.hasQuorum = true
 	}
+	q.chainPower[head] = candidate
 }
 
 // Checks whether a value has been received before.
@@ -638,19 +635,21 @@ func (q *quorumState) ReceivedFromQuorum() bool {
 
 // Checks whether a chain (head) has reached quorum.
 func (q *quorumState) HasQuorumAgreement(cid net.CID) bool {
-	_, ok := q.withQuorumAgreement[cid]
-	return ok
+	cp, ok := q.chainPower[cid]
+	return ok && cp.hasQuorum
 }
 
 // Returns a list of the chains which have reached an agreeing quorum.
 // The order of returned values is not defined.
 func (q *quorumState) ListQuorumAgreedValues() []net.ECChain {
-	var quorum []net.ECChain
-	for cid := range q.withQuorumAgreement {
-		quorum = append(quorum, q.chainPower[cid].chain)
+	var withQuorum []net.ECChain
+	for cid, cp := range q.chainPower {
+		if cp.hasQuorum {
+			withQuorum = append(withQuorum, q.chainPower[cid].chain)
+		}
 	}
-	sortByWeight(quorum)
-	return quorum
+	sortByWeight(withQuorum)
+	return withQuorum
 }
 
 //// CONVERGE phase helper /////
