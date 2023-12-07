@@ -76,12 +76,6 @@ type instance struct {
 	rounds map[int]*roundState
 }
 
-type roundState struct {
-	converged *convergeState
-	prepared  *quorumState
-	committed *quorumState
-}
-
 func newInstance(
 	config GraniteConfig,
 	ntwk net.NetworkSink,
@@ -115,8 +109,10 @@ func newInstance(
 	}
 }
 
-func (i *instance) Describe() string {
-	return fmt.Sprintf("P%d{%d}, round %d, phase %s", i.participantID, i.instanceID, i.round, i.phase)
+type roundState struct {
+	converged *convergeState
+	prepared  *quorumState
+	committed *quorumState
 }
 
 func newRoundState(powerTable net.PowerTable) *roundState {
@@ -154,6 +150,10 @@ func (i *instance) ReceiveAlarm(_ string) {
 	i.drainInbox()
 }
 
+func (i *instance) Describe() string {
+	return fmt.Sprintf("P%d{%d}, round %d, phase %s", i.participantID, i.instanceID, i.round, i.phase)
+}
+
 func (i *instance) enqueueInbox(msg GMessage) {
 	i.inbox = append(i.inbox, msg)
 }
@@ -184,13 +184,13 @@ func (i *instance) tryPendingMessages() {
 
 // Processes a single message.
 func (i *instance) receiveOne(msg GMessage) {
-	// Drop any message with a different base from the input. It can never be valid.
-	if !(msg.Value.IsZero() || msg.Value.HasBase(i.input.Base())) {
-		i.log("unexpected base %s", &msg.Value)
+	// Drop any messages that can never be valid.
+	if !i.isValid(&msg) {
+		i.log("dropping invalid %s", msg)
 		return
 	}
-	// Queue any message with a value not yet justified by the prior phase.
-	// TODO optimisation/safety: permanently drop anything else that can never be justified
+
+	// Hold as pending any message with a value not yet justified by the prior phase.
 	if !i.isJustified(&msg) {
 		i.log("enqueue %s", msg)
 		i.pending.Add(msg)
@@ -206,10 +206,7 @@ func (i *instance) receiveOne(msg GMessage) {
 			i.quality.Receive(msg.Sender, prefix)
 		}
 	case CONVERGE:
-		// TODO: move ticket validation to message justification.
-		if i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Round, msg.Sender, msg.Ticket) {
-			round.converged.Receive(msg.Value, msg.Ticket)
-		}
+		round.converged.Receive(msg.Value, msg.Ticket)
 	case PREPARE:
 		round.prepared.Receive(msg.Sender, msg.Value)
 	case COMMIT:
@@ -247,6 +244,23 @@ func (i *instance) tryCompletePhase() {
 	}
 }
 
+// Checks whether a message is valid.
+// An invalid message can never become valid, so may be dropped.
+func (i *instance) isValid(msg *GMessage) bool {
+	if !(msg.Value.IsZero() || msg.Value.HasBase(i.input.Base())) {
+		i.log("unexpected base %s", &msg.Value)
+		return false
+	}
+	if msg.Step == CONVERGE {
+		if !i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Round, msg.Sender, msg.Ticket) {
+			return false
+		}
+	}
+	return true
+}
+
+// Checks whether a message is justified by prior messages.
+// An unjustified message may later be justified by subsequent messages.
 func (i *instance) isJustified(msg *GMessage) bool {
 	if msg.Step == QUALITY {
 		// QUALITY needs no justification by prior messages.
@@ -289,8 +303,6 @@ func (i *instance) tryQuality() {
 	}
 	// Wait either for a strong quorum that agree on our proposal,
 	// or for the timeout to expire.
-	// TODO: a further optimisation would be to proceed if strong quorum on our proposal is not possible,
-	//   given the messages received so far (e.g. have received from all).
 	foundQuorum := i.quality.HasQuorumAgreement(i.proposal.Head().CID)
 	timeoutExpired := i.ntwk.Time() >= i.phaseTimeout
 
@@ -359,7 +371,7 @@ func (i *instance) tryPrepare() {
 	}
 
 	prepared := i.roundState(i.round).prepared
-	// TODO: as for QUALITY, could move on once quorum on our proposal is not possible.
+	// TODO: (optimisation) Advance phase once quorum on our proposal is not possible.
 	foundQuorum := prepared.HasQuorumAgreement(i.proposal.Head().CID)
 	timeoutExpired := i.ntwk.Time() >= i.phaseTimeout
 
@@ -376,42 +388,40 @@ func (i *instance) tryPrepare() {
 
 func (i *instance) beginCommit() {
 	i.phase = COMMIT
+	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
 	i.broadcast(COMMIT, i.value, nil)
 }
 
 func (i *instance) tryCommit(round int) {
-	// Unlike all previous phases, the COMMIT phase stays open to new messages even after an initial quorum is reached,
+	// Unlike all other phases, the COMMIT phase stays open to new messages even after an initial quorum is reached,
 	// and the algorithm moves on to the next round.
-	// A subsequent COMMIT message can cause the node to decide, if it forms a quorum in agreement.
-	//if i.phase != COMMIT {
-	//	return
-	//}
+	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
 	committed := i.roundState(round).committed
-	if committed.ReceivedFromQuorum() { // FIXME implement timeout AND quorum
-		foundQuorum := committed.ListQuorumAgreedValues()
-		if len(foundQuorum) > 0 && !foundQuorum[0].IsZero() {
-			// A participant may be forced to decide a value that's not its preferred chain.
-			// The participant isn't influencing that decision against their interest, just accepting it.
-			i.decide(foundQuorum[0], round)
+	foundQuorum := committed.ListQuorumAgreedValues()
+	timeoutExpired := i.ntwk.Time() >= i.phaseTimeout
 
-		} else if i.round == round && i.phase == COMMIT {
-			// Adopt any non-empty value committed by another participant.
-			// (There can only be one, since they needed to see a strong quorum of PREPARE to commit it).
-			for _, v := range committed.ListAllValues() {
-				if !v.IsZero() {
-					if !i.isAcceptable(v) {
-						i.log("⚠️ swaying from %s to %s by COMMIT", &i.input, &v)
-					}
-					if !v.Eq(i.proposal) {
-						i.proposal = v
-						i.log("adopting proposal %s after commit", &i.proposal)
-					}
-					break
+	if len(foundQuorum) > 0 && !foundQuorum[0].IsZero() {
+		// A participant may be forced to decide a value that's not its preferred chain.
+		// The participant isn't influencing that decision against their interest, just accepting it.
+		i.decide(foundQuorum[0], round)
+	} else if i.round == round && i.phase == COMMIT && timeoutExpired && committed.ReceivedFromQuorum() {
+		// Adopt any non-empty value committed by another participant (there can only be one).
+		// This node has observed the strong quorum of PREPARE messages that justify it,
+		// and mean that some other nodes may decide that value (if they observe more COMMITs).
+		for _, v := range committed.ListAllValues() {
+			if !v.IsZero() {
+				if !i.isAcceptable(v) {
+					i.log("⚠️ swaying from %s to %s by COMMIT", &i.input, &v)
 				}
-
+				if !v.Eq(i.proposal) {
+					i.proposal = v
+					i.log("adopting proposal %s after commit", &i.proposal)
+				}
+				break
 			}
-			i.beginNextRound()
+
 		}
+		i.beginNextRound()
 	}
 }
 
