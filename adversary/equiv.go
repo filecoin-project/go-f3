@@ -1,8 +1,8 @@
 package adversary
 
 import (
-	"github.com/anorth/f3sim/f3"
-	"github.com/anorth/f3sim/net"
+	"github.com/filecoin-project/go-f3/f3"
+	"github.com/filecoin-project/go-f3/net"
 )
 
 // This adversary send its COMMIT message to only a single victim, withholding it from others.

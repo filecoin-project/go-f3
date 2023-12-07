@@ -1,6 +1,6 @@
 package test
 
-import "github.com/anorth/f3sim/f3"
+import "github.com/filecoin-project/go-f3/f3"
 
 // Configuration constants used across most tests.
 // These values are not intended to reflect real-world conditions.

@@ -3,7 +3,7 @@ package f3
 import (
 	"bytes"
 	"fmt"
-	"github.com/anorth/f3sim/net"
+	"github.com/filecoin-project/go-f3/net"
 )
 
 // A ticket is a signature over some common payload.

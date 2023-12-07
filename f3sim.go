@@ -3,9 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/anorth/f3sim/f3"
-	"github.com/anorth/f3sim/net"
-	"github.com/anorth/f3sim/sim"
+	"github.com/filecoin-project/go-f3/f3"
+	"github.com/filecoin-project/go-f3/net"
+	"github.com/filecoin-project/go-f3/sim"
 	"time"
 )
 

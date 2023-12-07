@@ -1,6 +1,6 @@
 package adversary
 
-import "github.com/anorth/f3sim/net"
+import "github.com/filecoin-project/go-f3/net"
 
 type Absent struct {
 	id   net.ActorID

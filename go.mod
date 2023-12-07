@@ -1,4 +1,4 @@
-module github.com/anorth/f3sim
+module github.com/filecoin-project/go-f3
 
 go 1.20
 

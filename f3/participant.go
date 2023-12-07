@@ -1,6 +1,6 @@
 package f3
 
-import "github.com/anorth/f3sim/net"
+import "github.com/filecoin-project/go-f3/net"
 
 // An F3 participant runs repeated instances of Granite to finalise longer chains.
 type Participant struct {

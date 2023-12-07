@@ -2,7 +2,7 @@ package f3
 
 import (
 	"fmt"
-	"github.com/anorth/f3sim/net"
+	"github.com/filecoin-project/go-f3/net"
 	"sort"
 )
 
