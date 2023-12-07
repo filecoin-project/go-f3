@@ -1,6 +1,7 @@
 package test
 
 import (
+	"fmt"
 	"github.com/filecoin-project/go-f3/adversary"
 	"github.com/filecoin-project/go-f3/net"
 	"github.com/filecoin-project/go-f3/sim"
@@ -32,6 +33,7 @@ func TestWitholdCommit1(t *testing.T) {
 	sm.ReceiveChains(sim.ChainCount{4, a}, sim.ChainCount{3, b})
 	ok := sm.Run(MAX_ROUNDS)
 	if !ok {
+		fmt.Printf("%s", sm.Describe())
 		sm.PrintResults()
 	}
 	// The adversary could convince the victim to decide a, so all must decide a.

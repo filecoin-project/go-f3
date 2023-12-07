@@ -15,7 +15,7 @@ func TestSingleton(t *testing.T) {
 	a := sm.Base.Extend(sm.CIDGen.Sample())
 	sm.ReceiveChains(sim.ChainCount{1, a})
 
-	require.True(t, sm.Run(MAX_ROUNDS))
+	require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 	expectRoundDecision(t, sm, 0, a.Head())
 }
 
@@ -24,18 +24,18 @@ func TestSyncPair(t *testing.T) {
 	a := sm.Base.Extend(sm.CIDGen.Sample())
 	sm.ReceiveChains(sim.ChainCount{len(sm.Participants), a})
 
-	require.True(t, sm.Run(MAX_ROUNDS))
+	require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 	expectRoundDecision(t, sm, 0, a.Head())
 }
 
 func TestASyncPair(t *testing.T) {
-	for i := 10; i < ASYNC_ITERS; i++ {
+	for i := 0; i < ASYNC_ITERS; i++ {
 		//fmt.Println("i =", i)
 		sm := sim.NewSimulation(newAsyncConfig(2, i), GraniteConfig(), net.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{len(sm.Participants), a})
 
-		require.True(t, sm.Run(MAX_ROUNDS))
+		require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 		// Can't guarantee progress when async.
 		expectEventualDecision(t, sm, a.Head(), sm.Base.Head())
 	}
@@ -47,21 +47,23 @@ func TestSyncPairDisagree(t *testing.T) {
 	b := sm.Base.Extend(sm.CIDGen.Sample())
 	sm.ReceiveChains(sim.ChainCount{1, a}, sim.ChainCount{1, b})
 
-	require.True(t, sm.Run(MAX_ROUNDS))
-	// Decide base chain as the only common value, even when synchronous.
+	require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
+	// Decide base chain as the only common value.
 	expectRoundDecision(t, sm, 0, sm.Base.Head())
 }
 
 func TestAsyncPairDisagree(t *testing.T) {
 	for i := 0; i < ASYNC_ITERS; i++ {
+		//fmt.Println("i =", i)
 		sm := sim.NewSimulation(newAsyncConfig(2, i), GraniteConfig(), net.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		b := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{1, a}, sim.ChainCount{1, b})
 
-		require.True(t, sm.Run(MAX_ROUNDS))
+		require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 		// Decide base chain as the only common value.
-		expectRoundDecision(t, sm, 0, sm.Base.Head())
+		// May not happen in round 0 when asynchronous.
+		expectEventualDecision(t, sm, sm.Base.Head())
 	}
 }
 
@@ -70,7 +72,7 @@ func TestSyncAgreement(t *testing.T) {
 		sm := sim.NewSimulation(newSyncConfig(n), GraniteConfig(), net.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{len(sm.Participants), a})
-		require.True(t, sm.Run(MAX_ROUNDS))
+		require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 		// Synchronous, agreeing groups always decide the candidate.
 		expectRoundDecision(t, sm, 0, a.Head())
 	}
@@ -86,7 +88,7 @@ func TestAsyncAgreement(t *testing.T) {
 			a := sm.Base.Extend(sm.CIDGen.Sample())
 			sm.ReceiveChains(sim.ChainCount{len(sm.Participants), a})
 
-			require.True(t, sm.Run(MAX_ROUNDS))
+			require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 			// Can't guarantee progress when async.
 			expectEventualDecision(t, sm, sm.Base.Head(), a.Head())
 		}
@@ -100,7 +102,7 @@ func TestSyncHalves(t *testing.T) {
 		b := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{n / 2, a}, sim.ChainCount{n / 2, b})
 
-		require.True(t, sm.Run(MAX_ROUNDS))
+		require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 		// Groups split 50/50 always decide the base.
 		expectRoundDecision(t, sm, 0, sm.Base.Head())
 	}
@@ -115,7 +117,7 @@ func TestAsyncHalves(t *testing.T) {
 			b := sm.Base.Extend(sm.CIDGen.Sample())
 			sm.ReceiveChains(sim.ChainCount{n / 2, a}, sim.ChainCount{n / 2, b})
 
-			require.True(t, sm.Run(MAX_ROUNDS))
+			require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 			// Groups split 50/50 always decide the base.
 			expectRoundDecision(t, sm, 0, sm.Base.Head())
 		}
@@ -131,7 +133,7 @@ func TestRequireStrongQuorumToProgress(t *testing.T) {
 		// No strict > quorum.
 		sm.ReceiveChains(sim.ChainCount{20, a}, sim.ChainCount{10, b})
 
-		require.True(t, sm.Run(MAX_ROUNDS))
+		require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 		// Must decide base, but can't tell which round.
 		expectEventualDecision(t, sm, sm.Base.Head())
 	}

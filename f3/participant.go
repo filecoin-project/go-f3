@@ -66,7 +66,7 @@ func (p *Participant) ReceiveMessage(_ net.ActorID, msg net.Message) {
 func (p *Participant) ReceiveAlarm(payload string) {
 	// TODO include instance ID in alarm message, and filter here.
 	if p.granite != nil {
-		p.granite.receiveAlarm(payload)
+		p.granite.ReceiveAlarm(payload)
 		p.handleDecision()
 	}
 }
@@ -81,4 +81,11 @@ func (p *Participant) handleDecision() {
 
 func (p *Participant) decided() bool {
 	return p.granite != nil && p.granite.phase == DECIDE
+}
+
+func (p *Participant) Describe() string {
+	if p.granite == nil {
+		return "nil"
+	}
+	return p.granite.Describe()
 }

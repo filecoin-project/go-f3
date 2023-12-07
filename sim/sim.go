@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/filecoin-project/go-f3/f3"
 	"github.com/filecoin-project/go-f3/net"
+	"strings"
 )
 
 type Config struct {
@@ -109,11 +110,20 @@ func (s *Simulation) PrintResults() {
 			firstFin = thisFin
 		}
 		if thisFin.Eq(&net.TipSet{}) {
-			fmt.Printf("‼️ Participant %s did not decide\n", p.ID())
+			fmt.Printf("‼️ Participant %d did not decide\n", p.ID())
 		} else if !thisFin.Eq(&firstFin) {
-			fmt.Printf("‼️ Participant %s decided %v, but %s decided %v\n", p.ID(), thisFin, s.Participants[0].ID(), firstFin)
+			fmt.Printf("‼️ Participant %d decided %v, but %d decided %v\n", p.ID(), thisFin, s.Participants[0].ID(), firstFin)
 		}
 	}
+}
+
+func (s *Simulation) Describe() string {
+	b := strings.Builder{}
+	for _, p := range s.Participants {
+		b.WriteString(p.Describe())
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 // A CID generator.

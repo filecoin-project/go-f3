@@ -35,7 +35,7 @@ type GMessage struct {
 
 func (m GMessage) String() string {
 	// FIXME This needs value receiver to work, for reasons I cannot figure out.
-	return fmt.Sprintf("%s(%d/%d %s)", m.Step, m.Instance, m.Round, &m.Value)
+	return fmt.Sprintf("%s{%d}(%d %s)", m.Step, m.Instance, m.Round, &m.Value)
 }
 
 // A single Granite consensus instance.
@@ -55,20 +55,22 @@ type instance struct {
 	round int
 	// Current phase in the round.
 	phase string
-	// Earliest at which the PREPARE phase can end.
-	prepareTimeout float64
+	// Time at which the current phase can or must end.
+	// For QUALITY, PREPARE, and COMMIT, this is the latest time (the phase can end sooner).
+	// For CONVERGE, this is the exact time (the timeout solely defines the phase end).
+	phaseTimeout float64
 	// This instance's proposal for the current round.
 	// This is set after the QUALITY phase, and changes only at the end of a full round.
 	proposal net.ECChain
 	// The value to be transmitted at the next phase.
 	// This value may change away from the proposal between phases.
 	value net.ECChain
-	// Queue of messages to be synchronously processed before returning from top-level receive call.
+	// Queue of messages to be synchronously processed before returning from top-level call.
 	inbox []GMessage
-	// Message validation predicates and queues, by round and phase.
-	validation *validationQueue
+	// Messages received earlier but not yet justified.
+	pending *pendingQueue
 	// Quality phase state (only for round 0)
-	quality *qualityState
+	quality *quorumState
 	// State for each round of phases.
 	// State from prior rounds must be maintained to provide justification for values in subsequent rounds.
 	rounds map[int]*roundState
@@ -76,8 +78,8 @@ type instance struct {
 
 type roundState struct {
 	converged *convergeState
-	prepared  *prepareState
-	committed *commitState
+	prepared  *quorumState
+	committed *quorumState
 }
 
 func newInstance(
@@ -105,38 +107,55 @@ func newInstance(
 		phase:         "",
 		proposal:      input,
 		value:         net.ECChain{},
-		validation:    newValidationQueue(input.Base().CID),
-		quality:       newQualityState(input.Base().CID, powerTable),
+		pending:       newPendingQueue(),
+		quality:       newQuorumState(powerTable),
 		rounds: map[int]*roundState{
 			0: newRoundState(powerTable),
 		},
 	}
 }
 
+func (i *instance) Describe() string {
+	return fmt.Sprintf("P%d{%d}, round %d, phase %s", i.participantID, i.instanceID, i.round, i.phase)
+}
+
 func newRoundState(powerTable net.PowerTable) *roundState {
 	return &roundState{
 		converged: newConvergeState(),
-		prepared:  newPrepareState(powerTable),
-		committed: newCommitState(powerTable),
+		prepared:  newQuorumState(powerTable),
+		committed: newQuorumState(powerTable),
 	}
 }
 
 func (i *instance) Start() {
 	i.beginQuality()
+	i.drainInbox()
 }
 
 func (i *instance) Receive(msg GMessage) {
 	if i.decided() {
 		panic("received message after decision")
 	}
-	isTopLevel := len(i.inbox) == 0
-	// Enqueue the message for synchronous processing.
-	i.inbox = append(i.inbox, msg)
-	// If the inbox was empty, drain it now.
-	// If it wasn't, that means this message was received recursively while already draining the inbox.
-	if isTopLevel {
-		i.drainInbox()
+	if len(i.inbox) > 0 {
+		panic("received message while already processing inbox")
 	}
+
+	// Enqueue the message for synchronous processing.
+	i.enqueueInbox(msg)
+	i.drainInbox()
+}
+
+func (i *instance) ReceiveAlarm(_ string) {
+	i.tryCompletePhase()
+
+	// A phase may have been successfully completed.
+	// Re-process any queued messages for the next phase.
+	i.tryPendingMessages()
+	i.drainInbox()
+}
+
+func (i *instance) enqueueInbox(msg GMessage) {
+	i.inbox = append(i.inbox, msg)
 }
 
 func (i *instance) drainInbox() {
@@ -144,178 +163,220 @@ func (i *instance) drainInbox() {
 		// Process one message.
 		// Note the message being processed is left in the inbox until after processing,
 		// as a signal that this loop is currently draining the inbox.
-		nextRound, nextPhase := i.receiveOne(i.inbox[0])
+		i.receiveOne(i.inbox[0])
 		i.inbox = i.inbox[1:]
 
-		// Pop all now-valid messages for the subsequent round/phase and enqueue for receiving them again.
-		if nextPhase != "" {
-			replay := i.validation.PopJustified(nextRound, nextPhase)
-			i.inbox = append(i.inbox, replay...)
-		}
+		// Retry pending messages that might now be valid for the now-current phase.
+		// It's important that this be done after every message, else the phase might be
+		// advanced twice in a row, and pending messages for the skipped phase would be stranded.
+		i.tryPendingMessages()
 	}
+}
+
+// Pops any now-valid messages for the current round/phase and enqueue for receiving them again.
+func (i *instance) tryPendingMessages() {
+	replay := i.pending.PopWhere(i.round, i.phase, i.isJustified)
+	if len(replay) > 0 {
+		i.log("replay: %s", replay)
+	}
+	i.inbox = append(i.inbox, replay...)
 }
 
 // Processes a single message.
-// Returns the round and name of a phase for which the message may have justified other pending messages, or empty.
-func (i *instance) receiveOne(msg GMessage) (int, string) {
-	round, ok := i.rounds[msg.Round]
-	if !ok {
-		round = newRoundState(i.powerTable)
-		i.rounds[msg.Round] = round
-	}
-
+func (i *instance) receiveOne(msg GMessage) {
+	// Drop any message with a different base from the input. It can never be valid.
 	if !(msg.Value.IsZero() || msg.Value.HasBase(i.input.Base())) {
-		panic(fmt.Sprintf("unexpected base %s", &msg.Value))
+		i.log("unexpected base %s", &msg.Value)
+		return
 	}
-	// A message must have both
-	// - value allowed by the QUALITY phase, and
-	// - justification from tne previous phase
-	if !((msg.Step == QUALITY || i.quality.AllowsValue(msg.Value)) && i.validation.IsJustified(&msg)) {
-		i.validation.Enqueue(msg)
-		return 0, ""
-	}
-
-	var newAllowedValues []net.ECChain
-	var nextRound int
-	var nextPhase string
-	if msg.Step == QUALITY && msg.Round == 0 {
-		// Just collect all the messages until the alarm triggers the end of QUALITY phase.
-		// Messages continue being collected after QUALITY timeout passes, in case they justify later messages.
-		newAllowedValues = i.quality.Receive(msg.Sender, msg.Value)
-		nextRound = msg.Round
-		// FIXME: quality is a gate for all phases, so all phases need to be reprocessed.
-		nextPhase = PREPARE
-	} else if msg.Step == CONVERGE && msg.Round > 0 &&
-		i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Round, msg.Sender, msg.Ticket) {
-		// Collect messages until the alarm triggers the end of CONVERGE phase.
-		newAllowedValues = round.converged.Receive(msg.Value, msg.Ticket)
-		nextRound = msg.Round
-		nextPhase = PREPARE
-	} else if msg.Step == PREPARE {
-		newAllowedValues = round.prepared.Receive(msg.Sender, msg.Value)
-		i.tryPrepare(msg.Round) // FIXME should try the next step only after adding justifications from this step.
-		nextRound = msg.Round
-		nextPhase = COMMIT
-	} else if msg.Step == COMMIT {
-		newAllowedValues = round.committed.Receive(msg.Sender, msg.Value)
-		i.tryCommit(msg.Round) // FIXME should try the next step only after adding justifications from this step.
-		nextRound = msg.Round + 1
-		nextPhase = CONVERGE
-	} else {
-		panic(fmt.Sprintf("unexpected message %v", msg))
+	// Queue any message with a value not yet justified by the prior phase.
+	// TODO optimisation/safety: permanently drop anything else that can never be justified
+	if !i.isJustified(&msg) {
+		i.log("enqueue %s", msg)
+		i.pending.Add(msg)
+		return
 	}
 
-	// Propagate any new values that have been allowed by the message's phase into the subsequent phase.
-	for _, v := range newAllowedValues {
-		if v.IsZero() && nextPhase == CONVERGE {
-			// Bottom as an allowed value is a sentinel for justifying any CONVERGE.
-			i.validation.JustifyAll(nextRound, nextPhase)
-		} else {
-			i.validation.AddJustified(nextRound, nextPhase, v.HeadCIDOrZero())
+	round := i.roundState(msg.Round)
+	switch msg.Step {
+	case QUALITY:
+		// Receive each prefix of the proposal independently.
+		for j := range msg.Value.Suffix() {
+			prefix := msg.Value.Prefix(j + 1)
+			i.quality.Receive(msg.Sender, prefix)
 		}
+	case CONVERGE:
+		// TODO: move ticket validation to message justification.
+		if i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Round, msg.Sender, msg.Ticket) {
+			round.converged.Receive(msg.Value, msg.Ticket)
+		}
+	case PREPARE:
+		round.prepared.Receive(msg.Sender, msg.Value)
+	case COMMIT:
+		round.committed.Receive(msg.Sender, msg.Value)
+	default:
+		i.log("unexpected message %v", msg)
 	}
-	if len(newAllowedValues) > 0 {
-		return nextRound, nextPhase
+
+	// Try to complete the current phase.
+	// Every COMMIT phase stays open to new messages even after the protocol moves on to
+	// a new round. Late-arriving COMMITS can still (must) cause a local decision, *in that round*.
+	if msg.Step == COMMIT {
+		i.tryCommit(msg.Round)
+	} else {
+		i.tryCompletePhase()
 	}
-	return 0, ""
 }
 
-func (i *instance) receiveAlarm(payload string) {
-	if payload == QUALITY {
-		i.endQuality()
-	} else if payload == CONVERGE {
-		i.endConverge(i.round)
-	} else if payload == PREPARE {
-		i.tryPrepare(i.round)
+// Attempts to complete the current phase and round.
+func (i *instance) tryCompletePhase() {
+	i.log("try step %s", i.phase)
+	switch i.phase {
+	case QUALITY:
+		i.tryQuality()
+	case CONVERGE:
+		i.tryConverge()
+	case PREPARE:
+		i.tryPrepare()
+	case COMMIT:
+		i.tryCommit(i.round)
+	case DECIDE:
+		// No-op
+	default:
+		panic(fmt.Sprintf("unexpected phase %s", i.phase))
 	}
 }
 
+func (i *instance) isJustified(msg *GMessage) bool {
+	if msg.Step == QUALITY {
+		// QUALITY needs no justification by prior messages.
+		return msg.Round == 0 && !msg.Value.IsZero()
+	} else if msg.Step == CONVERGE {
+		// CONVERGE is justified by a previous round strong quorum of PREPARE for the same value,
+		// or strong quorum of COMMIT for bottom.
+		// Bottom is not allowed as a value.
+		if msg.Round == 0 || msg.Value.IsZero() {
+			return false
+		}
+		prevRound := i.roundState(msg.Round - 1)
+		return prevRound.prepared.HasQuorumAgreement(msg.Value.Head().CID) ||
+			prevRound.committed.HasQuorumAgreement("")
+	} else if msg.Step == PREPARE {
+		// PREPARE needs no justification by prior messages.
+		return true // i.quality.AllowsValue(msg.Value)
+	} else if msg.Step == COMMIT {
+		// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
+		// COMMIT for bottom is always justified.
+		round := i.roundState(msg.Round)
+		return msg.Value.IsZero() || round.prepared.HasQuorumAgreement(msg.Value.HeadCIDOrZero())
+	}
+	return false
+}
+
+// Sends this node's QUALITY message and begins the QUALITY phase.
 func (i *instance) beginQuality() {
-	// Broadcast input value and wait 2Δ to receive from others.
+	// Broadcast input value and wait up to Δ to receive from others.
 	i.phase = QUALITY
-	msg := i.broadcast(QUALITY, i.input, nil)
-	i.Receive(msg)
-	i.alarmAfterSynchrony(QUALITY)
+	i.phaseTimeout = i.alarmAfterSynchrony(QUALITY)
+	i.broadcast(QUALITY, i.input, nil)
 }
 
-func (i *instance) endQuality() {
-	allowed := i.quality.ListQuorumAgreedValues()
-	i.proposal = findFirstPrefixOf(allowed, i.proposal)
-	i.value = i.proposal
-	i.log("adopting proposal and value %s", &i.proposal)
-	i.beginPrepare()
+// Attempts to end the QUALITY phase and begin PREPARE based on current state.
+// No-op if the current phase is not QUALITY.
+func (i *instance) tryQuality() {
+	if i.phase != QUALITY {
+		panic(fmt.Sprintf("unexpected phase %s", i.phase))
+	}
+	// Wait either for a strong quorum that agree on our proposal,
+	// or for the timeout to expire.
+	// TODO: a further optimisation would be to proceed if strong quorum on our proposal is not possible,
+	//   given the messages received so far (e.g. have received from all).
+	foundQuorum := i.quality.HasQuorumAgreement(i.proposal.Head().CID)
+	timeoutExpired := i.ntwk.Time() >= i.phaseTimeout
+
+	if foundQuorum {
+		// Keep current proposal.
+	} else if timeoutExpired {
+		strongQuora := i.quality.ListQuorumAgreedValues()
+		i.proposal = findFirstPrefixOf(strongQuora, i.proposal)
+	}
+
+	if foundQuorum || timeoutExpired {
+		i.value = i.proposal
+		i.log("adopting proposal/value %s", &i.proposal)
+		i.beginPrepare()
+	}
 }
 
 func (i *instance) beginConverge() {
 	i.phase = CONVERGE
 	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
-	msg := i.broadcast(CONVERGE, i.proposal, ticket)
-	i.Receive(msg)
-	i.alarmAfterSynchrony(CONVERGE)
+	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE)
+	i.broadcast(CONVERGE, i.proposal, ticket)
 }
 
-func (i *instance) endConverge(round int) {
-	i.value = i.rounds[round].converged.findMinTicketProposal()
+// Attempts to end the CONVERGE phase and begin PREPARE based on current state.
+// No-op if the current phase is not CONVERGE.
+func (i *instance) tryConverge() {
+	if i.phase != CONVERGE {
+		panic(fmt.Sprintf("unexpected phase %s", i.phase))
+	}
+	timeoutExpired := i.ntwk.Time() >= i.phaseTimeout
+	if !timeoutExpired {
+		return
+	}
+
+	i.value = i.roundState(i.round).converged.findMinTicketProposal()
+	if i.value.IsZero() {
+		panic("no values at CONVERGE")
+	}
 	if i.isAcceptable(i.value) {
-		if !i.value.Eq(i.proposal) {
+		// Sway to proposal if the value is acceptable.
+		if !i.proposal.Eq(i.value) {
 			i.proposal = i.value
 			i.log("adopting proposal %s after converge", &i.proposal)
 		}
 	} else {
-		i.log("⚠️ voting from %s to %s by min ticket", &i.input, &i.value)
+		// Vote for not deciding in this round
+		i.value = net.ECChain{}
 	}
 	i.beginPrepare()
 }
 
+// Sends this node's PREPARE message and begins the PREPARE phase.
 func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE
-	i.prepareTimeout = i.alarmAfterSynchrony(PREPARE)
-	msg := i.broadcast(PREPARE, i.value, nil)
-	i.Receive(msg)
+	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
+	i.broadcast(PREPARE, i.value, nil)
 }
 
-func (i *instance) tryPrepare(round int) {
-	if i.round != round || i.phase != PREPARE {
-		return
-	}
-	// Wait at least 2Δ.
-	if i.ntwk.Time() < i.prepareTimeout {
-		return
+// Attempts to end the PREPARE phase and begin COMMIT based on current state.
+// No-op if the current phase is not PREPARE.
+func (i *instance) tryPrepare() {
+	if i.phase != PREPARE {
+		panic(fmt.Sprintf("unexpected phase %s", i.phase))
 	}
 
-	prepared := i.rounds[round].prepared
-	if prepared.ReceivedFromQuorum() {
-		foundQuorum := prepared.ListQuorumAgreedHeadValues()
-		var v net.ECChain
-		if len(foundQuorum) > 0 {
-			v = foundQuorum[0]
-		}
+	prepared := i.roundState(i.round).prepared
+	// TODO: as for QUALITY, could move on once quorum on our proposal is not possible.
+	foundQuorum := prepared.HasQuorumAgreement(i.proposal.Head().CID)
+	timeoutExpired := i.ntwk.Time() >= i.phaseTimeout
 
-		// INCENTIVE-COMPATIBLE: Only commit a value equal to this node's proposal.
-		if v.Eq(i.proposal) {
-			i.value = i.proposal
-		} else {
-			// Update our proposal for next round to accept a prefix of it, if that gained quorum, else baseChain.
-			// Note: these two lines were present in an earlier version of the algorithm, but have been removed.
-			// The attempt to improve progress by adopting a prefix of our proposal more likely to gain quorum.
-			// They can cause problems with a proposal incompatible with a value preventing message validation.
-			//prefixes := prepared.ListQuorumAgreedPrefixValues()
-			//i.proposal = findFirstPrefixOf(prefixes, i.proposal)
-			//i.log("adopting proposal %s after prepare", &i.proposal)
+	if foundQuorum {
+		i.value = i.proposal
+	} else if timeoutExpired {
+		i.value = net.ECChain{}
+	}
 
-			// Commit bottom in this round anyway.
-			i.value = net.ECChain{}
-		}
-
+	if foundQuorum || timeoutExpired {
 		i.beginCommit()
 	}
 }
 
 func (i *instance) beginCommit() {
 	i.phase = COMMIT
-	msg := i.broadcast(COMMIT, i.value, nil)
-	i.Receive(msg)
+	i.broadcast(COMMIT, i.value, nil)
 }
 
 func (i *instance) tryCommit(round int) {
@@ -325,15 +386,15 @@ func (i *instance) tryCommit(round int) {
 	//if i.phase != COMMIT {
 	//	return
 	//}
-	committed := i.rounds[round].committed
-	if committed.ReceivedFromQuorum() {
+	committed := i.roundState(round).committed
+	if committed.ReceivedFromQuorum() { // FIXME implement timeout AND quorum
 		foundQuorum := committed.ListQuorumAgreedValues()
 		if len(foundQuorum) > 0 && !foundQuorum[0].IsZero() {
 			// A participant may be forced to decide a value that's not its preferred chain.
 			// The participant isn't influencing that decision against their interest, just accepting it.
 			i.decide(foundQuorum[0], round)
 
-		} else if i.phase == COMMIT {
+		} else if i.round == round && i.phase == COMMIT {
 			// Adopt any non-empty value committed by another participant.
 			// (There can only be one, since they needed to see a strong quorum of PREPARE to commit it).
 			for _, v := range committed.ListAllValues() {
@@ -352,6 +413,15 @@ func (i *instance) tryCommit(round int) {
 			i.beginNextRound()
 		}
 	}
+}
+
+func (i *instance) roundState(r int) *roundState {
+	round, ok := i.rounds[r]
+	if !ok {
+		round = newRoundState(i.powerTable)
+		i.rounds[r] = round
+	}
+	return round
 }
 
 func (i *instance) beginNextRound() {
@@ -382,6 +452,7 @@ func (i *instance) decided() bool {
 func (i *instance) broadcast(step string, value net.ECChain, ticket Ticket) GMessage {
 	gmsg := GMessage{i.instanceID, i.round, i.participantID, step, ticket, value}
 	i.ntwk.Broadcast(i.participantID, gmsg)
+	i.enqueueInbox(gmsg)
 	return gmsg
 }
 
@@ -396,118 +467,63 @@ func (i *instance) alarmAfterSynchrony(payload string) float64 {
 
 func (i *instance) log(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
-	i.ntwk.Log("P%d/%d: %v", i.participantID, i.instanceID, msg)
+	i.ntwk.Log("P%d{%d}: %s (round %d, step %s, proposal %s, value %s)", i.participantID, i.instanceID, msg,
+		i.round, i.phase, &i.proposal, &i.value)
 }
 
 ///// Message validation/justification helpers /////
 
-// Holds the set of justified values for each phase in each round,
-// and a set of messages received but not yet justified.
-type validationQueue struct {
-	base   net.CID
-	rounds map[int]map[string]*phaseValidationQueue
+// Holds a collection messages received but not yet justified.
+type pendingQueue struct {
+	// Map by round and phase to list of messages.
+	rounds map[int]map[string][]GMessage
 }
 
-// A predicate validating messages for a single phase, and a queue of messages not yet validated.
-type phaseValidationQueue struct {
-	// Whether all chains are justified for this phase.
-	justifiesAll bool
-	// Chain heads allowed by the prior phase.
-	justified map[net.CID]struct{}
-	// Messages received but not yet allowed by prior phase.
-	pending []GMessage
-}
-
-func newValidationQueue(base net.CID) *validationQueue {
-	return &validationQueue{
-		base:   base,
-		rounds: map[int]map[string]*phaseValidationQueue{},
+func newPendingQueue() *pendingQueue {
+	return &pendingQueue{
+		rounds: map[int]map[string][]GMessage{},
 	}
-}
-
-func newPhaseValidationState() *phaseValidationQueue {
-	return &phaseValidationQueue{
-		justifiesAll: false,
-		justified:    map[net.CID]struct{}{},
-		pending:      []GMessage{},
-	}
-}
-
-func (v *validationQueue) IsJustified(msg *GMessage) bool {
-	// No justification needed for QUALITY messages beyond the right base chain.
-	if msg.Round == 0 && msg.Step == QUALITY {
-		return true
-	}
-	// First round prepare are always justified (if allowed by quality).
-	if msg.Round == 0 && msg.Step == PREPARE {
-		return true
-	}
-	// PREPARE for base chain or bottom is always justified.
-	if msg.Step == PREPARE && (msg.Value.IsZero() || msg.Value.Base().CID == v.base) {
-		return true
-	}
-	if rv, ok := v.rounds[msg.Round]; ok {
-		if pv, ok := rv[msg.Step]; ok {
-			_, ok := pv.justified[msg.Value.HeadCIDOrZero()]
-			ok = ok || pv.justifiesAll
-			return ok
-		}
-	}
-	return false
-}
-
-// Marks a new values as being allowed by the previous phase.
-func (v *validationQueue) AddJustified(round int, phase string, value net.CID) {
-	pv := v.getPhase(round, phase)
-	pv.justified[value] = struct{}{}
-}
-
-func (v *validationQueue) JustifyAll(round int, phase string) {
-	pv := v.getPhase(round, phase)
-	pv.justifiesAll = true
 }
 
 // Queues a message for future re-validation.
-func (v *validationQueue) Enqueue(msg GMessage) {
-	pv := v.getPhase(msg.Round, msg.Step)
-	pv.pending = append(pv.pending, msg)
+func (v *pendingQueue) Add(msg GMessage) {
+	rv := v.getRound(msg.Round)
+	rv[msg.Step] = append(rv[msg.Step], msg)
 }
 
-func (v *validationQueue) PopJustified(round int, phase string) []GMessage {
-	if phase == QUALITY {
-		return nil
-	}
-	pv := v.getPhase(round, phase)
-	var justified []GMessage
-	// Remove all justified entries, in-place.
+// Dequeues all messages from some round and phase matching a predicate.
+func (v *pendingQueue) PopWhere(round int, phase string, pred func(msg *GMessage) bool) []GMessage {
+	var found []GMessage
+	queue := v.getRound(round)[phase]
+	// Remove all entries matching predicate, in-place.
 	n := 0
-	for _, msg := range pv.pending {
-		if v.IsJustified(&msg) {
-			justified = append(justified, msg)
+	for _, msg := range queue {
+		if pred(&msg) {
+			found = append(found, msg)
 		} else {
-			pv.pending[n] = msg
+			queue[n] = msg
 			n += 1
 		}
 	}
-	pv.pending = pv.pending[:n]
-	return justified
+	v.rounds[round][phase] = queue[:n]
+	return found
 }
 
-func (v *validationQueue) getPhase(round int, phase string) *phaseValidationQueue {
-	var rv map[string]*phaseValidationQueue
+func (v *pendingQueue) getRound(round int) map[string][]GMessage {
+	var rv map[string][]GMessage
 	rv, ok := v.rounds[round]
 	if !ok {
-		rv = map[string]*phaseValidationQueue{
-			CONVERGE: newPhaseValidationState(),
-			PREPARE:  newPhaseValidationState(),
-			COMMIT:   newPhaseValidationState(),
+		rv = map[string][]GMessage{
+			CONVERGE: nil,
+			PREPARE:  nil,
+			COMMIT:   nil,
 		}
 		v.rounds[round] = rv
 	}
-
-	pv := rv[phase]
-	return pv
+	return rv
 }
+
+///// Incremental quorum-calculation helper /////
 
 // Accumulates values from a collection of senders and incrementally calculates
 // which values have reached a strong quorum of support.
@@ -550,28 +566,24 @@ func newQuorumState(powerTable net.PowerTable) *quorumState {
 }
 
 // Receives a new chain from a sender.
-// Returns whether the chain produced a new quorum in agreement on that chain (can be true multiple times).
-func (q *quorumState) Receive(sender net.ActorID, value net.ECChain) bool {
-	threshold := q.powerTable.Total * 2 / 3
-
+func (q *quorumState) Receive(sender net.ActorID, value net.ECChain) {
 	head := value.HeadCIDOrZero()
-	ss, ok := q.received[sender]
+	fromSender, ok := q.received[sender]
 	if ok {
 		// Don't double-count the same chain head for a single participant.
-		for _, recvd := range ss.heads {
-			if head == recvd {
-				// Ignore duplicate.
-				return false
+		for _, old := range fromSender.heads {
+			if head == old {
+				return
 			}
 		}
-		ss.heads = append(ss.heads, head)
+		fromSender.heads = append(fromSender.heads, head)
 	} else {
 		// Add sender's power to total the first time a value is received from them.
 		senderPower := q.powerTable.Entries[sender]
 		q.sendersTotalPower += senderPower
-		ss = senderSent{[]net.CID{head}, senderPower}
+		fromSender = senderSent{[]net.CID{head}, senderPower}
 	}
-	q.received[sender] = ss
+	q.received[sender] = fromSender
 
 	candidate := chainPower{
 		chain: value,
@@ -582,13 +594,10 @@ func (q *quorumState) Receive(sender net.ActorID, value net.ECChain) bool {
 	}
 	q.chainPower[head] = candidate
 
+	threshold := q.powerTable.Total * 2 / 3
 	if candidate.power > threshold {
-		if _, ok := q.withQuorumAgreement[head]; !ok {
-			q.withQuorumAgreement[head] = struct{}{}
-			return true
-		}
+		q.withQuorumAgreement[head] = struct{}{}
 	}
-	return false
 }
 
 // Checks whether a value has been received before.
@@ -630,188 +639,11 @@ func (q *quorumState) ListQuorumAgreedValues() []net.ECChain {
 	for cid := range q.withQuorumAgreement {
 		quorum = append(quorum, q.chainPower[cid].chain)
 	}
+	sortByWeight(quorum)
 	return quorum
 }
 
-///// QUALITY phase helpers /////
-
-// State for the quality phase.
-// Incrementally calculates the set of prefixes allowed (having sufficient power) by messages received so far.
-type qualityState struct {
-	// Base tipset CID
-	base net.CID
-	// Quorum state for each prefix of each chain received.
-	prefixes *quorumState
-}
-
-// Creates a new, empty quality state.
-func newQualityState(base net.CID, powerTable net.PowerTable) *qualityState {
-	return &qualityState{
-		base:     base,
-		prefixes: newQuorumState(powerTable),
-	}
-}
-
-// Receives a new QUALITY value from a sender.
-// Returns a collection of chains (including prefixes) that reached quorum as a result of the new value,
-// and did not have quorum before.
-func (q *qualityState) Receive(sender net.ActorID, value net.ECChain) []net.ECChain {
-	var newlyAllowed []net.ECChain
-	// Add each non-empty prefix of the chain to the quorum state.
-	for j := range value.Suffix() {
-		prefix := value.Prefix(j + 1)
-		foundQuorumValue := q.prefixes.Receive(sender, prefix)
-		if foundQuorumValue {
-			newlyAllowed = append(newlyAllowed, prefix)
-		}
-	}
-	return newlyAllowed
-}
-
-// Checks whether a chain head is allowed by the received QUALITY messages.
-func (q *qualityState) AllowsValue(t net.ECChain) bool {
-	return t.IsZero() || t.Head().CID == q.base || q.prefixes.HasQuorumAgreement(t.Head().CID)
-}
-
-// Returns a list of chains allowed by the received QUALITY values, in descending weight order.
-func (q *qualityState) ListQuorumAgreedValues() []net.ECChain {
-	quora := q.prefixes.ListQuorumAgreedValues()
-	sortByWeight(quora)
-	return quora
-}
-
-///// PREPARE phase helpers /////
-
-type prepareState struct {
-	// Quorum state for the head of each allowed full chain.
-	// This provides the value (if any) to be committed in the current round.
-	chains *quorumState
-	// Quorum state for each prefix of each allowed chain.
-	// This is used when a strong quorum is not reached on the heads to find a prefix that is supported,
-	// to take to the next round.
-	prefixes *quorumState
-}
-
-func newPrepareState(power net.PowerTable) *prepareState {
-	return &prepareState{
-		chains:   newQuorumState(power),
-		prefixes: newQuorumState(power),
-	}
-}
-
-// Receives a new PREPARE value from a sender.
-// Returns values that are newly justified for the next phase:
-// - a chain that reached strong quorum as a result of the new value,
-// - bottom if the collection created a disagreeing quorum,
-func (p *prepareState) Receive(sender net.ActorID, value net.ECChain) []net.ECChain {
-	wasBelowQuorum := !p.chains.ReceivedFromQuorum()
-	wasInAgreement := p.chains.HasAgreement()
-
-	foundQuorumValue := p.chains.Receive(sender, value)
-	p.prefixes.Receive(sender, value)
-
-	// COMMIT is justified by a strong quorum that agree on the value.
-	var newlyAllowed []net.ECChain
-	if foundQuorumValue {
-		newlyAllowed = append(newlyAllowed, value)
-	}
-
-	// COMMIT ⏊ is justified by a disagreeing quorum.
-	isAboveQuorum := p.chains.ReceivedFromQuorum()
-	hasDisagreement := !p.chains.HasAgreement()
-	foundDisagreement := (wasBelowQuorum || wasInAgreement) && isAboveQuorum && hasDisagreement
-	if foundDisagreement {
-		newlyAllowed = append(newlyAllowed, net.ECChain{})
-	}
-	return newlyAllowed
-}
-
-// Checks whether at least one message has been received from a strong quorum of senders.
-func (p *prepareState) ReceivedFromQuorum() bool {
-	return p.chains.ReceivedFromQuorum()
-}
-
-// Lists heads of proposals that gained strong quorum, ordered descending by weight.
-// There may be more than one if some sender equivocated.
-func (p *prepareState) ListQuorumAgreedHeadValues() []net.ECChain {
-	quora := p.chains.ListQuorumAgreedValues()
-	sortByWeight(quora)
-	return quora
-}
-
-// List prefixes of proposals that gained strong quorum, ordered descending by weight.
-func (p *prepareState) ListQuorumAgreedPrefixValues() []net.ECChain {
-	quora := p.prefixes.ListQuorumAgreedValues()
-	sortByWeight(quora)
-	return quora
-}
-
-///// COMMIT phase helpers /////
-
-type commitState struct {
-	// Quorum state for the head of each allowed full chain.
-	// This provides the value (if any) to be committed in the current round.
-	chains *quorumState
-}
-
-func newCommitState(power net.PowerTable) *commitState {
-	return &commitState{
-		chains: newQuorumState(power),
-	}
-}
-
-// Receives a new COMMIT value from a sender.
-// Returns values that are newly justified for the next phase:
-// - any value contained in commits
-// - anything, if commits agreed on ⏊
-func (c *commitState) Receive(sender net.ActorID, value net.ECChain) []net.ECChain {
-	seenValue := c.chains.HasReceived(value)
-	hadQuorum := c.chains.ReceivedFromQuorum()
-	foundQuorumValue := c.chains.Receive(sender, value)
-	nowHasQuorum := c.chains.ReceivedFromQuorum()
-
-	var newlyAllowed []net.ECChain
-	if !hadQuorum && nowHasQuorum {
-		// On first reaching a strong quorum, all non-bottom values received justify a subsequent CONVERGE.
-		for _, v := range c.chains.ListAllValues() {
-			if !v.IsZero() {
-				newlyAllowed = append(newlyAllowed, v)
-			}
-		}
-	} else if hadQuorum && !seenValue {
-		// With quorum already reached, any new values now justify a subsequent CONVERGE.
-		newlyAllowed = append(newlyAllowed, value)
-	}
-
-	// Any CONVERGE is justified by a strong quorum that agree on ⏊.
-	if foundQuorumValue && value.IsZero() {
-		// The bottom value is interpreted as a sentinel for justifying anything.
-		newlyAllowed = append(newlyAllowed, value)
-	}
-
-	// TODO: the spec is currently ignoring prefixes of PREPARE as necessary justification for a subsequent CONVERGE.
-	//   If the spec updates, this needs more.
-	return newlyAllowed
-}
-
-// Checks whether at least one message has been received from a strong quorum of senders.
-func (c *commitState) ReceivedFromQuorum() bool {
-	return c.chains.ReceivedFromQuorum()
-}
-
-// Lists heads of proposals that gained strong quorum, ordered descending by weight.
-// There may be more than one if some sender equivocated.
-func (c *commitState) ListQuorumAgreedValues() []net.ECChain {
-	quora := c.chains.ListQuorumAgreedValues()
-	sortByWeight(quora)
-	return quora
-}
-
-func (c *commitState) ListAllValues() []net.ECChain {
-	return c.chains.ListAllValues()
-}
-
-//// CONVERGE phase helpers /////
+//// CONVERGE phase helper /////
 
 type convergeState struct {
 	// Chains indexed by head CID
@@ -828,19 +660,13 @@ func newConvergeState() *convergeState {
 }
 
 // Receives a new CONVERGE value from a sender.
-// Returns values that are newly justified for the next phase: any value the first time it is received.
-func (c *convergeState) Receive(value net.ECChain, ticket Ticket) []net.ECChain {
+func (c *convergeState) Receive(value net.ECChain, ticket Ticket) {
 	if value.IsZero() {
 		panic("bottom cannot be justified for CONVERGE")
 	}
 	key := value.Head().CID
-	_, found := c.values[key]
 	c.values[key] = value
 	c.tickets[key] = append(c.tickets[key], ticket)
-	if !found {
-		return []net.ECChain{value}
-	}
-	return nil
 }
 
 func (c *convergeState) findMinTicketProposal() net.ECChain {
@@ -860,24 +686,15 @@ func (c *convergeState) findMinTicketProposal() net.ECChain {
 ///// General helpers /////
 
 // Returns the first candidate value that is a prefix of the preferred value, or the base of preferred.
-// This takes ownership of the candidates slice and mutates it in-place.
 func findFirstPrefixOf(candidates []net.ECChain, preferred net.ECChain) net.ECChain {
-	// Filter the candidates (in place) to those that are a prefix of the preferred value.
-	n := 0
 	for _, v := range candidates {
 		if preferred.HasPrefix(v) {
-			candidates[n] = v
-			n += 1
+			return v
 		}
 	}
-	candidates = candidates[:n]
 
-	// Return the first candidate, else base.
-	if len(candidates) > 0 {
-		return candidates[0]
-	} else {
-		return preferred.BaseChain()
-	}
+	// No candidates are a prefix of preferred.
+	return preferred.BaseChain()
 }
 
 // Sorts chains by weight of their head, descending

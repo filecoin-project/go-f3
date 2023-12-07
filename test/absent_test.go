@@ -22,6 +22,6 @@ func TestAbsent(t *testing.T) {
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{len(sm.Participants), a})
 
-		require.True(t, sm.Run(MAX_ROUNDS))
+		require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 	}
 }
