@@ -3,7 +3,7 @@ package test
 import (
 	"fmt"
 	"github.com/filecoin-project/go-f3/adversary"
-	"github.com/filecoin-project/go-f3/net"
+	"github.com/filecoin-project/go-f3/f3"
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -15,7 +15,7 @@ func TestWitholdCommit1(t *testing.T) {
 		HonestCount: 7,
 		LatencySeed: int64(i),
 		LatencyMean: 0.01, // Near-synchrony
-	}, GraniteConfig(), net.TraceNone)
+	}, GraniteConfig(), sim.TraceNone)
 	adv := adversary.NewWitholdCommit(99, sm.Network)
 	sm.SetAdversary(adv, 3) // Adversary has 30% of 10 total power.
 
@@ -26,7 +26,7 @@ func TestWitholdCommit1(t *testing.T) {
 	// After the victim decides in round 0, the adversary stops participating.
 	// Now there are 3 nodes on each side (and one decided), with total power 6/10, less than quorum.
 	// The B side must be swayed to the A side by observing that some nodes on the A side reached a COMMIT.
-	victims := []net.ActorID{0, 1, 2, 3}
+	victims := []f3.ActorID{0, 1, 2, 3}
 	adv.SetVictim(victims, a)
 
 	adv.Begin()

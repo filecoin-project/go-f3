@@ -2,7 +2,6 @@ package f3
 
 import (
 	"fmt"
-	"github.com/filecoin-project/go-f3/net"
 	"sort"
 )
 
@@ -27,10 +26,10 @@ const DECIDE = "DECIDE"
 type GMessage struct {
 	Instance int
 	Round    int
-	Sender   net.ActorID
+	Sender   ActorID
 	Step     string
 	Ticket   Ticket
-	Value    net.ECChain
+	Value    ECChain
 }
 
 func (m GMessage) String() string {
@@ -41,14 +40,14 @@ func (m GMessage) String() string {
 // A single Granite consensus instance.
 type instance struct {
 	config        GraniteConfig
-	ntwk          net.NetworkSink
+	ntwk          Network
 	vrf           VRFer
-	participantID net.ActorID
+	participantID ActorID
 	instanceID    int
 	// The EC chain input to this instance.
-	input net.ECChain
+	input ECChain
 	// The power table for the base chain, used for power in this instance.
-	powerTable net.PowerTable
+	powerTable PowerTable
 	// The beacon value from the base chain, used for tickets in this instance.
 	beacon []byte
 	// Current round number.
@@ -61,10 +60,10 @@ type instance struct {
 	phaseTimeout float64
 	// This instance's proposal for the current round.
 	// This is set after the QUALITY phase, and changes only at the end of a full round.
-	proposal net.ECChain
+	proposal ECChain
 	// The value to be transmitted at the next phase.
 	// This value may change away from the proposal between phases.
-	value net.ECChain
+	value ECChain
 	// Queue of messages to be synchronously processed before returning from top-level call.
 	inbox []GMessage
 	// Messages received earlier but not yet justified.
@@ -78,12 +77,12 @@ type instance struct {
 
 func newInstance(
 	config GraniteConfig,
-	ntwk net.NetworkSink,
+	ntwk Network,
 	vrf VRFer,
-	participantID net.ActorID,
+	participantID ActorID,
 	instanceID int,
-	input net.ECChain,
-	powerTable net.PowerTable,
+	input ECChain,
+	powerTable PowerTable,
 	beacon []byte) *instance {
 	if input.IsZero() {
 		panic("input is empty")
@@ -100,7 +99,7 @@ func newInstance(
 		round:         0,
 		phase:         "",
 		proposal:      input,
-		value:         net.ECChain{},
+		value:         ECChain{},
 		pending:       newPendingQueue(),
 		quality:       newQuorumState(powerTable),
 		rounds: map[int]*roundState{
@@ -115,7 +114,7 @@ type roundState struct {
 	committed *quorumState
 }
 
-func newRoundState(powerTable net.PowerTable) *roundState {
+func newRoundState(powerTable PowerTable) *roundState {
 	return &roundState{
 		converged: newConvergeState(),
 		prepared:  newQuorumState(powerTable),
@@ -350,7 +349,7 @@ func (i *instance) tryConverge() {
 		}
 	} else {
 		// Vote for not deciding in this round
-		i.value = net.ECChain{}
+		i.value = ECChain{}
 	}
 	i.beginPrepare()
 }
@@ -378,7 +377,7 @@ func (i *instance) tryPrepare() {
 	if foundQuorum {
 		i.value = i.proposal
 	} else if timeoutExpired {
-		i.value = net.ECChain{}
+		i.value = ECChain{}
 	}
 
 	if foundQuorum || timeoutExpired {
@@ -442,12 +441,12 @@ func (i *instance) beginNextRound() {
 
 // Returns whether a chain is acceptable as a proposal for this instance to vote for.
 // This is "EC Compatible" in the pseudocode.
-func (i *instance) isAcceptable(c net.ECChain) bool {
+func (i *instance) isAcceptable(c ECChain) bool {
 	// TODO: expand to include subsequently notified chains.
 	return i.input.HasPrefix(c)
 }
 
-func (i *instance) decide(value net.ECChain, round int) {
+func (i *instance) decide(value ECChain, round int) {
 	i.log("✅ decided %s in round %d", &i.value, round)
 	i.phase = DECIDE
 	// Round is a parameter since a late COMMIT message can result in a decision for a round prior to the current one.
@@ -459,7 +458,7 @@ func (i *instance) decided() bool {
 	return i.phase == DECIDE
 }
 
-func (i *instance) broadcast(step string, value net.ECChain, ticket Ticket) GMessage {
+func (i *instance) broadcast(step string, value ECChain, ticket Ticket) GMessage {
 	gmsg := GMessage{i.instanceID, i.round, i.participantID, step, ticket, value}
 	i.ntwk.Broadcast(i.participantID, gmsg)
 	i.enqueueInbox(gmsg)
@@ -540,40 +539,40 @@ func (v *pendingQueue) getRound(round int) map[string][]GMessage {
 // Supports receiving multiple values from each sender, and hence multiple strong quorum values.
 type quorumState struct {
 	// CID of each chain received, by sender. Allows detecting and ignoring duplicates.
-	received map[net.ActorID]senderSent
+	received map[ActorID]senderSent
 	// The power supporting each chain so far.
-	chainPower map[net.CID]chainPower
+	chainPower map[CID]chainPower
 	// Total power of all distinct senders from which some chain has been received so far.
 	sendersTotalPower uint
 	// Table of senders' power.
-	powerTable net.PowerTable
+	powerTable PowerTable
 }
 
 // The set of chain heads from one sender, and that sender's power.
 type senderSent struct {
-	heads []net.CID
+	heads []CID
 	power uint
 }
 
 // A chain value and the total power supporting it.
 type chainPower struct {
-	chain     net.ECChain
+	chain     ECChain
 	power     uint
 	hasQuorum bool
 }
 
 // Creates a new, empty quorum state.
-func newQuorumState(powerTable net.PowerTable) *quorumState {
+func newQuorumState(powerTable PowerTable) *quorumState {
 	return &quorumState{
-		received:          map[net.ActorID]senderSent{},
-		chainPower:        map[net.CID]chainPower{},
+		received:          map[ActorID]senderSent{},
+		chainPower:        map[CID]chainPower{},
 		sendersTotalPower: 0,
 		powerTable:        powerTable,
 	}
 }
 
 // Receives a new chain from a sender.
-func (q *quorumState) Receive(sender net.ActorID, value net.ECChain) {
+func (q *quorumState) Receive(sender ActorID, value ECChain) {
 	head := value.HeadCIDOrZero()
 	fromSender, ok := q.received[sender]
 	if ok {
@@ -588,7 +587,7 @@ func (q *quorumState) Receive(sender net.ActorID, value net.ECChain) {
 		// Add sender's power to total the first time a value is received from them.
 		senderPower := q.powerTable.Entries[sender]
 		q.sendersTotalPower += senderPower
-		fromSender = senderSent{[]net.CID{head}, senderPower}
+		fromSender = senderSent{[]CID{head}, senderPower}
 	}
 	q.received[sender] = fromSender
 
@@ -608,15 +607,15 @@ func (q *quorumState) Receive(sender net.ActorID, value net.ECChain) {
 }
 
 // Checks whether a value has been received before.
-func (q *quorumState) HasReceived(value net.ECChain) bool {
+func (q *quorumState) HasReceived(value ECChain) bool {
 	_, ok := q.chainPower[value.HeadCIDOrZero()]
 	return ok
 }
 
 // Lists all values that have been received from any sender.
 // The order of returned values is not defined.
-func (q *quorumState) ListAllValues() []net.ECChain {
-	var chains []net.ECChain
+func (q *quorumState) ListAllValues() []ECChain {
+	var chains []ECChain
 	for _, cp := range q.chainPower {
 		chains = append(chains, cp.chain)
 	}
@@ -634,15 +633,15 @@ func (q *quorumState) ReceivedFromQuorum() bool {
 }
 
 // Checks whether a chain (head) has reached quorum.
-func (q *quorumState) HasQuorumAgreement(cid net.CID) bool {
+func (q *quorumState) HasQuorumAgreement(cid CID) bool {
 	cp, ok := q.chainPower[cid]
 	return ok && cp.hasQuorum
 }
 
 // Returns a list of the chains which have reached an agreeing quorum.
 // The order of returned values is not defined.
-func (q *quorumState) ListQuorumAgreedValues() []net.ECChain {
-	var withQuorum []net.ECChain
+func (q *quorumState) ListQuorumAgreedValues() []ECChain {
+	var withQuorum []ECChain
 	for cid, cp := range q.chainPower {
 		if cp.hasQuorum {
 			withQuorum = append(withQuorum, q.chainPower[cid].chain)
@@ -656,20 +655,20 @@ func (q *quorumState) ListQuorumAgreedValues() []net.ECChain {
 
 type convergeState struct {
 	// Chains indexed by head CID
-	values map[net.CID]net.ECChain
+	values map[CID]ECChain
 	// Tickets provided by proposers of each chain.
-	tickets map[net.CID][]Ticket
+	tickets map[CID][]Ticket
 }
 
 func newConvergeState() *convergeState {
 	return &convergeState{
-		values:  map[net.CID]net.ECChain{},
-		tickets: map[net.CID][]Ticket{},
+		values:  map[CID]ECChain{},
+		tickets: map[CID][]Ticket{},
 	}
 }
 
 // Receives a new CONVERGE value from a sender.
-func (c *convergeState) Receive(value net.ECChain, ticket Ticket) {
+func (c *convergeState) Receive(value ECChain, ticket Ticket) {
 	if value.IsZero() {
 		panic("bottom cannot be justified for CONVERGE")
 	}
@@ -678,9 +677,9 @@ func (c *convergeState) Receive(value net.ECChain, ticket Ticket) {
 	c.tickets[key] = append(c.tickets[key], ticket)
 }
 
-func (c *convergeState) findMinTicketProposal() net.ECChain {
+func (c *convergeState) findMinTicketProposal() ECChain {
 	var minTicket Ticket
-	var minValue net.ECChain
+	var minValue ECChain
 	for cid, value := range c.values {
 		for _, ticket := range c.tickets[cid] {
 			if minTicket == nil || ticket.Compare(minTicket) < 0 {
@@ -695,7 +694,7 @@ func (c *convergeState) findMinTicketProposal() net.ECChain {
 ///// General helpers /////
 
 // Returns the first candidate value that is a prefix of the preferred value, or the base of preferred.
-func findFirstPrefixOf(candidates []net.ECChain, preferred net.ECChain) net.ECChain {
+func findFirstPrefixOf(candidates []ECChain, preferred ECChain) ECChain {
 	for _, v := range candidates {
 		if preferred.HasPrefix(v) {
 			return v
@@ -707,7 +706,7 @@ func findFirstPrefixOf(candidates []net.ECChain, preferred net.ECChain) net.ECCh
 }
 
 // Sorts chains by weight of their head, descending
-func sortByWeight(chains []net.ECChain) {
+func sortByWeight(chains []ECChain) {
 	sort.Slice(chains, func(i, j int) bool {
 		if chains[i].IsZero() {
 			return false

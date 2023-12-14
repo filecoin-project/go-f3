@@ -1,52 +1,24 @@
-package net
+package sim
 
 import (
 	"fmt"
+	"github.com/filecoin-project/go-f3/f3"
 	"sort"
 	"strings"
 )
 
-// A consensus message.
-// Opaque to the network, expected to be cast by the receiver.
-type Message interface{}
-
-// Receives a consensus message.
-type MessageReceiver interface {
-	ReceiveMessage(sender ActorID, msg Message)
-	ReceiveAlarm(payload string)
-}
-
-// Interface which network participants must implement.
-type Receiver interface {
-	ID() ActorID
-	ECReceiver
-	MessageReceiver
-}
-
 type AdversaryReceiver interface {
-	Receiver
-	AllowMessage(from ActorID, to ActorID, msg Message) bool
-}
-
-// Endpoint to which participants can send messages to others
-type NetworkSink interface {
-	// Sends a message to all other participants.
-	Broadcast(sender ActorID, msg Message)
-	// Returns the current network time.
-	Time() float64
-	// Sets an alarm to fire at the given timestamp.
-	SetAlarm(sender ActorID, payload string, at float64)
-	// Logs a message at the "logic" level
-	Log(format string, args ...interface{})
+	f3.Receiver
+	AllowMessage(from f3.ActorID, to f3.ActorID, msg f3.Message) bool
 }
 
 // Endpoint with which the adversary can control the network
 type AdversaryNetworkSink interface {
-	NetworkSink
+	f3.Network
 	// Sends a message to all other participants, immediately.
 	// Note that the adversary can subsequently delay delivery to some participants,
 	// before messages are actually received.
-	BroadcastSynchronous(sender ActorID, msg Message)
+	BroadcastSynchronous(sender f3.ActorID, msg f3.Message)
 }
 
 const (
@@ -59,9 +31,9 @@ const (
 
 type Network struct {
 	// Participants by ID.
-	participants map[ActorID]Receiver
+	participants map[f3.ActorID]f3.Receiver
 	// Participant IDs for deterministic iteration
-	participantIDs []ActorID
+	participantIDs []f3.ActorID
 	// Messages received by the network but not yet delivered to all participants.
 	queue   messageQueue
 	latency LatencyModel
@@ -73,10 +45,10 @@ type Network struct {
 	traceLevel int
 }
 
-func New(latency LatencyModel, traceLevel int) *Network {
+func NewNetwork(latency LatencyModel, traceLevel int) *Network {
 	return &Network{
-		participants:               map[ActorID]Receiver{},
-		participantIDs:             []ActorID{},
+		participants:               map[f3.ActorID]f3.Receiver{},
+		participantIDs:             []f3.ActorID{},
 		queue:                      messageQueue{},
 		clock:                      0,
 		latency:                    latency,
@@ -85,7 +57,7 @@ func New(latency LatencyModel, traceLevel int) *Network {
 	}
 }
 
-func (n *Network) AddParticipant(p Receiver) {
+func (n *Network) AddParticipant(p f3.Receiver) {
 	if n.participants[p.ID()] != nil {
 		panic("duplicate participant ID")
 	}
@@ -93,7 +65,7 @@ func (n *Network) AddParticipant(p Receiver) {
 	n.participants[p.ID()] = p
 }
 
-func (n *Network) Broadcast(sender ActorID, msg Message) {
+func (n *Network) Broadcast(sender f3.ActorID, msg f3.Message) {
 	n.log(TraceSent, "P%d ↗ %v", sender, msg)
 	for _, k := range n.participantIDs {
 		if k != sender {
@@ -113,7 +85,7 @@ func (n *Network) Time() float64 {
 	return n.clock
 }
 
-func (n *Network) SetAlarm(sender ActorID, payload string, at float64) {
+func (n *Network) SetAlarm(sender f3.ActorID, payload string, at float64) {
 	n.queue.Insert(messageInFlight{
 		source:    sender,
 		dest:      sender,
@@ -128,7 +100,7 @@ func (n *Network) Log(format string, args ...interface{}) {
 
 ///// Adversary network interface
 
-func (n *Network) BroadcastSynchronous(sender ActorID, msg Message) {
+func (n *Network) BroadcastSynchronous(sender f3.ActorID, msg f3.Message) {
 	n.log(TraceSent, "P%d ↗ %v", sender, msg)
 	for _, k := range n.participantIDs {
 		if k != sender {
@@ -183,10 +155,10 @@ func (n *Network) log(level int, format string, args ...interface{}) {
 }
 
 type messageInFlight struct {
-	source    ActorID // ID of the sender
-	dest      ActorID // ID of the receiver
-	payload   Message // Message body
-	deliverAt float64 // Timestamp at which to deliver the message
+	source    f3.ActorID // ID of the sender
+	dest      f3.ActorID // ID of the receiver
+	payload   f3.Message // Message body
+	deliverAt float64    // Timestamp at which to deliver the message
 }
 
 // A queue of directed messages, maintained as an ordered list.

@@ -1,6 +1,4 @@
-package net
-
-type ActorID uint64
+package f3
 
 // A power table maps participant IDs to power values.
 type PowerTable struct {

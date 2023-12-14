@@ -2,41 +2,41 @@ package adversary
 
 import (
 	"github.com/filecoin-project/go-f3/f3"
-	"github.com/filecoin-project/go-f3/net"
+	"github.com/filecoin-project/go-f3/sim"
 )
 
 // This adversary send its COMMIT message to only a single victim, withholding it from others.
 // Against a naive algorithm, when set up with 30% of power, and a victim set with 40%,
 // it can cause one victim to decide, while others revert to the base.
 type WitholdCommit struct {
-	id   net.ActorID
-	ntwk net.AdversaryNetworkSink
+	id   f3.ActorID
+	ntwk sim.AdversaryNetworkSink
 	// The first victim is the target, others are those who need to confirm.
-	victims     []net.ActorID
-	victimValue net.ECChain
+	victims     []f3.ActorID
+	victimValue f3.ECChain
 }
 
 // A participant that never sends anything.
-func NewWitholdCommit(id net.ActorID, ntwk net.AdversaryNetworkSink) *WitholdCommit {
+func NewWitholdCommit(id f3.ActorID, ntwk sim.AdversaryNetworkSink) *WitholdCommit {
 	return &WitholdCommit{
 		id:   id,
 		ntwk: ntwk,
 	}
 }
 
-func (w *WitholdCommit) SetVictim(victims []net.ActorID, victimValue net.ECChain) {
+func (w *WitholdCommit) SetVictim(victims []f3.ActorID, victimValue f3.ECChain) {
 	w.victims = victims
 	w.victimValue = victimValue
 }
 
-func (w *WitholdCommit) ID() net.ActorID {
+func (w *WitholdCommit) ID() f3.ActorID {
 	return w.id
 }
 
-func (w *WitholdCommit) ReceiveCanonicalChain(_ net.ECChain, _ net.PowerTable, _ []byte) {
+func (w *WitholdCommit) ReceiveCanonicalChain(_ f3.ECChain, _ f3.PowerTable, _ []byte) {
 }
 
-func (w *WitholdCommit) ReceiveMessage(_ net.ActorID, _ net.Message) {
+func (w *WitholdCommit) ReceiveMessage(_ f3.ActorID, _ f3.Message) {
 }
 
 func (w *WitholdCommit) ReceiveAlarm(_ string) {
@@ -68,7 +68,7 @@ func (w *WitholdCommit) Begin() {
 	})
 }
 
-func (w *WitholdCommit) AllowMessage(_ net.ActorID, to net.ActorID, msg net.Message) bool {
+func (w *WitholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Message) bool {
 	gmsg, ok := msg.(f3.GMessage)
 	if ok {
 		toMainVictim := to == w.victims[0]

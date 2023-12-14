@@ -2,7 +2,7 @@ package test
 
 import (
 	"fmt"
-	"github.com/filecoin-project/go-f3/net"
+	"github.com/filecoin-project/go-f3/f3"
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -11,7 +11,7 @@ import (
 ///// Tests with no adversaries.
 
 func TestSingleton(t *testing.T) {
-	sm := sim.NewSimulation(newSyncConfig(1), GraniteConfig(), net.TraceNone)
+	sm := sim.NewSimulation(newSyncConfig(1), GraniteConfig(), sim.TraceNone)
 	a := sm.Base.Extend(sm.CIDGen.Sample())
 	sm.ReceiveChains(sim.ChainCount{1, a})
 
@@ -20,7 +20,7 @@ func TestSingleton(t *testing.T) {
 }
 
 func TestSyncPair(t *testing.T) {
-	sm := sim.NewSimulation(newSyncConfig(2), GraniteConfig(), net.TraceNone)
+	sm := sim.NewSimulation(newSyncConfig(2), GraniteConfig(), sim.TraceNone)
 	a := sm.Base.Extend(sm.CIDGen.Sample())
 	sm.ReceiveChains(sim.ChainCount{len(sm.Participants), a})
 
@@ -31,7 +31,7 @@ func TestSyncPair(t *testing.T) {
 func TestASyncPair(t *testing.T) {
 	for i := 0; i < ASYNC_ITERS; i++ {
 		//fmt.Println("i =", i)
-		sm := sim.NewSimulation(newAsyncConfig(2, i), GraniteConfig(), net.TraceNone)
+		sm := sim.NewSimulation(newAsyncConfig(2, i), GraniteConfig(), sim.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{len(sm.Participants), a})
 
@@ -42,7 +42,7 @@ func TestASyncPair(t *testing.T) {
 }
 
 func TestSyncPairDisagree(t *testing.T) {
-	sm := sim.NewSimulation(newSyncConfig(2), GraniteConfig(), net.TraceNone)
+	sm := sim.NewSimulation(newSyncConfig(2), GraniteConfig(), sim.TraceNone)
 	a := sm.Base.Extend(sm.CIDGen.Sample())
 	b := sm.Base.Extend(sm.CIDGen.Sample())
 	sm.ReceiveChains(sim.ChainCount{1, a}, sim.ChainCount{1, b})
@@ -55,7 +55,7 @@ func TestSyncPairDisagree(t *testing.T) {
 func TestAsyncPairDisagree(t *testing.T) {
 	for i := 0; i < ASYNC_ITERS; i++ {
 		//fmt.Println("i =", i)
-		sm := sim.NewSimulation(newAsyncConfig(2, i), GraniteConfig(), net.TraceNone)
+		sm := sim.NewSimulation(newAsyncConfig(2, i), GraniteConfig(), sim.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		b := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{1, a}, sim.ChainCount{1, b})
@@ -69,7 +69,7 @@ func TestAsyncPairDisagree(t *testing.T) {
 
 func TestSyncAgreement(t *testing.T) {
 	for n := 3; n <= 50; n++ {
-		sm := sim.NewSimulation(newSyncConfig(n), GraniteConfig(), net.TraceNone)
+		sm := sim.NewSimulation(newSyncConfig(n), GraniteConfig(), sim.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{len(sm.Participants), a})
 		require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
@@ -84,7 +84,7 @@ func TestAsyncAgreement(t *testing.T) {
 	for n := 3; n <= 16; n++ {
 		for i := 0; i < ASYNC_ITERS; i++ {
 			//fmt.Println("n =", n, "i =", i)
-			sm := sim.NewSimulation(newAsyncConfig(n, i), GraniteConfig(), net.TraceNone)
+			sm := sim.NewSimulation(newAsyncConfig(n, i), GraniteConfig(), sim.TraceNone)
 			a := sm.Base.Extend(sm.CIDGen.Sample())
 			sm.ReceiveChains(sim.ChainCount{len(sm.Participants), a})
 
@@ -97,7 +97,7 @@ func TestAsyncAgreement(t *testing.T) {
 
 func TestSyncHalves(t *testing.T) {
 	for n := 4; n <= 50; n += 2 {
-		sm := sim.NewSimulation(newSyncConfig(n), GraniteConfig(), net.TraceNone)
+		sm := sim.NewSimulation(newSyncConfig(n), GraniteConfig(), sim.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		b := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{n / 2, a}, sim.ChainCount{n / 2, b})
@@ -112,7 +112,7 @@ func TestAsyncHalves(t *testing.T) {
 	t.Parallel()
 	for n := 4; n <= 2; n += 2 {
 		for i := 0; i < ASYNC_ITERS; i++ {
-			sm := sim.NewSimulation(newAsyncConfig(n, i), GraniteConfig(), net.TraceNone)
+			sm := sim.NewSimulation(newAsyncConfig(n, i), GraniteConfig(), sim.TraceNone)
 			a := sm.Base.Extend(sm.CIDGen.Sample())
 			b := sm.Base.Extend(sm.CIDGen.Sample())
 			sm.ReceiveChains(sim.ChainCount{n / 2, a}, sim.ChainCount{n / 2, b})
@@ -127,7 +127,7 @@ func TestAsyncHalves(t *testing.T) {
 func TestRequireStrongQuorumToProgress(t *testing.T) {
 	t.Parallel()
 	for i := 0; i < ASYNC_ITERS; i++ {
-		sm := sim.NewSimulation(newAsyncConfig(30, i), GraniteConfig(), net.TraceNone)
+		sm := sim.NewSimulation(newAsyncConfig(30, i), GraniteConfig(), sim.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		b := sm.Base.Extend(sm.CIDGen.Sample())
 		// No strict > quorum.
@@ -155,7 +155,7 @@ func newAsyncConfig(honestCount int, latencySeed int) sim.Config {
 	}
 }
 
-func expectRoundDecision(t *testing.T, sm *sim.Simulation, expectedRound int, expected ...*net.TipSet) {
+func expectRoundDecision(t *testing.T, sm *sim.Simulation, expectedRound int, expected ...*f3.TipSet) {
 	decision, round := sm.Participants[0].Finalised()
 	require.Equal(t, expectedRound, round)
 
@@ -167,7 +167,7 @@ func expectRoundDecision(t *testing.T, sm *sim.Simulation, expectedRound int, ex
 	require.Fail(t, fmt.Sprintf("decided %s, expected one of %s", &decision, expected))
 }
 
-func expectEventualDecision(t *testing.T, sm *sim.Simulation, expected ...*net.TipSet) {
+func expectEventualDecision(t *testing.T, sm *sim.Simulation, expected ...*f3.TipSet) {
 	decision, _ := sm.Participants[0].Finalised()
 	for _, e := range expected {
 		if decision.CID == e.CID {

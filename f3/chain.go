@@ -1,4 +1,4 @@
-package net
+package f3
 
 import (
 	"reflect"
@@ -6,11 +6,14 @@ import (
 	"strings"
 )
 
-type CID = string
-
+// Information about a tipset that is relevant to the F3 protocol.
 type TipSet struct {
-	Epoch  int
-	CID    CID
+	// The epoch of the blocks in the tipset.
+	Epoch int
+	// The CID of the tipset.
+	// TODO: define how this is computed in terms of the block header CIDs.
+	CID CID
+	// The EC consensus weight of the tipset.
 	Weight uint
 }
 
@@ -184,9 +187,4 @@ func (c ECChain) String() string {
 	}
 	b.WriteString("]")
 	return b.String()
-}
-
-// Receives an updated EC chain.
-type ECReceiver interface {
-	ReceiveCanonicalChain(chain ECChain, power PowerTable, beacon []byte)
 }

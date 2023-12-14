@@ -3,7 +3,6 @@ package sim
 import (
 	"fmt"
 	"github.com/filecoin-project/go-f3/f3"
-	"github.com/filecoin-project/go-f3/net"
 	"strings"
 )
 
@@ -16,35 +15,35 @@ type Config struct {
 }
 
 type Simulation struct {
-	Network      *net.Network
-	Base         net.ECChain
-	PowerTable   net.PowerTable
+	Network      *Network
+	Base         f3.ECChain
+	PowerTable   f3.PowerTable
 	Beacon       []byte
 	Participants []*f3.Participant
-	Adversary    net.AdversaryReceiver
+	Adversary    AdversaryReceiver
 	CIDGen       *CIDGen
 }
 
-type AdversaryFactory func(id string, ntwk net.NetworkSink) net.Receiver
+type AdversaryFactory func(id string, ntwk f3.Network) f3.Receiver
 
 func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel int) *Simulation {
 	// Create a network to deliver messages.
-	lat := net.NewLogNormal(simConfig.LatencySeed, simConfig.LatencyMean)
-	ntwk := net.New(lat, traceLevel)
+	lat := NewLogNormal(simConfig.LatencySeed, simConfig.LatencyMean)
+	ntwk := NewNetwork(lat, traceLevel)
 	vrf := f3.NewFakeVRF()
 
 	// Create participants.
-	genesisPower := net.NewPowerTable()
+	genesisPower := f3.NewPowerTable()
 	participants := make([]*f3.Participant, simConfig.HonestCount)
 	for i := 0; i < len(participants); i++ {
-		participants[i] = f3.NewParticipant(net.ActorID(i), graniteConfig, ntwk, vrf)
+		participants[i] = f3.NewParticipant(f3.ActorID(i), graniteConfig, ntwk, vrf)
 		ntwk.AddParticipant(participants[i])
 		genesisPower.Add(participants[i].ID(), 1)
 	}
 
 	// Create genesis tipset, which all participants are expected to agree on as a base.
-	genesis := net.NewTipSet(100, "genesis", 1)
-	baseChain := net.NewChain(genesis)
+	genesis := f3.NewTipSet(100, "genesis", 1)
+	baseChain := f3.NewChain(genesis)
 	return &Simulation{
 		Network:      ntwk,
 		Base:         baseChain,
@@ -56,7 +55,7 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 	}
 }
 
-func (s *Simulation) SetAdversary(adv net.AdversaryReceiver, power uint) {
+func (s *Simulation) SetAdversary(adv AdversaryReceiver, power uint) {
 	s.Adversary = adv
 	s.Network.AddParticipant(adv)
 	s.PowerTable.Add(adv.ID(), power)
@@ -64,7 +63,7 @@ func (s *Simulation) SetAdversary(adv net.AdversaryReceiver, power uint) {
 
 type ChainCount struct {
 	Count int
-	Chain net.ECChain
+	Chain f3.ECChain
 }
 
 // Delivers canonical chains to honest participants.
@@ -92,7 +91,7 @@ func (s *Simulation) Run(maxRounds int) bool {
 	first, _ := s.Participants[0].Finalised()
 	for _, p := range s.Participants {
 		f, _ := p.Finalised()
-		if f.Eq(&net.TipSet{}) {
+		if f.Eq(&f3.TipSet{}) {
 			return false
 		}
 		if !f.Eq(&first) {
@@ -103,13 +102,13 @@ func (s *Simulation) Run(maxRounds int) bool {
 }
 
 func (s *Simulation) PrintResults() {
-	var firstFin net.TipSet
+	var firstFin f3.TipSet
 	for _, p := range s.Participants {
 		thisFin, _ := p.Finalised()
-		if firstFin.Eq(&net.TipSet{}) {
+		if firstFin.Eq(&f3.TipSet{}) {
 			firstFin = thisFin
 		}
-		if thisFin.Eq(&net.TipSet{}) {
+		if thisFin.Eq(&f3.TipSet{}) {
 			fmt.Printf("‼️ Participant %d did not decide\n", p.ID())
 		} else if !thisFin.Eq(&firstFin) {
 			fmt.Printf("‼️ Participant %d decided %v, but %d decided %v\n", p.ID(), thisFin, s.Participants[0].ID(), firstFin)
@@ -137,7 +136,7 @@ func NewCIDGen(seed uint64) *CIDGen {
 	return &CIDGen{seed}
 }
 
-func (c *CIDGen) Sample() net.CID {
+func (c *CIDGen) Sample() f3.CID {
 	b := make([]rune, 8)
 	for i := range b {
 		b[i] = alphanum[c.nextN(len(alphanum))]

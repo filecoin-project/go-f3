@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"github.com/filecoin-project/go-f3/f3"
-	"github.com/filecoin-project/go-f3/net"
 	"github.com/filecoin-project/go-f3/sim"
 	"time"
 )
@@ -15,7 +14,7 @@ func main() {
 	latencySeed := flag.Int64("latency-seed", time.Now().UnixMilli(), "random seed for network latency")
 	latencyMean := flag.Float64("latency-mean", 0.500, "mean network latency")
 	maxRounds := flag.Int("max-rounds", 10, "max rounds to allow before failing")
-	traceLevel := flag.Int("trace", net.TraceNone, "trace verbosity level")
+	traceLevel := flag.Int("trace", sim.TraceNone, "trace verbosity level")
 
 	graniteDelta := flag.Float64("granite-delta", 6.000, "granite delta parameter")
 	graniteDeltaRate := flag.Float64("granite-delta-rate", 2.000, "change in delta for each round")
@@ -40,7 +39,7 @@ func main() {
 
 		// Same chain for everyone.
 		candidate := sm.Base.Extend(sm.CIDGen.Sample())
-		sm.ReceiveChains(sim.ChainCount{Count: *participantCount, Chain: *candidate})
+		sm.ReceiveChains(sim.ChainCount{Count: *participantCount, Chain: candidate})
 
 		ok := sm.Run(*maxRounds)
 		if !ok {

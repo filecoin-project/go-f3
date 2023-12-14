@@ -1,32 +1,30 @@
 package f3
 
-import "github.com/filecoin-project/go-f3/net"
-
 // An F3 participant runs repeated instances of Granite to finalise longer chains.
 type Participant struct {
-	id     net.ActorID
+	id     ActorID
 	config GraniteConfig
-	ntwk   net.NetworkSink
+	ntwk   Network
 	vrf    VRFer
 
 	mpool []GMessage
 	// Chain to use as input for the next Granite instance.
-	nextChain net.ECChain
+	nextChain ECChain
 	// Instance identifier for the next Granite instance.
 	nextInstance int
 	// Current Granite instance.
 	granite *instance
 	// The output from the last decided Granite instance.
-	finalised net.TipSet
+	finalised TipSet
 	// The round number at which the last instance was decided.
 	finalisedRound int
 }
 
-func NewParticipant(id net.ActorID, config GraniteConfig, ntwk net.NetworkSink, vrf VRFer) *Participant {
+func NewParticipant(id ActorID, config GraniteConfig, ntwk Network, vrf VRFer) *Participant {
 	return &Participant{id: id, config: config, ntwk: ntwk, vrf: vrf}
 }
 
-func (p *Participant) ID() net.ActorID {
+func (p *Participant) ID() ActorID {
 	return p.id
 }
 
@@ -36,13 +34,13 @@ func (p *Participant) CurrentRound() int {
 	}
 	return p.granite.round
 }
-func (p *Participant) Finalised() (net.TipSet, int) {
+func (p *Participant) Finalised() (TipSet, int) {
 	return p.finalised, p.finalisedRound
 }
 
 // Receives a new canonical EC chain for the instance.
 // This becomes the instance's preferred value to finalise.
-func (p *Participant) ReceiveCanonicalChain(chain net.ECChain, power net.PowerTable, beacon []byte) {
+func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, beacon []byte) {
 	p.nextChain = chain
 	if p.granite == nil {
 		p.granite = newInstance(p.config, p.ntwk, p.vrf, p.id, p.nextInstance, chain, power, beacon)
@@ -52,7 +50,7 @@ func (p *Participant) ReceiveCanonicalChain(chain net.ECChain, power net.PowerTa
 }
 
 // Receives a Granite message from some other participant.
-func (p *Participant) ReceiveMessage(_ net.ActorID, msg net.Message) {
+func (p *Participant) ReceiveMessage(_ ActorID, msg Message) {
 	gmsg := msg.(GMessage)
 	if p.granite != nil && gmsg.Instance == p.granite.instanceID {
 		p.granite.Receive(gmsg)

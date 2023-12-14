@@ -2,7 +2,6 @@ package test
 
 import (
 	"github.com/filecoin-project/go-f3/adversary"
-	"github.com/filecoin-project/go-f3/net"
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -15,7 +14,7 @@ func TestAbsent(t *testing.T) {
 			HonestCount: 3,
 			LatencySeed: int64(i),
 			LatencyMean: LATENCY_ASYNC,
-		}, GraniteConfig(), net.TraceNone)
+		}, GraniteConfig(), sim.TraceNone)
 		// Adversary has 1/4 of power.
 		sm.SetAdversary(adversary.NewAbsent(99, sm.Network), 1)
 

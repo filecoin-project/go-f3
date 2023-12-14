@@ -1,4 +1,4 @@
-package net
+package sim
 
 import (
 	"math"
