@@ -7,7 +7,7 @@ type Participant struct {
 	ntwk   Network
 	vrf    VRFer
 
-	mpool []GMessage
+	mpool []*GMessage
 	// Chain to use as input for the next Granite instance.
 	nextChain ECChain
 	// Instance identifier for the next Granite instance.
@@ -50,14 +50,13 @@ func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, bea
 }
 
 // Receives a Granite message from some other participant.
-func (p *Participant) ReceiveMessage(_ ActorID, msg Message) {
-	gmsg := msg.(GMessage)
-	if p.granite != nil && gmsg.Instance == p.granite.instanceID {
-		p.granite.Receive(gmsg)
+func (p *Participant) ReceiveMessage(msg *GMessage) {
+	if p.granite != nil && msg.Instance == p.granite.instanceID {
+		p.granite.Receive(msg)
 		p.handleDecision()
-	} else if gmsg.Instance >= p.nextInstance {
+	} else if msg.Instance >= p.nextInstance {
 		// Queue messages for later instances
-		p.mpool = append(p.mpool, gmsg)
+		p.mpool = append(p.mpool, msg)
 	}
 }
 

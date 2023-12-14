@@ -24,9 +24,9 @@ const COMMIT = "COMMIT"
 const DECIDE = "DECIDE"
 
 type GMessage struct {
+	Sender   ActorID
 	Instance int
 	Round    int
-	Sender   ActorID
 	Step     string
 	Ticket   Ticket
 	Value    ECChain
@@ -65,7 +65,7 @@ type instance struct {
 	// This value may change away from the proposal between phases.
 	value ECChain
 	// Queue of messages to be synchronously processed before returning from top-level call.
-	inbox []GMessage
+	inbox []*GMessage
 	// Messages received earlier but not yet justified.
 	pending *pendingQueue
 	// Quality phase state (only for round 0)
@@ -127,7 +127,7 @@ func (i *instance) Start() {
 	i.drainInbox()
 }
 
-func (i *instance) Receive(msg GMessage) {
+func (i *instance) Receive(msg *GMessage) {
 	if i.decided() {
 		panic("received message after decision")
 	}
@@ -153,7 +153,7 @@ func (i *instance) Describe() string {
 	return fmt.Sprintf("P%d{%d}, round %d, phase %s", i.participantID, i.instanceID, i.round, i.phase)
 }
 
-func (i *instance) enqueueInbox(msg GMessage) {
+func (i *instance) enqueueInbox(msg *GMessage) {
 	i.inbox = append(i.inbox, msg)
 }
 
@@ -182,15 +182,15 @@ func (i *instance) tryPendingMessages() {
 }
 
 // Processes a single message.
-func (i *instance) receiveOne(msg GMessage) {
+func (i *instance) receiveOne(msg *GMessage) {
 	// Drop any messages that can never be valid.
-	if !i.isValid(&msg) {
+	if !i.isValid(msg) {
 		i.log("dropping invalid %s", msg)
 		return
 	}
 
 	// Hold as pending any message with a value not yet justified by the prior phase.
-	if !i.isJustified(&msg) {
+	if !i.isJustified(msg) {
 		i.log("enqueue %s", msg)
 		i.pending.Add(msg)
 		return
@@ -458,9 +458,9 @@ func (i *instance) decided() bool {
 	return i.phase == DECIDE
 }
 
-func (i *instance) broadcast(step string, value ECChain, ticket Ticket) GMessage {
-	gmsg := GMessage{i.instanceID, i.round, i.participantID, step, ticket, value}
-	i.ntwk.Broadcast(i.participantID, gmsg)
+func (i *instance) broadcast(step string, value ECChain, ticket Ticket) *GMessage {
+	gmsg := &GMessage{i.participantID, i.instanceID, i.round, step, ticket, value}
+	i.ntwk.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
 	return gmsg
 }
@@ -485,29 +485,29 @@ func (i *instance) log(format string, args ...interface{}) {
 // Holds a collection messages received but not yet justified.
 type pendingQueue struct {
 	// Map by round and phase to list of messages.
-	rounds map[int]map[string][]GMessage
+	rounds map[int]map[string][]*GMessage
 }
 
 func newPendingQueue() *pendingQueue {
 	return &pendingQueue{
-		rounds: map[int]map[string][]GMessage{},
+		rounds: map[int]map[string][]*GMessage{},
 	}
 }
 
 // Queues a message for future re-validation.
-func (v *pendingQueue) Add(msg GMessage) {
+func (v *pendingQueue) Add(msg *GMessage) {
 	rv := v.getRound(msg.Round)
 	rv[msg.Step] = append(rv[msg.Step], msg)
 }
 
 // Dequeues all messages from some round and phase matching a predicate.
-func (v *pendingQueue) PopWhere(round int, phase string, pred func(msg *GMessage) bool) []GMessage {
-	var found []GMessage
+func (v *pendingQueue) PopWhere(round int, phase string, pred func(msg *GMessage) bool) []*GMessage {
+	var found []*GMessage
 	queue := v.getRound(round)[phase]
 	// Remove all entries matching predicate, in-place.
 	n := 0
 	for _, msg := range queue {
-		if pred(&msg) {
+		if pred(msg) {
 			found = append(found, msg)
 		} else {
 			queue[n] = msg
@@ -518,11 +518,11 @@ func (v *pendingQueue) PopWhere(round int, phase string, pred func(msg *GMessage
 	return found
 }
 
-func (v *pendingQueue) getRound(round int) map[string][]GMessage {
-	var rv map[string][]GMessage
+func (v *pendingQueue) getRound(round int) map[string][]*GMessage {
+	var rv map[string][]*GMessage
 	rv, ok := v.rounds[round]
 	if !ok {
-		rv = map[string][]GMessage{
+		rv = map[string][]*GMessage{
 			CONVERGE: nil,
 			PREPARE:  nil,
 			COMMIT:   nil,

@@ -65,16 +65,16 @@ func (n *Network) AddParticipant(p f3.Receiver) {
 	n.participants[p.ID()] = p
 }
 
-func (n *Network) Broadcast(sender f3.ActorID, msg f3.Message) {
-	n.log(TraceSent, "P%d ↗ %v", sender, msg)
+func (n *Network) Broadcast(msg *f3.GMessage) {
+	n.log(TraceSent, "P%d ↗ %v", msg.Sender, msg)
 	for _, k := range n.participantIDs {
-		if k != sender {
+		if k != msg.Sender {
 			latency := n.latency.Sample()
 			n.queue.Insert(
 				messageInFlight{
-					source:    sender,
+					source:    msg.Sender,
 					dest:      k,
-					payload:   msg,
+					payload:   *msg,
 					deliverAt: n.clock + latency,
 				})
 		}
@@ -141,7 +141,8 @@ func (n *Network) Tick(adv AdversaryReceiver) bool {
 		n.participants[msg.dest].ReceiveAlarm(strings.TrimPrefix(payloadStr, "ALARM:"))
 	} else {
 		n.log(TraceRecvd, "P%d ← P%d: %v", msg.dest, msg.source, msg.payload)
-		n.participants[msg.dest].ReceiveMessage(msg.source, msg.payload)
+		gmsg := msg.payload.(f3.GMessage)
+		n.participants[msg.dest].ReceiveMessage(&gmsg)
 	}
 	return len(n.queue) > 0
 }
@@ -155,10 +156,10 @@ func (n *Network) log(level int, format string, args ...interface{}) {
 }
 
 type messageInFlight struct {
-	source    f3.ActorID // ID of the sender
-	dest      f3.ActorID // ID of the receiver
-	payload   f3.Message // Message body
-	deliverAt float64    // Timestamp at which to deliver the message
+	source    f3.ActorID  // ID of the sender
+	dest      f3.ActorID  // ID of the receiver
+	payload   interface{} // Message body
+	deliverAt float64     // Timestamp at which to deliver the message
 }
 
 // A queue of directed messages, maintained as an ordered list.

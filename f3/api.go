@@ -13,7 +13,9 @@ type Message interface{}
 
 // Receives a Granite protocol message.
 type MessageReceiver interface {
-	ReceiveMessage(sender ActorID, msg Message)
+	// Receives a message from another participant.
+	// The message is assumed to have been validated as being sent by `msg.Sender`.
+	ReceiveMessage(msg *GMessage)
 	ReceiveAlarm(payload string)
 }
 
@@ -24,10 +26,11 @@ type Receiver interface {
 	MessageReceiver
 }
 
-// Endpoint to which participants can interact with the network and context..
+// Endpoint to which participants can interact with the network and context.
 type Network interface {
 	// Sends a message to all other participants.
-	Broadcast(sender ActorID, msg Message)
+	// The message's sender must be one that the network interface can sign on behalf of.
+	Broadcast(msg *GMessage)
 	// Returns the current network time.
 	Time() float64
 	// Sets an alarm to fire at the given timestamp.

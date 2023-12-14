@@ -36,7 +36,7 @@ func (w *WitholdCommit) ID() f3.ActorID {
 func (w *WitholdCommit) ReceiveCanonicalChain(_ f3.ECChain, _ f3.PowerTable, _ []byte) {
 }
 
-func (w *WitholdCommit) ReceiveMessage(_ f3.ActorID, _ f3.Message) {
+func (w *WitholdCommit) ReceiveMessage(_ *f3.GMessage) {
 }
 
 func (w *WitholdCommit) ReceiveAlarm(_ string) {
@@ -46,23 +46,23 @@ func (w *WitholdCommit) Begin() {
 	// All victims need to see QUALITY and PREPARE in order to send their COMMIT,
 	// but only the one victim will see our COMMIT.
 	w.ntwk.BroadcastSynchronous(w.id, f3.GMessage{
+		Sender:   w.id,
 		Instance: 0,
 		Round:    0,
-		Sender:   w.id,
 		Step:     f3.QUALITY,
 		Value:    w.victimValue,
 	})
 	w.ntwk.BroadcastSynchronous(w.id, f3.GMessage{
+		Sender:   w.id,
 		Instance: 0,
 		Round:    0,
-		Sender:   w.id,
 		Step:     f3.PREPARE,
 		Value:    w.victimValue,
 	})
 	w.ntwk.BroadcastSynchronous(w.id, f3.GMessage{
+		Sender:   w.id,
 		Instance: 0,
 		Round:    0,
-		Sender:   w.id,
 		Step:     f3.COMMIT,
 		Value:    w.victimValue,
 	})
