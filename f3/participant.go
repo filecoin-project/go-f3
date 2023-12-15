@@ -49,6 +49,12 @@ func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, bea
 	}
 }
 
+func (p *Participant) ReceiveECChain(chain ECChain) {
+	if p.granite != nil && chain.HasPrefix(p.granite.input) {
+		p.granite.heaviestChain = chain
+	}
+}
+
 // Receives a Granite message from some other participant.
 func (p *Participant) ReceiveMessage(msg *GMessage) {
 	if p.granite != nil && msg.Instance == p.granite.instanceID {
