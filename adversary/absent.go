@@ -24,6 +24,9 @@ func (a *Absent) ID() f3.ActorID {
 func (a *Absent) ReceiveCanonicalChain(_ f3.ECChain, _ f3.PowerTable, _ []byte) {
 }
 
+func (a *Absent) ReceiveECChain(_ f3.ECChain) {
+}
+
 func (a *Absent) ReceiveMessage(_ *f3.GMessage) {
 }
 

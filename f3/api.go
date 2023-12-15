@@ -5,6 +5,8 @@ type ChainReceiver interface {
 	// Receives a chain appropriate for use as initial proposals for a Granite instance.
 	// The chain's base is assumed to be an appropriate base for the instance.
 	ReceiveCanonicalChain(chain ECChain, power PowerTable, beacon []byte)
+
+	ReceiveECChain(chain ECChain)
 }
 
 // A consensus message.
