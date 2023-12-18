@@ -10,17 +10,17 @@ import (
 // it can cause one victim to decide, while others revert to the base.
 type WitholdCommit struct {
 	id   f3.ActorID
-	ntwk sim.AdversaryNetworkSink
+	host sim.AdversaryHost
 	// The first victim is the target, others are those who need to confirm.
 	victims     []f3.ActorID
 	victimValue f3.ECChain
 }
 
 // A participant that never sends anything.
-func NewWitholdCommit(id f3.ActorID, ntwk sim.AdversaryNetworkSink) *WitholdCommit {
+func NewWitholdCommit(id f3.ActorID, host sim.AdversaryHost) *WitholdCommit {
 	return &WitholdCommit{
 		id:   id,
-		ntwk: ntwk,
+		host: host,
 	}
 }
 
@@ -45,26 +45,29 @@ func (w *WitholdCommit) ReceiveAlarm(_ string) {
 func (w *WitholdCommit) Begin() {
 	// All victims need to see QUALITY and PREPARE in order to send their COMMIT,
 	// but only the one victim will see our COMMIT.
-	w.ntwk.BroadcastSynchronous(w.id, f3.GMessage{
-		Sender:   w.id,
-		Instance: 0,
-		Round:    0,
-		Step:     f3.QUALITY,
-		Value:    w.victimValue,
+	w.host.BroadcastSynchronous(w.id, f3.GMessage{
+		Sender:    w.id,
+		Instance:  0,
+		Round:     0,
+		Step:      f3.QUALITY,
+		Value:     w.victimValue,
+		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.QUALITY, w.victimValue)),
 	})
-	w.ntwk.BroadcastSynchronous(w.id, f3.GMessage{
-		Sender:   w.id,
-		Instance: 0,
-		Round:    0,
-		Step:     f3.PREPARE,
-		Value:    w.victimValue,
+	w.host.BroadcastSynchronous(w.id, f3.GMessage{
+		Sender:    w.id,
+		Instance:  0,
+		Round:     0,
+		Step:      f3.PREPARE,
+		Value:     w.victimValue,
+		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.PREPARE, w.victimValue)),
 	})
-	w.ntwk.BroadcastSynchronous(w.id, f3.GMessage{
-		Sender:   w.id,
-		Instance: 0,
-		Round:    0,
-		Step:     f3.COMMIT,
-		Value:    w.victimValue,
+	w.host.BroadcastSynchronous(w.id, f3.GMessage{
+		Sender:    w.id,
+		Instance:  0,
+		Round:     0,
+		Step:      f3.COMMIT,
+		Value:     w.victimValue,
+		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.COMMIT, w.victimValue)),
 	})
 }
 
