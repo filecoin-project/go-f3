@@ -1,6 +1,8 @@
 package f3
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"sort"
 )
@@ -23,13 +25,24 @@ const PREPARE = "PREPARE"
 const COMMIT = "COMMIT"
 const DECIDE = "DECIDE"
 
+const DOMAIN_SEPARATION_TAG = "GPBFT"
+
 type GMessage struct {
-	Sender   ActorID
+	// ID of the sender/signer of this message (a miner actor ID).
+	Sender ActorID
+	// GossiPBFT instance (epoch) number.
 	Instance int
-	Round    int
-	Step     string
-	Ticket   Ticket
-	Value    ECChain
+	// GossiPBFT round number.
+	Round int
+	// GossiPBFT step name.
+	Step string
+	// Chain of tipsets proposed/voted for finalisation.
+	// Always non-empty; the first entry is the base tipset finalised in the previous instance.
+	Value ECChain
+	// VRF ticket for CONVERGE messages (otherwise empty byte array).
+	Ticket Ticket
+	// Signature by the sender's public key over Instance || Round || Step || Value.
+	Signature []byte
 }
 
 func (m GMessage) String() string {
@@ -37,10 +50,25 @@ func (m GMessage) String() string {
 	return fmt.Sprintf("%s{%d}(%d %s)", m.Step, m.Instance, m.Round, &m.Value)
 }
 
+// Computes the payload for a GMessage signature.
+func SignaturePayload(instance int, round int, step string, value ECChain) []byte {
+	var buf bytes.Buffer
+	buf.WriteString(DOMAIN_SEPARATION_TAG)
+	_ = binary.Write(&buf, binary.BigEndian, instance)
+	_ = binary.Write(&buf, binary.BigEndian, round)
+	buf.WriteString(step)
+	for _, t := range value {
+		_ = binary.Write(&buf, binary.BigEndian, t.Epoch)
+		buf.WriteString(t.CID)
+		_ = binary.Write(&buf, binary.BigEndian, t.Weight)
+	}
+	return buf.Bytes()
+}
+
 // A single Granite consensus instance.
 type instance struct {
 	config        GraniteConfig
-	ntwk          Network
+	host          Host
 	vrf           VRFer
 	participantID ActorID
 	instanceID    int
@@ -77,7 +105,7 @@ type instance struct {
 
 func newInstance(
 	config GraniteConfig,
-	ntwk Network,
+	host Host,
 	vrf VRFer,
 	participantID ActorID,
 	instanceID int,
@@ -89,7 +117,7 @@ func newInstance(
 	}
 	return &instance{
 		config:        config,
-		ntwk:          ntwk,
+		host:          host,
 		vrf:           vrf,
 		participantID: participantID,
 		instanceID:    instanceID,
@@ -303,7 +331,7 @@ func (i *instance) tryQuality() {
 	// Wait either for a strong quorum that agree on our proposal,
 	// or for the timeout to expire.
 	foundQuorum := i.quality.HasQuorumAgreement(i.proposal.Head().CID)
-	timeoutExpired := i.ntwk.Time() >= i.phaseTimeout
+	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
 	if foundQuorum {
 		// Keep current proposal.
@@ -332,7 +360,7 @@ func (i *instance) tryConverge() {
 	if i.phase != CONVERGE {
 		panic(fmt.Sprintf("unexpected phase %s", i.phase))
 	}
-	timeoutExpired := i.ntwk.Time() >= i.phaseTimeout
+	timeoutExpired := i.host.Time() >= i.phaseTimeout
 	if !timeoutExpired {
 		return
 	}
@@ -372,7 +400,7 @@ func (i *instance) tryPrepare() {
 	prepared := i.roundState(i.round).prepared
 	// Optimisation: we could advance phase once quorum on our proposal is not possible.
 	foundQuorum := prepared.HasQuorumAgreement(i.proposal.Head().CID)
-	timeoutExpired := i.ntwk.Time() >= i.phaseTimeout
+	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
 	if foundQuorum {
 		i.value = i.proposal
@@ -397,7 +425,7 @@ func (i *instance) tryCommit(round int) {
 	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
 	committed := i.roundState(round).committed
 	foundQuorum := committed.ListQuorumAgreedValues()
-	timeoutExpired := i.ntwk.Time() >= i.phaseTimeout
+	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
 	if len(foundQuorum) > 0 && !foundQuorum[0].IsZero() {
 		// A participant may be forced to decide a value that's not its preferred chain.
@@ -459,8 +487,10 @@ func (i *instance) decided() bool {
 }
 
 func (i *instance) broadcast(step string, value ECChain, ticket Ticket) *GMessage {
-	gmsg := &GMessage{i.participantID, i.instanceID, i.round, step, ticket, value}
-	i.ntwk.Broadcast(gmsg)
+	payload := SignaturePayload(i.instanceID, i.round, step, value)
+	signature := i.host.Sign(i.participantID, payload)
+	gmsg := &GMessage{i.participantID, i.instanceID, i.round, step, value, ticket, signature}
+	i.host.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
 	return gmsg
 }
@@ -469,14 +499,14 @@ func (i *instance) broadcast(step string, value ECChain, ticket Ticket) *GMessag
 // The delay duration increases with each round.
 // Returns the absolute time at which the alarm will fire.
 func (i *instance) alarmAfterSynchrony(payload string) float64 {
-	timeout := i.ntwk.Time() + i.config.Delta + (float64(i.round) * i.config.DeltaRate)
-	i.ntwk.SetAlarm(i.participantID, payload, timeout)
+	timeout := i.host.Time() + i.config.Delta + (float64(i.round) * i.config.DeltaRate)
+	i.host.SetAlarm(i.participantID, payload, timeout)
 	return timeout
 }
 
 func (i *instance) log(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
-	i.ntwk.Log("P%d{%d}: %s (round %d, step %s, proposal %s, value %s)", i.participantID, i.instanceID, msg,
+	i.host.Log("P%d{%d}: %s (round %d, step %s, proposal %s, value %s)", i.participantID, i.instanceID, msg,
 		i.round, i.phase, &i.proposal, &i.value)
 }
 

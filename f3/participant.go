@@ -4,7 +4,7 @@ package f3
 type Participant struct {
 	id     ActorID
 	config GraniteConfig
-	ntwk   Network
+	host   Host
 	vrf    VRFer
 
 	mpool []*GMessage
@@ -20,8 +20,8 @@ type Participant struct {
 	finalisedRound int
 }
 
-func NewParticipant(id ActorID, config GraniteConfig, ntwk Network, vrf VRFer) *Participant {
-	return &Participant{id: id, config: config, ntwk: ntwk, vrf: vrf}
+func NewParticipant(id ActorID, config GraniteConfig, host Host, vrf VRFer) *Participant {
+	return &Participant{id: id, config: config, host: host, vrf: vrf}
 }
 
 func (p *Participant) ID() ActorID {
@@ -43,7 +43,7 @@ func (p *Participant) Finalised() (TipSet, int) {
 func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, beacon []byte) {
 	p.nextChain = chain
 	if p.granite == nil {
-		p.granite = newInstance(p.config, p.ntwk, p.vrf, p.id, p.nextInstance, chain, power, beacon)
+		p.granite = newInstance(p.config, p.host, p.vrf, p.id, p.nextInstance, chain, power, beacon)
 		p.nextInstance += 1
 		p.granite.Start()
 	}
@@ -51,6 +51,11 @@ func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, bea
 
 // Receives a Granite message from some other participant.
 func (p *Participant) ReceiveMessage(msg *GMessage) {
+	sigPayload := SignaturePayload(msg.Instance, msg.Round, msg.Step, msg.Value)
+	if !p.host.Verify(msg.Sender, sigPayload, msg.Signature) {
+		p.host.Log("P%d: invalid signature on %v", p.id, msg)
+		return
+	}
 	if p.granite != nil && msg.Instance == p.granite.instanceID {
 		p.granite.Receive(msg)
 		p.handleDecision()

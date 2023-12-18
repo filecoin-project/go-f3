@@ -1,6 +1,8 @@
 package sim
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"github.com/filecoin-project/go-f3/f3"
 	"sort"
@@ -13,8 +15,8 @@ type AdversaryReceiver interface {
 }
 
 // Endpoint with which the adversary can control the network
-type AdversaryNetworkSink interface {
-	f3.Network
+type AdversaryHost interface {
+	f3.Host
 	// Sends a message to all other participants, immediately.
 	// Note that the adversary can subsequently delay delivery to some participants,
 	// before messages are actually received.
@@ -28,6 +30,8 @@ const (
 	TraceLogic
 	TraceAll
 )
+
+const _ = TraceAll // Suppress unused constant warning.
 
 type Network struct {
 	// Participants by ID.
@@ -65,6 +69,8 @@ func (n *Network) AddParticipant(p f3.Receiver) {
 	n.participants[p.ID()] = p
 }
 
+////// Network interface
+
 func (n *Network) Broadcast(msg *f3.GMessage) {
 	n.log(TraceSent, "P%d ↗ %v", msg.Sender, msg)
 	for _, k := range n.participantIDs {
@@ -81,6 +87,8 @@ func (n *Network) Broadcast(msg *f3.GMessage) {
 	}
 }
 
+///// Clock interface
+
 func (n *Network) Time() float64 {
 	return n.clock
 }
@@ -92,6 +100,39 @@ func (n *Network) SetAlarm(sender f3.ActorID, payload string, at float64) {
 		payload:   "ALARM:" + payload,
 		deliverAt: at,
 	})
+}
+
+///// Signer interface
+
+func (n *Network) Sign(sender f3.ActorID, msg []byte) []byte {
+	// Fake implementation.
+	// Just prepends 8-byte sender ID to message.
+	buf := new(bytes.Buffer)
+	err := binary.Write(buf, binary.BigEndian, sender)
+	if err != nil {
+		panic(err)
+	}
+	return append(buf.Bytes(), msg...)
+}
+
+func (n *Network) Verify(sender f3.ActorID, msg, sig []byte) bool {
+	// Fake implementation.
+	// Just checks that first 8 bytes of signature match sender ID,
+	// and remaining bytes match message.
+	buf := bytes.NewReader(sig)
+	var recoveredSender uint64
+	err := binary.Read(buf, binary.BigEndian, &recoveredSender)
+	if err != nil {
+		return false
+	}
+	remainingBytes := sig[8:]
+	if recoveredSender != uint64(sender) {
+		return false
+	}
+	if !bytes.Equal(remainingBytes, msg) {
+		return false
+	}
+	return true
 }
 
 func (n *Network) Log(format string, args ...interface{}) {
