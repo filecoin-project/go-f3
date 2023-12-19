@@ -36,6 +36,9 @@ func (w *WitholdCommit) ID() f3.ActorID {
 func (w *WitholdCommit) ReceiveCanonicalChain(_ f3.ECChain, _ f3.PowerTable, _ []byte) {
 }
 
+func (w *WitholdCommit) ReceiveECChain(_ f3.ECChain) {
+}
+
 func (w *WitholdCommit) ReceiveMessage(_ *f3.GMessage) {
 }
 

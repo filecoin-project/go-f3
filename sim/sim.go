@@ -80,6 +80,20 @@ func (s *Simulation) ReceiveChains(chains ...ChainCount) {
 	}
 }
 
+// Delivers EC chains to honest participants.
+func (s *Simulation) ReceiveECChains(chains ...ChainCount) {
+	pidx := 0
+	for _, chain := range chains {
+		for i := 0; i < chain.Count; i++ {
+			s.Participants[pidx].ReceiveECChain(chain.Chain)
+			pidx += 1
+		}
+	}
+	if pidx != len(s.Participants) {
+		panic(fmt.Sprintf("%d participants but %d chains", len(s.Participants), pidx))
+	}
+}
+
 // Runs simulation, and returns whether all participants decided on the same value.
 func (s *Simulation) Run(maxRounds uint32) bool {
 	// Run until there are no more messages, meaning termination or deadlock.

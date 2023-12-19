@@ -49,6 +49,14 @@ func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, bea
 	}
 }
 
+// Receives a new EC chain, and notifies the current instance if it extends its current acceptable chain.
+// This modifies the set of valid values for the current instance.
+func (p *Participant) ReceiveECChain(chain ECChain) {
+	if p.granite != nil && chain.HasPrefix(p.granite.acceptable) {
+		p.granite.receiveAcceptable(chain)
+	}
+}
+
 // Receives a Granite message from some other participant.
 func (p *Participant) ReceiveMessage(msg *GMessage) {
 	sigPayload := SignaturePayload(msg.Instance, msg.Round, msg.Step, msg.Value)
