@@ -1,6 +1,8 @@
 package f3
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"sort"
 )
@@ -23,13 +25,24 @@ const PREPARE = "PREPARE"
 const COMMIT = "COMMIT"
 const DECIDE = "DECIDE"
 
+const DOMAIN_SEPARATION_TAG = "GPBFT"
+
 type GMessage struct {
-	Sender   ActorID
-	Instance int
-	Round    int
-	Step     string
-	Ticket   Ticket
-	Value    ECChain
+	// ID of the sender/signer of this message (a miner actor ID).
+	Sender ActorID
+	// GossiPBFT instance (epoch) number.
+	Instance uint32
+	// GossiPBFT round number.
+	Round uint32
+	// GossiPBFT step name.
+	Step string
+	// Chain of tipsets proposed/voted for finalisation.
+	// Always non-empty; the first entry is the base tipset finalised in the previous instance.
+	Value ECChain
+	// VRF ticket for CONVERGE messages (otherwise empty byte array).
+	Ticket Ticket
+	// Signature by the sender's public key over Instance || Round || Step || Value.
+	Signature []byte
 }
 
 func (m GMessage) String() string {
@@ -37,13 +50,28 @@ func (m GMessage) String() string {
 	return fmt.Sprintf("%s{%d}(%d %s)", m.Step, m.Instance, m.Round, &m.Value)
 }
 
+// Computes the payload for a GMessage signature.
+func SignaturePayload(instance uint32, round uint32, step string, value ECChain) []byte {
+	var buf bytes.Buffer
+	buf.WriteString(DOMAIN_SEPARATION_TAG)
+	_ = binary.Write(&buf, binary.BigEndian, instance)
+	_ = binary.Write(&buf, binary.BigEndian, round)
+	buf.WriteString(step)
+	for _, t := range value {
+		_ = binary.Write(&buf, binary.BigEndian, t.Epoch)
+		buf.Write(t.CID.Bytes())
+		_ = binary.Write(&buf, binary.BigEndian, t.Weight)
+	}
+	return buf.Bytes()
+}
+
 // A single Granite consensus instance.
 type instance struct {
 	config        GraniteConfig
-	ntwk          Network
+	host          Host
 	vrf           VRFer
 	participantID ActorID
-	instanceID    int
+	instanceID    uint32
 	// The EC chain input to this instance.
 	input ECChain
 	// The power table for the base chain, used for power in this instance.
@@ -51,7 +79,7 @@ type instance struct {
 	// The beacon value from the base chain, used for tickets in this instance.
 	beacon []byte
 	// Current round number.
-	round int
+	round uint32
 	// Current phase in the round.
 	phase string
 	// Time at which the current phase can or must end.
@@ -72,17 +100,17 @@ type instance struct {
 	quality *quorumState
 	// State for each round of phases.
 	// State from prior rounds must be maintained to provide justification for values in subsequent rounds.
-	rounds map[int]*roundState
+	rounds map[uint32]*roundState
 	// Acceptable chain
 	acceptable ECChain
 }
 
 func newInstance(
 	config GraniteConfig,
-	ntwk Network,
+	host Host,
 	vrf VRFer,
 	participantID ActorID,
-	instanceID int,
+	instanceID uint32,
 	input ECChain,
 	powerTable PowerTable,
 	beacon []byte) *instance {
@@ -91,7 +119,7 @@ func newInstance(
 	}
 	return &instance{
 		config:        config,
-		ntwk:          ntwk,
+		host:          host,
 		vrf:           vrf,
 		participantID: participantID,
 		instanceID:    instanceID,
@@ -104,7 +132,7 @@ func newInstance(
 		value:         ECChain{},
 		pending:       newPendingQueue(),
 		quality:       newQuorumState(powerTable),
-		rounds: map[int]*roundState{
+		rounds: map[uint32]*roundState{
 			0: newRoundState(powerTable),
 		},
 		acceptable: input,
@@ -281,7 +309,7 @@ func (i *instance) isJustified(msg *GMessage) bool {
 		}
 		prevRound := i.roundState(msg.Round - 1)
 		return prevRound.prepared.HasQuorumAgreement(msg.Value.Head().CID) ||
-			prevRound.committed.HasQuorumAgreement("")
+			prevRound.committed.HasQuorumAgreement(ZeroTipSetID())
 	} else if msg.Step == PREPARE {
 		// PREPARE needs no justification by prior messages.
 		return true // i.quality.AllowsValue(msg.Value)
@@ -311,7 +339,7 @@ func (i *instance) tryQuality() {
 	// Wait either for a strong quorum that agree on our proposal,
 	// or for the timeout to expire.
 	foundQuorum := i.quality.HasQuorumAgreement(i.proposal.Head().CID)
-	timeoutExpired := i.ntwk.Time() >= i.phaseTimeout
+	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
 	if foundQuorum {
 		// Keep current proposal.
@@ -340,7 +368,7 @@ func (i *instance) tryConverge() {
 	if i.phase != CONVERGE {
 		panic(fmt.Sprintf("unexpected phase %s", i.phase))
 	}
-	timeoutExpired := i.ntwk.Time() >= i.phaseTimeout
+	timeoutExpired := i.host.Time() >= i.phaseTimeout
 	if !timeoutExpired {
 		return
 	}
@@ -380,7 +408,7 @@ func (i *instance) tryPrepare() {
 	prepared := i.roundState(i.round).prepared
 	// Optimisation: we could advance phase once quorum on our proposal is not possible.
 	foundQuorum := prepared.HasQuorumAgreement(i.proposal.Head().CID)
-	timeoutExpired := i.ntwk.Time() >= i.phaseTimeout
+	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
 	if foundQuorum {
 		i.value = i.proposal
@@ -399,13 +427,13 @@ func (i *instance) beginCommit() {
 	i.broadcast(COMMIT, i.value, nil)
 }
 
-func (i *instance) tryCommit(round int) {
+func (i *instance) tryCommit(round uint32) {
 	// Unlike all other phases, the COMMIT phase stays open to new messages even after an initial quorum is reached,
 	// and the algorithm moves on to the next round.
 	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
 	committed := i.roundState(round).committed
 	foundQuorum := committed.ListQuorumAgreedValues()
-	timeoutExpired := i.ntwk.Time() >= i.phaseTimeout
+	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
 	if len(foundQuorum) > 0 && !foundQuorum[0].IsZero() {
 		// A participant may be forced to decide a value that's not its preferred chain.
@@ -432,7 +460,7 @@ func (i *instance) tryCommit(round int) {
 	}
 }
 
-func (i *instance) roundState(r int) *roundState {
+func (i *instance) roundState(r uint32) *roundState {
 	round, ok := i.rounds[r]
 	if !ok {
 		round = newRoundState(i.powerTable)
@@ -453,7 +481,7 @@ func (i *instance) isAcceptable(c ECChain) bool {
 	return i.acceptable.HasPrefix(c)
 }
 
-func (i *instance) decide(value ECChain, round int) {
+func (i *instance) decide(value ECChain, round uint32) {
 	i.log("✅ decided %s in round %d", &i.value, round)
 	i.phase = DECIDE
 	// Round is a parameter since a late COMMIT message can result in a decision for a round prior to the current one.
@@ -466,8 +494,10 @@ func (i *instance) decided() bool {
 }
 
 func (i *instance) broadcast(step string, value ECChain, ticket Ticket) *GMessage {
-	gmsg := &GMessage{i.participantID, i.instanceID, i.round, step, ticket, value}
-	i.ntwk.Broadcast(gmsg)
+	payload := SignaturePayload(i.instanceID, i.round, step, value)
+	signature := i.host.Sign(i.participantID, payload)
+	gmsg := &GMessage{i.participantID, i.instanceID, i.round, step, value, ticket, signature}
+	i.host.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
 	return gmsg
 }
@@ -476,14 +506,14 @@ func (i *instance) broadcast(step string, value ECChain, ticket Ticket) *GMessag
 // The delay duration increases with each round.
 // Returns the absolute time at which the alarm will fire.
 func (i *instance) alarmAfterSynchrony(payload string) float64 {
-	timeout := i.ntwk.Time() + i.config.Delta + (float64(i.round) * i.config.DeltaRate)
-	i.ntwk.SetAlarm(i.participantID, payload, timeout)
+	timeout := i.host.Time() + i.config.Delta + (float64(i.round) * i.config.DeltaRate)
+	i.host.SetAlarm(i.participantID, payload, timeout)
 	return timeout
 }
 
 func (i *instance) log(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
-	i.ntwk.Log("P%d{%d}: %s (round %d, step %s, proposal %s, value %s)", i.participantID, i.instanceID, msg,
+	i.host.Log("P%d{%d}: %s (round %d, step %s, proposal %s, value %s)", i.participantID, i.instanceID, msg,
 		i.round, i.phase, &i.proposal, &i.value)
 }
 
@@ -492,12 +522,12 @@ func (i *instance) log(format string, args ...interface{}) {
 // Holds a collection messages received but not yet justified.
 type pendingQueue struct {
 	// Map by round and phase to list of messages.
-	rounds map[int]map[string][]*GMessage
+	rounds map[uint32]map[string][]*GMessage
 }
 
 func newPendingQueue() *pendingQueue {
 	return &pendingQueue{
-		rounds: map[int]map[string][]*GMessage{},
+		rounds: map[uint32]map[string][]*GMessage{},
 	}
 }
 
@@ -508,7 +538,7 @@ func (v *pendingQueue) Add(msg *GMessage) {
 }
 
 // Dequeues all messages from some round and phase matching a predicate.
-func (v *pendingQueue) PopWhere(round int, phase string, pred func(msg *GMessage) bool) []*GMessage {
+func (v *pendingQueue) PopWhere(round uint32, phase string, pred func(msg *GMessage) bool) []*GMessage {
 	var found []*GMessage
 	queue := v.getRound(round)[phase]
 	// Remove all entries matching predicate, in-place.
@@ -525,7 +555,7 @@ func (v *pendingQueue) PopWhere(round int, phase string, pred func(msg *GMessage
 	return found
 }
 
-func (v *pendingQueue) getRound(round int) map[string][]*GMessage {
+func (v *pendingQueue) getRound(round uint32) map[string][]*GMessage {
 	var rv map[string][]*GMessage
 	rv, ok := v.rounds[round]
 	if !ok {
@@ -548,7 +578,7 @@ type quorumState struct {
 	// CID of each chain received, by sender. Allows detecting and ignoring duplicates.
 	received map[ActorID]senderSent
 	// The power supporting each chain so far.
-	chainPower map[CID]chainPower
+	chainPower map[TipSetID]chainPower
 	// Total power of all distinct senders from which some chain has been received so far.
 	sendersTotalPower uint
 	// Table of senders' power.
@@ -557,7 +587,7 @@ type quorumState struct {
 
 // The set of chain heads from one sender, and that sender's power.
 type senderSent struct {
-	heads []CID
+	heads []TipSetID
 	power uint
 }
 
@@ -572,7 +602,7 @@ type chainPower struct {
 func newQuorumState(powerTable PowerTable) *quorumState {
 	return &quorumState{
 		received:          map[ActorID]senderSent{},
-		chainPower:        map[CID]chainPower{},
+		chainPower:        map[TipSetID]chainPower{},
 		sendersTotalPower: 0,
 		powerTable:        powerTable,
 	}
@@ -594,7 +624,7 @@ func (q *quorumState) Receive(sender ActorID, value ECChain) {
 		// Add sender's power to total the first time a value is received from them.
 		senderPower := q.powerTable.Entries[sender]
 		q.sendersTotalPower += senderPower
-		fromSender = senderSent{[]CID{head}, senderPower}
+		fromSender = senderSent{[]TipSetID{head}, senderPower}
 	}
 	q.received[sender] = fromSender
 
@@ -640,7 +670,7 @@ func (q *quorumState) ReceivedFromQuorum() bool {
 }
 
 // Checks whether a chain (head) has reached quorum.
-func (q *quorumState) HasQuorumAgreement(cid CID) bool {
+func (q *quorumState) HasQuorumAgreement(cid TipSetID) bool {
 	cp, ok := q.chainPower[cid]
 	return ok && cp.hasQuorum
 }
@@ -662,15 +692,15 @@ func (q *quorumState) ListQuorumAgreedValues() []ECChain {
 
 type convergeState struct {
 	// Chains indexed by head CID
-	values map[CID]ECChain
+	values map[TipSetID]ECChain
 	// Tickets provided by proposers of each chain.
-	tickets map[CID][]Ticket
+	tickets map[TipSetID][]Ticket
 }
 
 func newConvergeState() *convergeState {
 	return &convergeState{
-		values:  map[CID]ECChain{},
-		tickets: map[CID][]Ticket{},
+		values:  map[TipSetID]ECChain{},
+		tickets: map[TipSetID][]Ticket{},
 	}
 }
 

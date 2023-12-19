@@ -9,16 +9,15 @@ import (
 // Information about a tipset that is relevant to the F3 protocol.
 type TipSet struct {
 	// The epoch of the blocks in the tipset.
-	Epoch int
+	Epoch int64
 	// The CID of the tipset.
-	// TODO: define how this is computed in terms of the block header CIDs.
-	CID CID
+	CID TipSetID
 	// The EC consensus weight of the tipset.
-	Weight uint
+	Weight uint64
 }
 
 // Creates a new tipset.
-func NewTipSet(epoch int, cid CID, weight uint) TipSet {
+func NewTipSet(epoch int64, cid TipSetID, weight uint64) TipSet {
 	return TipSet{
 		Epoch:  epoch,
 		CID:    cid,
@@ -30,7 +29,7 @@ func NewTipSet(epoch int, cid CID, weight uint) TipSet {
 // Note that the real weight function breaks ties with VRF tickets.
 func (t *TipSet) Compare(other *TipSet) int {
 	if t.Weight == other.Weight {
-		return strings.Compare(t.CID, other.CID)
+		return t.CID.Compare(other.CID)
 	} else if t.Weight < other.Weight {
 		return -1
 	}
@@ -46,9 +45,9 @@ func (t *TipSet) Eq(other *TipSet) bool {
 
 func (t *TipSet) String() string {
 	var b strings.Builder
-	b.WriteString(t.CID)
+	b.Write(t.CID.Bytes())
 	b.WriteString("@")
-	b.WriteString(strconv.Itoa(t.Epoch))
+	b.WriteString(strconv.FormatInt(t.Epoch, 10))
 	return b.String()
 }
 
@@ -96,9 +95,9 @@ func (c ECChain) Head() *TipSet {
 }
 
 // Returns the CID of the head tipset, or empty string for a zero value
-func (c ECChain) HeadCIDOrZero() CID {
+func (c ECChain) HeadCIDOrZero() TipSetID {
 	if c.IsZero() {
-		return ""
+		return ZeroTipSetID()
 	}
 	return c.Head().CID
 }
@@ -111,7 +110,7 @@ func (c ECChain) BaseChain() ECChain {
 
 // Returns a new chain extending this chain with one tipset.
 // The new tipset is given an epoch and weight one greater than the previous head.
-func (c ECChain) Extend(cid CID) ECChain {
+func (c ECChain) Extend(cid TipSetID) ECChain {
 	return append(c, TipSet{
 		Epoch:  c[0].Epoch + 1,
 		CID:    cid,

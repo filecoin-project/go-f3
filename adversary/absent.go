@@ -6,14 +6,14 @@ import (
 
 type Absent struct {
 	id   f3.ActorID
-	ntwk f3.Network
+	host f3.Host
 }
 
 // A participant that never sends anything.
-func NewAbsent(id f3.ActorID, ntwk f3.Network) *Absent {
+func NewAbsent(id f3.ActorID, host f3.Host) *Absent {
 	return &Absent{
 		id:   id,
-		ntwk: ntwk,
+		host: host,
 	}
 }
 

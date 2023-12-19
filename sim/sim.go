@@ -42,7 +42,7 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 	}
 
 	// Create genesis tipset, which all participants are expected to agree on as a base.
-	genesis := f3.NewTipSet(100, "genesis", 1)
+	genesis := f3.NewTipSet(100, f3.NewTipSetIDFromString("genesis"), 1)
 	baseChain := f3.NewChain(genesis)
 	return &Simulation{
 		Network:      ntwk,
@@ -95,7 +95,7 @@ func (s *Simulation) ReceiveECChains(chains ...ChainCount) {
 }
 
 // Runs simulation, and returns whether all participants decided on the same value.
-func (s *Simulation) Run(maxRounds int) bool {
+func (s *Simulation) Run(maxRounds uint32) bool {
 	// Run until there are no more messages, meaning termination or deadlock.
 	for s.Network.Tick(s.Adversary) && s.Participants[0].CurrentRound() <= maxRounds {
 	}
@@ -150,12 +150,12 @@ func NewCIDGen(seed uint64) *CIDGen {
 	return &CIDGen{seed}
 }
 
-func (c *CIDGen) Sample() f3.CID {
-	b := make([]rune, 8)
+func (c *CIDGen) Sample() f3.TipSetID {
+	b := make([]byte, 8)
 	for i := range b {
 		b[i] = alphanum[c.nextN(len(alphanum))]
 	}
-	return string(b)
+	return f3.NewTipSetID(b)
 }
 
 func (c *CIDGen) nextN(n int) uint64 {
@@ -178,4 +178,4 @@ func (c *CIDGen) next() uint64 {
 	return x
 }
 
-var alphanum = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+var alphanum = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
