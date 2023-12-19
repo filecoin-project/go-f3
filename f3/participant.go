@@ -11,13 +11,13 @@ type Participant struct {
 	// Chain to use as input for the next Granite instance.
 	nextChain ECChain
 	// Instance identifier for the next Granite instance.
-	nextInstance int
+	nextInstance uint32
 	// Current Granite instance.
 	granite *instance
 	// The output from the last decided Granite instance.
 	finalised TipSet
 	// The round number at which the last instance was decided.
-	finalisedRound int
+	finalisedRound uint32
 }
 
 func NewParticipant(id ActorID, config GraniteConfig, host Host, vrf VRFer) *Participant {
@@ -28,13 +28,13 @@ func (p *Participant) ID() ActorID {
 	return p.id
 }
 
-func (p *Participant) CurrentRound() int {
+func (p *Participant) CurrentRound() uint32 {
 	if p.granite == nil {
-		return -1
+		return 0
 	}
 	return p.granite.round
 }
-func (p *Participant) Finalised() (TipSet, int) {
+func (p *Participant) Finalised() (TipSet, uint32) {
 	return p.finalised, p.finalisedRound
 }
 

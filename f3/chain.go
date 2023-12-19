@@ -9,15 +9,15 @@ import (
 // Information about a tipset that is relevant to the F3 protocol.
 type TipSet struct {
 	// The epoch of the blocks in the tipset.
-	Epoch int
+	Epoch int64
 	// The CID of the tipset.
 	CID TipSetID
 	// The EC consensus weight of the tipset.
-	Weight uint
+	Weight uint64
 }
 
 // Creates a new tipset.
-func NewTipSet(epoch int, cid TipSetID, weight uint) TipSet {
+func NewTipSet(epoch int64, cid TipSetID, weight uint64) TipSet {
 	return TipSet{
 		Epoch:  epoch,
 		CID:    cid,
@@ -47,7 +47,7 @@ func (t *TipSet) String() string {
 	var b strings.Builder
 	b.Write(t.CID.Bytes())
 	b.WriteString("@")
-	b.WriteString(strconv.Itoa(t.Epoch))
+	b.WriteString(strconv.FormatInt(t.Epoch, 10))
 	return b.String()
 }
 

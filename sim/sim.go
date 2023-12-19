@@ -81,7 +81,7 @@ func (s *Simulation) ReceiveChains(chains ...ChainCount) {
 }
 
 // Runs simulation, and returns whether all participants decided on the same value.
-func (s *Simulation) Run(maxRounds int) bool {
+func (s *Simulation) Run(maxRounds uint32) bool {
 	// Run until there are no more messages, meaning termination or deadlock.
 	for s.Network.Tick(s.Adversary) && s.Participants[0].CurrentRound() <= maxRounds {
 	}

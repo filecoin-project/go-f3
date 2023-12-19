@@ -19,7 +19,7 @@ func TestAbsent(t *testing.T) {
 		sm.SetAdversary(adversary.NewAbsent(99, sm.Network), 1)
 
 		a := sm.Base.Extend(sm.CIDGen.Sample())
-		sm.ReceiveChains(sim.ChainCount{len(sm.Participants), a})
+		sm.ReceiveChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
 		require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 	}
