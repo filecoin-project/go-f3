@@ -59,7 +59,7 @@ func SignaturePayload(instance int, round int, step string, value ECChain) []byt
 	buf.WriteString(step)
 	for _, t := range value {
 		_ = binary.Write(&buf, binary.BigEndian, t.Epoch)
-		buf.WriteString(t.CID)
+		buf.Write(t.CID.Bytes())
 		_ = binary.Write(&buf, binary.BigEndian, t.Weight)
 	}
 	return buf.Bytes()
@@ -301,7 +301,7 @@ func (i *instance) isJustified(msg *GMessage) bool {
 		}
 		prevRound := i.roundState(msg.Round - 1)
 		return prevRound.prepared.HasQuorumAgreement(msg.Value.Head().CID) ||
-			prevRound.committed.HasQuorumAgreement("")
+			prevRound.committed.HasQuorumAgreement(ZeroTipSetID())
 	} else if msg.Step == PREPARE {
 		// PREPARE needs no justification by prior messages.
 		return true // i.quality.AllowsValue(msg.Value)
@@ -571,7 +571,7 @@ type quorumState struct {
 	// CID of each chain received, by sender. Allows detecting and ignoring duplicates.
 	received map[ActorID]senderSent
 	// The power supporting each chain so far.
-	chainPower map[CID]chainPower
+	chainPower map[TipSetID]chainPower
 	// Total power of all distinct senders from which some chain has been received so far.
 	sendersTotalPower uint
 	// Table of senders' power.
@@ -580,7 +580,7 @@ type quorumState struct {
 
 // The set of chain heads from one sender, and that sender's power.
 type senderSent struct {
-	heads []CID
+	heads []TipSetID
 	power uint
 }
 
@@ -595,7 +595,7 @@ type chainPower struct {
 func newQuorumState(powerTable PowerTable) *quorumState {
 	return &quorumState{
 		received:          map[ActorID]senderSent{},
-		chainPower:        map[CID]chainPower{},
+		chainPower:        map[TipSetID]chainPower{},
 		sendersTotalPower: 0,
 		powerTable:        powerTable,
 	}
@@ -617,7 +617,7 @@ func (q *quorumState) Receive(sender ActorID, value ECChain) {
 		// Add sender's power to total the first time a value is received from them.
 		senderPower := q.powerTable.Entries[sender]
 		q.sendersTotalPower += senderPower
-		fromSender = senderSent{[]CID{head}, senderPower}
+		fromSender = senderSent{[]TipSetID{head}, senderPower}
 	}
 	q.received[sender] = fromSender
 
@@ -663,7 +663,7 @@ func (q *quorumState) ReceivedFromQuorum() bool {
 }
 
 // Checks whether a chain (head) has reached quorum.
-func (q *quorumState) HasQuorumAgreement(cid CID) bool {
+func (q *quorumState) HasQuorumAgreement(cid TipSetID) bool {
 	cp, ok := q.chainPower[cid]
 	return ok && cp.hasQuorum
 }
@@ -685,15 +685,15 @@ func (q *quorumState) ListQuorumAgreedValues() []ECChain {
 
 type convergeState struct {
 	// Chains indexed by head CID
-	values map[CID]ECChain
+	values map[TipSetID]ECChain
 	// Tickets provided by proposers of each chain.
-	tickets map[CID][]Ticket
+	tickets map[TipSetID][]Ticket
 }
 
 func newConvergeState() *convergeState {
 	return &convergeState{
-		values:  map[CID]ECChain{},
-		tickets: map[CID][]Ticket{},
+		values:  map[TipSetID]ECChain{},
+		tickets: map[TipSetID][]Ticket{},
 	}
 }
 
