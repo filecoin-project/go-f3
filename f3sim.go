@@ -41,7 +41,7 @@ func main() {
 		candidate := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{Count: *participantCount, Chain: candidate})
 
-		ok := sm.Run(*maxRounds)
+		ok := sm.Run(uint32(*maxRounds))
 		if !ok {
 			sm.PrintResults()
 		}
