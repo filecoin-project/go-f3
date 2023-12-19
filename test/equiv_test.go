@@ -30,7 +30,7 @@ func TestWitholdCommit1(t *testing.T) {
 	adv.SetVictim(victims, a)
 
 	adv.Begin()
-	sm.ReceiveChains(sim.ChainCount{4, a}, sim.ChainCount{3, b})
+	sm.ReceiveChains(sim.ChainCount{Count: 4, Chain: a}, sim.ChainCount{Count: 3, Chain: b})
 	ok := sm.Run(MAX_ROUNDS)
 	if !ok {
 		fmt.Printf("%s", sm.Describe())

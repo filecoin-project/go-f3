@@ -31,9 +31,9 @@ type GMessage struct {
 	// ID of the sender/signer of this message (a miner actor ID).
 	Sender ActorID
 	// GossiPBFT instance (epoch) number.
-	Instance int
+	Instance uint32
 	// GossiPBFT round number.
-	Round int
+	Round uint32
 	// GossiPBFT step name.
 	Step string
 	// Chain of tipsets proposed/voted for finalisation.
@@ -51,7 +51,7 @@ func (m GMessage) String() string {
 }
 
 // Computes the payload for a GMessage signature.
-func SignaturePayload(instance int, round int, step string, value ECChain) []byte {
+func SignaturePayload(instance uint32, round uint32, step string, value ECChain) []byte {
 	var buf bytes.Buffer
 	buf.WriteString(DOMAIN_SEPARATION_TAG)
 	_ = binary.Write(&buf, binary.BigEndian, instance)
@@ -71,7 +71,7 @@ type instance struct {
 	host          Host
 	vrf           VRFer
 	participantID ActorID
-	instanceID    int
+	instanceID    uint32
 	// The EC chain input to this instance.
 	input ECChain
 	// The power table for the base chain, used for power in this instance.
@@ -79,7 +79,7 @@ type instance struct {
 	// The beacon value from the base chain, used for tickets in this instance.
 	beacon []byte
 	// Current round number.
-	round int
+	round uint32
 	// Current phase in the round.
 	phase string
 	// Time at which the current phase can or must end.
@@ -100,7 +100,7 @@ type instance struct {
 	quality *quorumState
 	// State for each round of phases.
 	// State from prior rounds must be maintained to provide justification for values in subsequent rounds.
-	rounds map[int]*roundState
+	rounds map[uint32]*roundState
 }
 
 func newInstance(
@@ -108,7 +108,7 @@ func newInstance(
 	host Host,
 	vrf VRFer,
 	participantID ActorID,
-	instanceID int,
+	instanceID uint32,
 	input ECChain,
 	powerTable PowerTable,
 	beacon []byte) *instance {
@@ -130,7 +130,7 @@ func newInstance(
 		value:         ECChain{},
 		pending:       newPendingQueue(),
 		quality:       newQuorumState(powerTable),
-		rounds: map[int]*roundState{
+		rounds: map[uint32]*roundState{
 			0: newRoundState(powerTable),
 		},
 	}
@@ -419,7 +419,7 @@ func (i *instance) beginCommit() {
 	i.broadcast(COMMIT, i.value, nil)
 }
 
-func (i *instance) tryCommit(round int) {
+func (i *instance) tryCommit(round uint32) {
 	// Unlike all other phases, the COMMIT phase stays open to new messages even after an initial quorum is reached,
 	// and the algorithm moves on to the next round.
 	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
@@ -452,7 +452,7 @@ func (i *instance) tryCommit(round int) {
 	}
 }
 
-func (i *instance) roundState(r int) *roundState {
+func (i *instance) roundState(r uint32) *roundState {
 	round, ok := i.rounds[r]
 	if !ok {
 		round = newRoundState(i.powerTable)
@@ -474,7 +474,7 @@ func (i *instance) isAcceptable(c ECChain) bool {
 	return i.input.HasPrefix(c)
 }
 
-func (i *instance) decide(value ECChain, round int) {
+func (i *instance) decide(value ECChain, round uint32) {
 	i.log("✅ decided %s in round %d", &i.value, round)
 	i.phase = DECIDE
 	// Round is a parameter since a late COMMIT message can result in a decision for a round prior to the current one.
@@ -515,12 +515,12 @@ func (i *instance) log(format string, args ...interface{}) {
 // Holds a collection messages received but not yet justified.
 type pendingQueue struct {
 	// Map by round and phase to list of messages.
-	rounds map[int]map[string][]*GMessage
+	rounds map[uint32]map[string][]*GMessage
 }
 
 func newPendingQueue() *pendingQueue {
 	return &pendingQueue{
-		rounds: map[int]map[string][]*GMessage{},
+		rounds: map[uint32]map[string][]*GMessage{},
 	}
 }
 
@@ -531,7 +531,7 @@ func (v *pendingQueue) Add(msg *GMessage) {
 }
 
 // Dequeues all messages from some round and phase matching a predicate.
-func (v *pendingQueue) PopWhere(round int, phase string, pred func(msg *GMessage) bool) []*GMessage {
+func (v *pendingQueue) PopWhere(round uint32, phase string, pred func(msg *GMessage) bool) []*GMessage {
 	var found []*GMessage
 	queue := v.getRound(round)[phase]
 	// Remove all entries matching predicate, in-place.
@@ -548,7 +548,7 @@ func (v *pendingQueue) PopWhere(round int, phase string, pred func(msg *GMessage
 	return found
 }
 
-func (v *pendingQueue) getRound(round int) map[string][]*GMessage {
+func (v *pendingQueue) getRound(round uint32) map[string][]*GMessage {
 	var rv map[string][]*GMessage
 	rv, ok := v.rounds[round]
 	if !ok {
