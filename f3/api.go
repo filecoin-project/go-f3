@@ -6,6 +6,8 @@ type ChainReceiver interface {
 	// The chain's base is assumed to be an appropriate base for the instance.
 	ReceiveCanonicalChain(chain ECChain, power PowerTable, beacon []byte)
 
+	// Receives a new EC chain, and notifies the current instance if it extends its current acceptable chain.
+	// This modifies the set of valid values for the current instance.
 	ReceiveECChain(chain ECChain)
 }
 

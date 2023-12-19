@@ -49,9 +49,11 @@ func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, bea
 	}
 }
 
+// Receives a new EC chain, and notifies the current instance if it extends its current acceptable chain.
+// This modifies the set of valid values for the current instance.
 func (p *Participant) ReceiveECChain(chain ECChain) {
-	if p.granite != nil && chain.HasPrefix(p.granite.input) {
-		p.granite.heaviestChain = chain
+	if p.granite != nil && chain.HasPrefix(p.granite.acceptable) {
+		p.granite.receiveAcceptable(chain)
 	}
 }
 

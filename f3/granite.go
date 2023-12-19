@@ -73,8 +73,8 @@ type instance struct {
 	// State for each round of phases.
 	// State from prior rounds must be maintained to provide justification for values in subsequent rounds.
 	rounds map[int]*roundState
-	// Heaviest acceptable chain
-	heaviestChain ECChain
+	// Acceptable chain
+	acceptable ECChain
 }
 
 func newInstance(
@@ -107,7 +107,7 @@ func newInstance(
 		rounds: map[int]*roundState{
 			0: newRoundState(powerTable),
 		},
-		heaviestChain: input,
+		acceptable: input,
 	}
 }
 
@@ -128,6 +128,11 @@ func newRoundState(powerTable PowerTable) *roundState {
 func (i *instance) Start() {
 	i.beginQuality()
 	i.drainInbox()
+}
+
+// Receives a new acceptable chain and updates its current acceptable chain.
+func (i *instance) receiveAcceptable(chain ECChain) {
+	i.acceptable = chain
 }
 
 func (i *instance) Receive(msg *GMessage) {
@@ -445,7 +450,7 @@ func (i *instance) beginNextRound() {
 // Returns whether a chain is acceptable as a proposal for this instance to vote for.
 // This is "EC Compatible" in the pseudocode.
 func (i *instance) isAcceptable(c ECChain) bool {
-	return i.heaviestChain.HasPrefix(c)
+	return i.acceptable.HasPrefix(c)
 }
 
 func (i *instance) decide(value ECChain, round int) {
