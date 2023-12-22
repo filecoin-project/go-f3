@@ -103,6 +103,10 @@ type instance struct {
 	rounds map[uint32]*roundState
 	// Acceptable chain
 	acceptable ECChain
+	// Decision state. Collects DECIDE messages until a decision can be made, independently of protocol phases/rounds.
+	decision *quorumState
+	// Flag set when the participant sends a DECIDE message. Used to send it only once.
+	decideSent bool
 }
 
 func newInstance(
@@ -136,6 +140,8 @@ func newInstance(
 			0: newRoundState(powerTable),
 		},
 		acceptable: input,
+		decision:   newQuorumState(powerTable),
+		decideSent: false,
 	}
 }
 
@@ -246,6 +252,8 @@ func (i *instance) receiveOne(msg *GMessage) {
 		round.prepared.Receive(msg.Sender, msg.Value)
 	case COMMIT:
 		round.committed.Receive(msg.Sender, msg.Value)
+	case DECIDE:
+		i.decision.Receive(msg.Sender, msg.Value)
 	default:
 		i.log("unexpected message %v", msg)
 	}
@@ -253,8 +261,11 @@ func (i *instance) receiveOne(msg *GMessage) {
 	// Try to complete the current phase.
 	// Every COMMIT phase stays open to new messages even after the protocol moves on to
 	// a new round. Late-arriving COMMITS can still (must) cause a local decision, *in that round*.
+	// DECIDE messages are also independent of current phase or round.
 	if msg.Step == COMMIT {
 		i.tryCommit(msg.Round)
+	} else if msg.Step == DECIDE {
+		i.tryDecide(msg.Value)
 	} else {
 		i.tryCompletePhase()
 	}
@@ -308,8 +319,8 @@ func (i *instance) isJustified(msg *GMessage) bool {
 			return false
 		}
 		prevRound := i.roundState(msg.Round - 1)
-		return prevRound.prepared.HasQuorumAgreement(msg.Value.Head().CID) ||
-			prevRound.committed.HasQuorumAgreement(ZeroTipSetID())
+		return prevRound.prepared.HasStrongQuorumAgreement(msg.Value.Head().CID) ||
+			prevRound.committed.HasStrongQuorumAgreement(ZeroTipSetID())
 	} else if msg.Step == PREPARE {
 		// PREPARE needs no justification by prior messages.
 		return true // i.quality.AllowsValue(msg.Value)
@@ -317,7 +328,7 @@ func (i *instance) isJustified(msg *GMessage) bool {
 		// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
 		// COMMIT for bottom is always justified.
 		round := i.roundState(msg.Round)
-		return msg.Value.IsZero() || round.prepared.HasQuorumAgreement(msg.Value.HeadCIDOrZero())
+		return msg.Value.IsZero() || round.prepared.HasStrongQuorumAgreement(msg.Value.HeadCIDOrZero())
 	}
 	return false
 }
@@ -338,13 +349,13 @@ func (i *instance) tryQuality() {
 	}
 	// Wait either for a strong quorum that agree on our proposal,
 	// or for the timeout to expire.
-	foundQuorum := i.quality.HasQuorumAgreement(i.proposal.Head().CID)
+	foundQuorum := i.quality.HasStrongQuorumAgreement(i.proposal.Head().CID)
 	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
 	if foundQuorum {
 		// Keep current proposal.
 	} else if timeoutExpired {
-		strongQuora := i.quality.ListQuorumAgreedValues()
+		strongQuora := i.quality.ListStrongQuorumAgreedValues()
 		i.proposal = findFirstPrefixOf(strongQuora, i.proposal)
 	}
 
@@ -406,8 +417,8 @@ func (i *instance) tryPrepare() {
 	}
 
 	prepared := i.roundState(i.round).prepared
-	// Optimisation: we could advance phase once quorum on our proposal is not possible.
-	foundQuorum := prepared.HasQuorumAgreement(i.proposal.Head().CID)
+	// Optimisation: we could advance phase once a strong quorum on our proposal is not possible.
+	foundQuorum := prepared.HasStrongQuorumAgreement(i.proposal.Head().CID)
 	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
 	if foundQuorum {
@@ -432,14 +443,15 @@ func (i *instance) tryCommit(round uint32) {
 	// and the algorithm moves on to the next round.
 	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
 	committed := i.roundState(round).committed
-	foundQuorum := committed.ListQuorumAgreedValues()
+	foundQuorum := committed.ListStrongQuorumAgreedValues()
 	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
-	if len(foundQuorum) > 0 && !foundQuorum[0].IsZero() {
+	if len(foundQuorum) > 0 && !foundQuorum[0].IsZero() && !i.decideSent {
 		// A participant may be forced to decide a value that's not its preferred chain.
 		// The participant isn't influencing that decision against their interest, just accepting it.
-		i.decide(foundQuorum[0], round)
-	} else if i.round == round && i.phase == COMMIT && timeoutExpired && committed.ReceivedFromQuorum() {
+		i.decideSent = true
+		i.broadcast(DECIDE, foundQuorum[0], nil)
+	} else if i.round == round && i.phase == COMMIT && timeoutExpired && committed.ReceivedFromStrongQuorum() {
 		// Adopt any non-empty value committed by another participant (there can only be one).
 		// This node has observed the strong quorum of PREPARE messages that justify it,
 		// and mean that some other nodes may decide that value (if they observe more COMMITs).
@@ -457,6 +469,25 @@ func (i *instance) tryCommit(round uint32) {
 
 		}
 		i.beginNextRound()
+	}
+}
+
+func (i *instance) tryDecide(value ECChain) {
+	weakQuorum := i.decision.HasWeakQuorumAgreement(value.HeadCIDOrZero())
+	strongQuorum := i.decision.HasStrongQuorumAgreement(value.HeadCIDOrZero())
+
+	// If a weak quorum of DECIDE messages has been received, at least one correct participant must have sent one
+	// (and there exists a proof of it, albeit not necessarily locally present).
+	// That means that this value must be decided by every correct participant.
+	// Broadcasting a DECIDE message is necessary for liveness if the broadcast primitive is only best-effort broadcast.
+	// If broadcast() implemented reliable broadcast, this step would not be necessary.
+	if weakQuorum && !i.decideSent {
+		i.broadcast(DECIDE, value, nil)
+		i.decideSent = true
+	}
+
+	if strongQuorum {
+		i.decide(value, 0)
 	}
 }
 
@@ -593,9 +624,10 @@ type senderSent struct {
 
 // A chain value and the total power supporting it.
 type chainPower struct {
-	chain     ECChain
-	power     uint
-	hasQuorum bool
+	chain           ECChain
+	power           uint
+	hasStrongQuorum bool
+	hasWeakQuorum   bool
 }
 
 // Creates a new, empty quorum state.
@@ -629,17 +661,25 @@ func (q *quorumState) Receive(sender ActorID, value ECChain) {
 	q.received[sender] = fromSender
 
 	candidate := chainPower{
-		chain:     value,
-		power:     q.powerTable.Entries[sender],
-		hasQuorum: false,
+		chain:           value,
+		power:           q.powerTable.Entries[sender],
+		hasStrongQuorum: false,
+		hasWeakQuorum:   false,
 	}
 	if found, ok := q.chainPower[head]; ok {
 		candidate.power += found.power
 	}
-	threshold := q.powerTable.Total * 2 / 3
-	if candidate.power > threshold {
-		candidate.hasQuorum = true
+
+	strongThreshold := q.powerTable.Total * 2 / 3
+	if candidate.power > strongThreshold {
+		candidate.hasStrongQuorum = true
 	}
+
+	weakThreshold := q.powerTable.Total * 1 / 3
+	if candidate.power > weakThreshold {
+		candidate.hasWeakQuorum = true
+	}
+
 	q.chainPower[head] = candidate
 }
 
@@ -665,22 +705,28 @@ func (q *quorumState) HasAgreement() bool {
 }
 
 // Checks whether at least one message has been received from a strong quorum of senders.
-func (q *quorumState) ReceivedFromQuorum() bool {
+func (q *quorumState) ReceivedFromStrongQuorum() bool {
 	return q.sendersTotalPower > q.powerTable.Total*2/3
 }
 
-// Checks whether a chain (head) has reached quorum.
-func (q *quorumState) HasQuorumAgreement(cid TipSetID) bool {
+// Checks whether a chain (head) has reached a strong quorum.
+func (q *quorumState) HasStrongQuorumAgreement(cid TipSetID) bool {
 	cp, ok := q.chainPower[cid]
-	return ok && cp.hasQuorum
+	return ok && cp.hasStrongQuorum
 }
 
-// Returns a list of the chains which have reached an agreeing quorum.
+// Checks whether a chain (head) has reached weak quorum.
+func (q *quorumState) HasWeakQuorumAgreement(cid TipSetID) bool {
+	cp, ok := q.chainPower[cid]
+	return ok && cp.hasWeakQuorum
+}
+
+// Returns a list of the chains which have reached an agreeing strong quorum.
 // The order of returned values is not defined.
-func (q *quorumState) ListQuorumAgreedValues() []ECChain {
+func (q *quorumState) ListStrongQuorumAgreedValues() []ECChain {
 	var withQuorum []ECChain
 	for cid, cp := range q.chainPower {
-		if cp.hasQuorum {
+		if cp.hasStrongQuorum {
 			withQuorum = append(withQuorum, q.chainPower[cid].chain)
 		}
 	}
