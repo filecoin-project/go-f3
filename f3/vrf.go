@@ -3,7 +3,6 @@ package f3
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 )
 
 // A ticket is a signature over some common payload.
@@ -56,19 +55,4 @@ func (f *VRF) serializeSigInput(beacon []byte, instance uint32, round uint32) []
 	sigInput = append(sigInput, roundBytes...)
 
 	return sigInput
-}
-
-type FakeVRF struct {
-}
-
-func NewFakeVRF() *FakeVRF {
-	return &FakeVRF{}
-}
-
-func (f *FakeVRF) MakeTicket(beacon []byte, instance uint32, round uint32, signer ActorID) Ticket {
-	return []byte(fmt.Sprintf("FakeTicket(%x, %d, %d, %d)", beacon, instance, round, signer))
-}
-
-func (f *FakeVRF) VerifyTicket(beacon []byte, instance uint32, round uint32, signer ActorID, ticket Ticket) bool {
-	return string(ticket) == fmt.Sprintf("FakeTicket(%x, %d, %d, %d)", beacon, instance, round, signer)
 }
