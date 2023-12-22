@@ -103,6 +103,10 @@ type instance struct {
 	rounds map[uint32]*roundState
 	// Acceptable chain
 	acceptable ECChain
+	// Decision state. Collects DECIDE messages until a decision can be made, independently of protocol phases/rounds.
+	decision *quorumState
+	// Flag set when the participant sends a DECIDE message. Used to send it only once.
+	decideSent bool
 }
 
 func newInstance(
@@ -136,6 +140,8 @@ func newInstance(
 			0: newRoundState(powerTable),
 		},
 		acceptable: input,
+		decision:   newQuorumState(powerTable),
+		decideSent: false,
 	}
 }
 
@@ -246,6 +252,8 @@ func (i *instance) receiveOne(msg *GMessage) {
 		round.prepared.Receive(msg.Sender, msg.Value)
 	case COMMIT:
 		round.committed.Receive(msg.Sender, msg.Value)
+	case DECIDE:
+		i.decision.Receive(msg.Sender, msg.Value)
 	default:
 		i.log("unexpected message %v", msg)
 	}
@@ -253,8 +261,11 @@ func (i *instance) receiveOne(msg *GMessage) {
 	// Try to complete the current phase.
 	// Every COMMIT phase stays open to new messages even after the protocol moves on to
 	// a new round. Late-arriving COMMITS can still (must) cause a local decision, *in that round*.
+	// DECIDE messages are also independent of current phase or round.
 	if msg.Step == COMMIT {
 		i.tryCommit(msg.Round)
+	} else if msg.Step == DECIDE {
+		i.tryDecide(msg.Value)
 	} else {
 		i.tryCompletePhase()
 	}
@@ -435,10 +446,11 @@ func (i *instance) tryCommit(round uint32) {
 	foundQuorum := committed.ListStrongQuorumAgreedValues()
 	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
-	if len(foundQuorum) > 0 && !foundQuorum[0].IsZero() {
+	if len(foundQuorum) > 0 && !foundQuorum[0].IsZero() && !i.decideSent {
 		// A participant may be forced to decide a value that's not its preferred chain.
 		// The participant isn't influencing that decision against their interest, just accepting it.
-		i.decide(foundQuorum[0], round)
+		i.decideSent = true
+		i.broadcast(DECIDE, foundQuorum[0], nil)
 	} else if i.round == round && i.phase == COMMIT && timeoutExpired && committed.ReceivedFromStrongQuorum() {
 		// Adopt any non-empty value committed by another participant (there can only be one).
 		// This node has observed the strong quorum of PREPARE messages that justify it,
@@ -457,6 +469,25 @@ func (i *instance) tryCommit(round uint32) {
 
 		}
 		i.beginNextRound()
+	}
+}
+
+func (i *instance) tryDecide(value ECChain) {
+	weakQuorum := i.decision.HasWeakQuorumAgreement(value.HeadCIDOrZero())
+	strongQuorum := i.decision.HasStrongQuorumAgreement(value.HeadCIDOrZero())
+
+	// If a weak quorum of DECIDE messages has been received, at least one correct participant must have sent one
+	// (and there exists a proof of it, albeit not necessarily locally present).
+	// That means that this value must be decided by every correct participant.
+	// Broadcasting a DECIDE message is necessary for liveness if the broadcast primitive is only best-effort broadcast.
+	// If broadcast() implemented reliable broadcast, this step would not be necessary.
+	if weakQuorum && !i.decideSent {
+		i.broadcast(DECIDE, value, nil)
+		i.decideSent = true
+	}
+
+	if strongQuorum {
+		i.decide(value, 0)
 	}
 }
 
