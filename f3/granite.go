@@ -43,6 +43,25 @@ type GMessage struct {
 	Ticket Ticket
 	// Signature by the sender's public key over Instance || Round || Step || Value.
 	Signature []byte
+	// Evidence is the aggregated list of GossiPBFT msgs that justify this message
+	Evidence AggregatedEvidence
+}
+
+// Aggregated list of GossiPBFT messages with the same instance, round and value. Used as evidence for justification of messages
+type AggregatedEvidence struct {
+	// Enumeration of QUALITY, PREPARE, COMMIT, CONVERGE, DECIDE
+	Step string
+	// Chain of tipsets proposed/voted for finalisation in this instance.
+	// Non-empty: the first entry is the base tipset finalised in instance-1
+	Value ECChain
+	// GossiPBFT instance number
+	Instance uint32
+	// GossiPBFT round
+	Round uint32
+	// Indexes in the base power table of the signers (bitset)
+	Signers []byte
+	// BLS aggregate signature of signers
+	Signature []byte
 }
 
 func (m GMessage) String() string {
@@ -493,10 +512,10 @@ func (i *instance) decided() bool {
 	return i.phase == DECIDE
 }
 
-func (i *instance) broadcast(step string, value ECChain, ticket Ticket) *GMessage {
+func (i *instance) broadcast(step string, value ECChain, ticket Ticket, evidence AggregatedEvidence) *GMessage {
 	payload := SignaturePayload(i.instanceID, i.round, step, value)
 	signature := i.host.Sign(i.participantID, payload)
-	gmsg := &GMessage{i.participantID, i.instanceID, i.round, step, value, ticket, signature}
+	gmsg := &GMessage{i.participantID, i.instanceID, i.round, step, value, ticket, signature, evidence}
 	i.host.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
 	return gmsg
