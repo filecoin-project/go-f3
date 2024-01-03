@@ -492,7 +492,7 @@ func (i *instance) tryDecide(value ECChain) {
 	}
 
 	if strongQuorum {
-		i.decide(value, 0)
+		i.decide(value, i.round)
 	}
 }
 
