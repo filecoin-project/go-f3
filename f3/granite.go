@@ -43,6 +43,8 @@ type GMessage struct {
 	Ticket Ticket
 	// Signature by the sender's public key over Instance || Round || Step || Value.
 	Signature []byte
+	// InstanceRound is only used for debugging purposes, to check the round in which the process decided, as DECIDE messages set the round field to 0 for aggregation
+	InstanceRound uint32
 }
 
 func (m GMessage) String() string {
@@ -341,7 +343,7 @@ func (i *instance) beginQuality() {
 	// Broadcast input value and wait up to Δ to receive from others.
 	i.phase = QUALITY
 	i.phaseTimeout = i.alarmAfterSynchrony(QUALITY)
-	i.broadcast(QUALITY, i.input, nil)
+	i.broadcast(QUALITY, i.input, nil, i.round)
 }
 
 // Attempts to end the QUALITY phase and begin PREPARE based on current state.
@@ -373,7 +375,7 @@ func (i *instance) beginConverge() {
 	i.phase = CONVERGE
 	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE)
-	i.broadcast(CONVERGE, i.proposal, ticket)
+	i.broadcast(CONVERGE, i.proposal, ticket, i.round)
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
@@ -409,7 +411,7 @@ func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
-	i.broadcast(PREPARE, i.value, nil)
+	i.broadcast(PREPARE, i.value, nil, i.round)
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -438,7 +440,7 @@ func (i *instance) tryPrepare() {
 func (i *instance) beginCommit() {
 	i.phase = COMMIT
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
-	i.broadcast(COMMIT, i.value, nil)
+	i.broadcast(COMMIT, i.value, nil, i.round)
 }
 
 func (i *instance) tryCommit(round uint32) {
@@ -453,7 +455,7 @@ func (i *instance) tryCommit(round uint32) {
 		// A participant may be forced to decide a value that's not its preferred chain.
 		// The participant isn't influencing that decision against their interest, just accepting it.
 		i.decideSent = true
-		i.broadcast(DECIDE, foundQuorum[0], nil)
+		i.broadcast(DECIDE, foundQuorum[0], nil, 0)
 	} else if i.round == round && i.phase == COMMIT && timeoutExpired && committed.ReceivedFromStrongQuorum() {
 		// Adopt any non-empty value committed by another participant (there can only be one).
 		// This node has observed the strong quorum of PREPARE messages that justify it,
@@ -485,7 +487,7 @@ func (i *instance) tryDecide(value ECChain) {
 	// Broadcasting a DECIDE message is necessary for liveness if the broadcast primitive is only best-effort broadcast.
 	// If broadcast() implemented reliable broadcast, this step would not be necessary.
 	if weakQuorum && !i.decideSent {
-		i.broadcast(DECIDE, value, nil)
+		i.broadcast(DECIDE, value, nil, 0)
 		i.decideSent = true
 	}
 
@@ -527,10 +529,10 @@ func (i *instance) decided() bool {
 	return i.phase == DECIDE
 }
 
-func (i *instance) broadcast(step string, value ECChain, ticket Ticket) *GMessage {
-	payload := SignaturePayload(i.instanceID, i.round, step, value)
+func (i *instance) broadcast(step string, value ECChain, ticket Ticket, round uint32) *GMessage {
+	payload := SignaturePayload(i.instanceID, round, step, value)
 	signature := i.host.Sign(i.participantID, payload)
-	gmsg := &GMessage{i.participantID, i.instanceID, i.round, step, value, ticket, signature}
+	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature, i.round}
 	i.host.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
 	return gmsg
