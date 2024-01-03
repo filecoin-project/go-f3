@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/filecoin-project/go-f3/f3"
+	"io"
 	"sort"
 	"strings"
 )
@@ -132,6 +133,60 @@ func (n *Network) Verify(sender f3.ActorID, msg, sig []byte) bool {
 	if !bytes.Equal(remainingBytes, msg) {
 		return false
 	}
+	return true
+}
+
+func (n *Network) Aggregate(msg, sig []byte, aggSignature []byte) []byte {
+	// Fake implementation.
+	// Just appends signature to aggregate signature.
+	// This fake aggregation is not commutative (order matters), unlike the real one.
+	return append(aggSignature, sig...)
+}
+
+func (n *Network) VerifyAggregate(msg, aggSig []byte, signers []byte) bool {
+	// Fake implementation.
+	buf := bytes.NewReader(aggSig)
+	verifiedSigners := make([]byte, len(signers))
+
+	for {
+		// Read the sender ID from the aggregate signature.
+		var senderID uint64
+		err := binary.Read(buf, binary.BigEndian, &senderID)
+		if err != nil {
+			if err == io.EOF {
+				break // End of the aggregate signature.
+			}
+			return false // Error in reading sender ID.
+		}
+
+		// Check if the sender is in the signers bitset.
+		if senderID >= uint64(len(signers)) || signers[senderID] == 0 {
+			return false // SenderID is not part of the signers.
+			//TODO Abstract away the workings of the Signers bitset
+		}
+
+		// Mark this sender as verified.
+		verifiedSigners[senderID] = 1
+
+		// Read the signature corresponding to this sender ID.
+		signature := make([]byte, len(msg))
+		if _, err := io.ReadFull(buf, signature); err != nil {
+			return false // Error in reading the signature.
+		}
+
+		// Verify the signature.
+		if !n.Verify(f3.ActorID(senderID), msg, append(binary.BigEndian.AppendUint64(nil, senderID), signature...)) {
+			return false // Signature verification failed.
+		}
+	}
+
+	// Ensure all signers in the bitset are accounted for.
+	for i, val := range signers {
+		if val != verifiedSigners[i] {
+			return false // A signer in the bitset was not verified in the signatures.
+		}
+	}
+
 	return true
 }
 
