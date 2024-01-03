@@ -329,6 +329,9 @@ func (i *instance) isJustified(msg *GMessage) bool {
 		// COMMIT for bottom is always justified.
 		round := i.roundState(msg.Round)
 		return msg.Value.IsZero() || round.prepared.HasStrongQuorumAgreement(msg.Value.HeadCIDOrZero())
+	} else if msg.Step == DECIDE {
+		// DECIDE needs no justification
+		return !msg.Value.IsZero()
 	}
 	return false
 }
