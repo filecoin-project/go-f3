@@ -43,7 +43,7 @@ func (p *Participant) Finalised() (TipSet, uint32) {
 func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, beacon []byte) {
 	p.nextChain = chain
 	if p.granite == nil {
-		p.granite = newInstance(p.config, p.host, p.vrf, p.id, p.nextInstance, chain, power, beacon)
+		p.granite = newInstance(p.config, p.host, p.vrf, p.id, p.nextInstance, chain, power, beacon, Implicit)
 		p.nextInstance += 1
 		p.granite.Start()
 	}

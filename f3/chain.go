@@ -69,6 +69,10 @@ func NewChain(base TipSet, suffix ...TipSet) ECChain {
 	return append([]TipSet{base}, suffix...)
 }
 
+func ZeroECChain() ECChain {
+	return ECChain{}
+}
+
 func (c ECChain) IsZero() bool {
 	return len(c) == 0
 }
