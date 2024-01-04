@@ -30,7 +30,7 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 	// Create a network to deliver messages.
 	lat := NewLogNormal(simConfig.LatencySeed, simConfig.LatencyMean)
 	ntwk := NewNetwork(lat, traceLevel)
-	vrf := f3.NewFakeVRF()
+	vrf := f3.NewVRF(ntwk)
 
 	// Create participants.
 	genesisPower := f3.NewPowerTable()
