@@ -59,7 +59,7 @@ type AggEvidence struct {
 	// GossiPBFT round
 	Round uint32
 	// Indexes in the base power table of the signers (bitset)
-	Signers []byte
+	Signers BitSet
 	// BLS aggregate signature of signers
 	Signature []byte
 }
@@ -69,7 +69,7 @@ func ZeroAggEvidence() AggEvidence {
 }
 
 func (a AggEvidence) isZero() bool {
-	return a.Step == "" && a.Value.IsZero() && a.Instance == 0 && a.Round == 0 && len(a.Signers) == 0 && len(a.Signature) == 0
+	return a.Step == "" && a.Value.IsZero() && a.Instance == 0 && a.Round == 0 && a.Signers.Size() == 0 && len(a.Signature) == 0
 }
 
 func (m GMessage) String() string {
@@ -161,9 +161,9 @@ func newInstance(
 		proposal:      input,
 		value:         ECChain{},
 		pending:       newPendingQueue(),
-		quality:       newQuorumState(quorumStateType, powerTable),
+		quality:       newQuorumState(quorumStateType, powerTable, host, instanceID, 0, QUALITY),
 		rounds: map[uint32]*roundState{
-			0: newRoundState(powerTable, quorumStateType),
+			0: newRoundState(powerTable, quorumStateType, host, instanceID, 0),
 		},
 		acceptable:      input,
 		quorumStateType: quorumStateType,
@@ -176,11 +176,11 @@ type roundState struct {
 	committed quorumState
 }
 
-func newRoundState(powerTable PowerTable, quorumStateType quorumStateType) *roundState {
+func newRoundState(powerTable PowerTable, quorumStateType quorumStateType, aggregator Aggregator, instanceID uint32, round uint32) *roundState {
 	return &roundState{
 		converged: newConvergeState(),
-		prepared:  newQuorumState(quorumStateType, powerTable),
-		committed: newQuorumState(quorumStateType, powerTable),
+		prepared:  newQuorumState(quorumStateType, powerTable, aggregator, instanceID, round, PREPARE),
+		committed: newQuorumState(quorumStateType, powerTable, aggregator, instanceID, round, COMMIT),
 	}
 }
 
@@ -256,13 +256,15 @@ func (i *instance) receiveOne(msg *GMessage) {
 		return
 	}
 
-	// Hold (if using Implicit justification) as pending any message with a value not yet justified by the prior phase.
+	// Hold (if using IMPLICIT justification) as pending any message with a value not yet justified by the prior phase.
 	if !i.isJustified(msg) {
-		if i.quorumStateType == Implicit {
+		if i.quorumStateType == IMPLICIT {
 			i.log("enqueue %s", msg)
 			i.pending.Add(msg)
+		} else if i.quorumStateType == EXPLICIT {
+			// Ignore message
+			return
 		}
-		return
 	}
 
 	round := i.roundState(msg.Round)
@@ -392,9 +394,9 @@ func (i *instance) beginConverge() {
 	i.phase = CONVERGE
 	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE)
-	aggEvidence, isJustified := i.roundState(i.round-1).committed.Justify(i.proposal, ZeroECChain())
+	aggEvidence, isJustified := i.roundState(i.round - 1).committed.Justify(ZeroECChain())
 	if !isJustified {
-		aggEvidence, isJustified = i.roundState(i.round-1).prepared.Justify(i.proposal, i.proposal)
+		aggEvidence, isJustified = i.roundState(i.round - 1).prepared.Justify(i.proposal)
 	}
 	if !isJustified {
 		// error, there should be a justification for CONVERGE, otherwise we would not be here now
@@ -470,7 +472,7 @@ func (i *instance) beginCommit() {
 		aggEvidence = ZeroAggEvidence()
 	)
 	if !i.value.IsZero() { // if it is zero then justification is not really needed
-		aggEvidence, isJustified = i.roundState(i.round).prepared.Justify(i.value, i.value)
+		aggEvidence, isJustified = i.roundState(i.round).prepared.Justify(i.value)
 		if !isJustified {
 			// error, there should be a justification for a non-bottom COMMIT, otherwise we would not be here now
 			panic(fmt.Sprintf("no justification for COMMIT %v", i.value))
@@ -515,7 +517,7 @@ func (i *instance) tryCommit(round uint32) {
 func (i *instance) roundState(r uint32) *roundState {
 	round, ok := i.rounds[r]
 	if !ok {
-		round = newRoundState(i.powerTable, i.quorumStateType)
+		round = newRoundState(i.powerTable, i.quorumStateType, i.host, i.instanceID, r)
 		i.rounds[r] = round
 	}
 	return round
@@ -626,7 +628,7 @@ type quorumState interface {
 	Receive(sender ActorID, value ECChain, sig []byte)
 
 	isJustified(msg *GMessage, justification ECChain) bool
-	Justify(value ECChain, justification ECChain) (AggEvidence, bool)
+	Justify(justification ECChain) (AggEvidence, bool)
 
 	HasQuorumAgreement(cid TipSetID) bool
 	ListQuorumAgreedValues() []ECChain
@@ -665,24 +667,29 @@ type chainPower struct {
 type quorumStateType int
 
 const (
-	Implicit quorumStateType = iota
-	Explicit
+	IMPLICIT quorumStateType = iota
+	EXPLICIT
 )
 
 // Creates a new, empty quorum state.
-func newQuorumState(quorumStateType quorumStateType, powerTable PowerTable) quorumState {
+func newQuorumState(quorumStateType quorumStateType, powerTable PowerTable, aggregator Aggregator, instanceID uint32, round uint32, step string) quorumState {
 	switch quorumStateType {
-	case Implicit:
-		return &quorumStateImplicit{
-			received:          map[ActorID]senderSent{},
-			chainPower:        map[TipSetID]chainPower{},
-			sendersTotalPower: 0,
-			powerTable:        powerTable,
-		}
-	case Explicit:
-		panic("quorumStateType not yet considered: Explicit")
+	case IMPLICIT:
+		return newQuorumStateImplicit(powerTable)
+	case EXPLICIT:
+
+		return newQuorumStateExplicit(powerTable, aggregator, instanceID, round, step) //TODO This is suboptimal (as the senderIndex needs to be recalculated every time unnecessarily. Fix)
 	default:
 		panic(fmt.Sprintf("quorumStateType not considered: %v", quorumStateType))
+	}
+}
+
+func newQuorumStateImplicit(powerTable PowerTable) *quorumStateImplicit {
+	return &quorumStateImplicit{
+		received:          map[ActorID]senderSent{},
+		chainPower:        map[TipSetID]chainPower{},
+		sendersTotalPower: 0,
+		powerTable:        powerTable,
 	}
 }
 
@@ -770,8 +777,141 @@ func (q *quorumStateImplicit) isJustified(_ *GMessage, value ECChain) bool {
 	return q.HasQuorumAgreement(value.HeadCIDOrZero())
 }
 
-func (q *quorumStateImplicit) Justify(_ ECChain, _ ECChain) (AggEvidence, bool) {
-	return AggEvidence{}, true // Implicit justification
+func (q *quorumStateImplicit) Justify(_ ECChain) (AggEvidence, bool) {
+	return AggEvidence{}, true // IMPLICIT justification
+}
+
+type chainSupport struct {
+	chainPower   chainPower
+	aggSignature []byte
+	signers      *BitSet
+}
+
+type quorumStateExplicit struct {
+	//TODO
+	aggregator Aggregator
+	// CID of each chain received, by sender. Allows detecting and ignoring duplicates.
+	received *BitSet
+	// The power supporting each chain so far.
+	chainSupport map[TipSetID]chainSupport
+	// Total power of all distinct senders from which some chain has been received so far.
+	sendersTotalPower uint
+	// Table of senders' power.
+	powerTable PowerTable
+	instanceID uint32
+	round      uint32
+	step       string
+
+	senderIndex *SenderIndex
+}
+
+func newQuorumStateExplicit(powerTable PowerTable, aggregator Aggregator, instanceID uint32, round uint32, step string) *quorumStateExplicit {
+	return &quorumStateExplicit{
+		aggregator:        aggregator,
+		received:          NewBitSet(uint64(len(powerTable.Entries))),
+		chainSupport:      map[TipSetID]chainSupport{},
+		sendersTotalPower: 0,
+		powerTable:        powerTable,
+		instanceID:        instanceID,
+		round:             round,
+		step:              step,
+		senderIndex:       NewSenderIndex(powerTable),
+	}
+}
+
+// Receives a new chain from a sender.
+func (q *quorumStateExplicit) Receive(sender ActorID, value ECChain, signature []byte) {
+	head := value.HeadCIDOrZero()
+	if !q.received.IsSet(q.senderIndex.actor2Index[sender]) {
+		// Add sender's power to total the first time a value is received from them.
+		senderPower := q.powerTable.Entries[sender]
+		q.sendersTotalPower += senderPower
+		q.received.Set(q.senderIndex.actor2Index[sender])
+	}
+
+	candidate := chainSupport{
+		chainPower: chainPower{
+			chain:     value,
+			power:     0,
+			hasQuorum: false,
+		},
+		aggSignature: []byte{},
+		signers:      NewBitSet(uint64(len(q.powerTable.Entries))),
+	}
+	found, ok := q.chainSupport[head]
+	if !ok {
+		found = candidate
+	} else {
+		// Don't double-count the same chain head for a single participant.
+		if found.signers.IsSet(q.senderIndex.actor2Index[sender]) {
+			return
+		}
+	}
+
+	candidate.chainPower.power += found.chainPower.power
+	candidate.aggSignature, candidate.signers = q.aggregator.Aggregate(signature, sender, found.aggSignature, found.signers, q.senderIndex.actor2Index)
+
+	threshold := q.powerTable.Total * 2 / 3
+	if candidate.chainPower.power > threshold {
+		candidate.chainPower.hasQuorum = true
+	}
+	q.chainSupport[head] = candidate
+}
+
+func (q *quorumStateExplicit) isJustified(msg *GMessage, value ECChain) bool {
+	if msg.Evidence.isZero() {
+		return false
+	}
+
+	if msg.Evidence.Step != q.step || msg.Evidence.Instance != q.instanceID || msg.Evidence.Round != q.round {
+		return false // this quorumState should not be verifying this msg
+	}
+
+	// Verify aggregated signature
+	if !q.aggregator.VerifyAggregate(SignaturePayload(q.instanceID, q.round, q.step, value), msg.Evidence.Signature, &msg.Evidence.Signers, q.senderIndex.actor2Index) {
+		return false
+	}
+
+	// Verify strong quorum
+	totalPower := uint(0)
+
+	for i := uint64(0); i < msg.Evidence.Signers.HammingWeight(); {
+		if msg.Evidence.Signers.IsSet(i) {
+			totalPower += q.powerTable.Entries[q.senderIndex.index2Actor[i]]
+			if totalPower >= q.powerTable.Total*2/3 {
+				return false
+			}
+			i++
+		}
+	}
+
+	return false
+}
+
+func (q *quorumStateExplicit) Justify(justification ECChain) (AggEvidence, bool) {
+	head := justification.HeadCIDOrZero()
+	if !q.chainSupport[head].chainPower.hasQuorum {
+		return AggEvidence{}, false
+	}
+	aggEvidence := AggEvidence{
+		Step:      q.step,
+		Value:     justification,
+		Instance:  q.instanceID,
+		Round:     q.round,
+		Signers:   *q.chainSupport[head].signers,
+		Signature: q.chainSupport[head].aggSignature,
+	}
+	return aggEvidence, true
+}
+
+// Lists all values that have been received from any sender.
+// The order of returned values is not defined.
+func (q *quorumStateExplicit) ListAllValues() []ECChain {
+	var chains []ECChain
+	for _, cp := range q.chainSupport {
+		chains = append(chains, cp.chainPower.chain)
+	}
+	return chains
 }
 
 //// CONVERGE phase helper /////
@@ -788,6 +928,30 @@ func newConvergeState() *convergeState {
 		values:  map[TipSetID]ECChain{},
 		tickets: map[TipSetID][]Ticket{},
 	}
+}
+
+// Checks whether a chain (head) has reached quorum.
+func (q *quorumStateExplicit) HasQuorumAgreement(cid TipSetID) bool {
+	cp, ok := q.chainSupport[cid]
+	return ok && cp.chainPower.hasQuorum
+}
+
+// Returns a list of the chains which have reached an agreeing quorum.
+// The order of returned values is not defined.
+func (q *quorumStateExplicit) ListQuorumAgreedValues() []ECChain {
+	var withQuorum []ECChain
+	for cid, cp := range q.chainSupport {
+		if cp.chainPower.hasQuorum {
+			withQuorum = append(withQuorum, q.chainSupport[cid].chainPower.chain)
+		}
+	}
+	sortByWeight(withQuorum)
+	return withQuorum
+}
+
+// Checks whether at least one message has been received from a strong quorum of senders.
+func (q *quorumStateExplicit) ReceivedFromQuorum() bool {
+	return q.sendersTotalPower > q.powerTable.Total*2/3
 }
 
 // Receives a new CONVERGE value from a sender.
@@ -812,6 +976,91 @@ func (c *convergeState) findMinTicketProposal() ECChain {
 		}
 	}
 	return minValue
+}
+
+type BitSet struct {
+	bits          []uint64
+	size          uint64
+	hammingWeight uint64
+}
+
+func NewBitSet(capacity uint64) *BitSet {
+	return &BitSet{
+		bits:          make([]uint64, (capacity+63)/64),
+		size:          capacity,
+		hammingWeight: 0,
+	}
+}
+
+func (b *BitSet) Set(index uint64) {
+	if b.IsSet(index) {
+		return
+	}
+	segment, bit := index/64, index%64
+	b.bits[segment] |= 1 << bit
+	b.hammingWeight++
+}
+
+func (b *BitSet) Clear(index uint64) {
+	if !b.IsSet(index) {
+		return
+	}
+	segment, bit := index/64, index%64
+	b.bits[segment] &^= 1 << bit
+	b.hammingWeight--
+}
+
+func (b *BitSet) IsSet(index uint64) bool {
+	segment, bit := index/64, index%64
+	return (b.bits[segment] & (1 << bit)) != 0
+}
+
+func (b *BitSet) Size() uint64 {
+	return b.size
+}
+
+func (b *BitSet) HammingWeight() uint64 {
+	return b.hammingWeight
+}
+
+// Iterate calls the given function for each set bit in the BitSet.
+func (b *BitSet) Iterate(callback func(index uint64)) {
+	for i := uint64(0); i < b.size; i++ {
+		if b.IsSet(i) {
+			callback(i)
+		}
+	}
+}
+
+type SenderIndex struct {
+	actor2Index map[ActorID]uint64
+	index2Actor []ActorID
+}
+
+func NewSenderIndex(table PowerTable) *SenderIndex {
+	senderIndex := &SenderIndex{
+		actor2Index: make(map[ActorID]uint64, len(table.Entries)),
+		index2Actor: make([]ActorID, len(table.Entries)),
+	}
+	keys := make([]ActorID, 0, len(table.Entries))
+
+	// Extract keys from the map
+	for senderID := range table.Entries {
+		keys = append(keys, senderID)
+	}
+
+	// Sort the keys
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	senderIndex.index2Actor = keys
+
+	// Iterate over the sorted keys
+	var i uint64 = 0
+	for _, senderID := range keys {
+		senderIndex.actor2Index[senderID] = i
+		i++
+	}
+
+	return senderIndex
 }
 
 ///// General helpers /////
