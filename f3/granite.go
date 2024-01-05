@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/filecoin-project/go-bitfield"
 	"sort"
 )
 
@@ -49,17 +50,16 @@ type GMessage struct {
 
 // Aggregated list of GossiPBFT messages with the same instance, round and value. Used as evidence for justification of messages
 type AggEvidence struct {
-	// Enumeration of QUALITY, PREPARE, COMMIT, CONVERGE, DECIDE
-	Step string
-	// Chain of tipsets proposed/voted for finalisation in this instance.
-	// Non-empty: the first entry is the base tipset finalised in instance-1
-	Value ECChain
-	// GossiPBFT instance number
 	Instance uint32
-	// GossiPBFT round
+
 	Round uint32
+
+	Step string
+
+	Value ECChain
+
 	// Indexes in the base power table of the signers (bitset)
-	Signers []byte
+	Signers bitfield.BitField
 	// BLS aggregate signature of signers
 	Signature []byte
 }
@@ -69,7 +69,11 @@ func ZeroAggEvidence() AggEvidence {
 }
 
 func (a AggEvidence) isZero() bool {
-	return a.Step == "" && a.Value.IsZero() && a.Instance == 0 && a.Round == 0 && len(a.Signers) == 0 && len(a.Signature) == 0
+	signersCount, err := a.Signers.Count()
+	if err != nil {
+		panic(err)
+	}
+	return a.Step == "" && a.Value.IsZero() && a.Instance == 0 && a.Round == 0 && signersCount == 0 && len(a.Signature) == 0
 }
 
 func (m GMessage) String() string {
@@ -130,8 +134,11 @@ type instance struct {
 	rounds map[uint32]*roundState
 	// Acceptable chain
 	acceptable ECChain
-	//TODO Comment (here and everywhere really)
+	//quorumStateType defines the message justification method, either EXPLICIT for messages attaching a BLS-aggregate of other messages that justify it
+	// or IMPLICIT for messages being justified by previously received messages
 	quorumStateType quorumStateType
+	//senderIndex
+	senderIndex *SenderIndex
 }
 
 func newInstance(
@@ -147,6 +154,11 @@ func newInstance(
 	if input.IsZero() {
 		panic("input is empty")
 	}
+	var senderIndex *SenderIndex
+	if quorumStateType == EXPLICIT {
+		senderIndex = NewSenderIndex(powerTable)
+	}
+
 	return &instance{
 		config:        config,
 		host:          host,
@@ -161,12 +173,13 @@ func newInstance(
 		proposal:      input,
 		value:         ECChain{},
 		pending:       newPendingQueue(),
-		quality:       newQuorumState(quorumStateType, powerTable),
+		quality:       newQuorumState(quorumStateType, powerTable, host, instanceID, 0, QUALITY, senderIndex),
 		rounds: map[uint32]*roundState{
-			0: newRoundState(powerTable, quorumStateType),
+			0: newRoundState(powerTable, quorumStateType, host, instanceID, 0, senderIndex),
 		},
 		acceptable:      input,
 		quorumStateType: quorumStateType,
+		senderIndex:     senderIndex,
 	}
 }
 
@@ -176,11 +189,11 @@ type roundState struct {
 	committed quorumState
 }
 
-func newRoundState(powerTable PowerTable, quorumStateType quorumStateType) *roundState {
+func newRoundState(powerTable PowerTable, quorumStateType quorumStateType, aggregator Aggregator, instanceID uint32, round uint32, senderIndex *SenderIndex) *roundState {
 	return &roundState{
 		converged: newConvergeState(),
-		prepared:  newQuorumState(quorumStateType, powerTable),
-		committed: newQuorumState(quorumStateType, powerTable),
+		prepared:  newQuorumState(quorumStateType, powerTable, aggregator, instanceID, round, PREPARE, senderIndex),
+		committed: newQuorumState(quorumStateType, powerTable, aggregator, instanceID, round, COMMIT, senderIndex),
 	}
 }
 
@@ -256,13 +269,15 @@ func (i *instance) receiveOne(msg *GMessage) {
 		return
 	}
 
-	// Hold (if using Implicit justification) as pending any message with a value not yet justified by the prior phase.
+	// Hold (if using IMPLICIT justification) as pending any message with a value not yet justified by the prior phase.
 	if !i.isJustified(msg) {
-		if i.quorumStateType == Implicit {
+		if i.quorumStateType == IMPLICIT {
 			i.log("enqueue %s", msg)
 			i.pending.Add(msg)
+		} else if i.quorumStateType == EXPLICIT {
+			// Ignore message
+			return
 		}
-		return
 	}
 
 	round := i.roundState(msg.Round)
@@ -341,8 +356,13 @@ func (i *instance) isJustified(msg *GMessage) bool {
 			return false
 		}
 		prevRound := i.roundState(msg.Round - 1)
-		return prevRound.prepared.isJustified(msg, msg.Value) ||
-			prevRound.committed.isJustified(msg, ZeroECChain())
+		if msg.Evidence.Step == PREPARE {
+			return prevRound.prepared.IsJustified(msg, msg.Value)
+		} else if msg.Evidence.Step == COMMIT {
+			return prevRound.committed.IsJustified(msg, ECChain{})
+		} else {
+			return false
+		}
 	} else if msg.Step == PREPARE {
 		// PREPARE needs no justification by prior messages.
 		return true // i.quality.AllowsValue(msg.Value)
@@ -350,7 +370,8 @@ func (i *instance) isJustified(msg *GMessage) bool {
 		// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
 		// COMMIT for bottom is always justified.
 		round := i.roundState(msg.Round)
-		return msg.Value.IsZero() || round.prepared.isJustified(msg, msg.Value)
+
+		return msg.Value.IsZero() || round.prepared.IsJustified(msg, msg.Value)
 	}
 	return false
 }
@@ -392,9 +413,31 @@ func (i *instance) beginConverge() {
 	i.phase = CONVERGE
 	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE)
-	aggEvidence, isJustified := i.roundState(i.round-1).committed.Justify(i.proposal, ZeroECChain())
+	aggEvidence, isJustified := i.roundState(i.round - 1).committed.Justify(ECChain{})
 	if !isJustified {
-		aggEvidence, isJustified = i.roundState(i.round-1).prepared.Justify(i.proposal, i.proposal)
+		aggEvidence, isJustified = i.roundState(i.round - 1).prepared.Justify(i.proposal)
+	}
+	if !isJustified && i.quorumStateType == EXPLICIT {
+		preparedStateExplicit, ok := i.roundState(i.round - 1).prepared.(*quorumStateExplicit)
+		if ok {
+			if !i.proposal.IsZero() {
+				aggEvidence, ok = preparedStateExplicit.justifiedMessages[i.proposal.HeadCIDOrZero()]
+
+				if ok {
+					isJustified = true
+				}
+			}
+		} else {
+			committedStateExplicit, ok := i.roundState(i.round - 1).committed.(*quorumStateExplicit)
+			if ok {
+				if !i.proposal.IsZero() {
+					aggEvidence, ok = committedStateExplicit.justifiedMessages[ZeroTipSetID()]
+					if ok {
+						isJustified = true
+					}
+				}
+			}
+		}
 	}
 	if !isJustified {
 		// error, there should be a justification for CONVERGE, otherwise we would not be here now
@@ -469,13 +512,15 @@ func (i *instance) beginCommit() {
 		isJustified bool
 		aggEvidence = ZeroAggEvidence()
 	)
+
 	if !i.value.IsZero() { // if it is zero then justification is not really needed
-		aggEvidence, isJustified = i.roundState(i.round).prepared.Justify(i.value, i.value)
+		aggEvidence, isJustified = i.roundState(i.round).prepared.Justify(i.value)
 		if !isJustified {
 			// error, there should be a justification for a non-bottom COMMIT, otherwise we would not be here now
 			panic(fmt.Sprintf("no justification for COMMIT %v", i.value))
 		}
 	}
+
 	i.broadcast(COMMIT, i.value, nil, aggEvidence)
 }
 
@@ -495,18 +540,22 @@ func (i *instance) tryCommit(round uint32) {
 		// Adopt any non-empty value committed by another participant (there can only be one).
 		// This node has observed the strong quorum of PREPARE messages that justify it,
 		// and mean that some other nodes may decide that value (if they observe more COMMITs).
+
+		// 	committedExplicit := committed.(*quorumStateExplicit)
+
 		for _, v := range committed.ListAllValues() {
 			if !v.IsZero() {
 				if !i.isAcceptable(v) {
 					i.log("⚠️ swaying from %s to %s by COMMIT", &i.input, &v)
+
 				}
 				if !v.Eq(i.proposal) {
 					i.proposal = v
 					i.log("adopting proposal %s after commit", &i.proposal)
+
 				}
 				break
 			}
-
 		}
 		i.beginNextRound()
 	}
@@ -515,7 +564,7 @@ func (i *instance) tryCommit(round uint32) {
 func (i *instance) roundState(r uint32) *roundState {
 	round, ok := i.rounds[r]
 	if !ok {
-		round = newRoundState(i.powerTable, i.quorumStateType)
+		round = newRoundState(i.powerTable, i.quorumStateType, i.host, i.instanceID, r, i.senderIndex)
 		i.rounds[r] = round
 	}
 	return round
@@ -625,8 +674,8 @@ func (v *pendingQueue) getRound(round uint32) map[string][]*GMessage {
 type quorumState interface {
 	Receive(sender ActorID, value ECChain, sig []byte)
 
-	isJustified(msg *GMessage, justification ECChain) bool
-	Justify(value ECChain, justification ECChain) (AggEvidence, bool)
+	IsJustified(msg *GMessage, justification ECChain) bool
+	Justify(justification ECChain) (AggEvidence, bool)
 
 	HasQuorumAgreement(cid TipSetID) bool
 	ListQuorumAgreedValues() []ECChain
@@ -665,24 +714,28 @@ type chainPower struct {
 type quorumStateType int
 
 const (
-	Implicit quorumStateType = iota
-	Explicit
+	IMPLICIT quorumStateType = iota
+	EXPLICIT
 )
 
 // Creates a new, empty quorum state.
-func newQuorumState(quorumStateType quorumStateType, powerTable PowerTable) quorumState {
+func newQuorumState(quorumStateType quorumStateType, powerTable PowerTable, aggregator Aggregator, instanceID uint32, round uint32, step string, senderIndex *SenderIndex) quorumState {
 	switch quorumStateType {
-	case Implicit:
-		return &quorumStateImplicit{
-			received:          map[ActorID]senderSent{},
-			chainPower:        map[TipSetID]chainPower{},
-			sendersTotalPower: 0,
-			powerTable:        powerTable,
-		}
-	case Explicit:
-		panic("quorumStateType not yet considered: Explicit")
+	case IMPLICIT:
+		return newQuorumStateImplicit(powerTable)
+	case EXPLICIT:
+		return newQuorumStateExplicit(powerTable, aggregator, instanceID, round, step, senderIndex) //TODO This is suboptimal (as the senderIndex needs to be recalculated every time unnecessarily. Fix)
 	default:
 		panic(fmt.Sprintf("quorumStateType not considered: %v", quorumStateType))
+	}
+}
+
+func newQuorumStateImplicit(powerTable PowerTable) *quorumStateImplicit {
+	return &quorumStateImplicit{
+		received:          map[ActorID]senderSent{},
+		chainPower:        map[TipSetID]chainPower{},
+		sendersTotalPower: 0,
+		powerTable:        powerTable,
 	}
 }
 
@@ -766,12 +819,188 @@ func (q *quorumStateImplicit) ListQuorumAgreedValues() []ECChain {
 	return withQuorum
 }
 
-func (q *quorumStateImplicit) isJustified(_ *GMessage, value ECChain) bool {
+func (q *quorumStateImplicit) IsJustified(_ *GMessage, value ECChain) bool {
 	return q.HasQuorumAgreement(value.HeadCIDOrZero())
 }
 
-func (q *quorumStateImplicit) Justify(_ ECChain, _ ECChain) (AggEvidence, bool) {
-	return AggEvidence{}, true // Implicit justification
+func (q *quorumStateImplicit) Justify(_ ECChain) (AggEvidence, bool) {
+	return AggEvidence{}, true // IMPLICIT justification
+}
+
+type chainSupport struct {
+	chainPower   chainPower
+	aggSignature []byte
+	signers      *bitfield.BitField
+}
+
+type quorumStateExplicit struct {
+	// Aggregator for BLS signatures.
+	aggregator Aggregator
+	// Whether a message has been received from each sender.
+	received map[ActorID]struct{}
+	// The power supporting each chain so far.
+	chainSupport map[TipSetID]chainSupport
+	// Total power of all distinct senders from which some chain has been received so far.
+	sendersTotalPower uint
+	// justifiedMessages stores the received evidences for each message, indexed by the message's head CID.
+	justifiedMessages map[TipSetID]AggEvidence
+	// Table of senders' power.
+	powerTable PowerTable
+	instanceID uint32
+	round      uint32
+	step       string
+
+	senderIndex *SenderIndex
+}
+
+func newQuorumStateExplicit(powerTable PowerTable, aggregator Aggregator, instanceID uint32, round uint32, step string, senderIndex *SenderIndex) *quorumStateExplicit {
+	return &quorumStateExplicit{
+		aggregator:        aggregator,
+		received:          map[ActorID]struct{}{},
+		chainSupport:      map[TipSetID]chainSupport{},
+		sendersTotalPower: 0,
+		justifiedMessages: map[TipSetID]AggEvidence{},
+		powerTable:        powerTable,
+		instanceID:        instanceID,
+		round:             round,
+		step:              step,
+		senderIndex:       senderIndex,
+	}
+}
+
+// Receives a new chain from a sender.
+func (q *quorumStateExplicit) Receive(sender ActorID, value ECChain, signature []byte) {
+	head := value.HeadCIDOrZero()
+	if _, ok := q.received[sender]; !ok {
+		// Add sender's power to total the first time a value is received from them.
+		senderPower := q.powerTable.Entries[sender]
+		q.sendersTotalPower += senderPower
+		q.received[sender] = struct{}{}
+	}
+
+	candidate := chainSupport{
+		chainPower: chainPower{
+			chain:     value,
+			power:     0,
+			hasQuorum: false,
+		},
+		aggSignature: []byte{},
+		signers: func() *bitfield.BitField {
+			bf := bitfield.New()
+			return &bf
+		}(),
+	}
+
+	found, ok := q.chainSupport[head]
+	if !ok {
+
+		found = candidate
+	} else {
+
+		// Don't double-count the same chain head for a single participant.
+		isSet, err := found.signers.IsSet(q.senderIndex.Actor2Index[sender])
+		if err != nil {
+			panic(err)
+		}
+		if isSet {
+			return
+		}
+	}
+
+	candidate.chainPower.power = found.chainPower.power + q.powerTable.Entries[sender]
+
+	candidate.aggSignature, candidate.signers = q.aggregator.Aggregate(signature, sender, found.aggSignature, found.signers, q.senderIndex.Actor2Index)
+
+	threshold := q.powerTable.Total * 2 / 3
+	if candidate.chainPower.power > threshold {
+		candidate.chainPower.hasQuorum = true
+	}
+	q.chainSupport[head] = candidate
+}
+
+// IsJustified checks whether a message is justified by the aggregated signature contained in its Evidence field.
+func (q *quorumStateExplicit) IsJustified(msg *GMessage, value ECChain) bool {
+
+	if msg.Evidence.isZero() {
+		return false
+	}
+
+	if msg.Evidence.Step != q.step || msg.Evidence.Instance != q.instanceID || msg.Evidence.Round != q.round {
+		return false // this quorumState should not be verifying this msg
+	}
+
+	// Verify aggregated signature
+	if !q.aggregator.VerifyAggregate(SignaturePayload(q.instanceID, q.round, q.step, value), msg.Evidence.Signature, &msg.Evidence.Signers, q.senderIndex.Actor2Index) {
+		return false
+	}
+
+	// Verify strong quorum
+	totalPower := uint(0)
+
+	for i, j, count := uint64(0), 0, func() uint64 {
+		c, err := msg.Evidence.Signers.Count() // Error ignored
+		if err != nil {
+			panic(err)
+		}
+		return c
+	}(); i < count || j < len(q.senderIndex.index2Actor); {
+		isSet, err := msg.Evidence.Signers.IsSet(uint64(j))
+
+		if err != nil {
+			panic(err)
+		}
+
+		if isSet {
+			totalPower += q.powerTable.Entries[q.senderIndex.index2Actor[j]]
+			if totalPower > q.powerTable.Total*2/3 {
+
+				q.justifiedMessages[value.HeadCIDOrZero()] = msg.Evidence
+
+				return true
+			}
+			i++
+		}
+
+		j++
+	}
+
+	return false
+}
+
+// Justify returns the aggregated signature that justifies the given value, if it exists.
+func (q *quorumStateExplicit) Justify(justification ECChain) (AggEvidence, bool) {
+	head := justification.HeadCIDOrZero()
+
+	if !q.chainSupport[head].chainPower.hasQuorum {
+		return AggEvidence{}, false
+	}
+
+	signers, err := q.chainSupport[head].signers.Copy()
+	if err != nil {
+		panic(err)
+	}
+	//copy aggSignature
+	aggSignature := make([]byte, len(q.chainSupport[head].aggSignature))
+	copy(aggSignature, q.chainSupport[head].aggSignature)
+	aggEvidence := AggEvidence{
+		Step:      q.step,
+		Value:     justification,
+		Instance:  q.instanceID,
+		Round:     q.round,
+		Signers:   signers,
+		Signature: aggSignature,
+	}
+	return aggEvidence, true
+}
+
+// Lists all values that have been received from any sender.
+// The order of returned values is not defined.
+func (q *quorumStateExplicit) ListAllValues() []ECChain {
+	var chains []ECChain
+	for _, cp := range q.chainSupport {
+		chains = append(chains, cp.chainPower.chain)
+	}
+	return chains
 }
 
 //// CONVERGE phase helper /////
@@ -788,6 +1017,30 @@ func newConvergeState() *convergeState {
 		values:  map[TipSetID]ECChain{},
 		tickets: map[TipSetID][]Ticket{},
 	}
+}
+
+// Checks whether a chain (head) has reached quorum.
+func (q *quorumStateExplicit) HasQuorumAgreement(cid TipSetID) bool {
+	cp, ok := q.chainSupport[cid]
+	return ok && cp.chainPower.hasQuorum
+}
+
+// Returns a list of the chains which have reached an agreeing quorum.
+// The order of returned values is not defined.
+func (q *quorumStateExplicit) ListQuorumAgreedValues() []ECChain {
+	var withQuorum []ECChain
+	for cid, cp := range q.chainSupport {
+		if cp.chainPower.hasQuorum {
+			withQuorum = append(withQuorum, q.chainSupport[cid].chainPower.chain)
+		}
+	}
+	sortByWeight(withQuorum)
+	return withQuorum
+}
+
+// Checks whether at least one message has been received from a strong quorum of senders.
+func (q *quorumStateExplicit) ReceivedFromQuorum() bool {
+	return q.sendersTotalPower > q.powerTable.Total*2/3
 }
 
 // Receives a new CONVERGE value from a sender.
@@ -812,6 +1065,41 @@ func (c *convergeState) findMinTicketProposal() ECChain {
 		}
 	}
 	return minValue
+}
+
+// SenderIndex maps ActorID to a unique index in the range [0, len(powerTable.Entries)).
+// This is used to index into a BitSet. index2Actor is the reverse mapping.
+type SenderIndex struct {
+	Actor2Index map[ActorID]uint64
+	index2Actor []ActorID
+}
+
+func NewSenderIndex(table PowerTable) *SenderIndex {
+	senderIndex := &SenderIndex{
+		Actor2Index: make(map[ActorID]uint64, len(table.Entries)),
+		index2Actor: make([]ActorID, len(table.Entries)),
+	}
+	keys := make([]ActorID, 0, len(table.Entries))
+
+	// Extract keys from the map
+	for senderID := range table.Entries {
+		keys = append(keys, senderID)
+	}
+
+	// Sort the keys by descending power
+	sort.Slice(keys, func(i, j int) bool {
+		return table.Entries[keys[i]] > table.Entries[keys[j]] || (table.Entries[keys[i]] == table.Entries[keys[j]] && keys[i] < keys[j])
+	})
+	senderIndex.index2Actor = keys
+
+	// Iterate over the sorted keys
+	var i uint64 = 0
+	for _, senderID := range keys {
+		senderIndex.Actor2Index[senderID] = i
+		i++
+	}
+
+	return senderIndex
 }
 
 ///// General helpers /////

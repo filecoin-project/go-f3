@@ -1,6 +1,7 @@
 package adversary
 
 import (
+	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-f3/f3"
 	"github.com/filecoin-project/go-f3/sim"
 )
@@ -14,6 +15,7 @@ type WitholdCommit struct {
 	// The first victim is the target, others are those who need to confirm.
 	victims     []f3.ActorID
 	victimValue f3.ECChain
+	senderIndex *f3.SenderIndex
 }
 
 // A participant that never sends anything.
@@ -27,6 +29,10 @@ func NewWitholdCommit(id f3.ActorID, host sim.AdversaryHost) *WitholdCommit {
 func (w *WitholdCommit) SetVictim(victims []f3.ActorID, victimValue f3.ECChain) {
 	w.victims = victims
 	w.victimValue = victimValue
+}
+
+func (w *WitholdCommit) SetSenderIndex(powerTable f3.PowerTable) {
+	w.senderIndex = f3.NewSenderIndex(powerTable)
 }
 
 func (w *WitholdCommit) ID() f3.ActorID {
@@ -64,14 +70,36 @@ func (w *WitholdCommit) Begin() {
 		Value:     w.victimValue,
 		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.PREPARE, w.victimValue)),
 	})
-	w.host.BroadcastSynchronous(w.id, f3.GMessage{
+
+	message := f3.GMessage{
 		Sender:    w.id,
 		Instance:  0,
 		Round:     0,
 		Step:      f3.COMMIT,
 		Value:     w.victimValue,
 		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.COMMIT, w.victimValue)),
-	})
+	}
+	payload := f3.SignaturePayload(0, 0, f3.PREPARE, w.victimValue)
+	aggEvidence := f3.AggEvidence{
+		Step:      f3.PREPARE,
+		Value:     w.victimValue,
+		Instance:  0,
+		Round:     0,
+		Signers:   bitfield.New(),
+		Signature: nil,
+	}
+	for _, actorID := range w.victims {
+		signature := w.host.Sign(actorID, payload)
+		aggSignature, signers := w.host.Aggregate(signature, actorID, aggEvidence.Signature, &aggEvidence.Signers, w.senderIndex.Actor2Index)
+		aggEvidence.Signature = aggSignature
+		aggEvidence.Signers = *signers
+	}
+	signature := w.host.Sign(w.id, payload)
+	aggSignature, signers := w.host.Aggregate(signature, w.id, aggEvidence.Signature, &aggEvidence.Signers, w.senderIndex.Actor2Index)
+	aggEvidence.Signature = aggSignature
+	aggEvidence.Signers = *signers
+	message.Evidence = aggEvidence
+	w.host.BroadcastSynchronous(w.id, message)
 }
 
 func (w *WitholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Message) bool {

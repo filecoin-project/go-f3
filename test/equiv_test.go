@@ -28,7 +28,7 @@ func TestWitholdCommit1(t *testing.T) {
 	// The B side must be swayed to the A side by observing that some nodes on the A side reached a COMMIT.
 	victims := []f3.ActorID{0, 1, 2, 3}
 	adv.SetVictim(victims, a)
-
+	adv.SetSenderIndex(sm.PowerTable)
 	adv.Begin()
 	sm.ReceiveChains(sim.ChainCount{Count: 4, Chain: a}, sim.ChainCount{Count: 3, Chain: b})
 	ok := sm.Run(MAX_ROUNDS)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-f3/f3"
 	"io"
 	"sort"
@@ -136,58 +137,105 @@ func (n *Network) Verify(sender f3.ActorID, msg, sig []byte) bool {
 	return true
 }
 
-func (n *Network) Aggregate(msg, sig []byte, aggSignature []byte) []byte {
+func (n *Network) Aggregate(sig []byte, actorID f3.ActorID, aggSignature []byte, signers *bitfield.BitField, actor2Index map[f3.ActorID]uint64) ([]byte, *bitfield.BitField) {
 	// Fake implementation.
 	// Just appends signature to aggregate signature.
-	// This fake aggregation is not commutative (order matters), unlike the real one.
-	return append(aggSignature, sig...)
-}
+	// This fake aggregation is not commutative (order matters)
+	// But determinism is preserved by sorting by weight
+	// (That contains the sender ID in the signature)
+	if _, ok := actor2Index[actorID]; !ok {
+		panic("actorID not part of power table")
+	}
 
-func (n *Network) VerifyAggregate(msg, aggSig []byte, signers []byte) bool {
-	// Fake implementation.
-	buf := bytes.NewReader(aggSig)
-	verifiedSigners := make([]byte, len(signers))
-
+	// Extract existing signatures along with their actorIDs
+	signatures := [][]byte{}
+	buf := bytes.NewReader(aggSignature)
+	existingSigLen := len(sig)
 	for {
-		// Read the sender ID from the aggregate signature.
-		var senderID uint64
-		err := binary.Read(buf, binary.BigEndian, &senderID)
-		if err != nil {
+		// The length of each existing signature (minus 8 bytes for the actorID)
+		existingSig := make([]byte, existingSigLen)
+		if _, err := io.ReadFull(buf, existingSig); err != nil {
 			if err == io.EOF {
 				break // End of the aggregate signature.
+			} else if err != nil {
+				panic(err) // Error in reading the signature.
 			}
+		}
+		signatures = append(signatures, existingSig)
+	}
+	signatures = append(signatures, sig) // Append the new signature
+
+	// Sort the signatures based on descending order of actorID's index
+	sort.Slice(signatures, func(i, j int) bool {
+		actorIDI := binary.BigEndian.Uint64(signatures[i][:8])
+		actorIDJ := binary.BigEndian.Uint64(signatures[j][:8])
+		return actor2Index[f3.ActorID(actorIDI)] > actor2Index[f3.ActorID(actorIDJ)]
+	})
+
+	// Reconstruct the aggregated signature in sorted order
+	var updatedAggSignature []byte
+	for _, s := range signatures {
+		updatedAggSignature = append(updatedAggSignature, s...)
+	}
+
+	signers.Set(actor2Index[actorID])
+
+	return updatedAggSignature, signers
+}
+
+func (n *Network) VerifyAggregate(msg, aggSig []byte, signers *bitfield.BitField, actor2Index map[f3.ActorID]uint64) bool {
+	aggBuf := bytes.NewReader(aggSig)
+
+	verifiedSigners := bitfield.New()
+	// Calculate the expected length of each individual signature
+	signatureLength := 8 + len(msg) // 8 bytes for sender ID + length of message
+
+	lastActorIndex := uint64(len(actor2Index))
+	for {
+		// Read the signature corresponding to this sender ID.
+		signature := make([]byte, signatureLength)
+		if _, err := io.ReadFull(aggBuf, signature); err != nil {
+			if err == io.EOF {
+				break // End of the aggregate signature.
+			} else if err != nil {
+				return false // Error in reading the signature.
+			}
+		}
+
+		buf := bytes.NewReader(signature)
+
+		var senderID uint64
+		err := binary.Read(buf, binary.BigEndian, &senderID)
+		if err == io.EOF {
+			break // End of the aggregate signature.
+		} else if err != nil {
 			return false // Error in reading sender ID.
 		}
 
-		// Check if the sender is in the signers bitset.
-		if senderID >= uint64(len(signers)) || signers[senderID] == 0 {
-			return false // SenderID is not part of the signers.
-			//TODO Abstract away the workings of the Signers bitset
+		actorID := f3.ActorID(senderID)
+		currentActorIndex, ok := actor2Index[actorID]
+		if !ok || currentActorIndex >= lastActorIndex {
+			return false // ActorID index is not in the correct descending order.
 		}
-
-		// Mark this sender as verified.
-		verifiedSigners[senderID] = 1
-
-		// Read the signature corresponding to this sender ID.
-		signature := make([]byte, len(msg))
-		if _, err := io.ReadFull(buf, signature); err != nil {
-			return false // Error in reading the signature.
-		}
+		lastActorIndex = currentActorIndex
 
 		// Verify the signature.
-		if !n.Verify(f3.ActorID(senderID), msg, append(binary.BigEndian.AppendUint64(nil, senderID), signature...)) {
+		if !n.Verify(actorID, msg, signature) {
 			return false // Signature verification failed.
 		}
+		verifiedSigners.Set(currentActorIndex)
 	}
 
 	// Ensure all signers in the bitset are accounted for.
-	for i, val := range signers {
-		if val != verifiedSigners[i] {
-			return false // A signer in the bitset was not verified in the signatures.
-		}
+	verifiedCount, err := verifiedSigners.Count()
+	if err != nil {
+		panic(err)
 	}
-
-	return true
+	signersCount, err := signers.Count()
+	if err != nil {
+		panic(err)
+	}
+	return verifiedCount == signersCount
 }
 
 func (n *Network) Log(format string, args ...interface{}) {
