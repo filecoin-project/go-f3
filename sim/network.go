@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/filecoin-project/go-f3/f3"
+	"io"
 	"sort"
 	"strings"
 )
@@ -133,6 +134,62 @@ func (n *Network) Verify(sender f3.ActorID, msg, sig []byte) bool {
 		return false
 	}
 	return true
+}
+
+func (n *Network) Aggregate(sig []byte, actorID f3.ActorID, aggSignature []byte, signers *f3.BitSet, actor2Index map[f3.ActorID]uint64) ([]byte, *f3.BitSet) {
+	// Fake implementation.
+	// Just appends signature to aggregate signature.
+	// This fake aggregation is not commutative (order matters), unlike the real one.
+	if signers.Size() < actor2Index[actorID] {
+		//TODO failure (return false or panic?)
+		panic("signers size is less than actor2Index")
+	}
+
+	signers.Set(actor2Index[actorID])
+
+	return append(aggSignature, sig...), signers
+}
+
+func (n *Network) VerifyAggregate(msg, aggSig []byte, signers *f3.BitSet, actor2Index map[f3.ActorID]uint64) bool {
+	// Fake implementation.
+	buf := bytes.NewReader(aggSig)
+	verifiedSigners := f3.NewBitSet(signers.Size())
+
+	for {
+		// Read the sender ID from the aggregate signature.
+		var senderID uint64
+		err := binary.Read(buf, binary.BigEndian, &senderID)
+		if err != nil {
+			if err == io.EOF {
+				break // End of the aggregate signature.
+			}
+			return false // Error in reading sender ID.
+		}
+
+		actorID := f3.ActorID(senderID)
+		// Check if the sender is in the signers bitset.
+		if !signers.IsSet(actor2Index[actorID]) {
+			return false // SenderID is not part of the signers.
+			//TODO Abstract away the workings of the Signers bitset
+		}
+
+		// Mark this sender as verified.
+		verifiedSigners.Set(actor2Index[actorID])
+
+		// Read the signature corresponding to this sender ID.
+		signature := make([]byte, len(msg))
+		if _, err := io.ReadFull(buf, signature); err != nil {
+			return false // Error in reading the signature.
+		}
+
+		// Verify the signature.
+		if !n.Verify(actorID, msg, append(binary.BigEndian.AppendUint64(nil, senderID), signature...)) {
+			return false // Signature verification failed.
+		}
+	}
+
+	// Ensure all signers in the bitset are accounted for.
+	return verifiedSigners.HammingWeight() != signers.HammingWeight()
 }
 
 func (n *Network) Log(format string, args ...interface{}) {

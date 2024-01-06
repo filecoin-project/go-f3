@@ -51,11 +51,19 @@ type Signer interface {
 	Verify(sender ActorID, msg, sig []byte) bool
 }
 
+type Aggregator interface {
+	// Aggregates signatures from a participant to an existing signature.
+	Aggregate(sig []byte, senderID ActorID, aggSignature []byte, signers *BitSet, actor2Index map[ActorID]uint64) ([]byte, *BitSet)
+	// VerifyAggregate verifies an aggregate signature.
+	VerifyAggregate(msg, aggSig []byte, signers *BitSet, actor2Index map[ActorID]uint64) bool
+}
+
 // Participant interface to the host system resources.
 type Host interface {
 	Network
 	Clock
 	Signer
+	Aggregator
 
 	// Logs a message at the "logic" level
 	Log(format string, args ...interface{})
