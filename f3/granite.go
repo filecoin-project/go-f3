@@ -264,7 +264,7 @@ func (i *instance) receiveOne(msg *GMessage) {
 	// Every COMMIT phase stays open to new messages even after the protocol moves on to
 	// a new round. Late-arriving COMMITS can still (must) cause a local decision, *in that round*.
 	// DECIDE messages are also independent of current phase or round.
-	if msg.Step == COMMIT {
+	if msg.Step == COMMIT && i.phase != DECIDE {
 		i.tryCommit(msg.Round)
 	} else if msg.Step == DECIDE {
 		i.tryDecide(msg.Value)
