@@ -223,6 +223,10 @@ func (i *instance) tryPendingMessages() {
 
 // Processes a single message.
 func (i *instance) receiveOne(msg *GMessage) {
+	if i.phase == TERMINATED {
+		return // No-op
+	}
+
 	// Drop any messages that can never be valid.
 	if !i.isValid(msg) {
 		i.log("dropping invalid %s", msg)
@@ -256,11 +260,6 @@ func (i *instance) receiveOne(msg *GMessage) {
 		i.log("unexpected message %v", msg)
 	}
 
-	// Bracha amplification for DECIDE phase (instead of justifying DECIDE messages)
-	if msg.Step == DECIDE {
-		i.maybeAmplify(msg.Value)
-	}
-
 	// Try to complete the current phase.
 	// Every COMMIT phase stays open to new messages even after the protocol moves on to
 	// a new round. Late-arriving COMMITS can still (must) cause a local decision, *in that round*.
@@ -275,8 +274,6 @@ func (i *instance) receiveOne(msg *GMessage) {
 func (i *instance) tryCompletePhase() {
 	i.log("try step %s", i.phase)
 	switch i.phase {
-	case TERMINATED:
-		return // No-op
 	case QUALITY:
 		i.tryQuality()
 	case CONVERGE:
@@ -287,6 +284,8 @@ func (i *instance) tryCompletePhase() {
 		i.tryCommit(i.round)
 	case DECIDE:
 		i.tryDecide()
+	case TERMINATED:
+		return // No-op
 	default:
 		panic(fmt.Sprintf("unexpected phase %s", i.phase))
 	}
@@ -451,7 +450,7 @@ func (i *instance) tryCommit(round uint32) {
 	foundQuorum := committed.ListStrongQuorumAgreedValues()
 	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
-	if len(foundQuorum) > 0 && !foundQuorum[0].IsZero() && i.phase != DECIDE && i.phase != TERMINATED {
+	if len(foundQuorum) > 0 && !foundQuorum[0].IsZero() {
 		// A participant may be forced to decide a value that's not its preferred chain.
 		// The participant isn't influencing that decision against their interest, just accepting it.
 		i.value = foundQuorum[0]
@@ -474,20 +473,6 @@ func (i *instance) tryCommit(round uint32) {
 
 		}
 		i.beginNextRound()
-	}
-}
-
-// maybeAmplify implements Bracha amplification:
-// If a weak quorum of DECIDE messages has been received, at least one correct participant must have sent one
-// (and there exists a proof of it, albeit not necessarily locally present).
-// That means that this value must be terminated by every correct participant.
-// Broadcasting a DECIDE message is necessary for liveness if the broadcast primitive is only best-effort broadcast.
-// If broadcast() implemented reliable broadcast, this step would not be necessary.
-func (i *instance) maybeAmplify(value ECChain) {
-	weakQuorum := i.decision.HasWeakQuorumAgreement(value.HeadCIDOrZero())
-	if weakQuorum && i.phase != DECIDE && i.phase != TERMINATED {
-		i.value = value
-		i.beginDecide()
 	}
 }
 
