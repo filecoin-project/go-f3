@@ -452,7 +452,7 @@ func (i *instance) tryCommit(round uint32) {
 	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
 	if len(foundQuorum) > 0 && !foundQuorum[0].IsZero() && i.phase != DECIDE && i.phase != TERMINATED {
-		// A participant may be forced to terminate a value that's not its preferred chain.
+		// A participant may be forced to decide a value that's not its preferred chain.
 		// The participant isn't influencing that decision against their interest, just accepting it.
 		i.value = foundQuorum[0]
 		i.beginDecide()
