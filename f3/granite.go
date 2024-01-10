@@ -459,7 +459,7 @@ func (i *instance) tryCommit(round uint32) {
 	} else if i.round == round && i.phase == COMMIT && timeoutExpired && committed.ReceivedFromStrongQuorum() {
 		// Adopt any non-empty value committed by another participant (there can only be one).
 		// This node has observed the strong quorum of PREPARE messages that justify it,
-		// and mean that some other nodes may terminate that value (if they observe more COMMITs).
+		// and mean that some other nodes may decide that value (if they observe more COMMITs).
 		for _, v := range committed.ListAllValues() {
 			if !v.IsZero() {
 				if !i.isAcceptable(v) {
