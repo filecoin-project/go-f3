@@ -446,7 +446,7 @@ func (i *instance) beginCommit() {
 func (i *instance) tryCommit(round uint32) {
 	// Unlike all other phases, the COMMIT phase stays open to new messages even after an initial quorum is reached,
 	// and the algorithm moves on to the next round.
-	// A subsequent COMMIT message can cause the node to terminate, so there is no check on the current phase.
+	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
 	committed := i.roundState(round).committed
 	foundQuorum := committed.ListStrongQuorumAgreedValues()
 	timeoutExpired := i.host.Time() >= i.phaseTimeout
