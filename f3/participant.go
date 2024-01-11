@@ -14,9 +14,9 @@ type Participant struct {
 	nextInstance uint32
 	// Current Granite instance.
 	granite *instance
-	// The output from the last decided Granite instance.
+	// The output from the last terminated Granite instance.
 	finalised TipSet
-	// The round number at which the last instance was decided.
+	// The round number at which the last instance was terminated.
 	finalisedRound uint32
 }
 
@@ -82,15 +82,15 @@ func (p *Participant) ReceiveAlarm(payload string) {
 }
 
 func (p *Participant) handleDecision() {
-	if p.decided() {
+	if p.terminated() {
 		p.finalised = *p.granite.value.Head()
 		p.finalisedRound = p.granite.round
 		p.granite = nil
 	}
 }
 
-func (p *Participant) decided() bool {
-	return p.granite != nil && p.granite.phase == DECIDE
+func (p *Participant) terminated() bool {
+	return p.granite != nil && p.granite.phase == TERMINATED
 }
 
 func (p *Participant) Describe() string {
