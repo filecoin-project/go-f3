@@ -366,7 +366,7 @@ func (i *instance) beginQuality() {
 	// Broadcast input value and wait up to Δ to receive from others.
 	i.phase = QUALITY
 	i.phaseTimeout = i.alarmAfterSynchrony(QUALITY)
-	i.broadcast(i.round, QUALITY, i.input, nil)
+	i.broadcast(i.round, QUALITY, i.input, nil, AggEvidence{})
 }
 
 // Attempts to end the QUALITY phase and begin PREPARE based on current state.
@@ -398,7 +398,7 @@ func (i *instance) beginConverge() {
 	i.phase = CONVERGE
 	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE)
-	i.broadcast(i.round, CONVERGE, i.proposal, ticket)
+	i.broadcast(i.round, CONVERGE, i.proposal, ticket, AggEvidence{})
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
@@ -434,7 +434,7 @@ func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
-	i.broadcast(i.round, PREPARE, i.value, nil)
+	i.broadcast(i.round, PREPARE, i.value, nil, AggEvidence{})
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -463,7 +463,7 @@ func (i *instance) tryPrepare() {
 func (i *instance) beginCommit() {
 	i.phase = COMMIT
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
-	i.broadcast(i.round, COMMIT, i.value, nil)
+	i.broadcast(i.round, COMMIT, i.value, nil, AggEvidence{})
 }
 
 func (i *instance) tryCommit(round uint32) {
@@ -502,7 +502,7 @@ func (i *instance) tryCommit(round uint32) {
 
 func (i *instance) beginDecide() {
 	i.phase = DECIDE
-	i.broadcast(0, DECIDE, i.value, nil)
+	i.broadcast(0, DECIDE, i.value, nil, AggEvidence{})
 }
 
 func (i *instance) tryDecide() {
@@ -545,10 +545,10 @@ func (i *instance) terminated() bool {
 	return i.phase == TERMINATED
 }
 
-func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ticket) *GMessage {
+func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ticket, evidence AggEvidence) *GMessage {
 	payload := SignaturePayload(i.instanceID, round, step, value)
 	signature := i.host.Sign(i.participantID, payload)
-	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature}
+	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature, evidence}
 	i.host.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
 	return gmsg
