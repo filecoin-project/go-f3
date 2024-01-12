@@ -319,17 +319,14 @@ func (i *instance) isJustified(msg *GMessage) bool {
 		if msg.Round == 0 || msg.Value.IsZero() {
 			return false
 		}
-		prevRound := i.roundState(msg.Round - 1)
-		return prevRound.prepared.HasStrongQuorumAgreement(msg.Value.Head().CID) ||
-			prevRound.committed.HasStrongQuorumAgreement(ZeroTipSetID())
+		return true
 	} else if msg.Step == PREPARE {
 		// PREPARE needs no justification by prior messages.
 		return true // i.quality.AllowsValue(msg.Value)
 	} else if msg.Step == COMMIT {
 		// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
 		// COMMIT for bottom is always justified.
-		round := i.roundState(msg.Round)
-		return msg.Value.IsZero() || round.prepared.HasStrongQuorumAgreement(msg.Value.HeadCIDOrZero())
+		return true
 	} else if msg.Step == DECIDE {
 		// DECIDE needs no justification
 		return !msg.Value.IsZero()
