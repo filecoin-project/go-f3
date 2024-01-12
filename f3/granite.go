@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/filecoin-project/go-bitfield"
 	"sort"
 )
 
@@ -71,8 +72,37 @@ type GMessage struct {
 	Signature []byte
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	// Justification for this message (some messages must be justified by a strong quorum of messages from some previous step).
 	Justification Justification
+=======
+
+	Evidence AggEvidence
+}
+
+// Aggregated list of GossiPBFT messages with the same instance, round and value. Used as evidence for justification of messages
+type AggEvidence struct {
+	Instance uint32
+
+	Round uint32
+
+	Step string
+
+	Value ECChain
+
+	// Indexes in the base power table of the signers (bitset)
+	Signers bitfield.BitField
+	// BLS aggregate signature of signers
+	Signature []byte
+}
+
+func (a AggEvidence) isZero() bool {
+	signersCount, err := a.Signers.Count()
+	if err != nil {
+		panic(err)
+	}
+	return a.Step == "" && a.Value.IsZero() && a.Instance == 0 && a.Round == 0 && signersCount == 0 && len(a.Signature) == 0
+>>>>>>> bcf86d8 (Add AggEvidence type)
 }
 
 type Justification struct {
