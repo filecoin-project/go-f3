@@ -119,6 +119,7 @@ type AggEvidence struct {
 =======
 }
 
+<<<<<<< HEAD
 func (a AggEvidence) isZero() bool {
 	signersCount, err := a.Signers.Count()
 	if err != nil {
@@ -128,6 +129,8 @@ func (a AggEvidence) isZero() bool {
 >>>>>>> f3066c4 (Add AggEvidence type)
 }
 
+=======
+>>>>>>> 07d5e3b (Make lint happy)
 func (m GMessage) String() string {
 	// FIXME This needs value receiver to work, for reasons I cannot figure out.
 	return fmt.Sprintf("%s{%d}(%d %s)", m.Current.Step, m.Current.Instance, m.Current.Round, &m.Current.Value)
