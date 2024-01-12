@@ -114,8 +114,6 @@ type instance struct {
 	value ECChain
 	// Queue of messages to be synchronously processed before returning from top-level call.
 	inbox []*GMessage
-	// Messages received earlier but not yet justified.
-	pending *pendingQueue
 	// Quality phase state (only for round 0)
 	quality *quorumState
 	// State for each round of phases.
@@ -152,7 +150,6 @@ func newInstance(
 		phase:         "",
 		proposal:      input,
 		value:         ECChain{},
-		pending:       newPendingQueue(),
 		quality:       newQuorumState(powerTable),
 		rounds: map[uint32]*roundState{
 			0: newRoundState(powerTable),
@@ -204,7 +201,6 @@ func (i *instance) ReceiveAlarm(_ string) {
 
 	// A phase may have been successfully completed.
 	// Re-process any queued messages for the next phase.
-	i.tryPendingMessages()
 	i.drainInbox()
 }
 
@@ -223,21 +219,7 @@ func (i *instance) drainInbox() {
 		// as a signal that this loop is currently draining the inbox.
 		i.receiveOne(i.inbox[0])
 		i.inbox = i.inbox[1:]
-
-		// Retry pending messages that might now be valid for the now-current phase.
-		// It's important that this be done after every message, else the phase might be
-		// advanced twice in a row, and pending messages for the skipped phase would be stranded.
-		i.tryPendingMessages()
 	}
-}
-
-// Pops any now-valid messages for the current round/phase and enqueue for receiving them again.
-func (i *instance) tryPendingMessages() {
-	replay := i.pending.PopWhere(i.round, i.phase, i.isJustified)
-	if len(replay) > 0 {
-		i.log("replay: %s", replay)
-	}
-	i.inbox = append(i.inbox, replay...)
 }
 
 // Processes a single message.
@@ -252,10 +234,10 @@ func (i *instance) receiveOne(msg *GMessage) {
 		return
 	}
 
-	// Hold as pending any message with a value not yet justified by the prior phase.
 	if !i.isJustified(msg) {
-		i.log("enqueue %s", msg)
-		i.pending.Add(msg)
+		// No implicit justification:
+		// if message not justified explicitly, then it will not be justified
+		i.log("dropping unjustified %s", msg)
 		return
 	}
 
@@ -559,58 +541,6 @@ func (i *instance) log(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	i.host.Log("P%d{%d}: %s (round %d, step %s, proposal %s, value %s)", i.participantID, i.instanceID, msg,
 		i.round, i.phase, &i.proposal, &i.value)
-}
-
-///// Message validation/justification helpers /////
-
-// Holds a collection messages received but not yet justified.
-type pendingQueue struct {
-	// Map by round and phase to list of messages.
-	rounds map[uint32]map[string][]*GMessage
-}
-
-func newPendingQueue() *pendingQueue {
-	return &pendingQueue{
-		rounds: map[uint32]map[string][]*GMessage{},
-	}
-}
-
-// Queues a message for future re-validation.
-func (v *pendingQueue) Add(msg *GMessage) {
-	rv := v.getRound(msg.Round)
-	rv[msg.Step] = append(rv[msg.Step], msg)
-}
-
-// Dequeues all messages from some round and phase matching a predicate.
-func (v *pendingQueue) PopWhere(round uint32, phase string, pred func(msg *GMessage) bool) []*GMessage {
-	var found []*GMessage
-	queue := v.getRound(round)[phase]
-	// Remove all entries matching predicate, in-place.
-	n := 0
-	for _, msg := range queue {
-		if pred(msg) {
-			found = append(found, msg)
-		} else {
-			queue[n] = msg
-			n += 1
-		}
-	}
-	v.rounds[round][phase] = queue[:n]
-	return found
-}
-
-func (v *pendingQueue) getRound(round uint32) map[string][]*GMessage {
-	var rv map[string][]*GMessage
-	rv, ok := v.rounds[round]
-	if !ok {
-		rv = map[string][]*GMessage{
-			CONVERGE: nil,
-			PREPARE:  nil,
-			COMMIT:   nil,
-		}
-		v.rounds[round] = rv
-	}
-	return rv
 }
 
 ///// Incremental quorum-calculation helper /////
