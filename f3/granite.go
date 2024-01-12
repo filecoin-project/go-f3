@@ -70,6 +70,7 @@ type GMessage struct {
 	Ticket Ticket
 	// Signature by the sender's public key over Instance || Round || Step || Value.
 	Signature []byte
+<<<<<<< HEAD
 	// Justification for this message (some messages must be justified by a strong quorum of messages from some previous step).
 	Justification Justification
 }
@@ -94,10 +95,37 @@ type SignedMessage struct {
 
 // Aggregated list of GossiPBFT messages with the same instance, round and value. Used as evidence for justification of messages
 type QuorumSignature struct {
+=======
+
+	Evidence AggEvidence
+}
+
+// Aggregated list of GossiPBFT messages with the same instance, round and value. Used as evidence for justification of messages
+type AggEvidence struct {
+	Instance uint32
+
+	Round uint32
+
+	Step string
+
+	Value ECChain
+
+>>>>>>> f3066c4 (Add AggEvidence type)
 	// Indexes in the base power table of the signers (bitset)
 	Signers bitfield.BitField
 	// BLS aggregate signature of signers
 	Signature []byte
+<<<<<<< HEAD
+=======
+}
+
+func (a AggEvidence) isZero() bool {
+	signersCount, err := a.Signers.Count()
+	if err != nil {
+		panic(err)
+	}
+	return a.Step == "" && a.Value.IsZero() && a.Instance == 0 && a.Round == 0 && signersCount == 0 && len(a.Signature) == 0
+>>>>>>> f3066c4 (Add AggEvidence type)
 }
 
 func (m GMessage) String() string {
