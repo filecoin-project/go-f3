@@ -97,14 +97,6 @@ type AggEvidence struct {
 	Signature []byte
 }
 
-func (a AggEvidence) isZero() bool {
-	signersCount, err := a.Signers.Count()
-	if err != nil {
-		panic(err)
-	}
-	return a.Step == "" && a.Value.IsZero() && a.Instance == 0 && a.Round == 0 && signersCount == 0 && len(a.Signature) == 0
-}
-
 func (m GMessage) String() string {
 	// FIXME This needs value receiver to work, for reasons I cannot figure out.
 	return fmt.Sprintf("%s{%d}(%d %s)", m.Step, m.Instance, m.Round, &m.Value)
