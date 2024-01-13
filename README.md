@@ -1,15 +1,19 @@
 # Go implementation of Fast Finality for Filecoin
 
-This repository contains a Go implementation of the Filecoin finality module, F3.
-This executes an iterative GossiPBFT consensus protocol to declare tipsets as final 
-when voted for by >2/3  of the consensus power.
+This repository contains a Go implementation of the [Filecoin finality module,
+F3](https://github.com/filecoin-project/FIPs/blob/f3564189d11817328168c9e75a80ff5f7292ba13/FIPS/fip-xxxx.md)
+(WIP). 
+
+This executes an iterative GossiPBFT consensus protocol to declare tipsets as
+final when voted for by >2/3 of the consensus power.
 
 ## Status
 
 Work in progress.
 
-This implementation began as a simulation during the protocol design phase.
-It is currently being transformed into production code, while maintaining and expanding the simulator.
+This implementation began as a simulation during the protocol design phase. It
+is currently being transformed into production code, while maintaining and
+expanding the simulator.
 
 ## Usage
 
@@ -19,7 +23,8 @@ Run the unit tests to exercise the GossipPBFT protocol.
 $ go test ./...
 ```
 
-There is also a main entry point to run GossiPBFT instance with honest nodes in simulation.
+There is also a main entry point to run GossiPBFT instance with honest nodes in
+simulation.
 
 ```
 $ go run f3sim.go -help
@@ -45,15 +50,15 @@ Usage of /path/to/f3sim:
 ## Integration
 
 The code does not yet express an API for integration into a Filecoin node.
-Coming soon.
+Coming soon!
 
 ## Structure
 Modules:
 - `f3`: the protocol implementation
-- `net`: the simulated network
 - `sim`: the simulation harness
 - `adversary`: specific adversarial behaviors for use in tests
 - `test`: unit tests which execute the protocol in simulation
 
-
 ## License
+
+Dual-licensed under MIT + Apache 2.0
