@@ -2,7 +2,7 @@
 
 This repository contains a Go implementation of the [Filecoin finality module,
 F3](https://github.com/filecoin-project/FIPs/blob/f3564189d11817328168c9e75a80ff5f7292ba13/FIPS/fip-xxxx.md)
-(temporary link). 
+(WIP). 
 
 This executes an iterative GossiPBFT consensus protocol to declare tipsets as
 final when voted for by >2/3 of the consensus power.
