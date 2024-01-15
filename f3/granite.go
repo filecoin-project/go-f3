@@ -97,14 +97,6 @@ type Justification struct {
 	Signature []byte
 }
 
-func (a Justification) isZero() bool {
-	signersCount, err := a.Signers.Count()
-	if err != nil {
-		panic(err)
-	}
-	return a.Step == "" && a.Value.IsZero() && a.Instance == 0 && a.Round == 0 && signersCount == 0 && len(a.Signature) == 0
-}
-
 func (m GMessage) String() string {
 	// FIXME This needs value receiver to work, for reasons I cannot figure out.
 	return fmt.Sprintf("%s{%d}(%d %s)", m.Step, m.Instance, m.Round, &m.Value)
@@ -416,7 +408,10 @@ func (i *instance) isJustified(msg *GMessage) bool {
 			}
 			signers = append(signers, i.powerTable.Entries[bit].PubKey)
 			return nil
-		})
+		}); err != nil {
+			return false
+			//TODO handle error
+		}
 
 		if !i.host.VerifyAggregate(payload, msg.Justification.Signature, signers) {
 			i.log("dropping CONVERGE %v with invalid evidence signature: %v", msg, msg.Justification)
@@ -430,15 +425,19 @@ func (i *instance) isJustified(msg *GMessage) bool {
 		}
 		payload := SignaturePayload(i.instanceID, msg.Round, PREPARE, msg.Value)
 		signers := make([]PubKey, 0)
-		msg.Justification.Signers.ForEach(func(bit uint64) error {
+		if err := msg.Justification.Signers.ForEach(func(bit uint64) error {
 			if int(bit) >= len(i.powerTable.Entries) {
 				return nil //TODO handle error
 			}
 			signers = append(signers, i.powerTable.Entries[bit].PubKey)
 			return nil
-		})
+		}); err != nil {
+			//TODO handle error
+			return false
+		}
 		if !i.host.VerifyAggregate(payload, msg.Justification.Signature, signers) {
 			i.log("dropping COMMIT %v with invalid evidence signature: %v", msg, msg.Justification)
+
 			return false
 		}
 	}
@@ -488,7 +487,7 @@ func (i *instance) beginConverge() {
 	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE_PHASE.String())
 	prevRoundState := i.roundState(i.round - 1)
-	justification := Justification{}
+	var justification Justification
 	var ok bool
 	if prevRoundState.committed.HasStrongQuorumAgreement(ZeroTipSetID()) {
 		value := ECChain{}
@@ -524,7 +523,7 @@ func (i *instance) beginConverge() {
 			Signature: aggSignature,
 		}
 	} else if justification, ok = prevRoundState.committed.justifiedMessages[i.proposal.Head().CID]; ok {
-		justification = justification
+		//justification already assigned at the if statement
 	} else {
 		panic("beginConverge called but no evidence found")
 	}
@@ -850,7 +849,7 @@ func (q *quorumState) getSigners(value ECChain) bitfield.BitField {
 	}
 
 	// Copy each element from the original map
-	for key, _ := range chainSupport.signers {
+	for key := range chainSupport.signers {
 		signers.Set(uint64(q.powerTable.Lookup[key]))
 	}
 
