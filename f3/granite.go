@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/filecoin-project/go-bitfield"
 	"sort"
 )
 
@@ -73,11 +74,40 @@ type GMessage struct {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	// Justification for this message (some messages must be justified by a strong quorum of messages from some previous step).
 	Justification Justification
 =======
 
 	Evidence AggEvidence
+=======
+
+	Justification Justification
+}
+
+// Aggregated list of GossiPBFT messages with the same instance, round and value. Used as evidence for justification of messages
+type Justification struct {
+	Instance uint32
+
+	Round uint32
+
+	Step string
+
+	Value ECChain
+
+	// Indexes in the base power table of the signers (bitset)
+	Signers bitfield.BitField
+	// BLS aggregate signature of signers
+	Signature []byte
+}
+
+func (a Justification) isZero() bool {
+	signersCount, err := a.Signers.Count()
+	if err != nil {
+		panic(err)
+	}
+	return a.Step == "" && a.Value.IsZero() && a.Instance == 0 && a.Round == 0 && signersCount == 0 && len(a.Signature) == 0
+>>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 }
 
 // Aggregated list of GossiPBFT messages with the same instance, round and value. Used as evidence for justification of messages
@@ -350,7 +380,11 @@ func (i *instance) receiveOne(msg *GMessage) error {
 	if err := i.isJustified(msg); err != nil {
 		// No implicit justification:
 		// if message not justified explicitly, then it will not be justified
+<<<<<<< HEAD
 		i.log("dropping unjustified %s from sender %v, error: %s", msg, msg.Sender, err)
+=======
+		i.log("dropping unjustified %s from sender %v", msg, msg.Sender)
+>>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 		return nil
 	}
 
@@ -362,20 +396,34 @@ func (i *instance) receiveOne(msg *GMessage) error {
 	case QUALITY:
 >>>>>>> 6ee56ae (Ensure signing and verifying modifies no input)
 		// Receive each prefix of the proposal independently.
+<<<<<<< HEAD
 		for j := range msg.Current.Value.Suffix() {
 			prefix := msg.Current.Value.Prefix(j + 1)
+=======
+		for j := range msg.Value.Suffix() {
+			prefix := msg.Value.Prefix(j + 1)
+>>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 			i.quality.Receive(msg.Sender, prefix, msg.Signature, msg.Justification)
 		}
 	case CONVERGE_PHASE:
 		if err := round.converged.Receive(msg.Current.Value, msg.Ticket); err != nil {
 			return fmt.Errorf("failed processing CONVERGE message: %w", err)
 		}
+<<<<<<< HEAD
 	case PREPARE_PHASE:
 		round.prepared.Receive(msg.Sender, msg.Current.Value, msg.Signature, msg.Justification)
 	case COMMIT_PHASE:
 		round.committed.Receive(msg.Sender, msg.Current.Value, msg.Signature, msg.Justification)
 	case DECIDE_PHASE:
 		i.decision.Receive(msg.Sender, msg.Current.Value, msg.Signature, msg.Justification)
+=======
+	case PREPARE:
+		round.prepared.Receive(msg.Sender, msg.Value, msg.Signature, msg.Justification)
+	case COMMIT:
+		round.committed.Receive(msg.Sender, msg.Value, msg.Signature, msg.Justification)
+	case DECIDE:
+		i.decision.Receive(msg.Sender, msg.Value, msg.Signature, msg.Justification)
+>>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 	default:
 		i.log("unexpected message %v", msg)
 	}
@@ -470,6 +518,7 @@ func (i *instance) isValid(msg *GMessage) bool {
 	return true
 }
 
+<<<<<<< HEAD
 func (i *instance) VerifyJustification(justification Justification) error {
 
 	power := NewStoragePower(0)
@@ -570,6 +619,74 @@ func (i *instance) isJustified(msg *GMessage) error {
 	}
 
 	return i.VerifyJustification(msg.Justification)
+=======
+// Checks whether a message is justified.
+func (i *instance) isJustified(msg *GMessage) bool {
+	if msg.Step == CONVERGE {
+		//CONVERGE is justified by a strong quorum of COMMIT for bottom from the previous round.
+		// or a strong quorum of PREPARE for the same value from the previous round.
+		prevRound := msg.Round - 1
+		if msg.Justification.Round != prevRound {
+			i.log("dropping CONVERGE %v with evidence from wrong round %d", msg.Round, msg.Justification.Round)
+			return false
+		}
+
+		if i.instanceID != msg.Justification.Instance {
+			i.log("dropping CONVERGE with instanceID %v with evidence from wrong instanceID: %v", msg.Instance, msg.Justification.Instance)
+			return false
+		}
+
+		if msg.Justification.Step == PREPARE {
+			if msg.Value.HeadCIDOrZero() != msg.Justification.Value.HeadCIDOrZero() {
+				i.log("dropping CONVERGE for value %v with PREPARE evidence for a different value: %v", msg.Value, msg.Justification.Value)
+				return false
+			}
+		} else if msg.Justification.Step == COMMIT {
+			if msg.Justification.Value.HeadCIDOrZero() != ZeroTipSetID() {
+				i.log("dropping CONVERGE with COMMIT evidence for non-zero value: %v", msg.Justification.Value)
+				return false
+			}
+		} else {
+			i.log("dropping CONVERGE with evidence from wrong step %v\n", msg.Justification.Step)
+			return false
+		}
+
+		payload := SignaturePayload(i.instanceID, prevRound, msg.Justification.Step, msg.Justification.Value)
+		signers := make([]PubKey, 0)
+		msg.Justification.Signers.ForEach(func(bit uint64) error {
+			if int(bit) >= len(i.powerTable.Entries) {
+				return nil //TODO handle error
+			}
+			signers = append(signers, i.powerTable.Entries[bit].PubKey)
+			return nil
+		})
+
+		if !i.host.VerifyAggregate(payload, msg.Justification.Signature, signers) {
+			i.log("dropping CONVERGE %v with invalid evidence signature: %v", msg, msg.Justification)
+			return false
+		}
+	} else if msg.Step == COMMIT {
+		// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
+		// COMMIT for bottom is always justified.
+		if msg.Value.IsZero() {
+			return true
+		}
+		payload := SignaturePayload(i.instanceID, msg.Round, PREPARE, msg.Value)
+		signers := make([]PubKey, 0)
+		msg.Justification.Signers.ForEach(func(bit uint64) error {
+			if int(bit) >= len(i.powerTable.Entries) {
+				return nil //TODO handle error
+			}
+			signers = append(signers, i.powerTable.Entries[bit].PubKey)
+			return nil
+		})
+		if !i.host.VerifyAggregate(payload, msg.Justification.Signature, signers) {
+			i.log("dropping COMMIT %v with invalid evidence signature: %v", msg, msg.Justification)
+			return false
+		}
+	}
+	return true
+>>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 }
 
 // Sends this node's QUALITY message and begins the QUALITY phase.
@@ -587,11 +704,15 @@ func (i *instance) beginQuality() error {
 	i.phase = QUALITY
 	i.phaseTimeout = i.alarmAfterSynchrony(QUALITY)
 <<<<<<< HEAD
+<<<<<<< HEAD
 	i.broadcast(i.round, QUALITY, i.input, nil, AggEvidence{})
 >>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
 =======
 	i.broadcast(i.round, QUALITY, i.input, nil)
 >>>>>>> 9a3e132 (Address comments)
+=======
+	i.broadcast(i.round, QUALITY, i.input, nil, Justification{})
+>>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 }
 
 // Attempts to end the QUALITY phase and begin PREPARE based on current state.
@@ -683,11 +804,57 @@ func (i *instance) beginConverge() {
 =======
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE)
 <<<<<<< HEAD
+<<<<<<< HEAD
 	i.broadcast(i.round, CONVERGE, i.proposal, ticket, AggEvidence{})
 >>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
 =======
 	i.broadcast(i.round, CONVERGE, i.proposal, ticket)
 >>>>>>> 9a3e132 (Address comments)
+=======
+	prevRoundState := i.roundState(i.round - 1)
+	justification := Justification{}
+	var ok bool
+	if prevRoundState.committed.HasStrongQuorumAgreement(ZeroTipSetID()) {
+		value := ECChain{}
+		signers := prevRoundState.committed.getSigners(value)
+		signatures := prevRoundState.committed.getSignatures(value, signers)
+		aggSignature := make([]byte, 0)
+		for _, sig := range signatures {
+			aggSignature = i.host.Aggregate(sig, aggSignature)
+		}
+		justification = Justification{
+			Instance:  i.instanceID,
+			Round:     i.round - 1,
+			Step:      COMMIT,
+			Value:     value,
+			Signers:   signers,
+			Signature: aggSignature,
+		}
+	} else if prevRoundState.prepared.HasStrongQuorumAgreement(i.proposal.Head().CID) {
+		value := i.proposal
+		signers := prevRoundState.prepared.getSigners(value)
+		signatures := prevRoundState.prepared.getSignatures(value, signers)
+		aggSignature := make([]byte, 0)
+		for _, sig := range signatures {
+			aggSignature = i.host.Aggregate(sig, aggSignature)
+		}
+
+		justification = Justification{
+			Instance:  i.instanceID,
+			Round:     i.round - 1,
+			Step:      PREPARE,
+			Value:     value,
+			Signers:   signers,
+			Signature: aggSignature,
+		}
+	} else if justification, ok = prevRoundState.committed.justifiedMessages[i.proposal.Head().CID]; ok {
+		justification = justification
+	} else {
+		panic("beginConverge called but no evidence found")
+	}
+
+	i.broadcast(i.round, CONVERGE, i.proposal, ticket, justification)
+>>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
@@ -730,11 +897,15 @@ func (i *instance) beginPrepare() {
 	i.phase = PREPARE
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
 <<<<<<< HEAD
+<<<<<<< HEAD
 	i.broadcast(i.round, PREPARE, i.value, nil, AggEvidence{})
 >>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
 =======
 	i.broadcast(i.round, PREPARE, i.value, nil)
 >>>>>>> 9a3e132 (Address comments)
+=======
+	i.broadcast(i.round, PREPARE, i.value, nil, Justification{})
+>>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -786,11 +957,29 @@ func (i *instance) beginCommit() {
 	i.phase = COMMIT
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
 <<<<<<< HEAD
+<<<<<<< HEAD
 	i.broadcast(i.round, COMMIT, i.value, nil, AggEvidence{})
 >>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
 =======
 	i.broadcast(i.round, COMMIT, i.value, nil)
 >>>>>>> 9a3e132 (Address comments)
+=======
+	signers := i.roundState(i.round).prepared.getSigners(i.value)
+	signatures := i.roundState(i.round).prepared.getSignatures(i.value, signers)
+	aggSignature := make([]byte, 0)
+	for _, sig := range signatures {
+		aggSignature = i.host.Aggregate(sig, aggSignature)
+	}
+	justification := Justification{
+		Instance:  i.instanceID,
+		Round:     i.round,
+		Step:      PREPARE,
+		Value:     i.value,
+		Signers:   signers,
+		Signature: aggSignature,
+	}
+	i.broadcast(i.round, COMMIT, i.value, nil, justification)
+>>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 }
 
 func (i *instance) tryCommit(round uint64) error {
@@ -836,11 +1025,15 @@ func (i *instance) beginDecide() {
 =======
 	i.phase = DECIDE
 <<<<<<< HEAD
+<<<<<<< HEAD
 	i.broadcast(0, DECIDE, i.value, nil, AggEvidence{})
 >>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
 =======
 	i.broadcast(0, DECIDE, i.value, nil)
 >>>>>>> 9a3e132 (Address comments)
+=======
+	i.broadcast(0, DECIDE, i.value, nil, Justification{})
+>>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 }
 
 func (i *instance) tryDecide() error {
@@ -887,6 +1080,7 @@ func (i *instance) terminated() bool {
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Ticket, justification Justification) *GMessage {
 	payload := SignaturePayload(i.instanceID, round, step, value)
 	signature := i.host.Sign(i.participantID, payload)
@@ -909,6 +1103,12 @@ func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ti
 	signature := i.host.Sign(i.participantID, payload)
 	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature}
 >>>>>>> 9a3e132 (Address comments)
+=======
+func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ticket, justification Justification) *GMessage {
+	payload := SignaturePayload(i.instanceID, round, step, value)
+	signature := i.host.Sign(i.participantID, payload)
+	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature, justification}
+>>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 	i.host.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
 	return gmsg
@@ -978,20 +1178,32 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, j
 	head := value.HeadCIDOrZero()
 	fromSender, ok := q.received[sender]
 	senderPower, _ := q.powerTable.Get(sender)
+<<<<<<< HEAD
 	sigCopy := make([]byte, len(signature))
 	copy(sigCopy, signature)
+=======
+
+>>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 	if ok {
 		// Don't double-count the same chain head for a single participant.
 		if _, ok := fromSender.heads[head]; ok {
 			return
 		}
+<<<<<<< HEAD
 		fromSender.heads[head] = sigCopy
+=======
+		fromSender.heads[head] = signature
+>>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 	} else {
 		// Add sender's power to total the first time a value is received from them.
 		q.sendersTotalPower.Add(q.sendersTotalPower, senderPower)
 		fromSender = senderSent{
 			heads: map[TipSetID][]byte{
+<<<<<<< HEAD
 				head: sigCopy,
+=======
+				head: signature,
+>>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 			},
 			power: senderPower,
 		}
@@ -1014,9 +1226,13 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, j
 	candidate.hasStrongQuorum = hasStrongQuorum(candidate.power, q.powerTable.Total)
 	candidate.hasWeakQuorum = hasWeakQuorum(candidate.power, q.powerTable.Total)
 
+<<<<<<< HEAD
 	if !value.IsZero() && justification.Payload.Step == PREPARE_PHASE { //only committed roundStates need to store justifications
 		q.justifiedMessages[value.Head().CID] = justification
 	}
+=======
+	q.justifiedMessages[value.HeadCIDOrZero()] = justification
+>>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 	q.chainSupport[head] = candidate
 }
 
@@ -1036,7 +1252,11 @@ func (q *quorumState) getSigners(value ECChain) bitfield.BitField {
 	}
 
 	// Copy each element from the original map
+<<<<<<< HEAD
 	for key := range chainSupport.signers {
+=======
+	for key, _ := range chainSupport.signers {
+>>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 		signers.Set(uint64(q.powerTable.Lookup[key]))
 	}
 
@@ -1047,21 +1267,34 @@ func (q *quorumState) getSigners(value ECChain) bitfield.BitField {
 func (q *quorumState) getSignatures(value ECChain, signers bitfield.BitField) [][]byte {
 	head := value.HeadCIDOrZero()
 	signatures := make([][]byte, 0)
+<<<<<<< HEAD
 	if err := signers.ForEach(func(bit uint64) error {
 		if int(bit) >= len(q.powerTable.Entries) {
 			return fmt.Errorf("invalid signer index: %d", bit)
 		}
 		if signature, ok := q.received[q.powerTable.Entries[bit].ID].heads[head]; ok {
+=======
+	if err := signers.ForEach(func(i uint64) error {
+		if signature, ok := q.received[q.powerTable.Entries[i].ID].heads[head]; ok {
+>>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 			if len(signature) == 0 {
 				panic("signature is 0")
 			}
 			signatures = append(signatures, signature)
 		} else {
+<<<<<<< HEAD
 			panic("QuorumSignature not found")
 		}
 		return nil
 	}); err != nil {
 		panic("Error while iterating over signers")
+=======
+			panic("Signature not found")
+		}
+		return nil
+	}); err != nil {
+		return signatures
+>>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 		//TODO handle error
 	}
 	return signatures
