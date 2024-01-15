@@ -437,7 +437,6 @@ func (i *instance) isJustified(msg *GMessage) bool {
 		}
 		if !i.host.VerifyAggregate(payload, msg.Justification.Signature, signers) {
 			i.log("dropping COMMIT %v with invalid evidence signature: %v", msg, msg.Justification)
-
 			return false
 		}
 	}
