@@ -101,10 +101,3 @@ func comparePowerEntries(a, b PowerEntry) bool {
 	}
 	return false
 }
-
-func (p *PowerTable) GetPower(id ActorID) uint {
-	if index, ok := p.Lookup[id]; ok {
-		return p.Entries[index].Power
-	}
-	return 0
-}

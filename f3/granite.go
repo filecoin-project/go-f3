@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/filecoin-project/go-bitfield"
 	"sort"
 )
 
@@ -76,24 +75,6 @@ type GMessage struct {
 	// VRF ticket for CONVERGE messages (otherwise empty byte array).
 	Ticket Ticket
 	// Signature by the sender's public key over Instance || Round || Step || Value.
-	Signature []byte
-
-	Evidence AggEvidence
-}
-
-// Aggregated list of GossiPBFT messages with the same instance, round and value. Used as evidence for justification of messages
-type AggEvidence struct {
-	Instance uint32
-
-	Round uint32
-
-	Step string
-
-	Value ECChain
-
-	// Indexes in the base power table of the signers (bitset)
-	Signers bitfield.BitField
-	// BLS aggregate signature of signers
 	Signature []byte
 }
 
@@ -379,7 +360,7 @@ func (i *instance) beginQuality() error {
 	// Broadcast input value and wait up to Δ to receive from others.
 	i.phase = QUALITY_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony(QUALITY_PHASE.String())
-	i.broadcast(i.round, QUALITY_PHASE, i.input, nil, AggEvidence{})
+	i.broadcast(i.round, QUALITY_PHASE, i.input, nil)
 	return nil
 }
 
@@ -413,7 +394,7 @@ func (i *instance) beginConverge() {
 	i.phase = CONVERGE_PHASE
 	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE_PHASE.String())
-	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, ticket, AggEvidence{})
+	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, ticket)
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
@@ -450,7 +431,7 @@ func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE_PHASE.String())
-	i.broadcast(i.round, PREPARE_PHASE, i.value, nil, AggEvidence{})
+	i.broadcast(i.round, PREPARE_PHASE, i.value, nil)
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -480,7 +461,7 @@ func (i *instance) tryPrepare() error {
 func (i *instance) beginCommit() {
 	i.phase = COMMIT_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE_PHASE.String())
-	i.broadcast(i.round, COMMIT_PHASE, i.value, nil, AggEvidence{})
+	i.broadcast(i.round, COMMIT_PHASE, i.value, nil)
 }
 
 func (i *instance) tryCommit(round uint32) error {
@@ -521,7 +502,7 @@ func (i *instance) tryCommit(round uint32) error {
 
 func (i *instance) beginDecide() {
 	i.phase = DECIDE_PHASE
-	i.broadcast(0, DECIDE_PHASE, i.value, nil, AggEvidence{})
+	i.broadcast(0, DECIDE_PHASE, i.value, nil)
 }
 
 func (i *instance) tryDecide() error {
@@ -566,10 +547,10 @@ func (i *instance) terminated() bool {
 	return i.phase == TERMINATED_PHASE
 }
 
-func (i *instance) broadcast(round uint32, step Phase, value ECChain, ticket Ticket, evidence AggEvidence) *GMessage {
+func (i *instance) broadcast(round uint32, step Phase, value ECChain, ticket Ticket) *GMessage {
 	payload := SignaturePayload(i.instanceID, round, step, value)
 	signature := i.host.Sign(i.participantID, payload)
-	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature, evidence}
+	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature}
 	i.host.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
 	return gmsg
