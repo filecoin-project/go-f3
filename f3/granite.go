@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/filecoin-project/go-bitfield"
 	"sort"
 )
 
@@ -76,24 +75,6 @@ type GMessage struct {
 	// VRF ticket for CONVERGE messages (otherwise empty byte array).
 	Ticket Ticket
 	// Signature by the sender's public key over Instance || Round || Step || Value.
-	Signature []byte
-
-	Evidence AggEvidence
-}
-
-// Aggregated list of GossiPBFT messages with the same instance, round and value. Used as evidence for justification of messages
-type AggEvidence struct {
-	Instance uint32
-
-	Round uint32
-
-	Step string
-
-	Value ECChain
-
-	// Indexes in the base power table of the signers (bitset)
-	Signers bitfield.BitField
-	// BLS aggregate signature of signers
 	Signature []byte
 }
 
@@ -388,8 +369,12 @@ func (i *instance) beginQuality() error {
 =======
 	i.phase = QUALITY
 	i.phaseTimeout = i.alarmAfterSynchrony(QUALITY)
+<<<<<<< HEAD
 	i.broadcast(i.round, QUALITY, i.input, nil, AggEvidence{})
 >>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
+=======
+	i.broadcast(i.round, QUALITY, i.input, nil)
+>>>>>>> 9a3e132 (Address comments)
 }
 
 // Attempts to end the QUALITY phase and begin PREPARE based on current state.
@@ -426,8 +411,12 @@ func (i *instance) beginConverge() {
 	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, ticket)
 =======
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE)
+<<<<<<< HEAD
 	i.broadcast(i.round, CONVERGE, i.proposal, ticket, AggEvidence{})
 >>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
+=======
+	i.broadcast(i.round, CONVERGE, i.proposal, ticket)
+>>>>>>> 9a3e132 (Address comments)
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
@@ -469,8 +458,12 @@ func (i *instance) beginPrepare() {
 =======
 	i.phase = PREPARE
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
+<<<<<<< HEAD
 	i.broadcast(i.round, PREPARE, i.value, nil, AggEvidence{})
 >>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
+=======
+	i.broadcast(i.round, PREPARE, i.value, nil)
+>>>>>>> 9a3e132 (Address comments)
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -505,8 +498,12 @@ func (i *instance) beginCommit() {
 =======
 	i.phase = COMMIT
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
+<<<<<<< HEAD
 	i.broadcast(i.round, COMMIT, i.value, nil, AggEvidence{})
 >>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
+=======
+	i.broadcast(i.round, COMMIT, i.value, nil)
+>>>>>>> 9a3e132 (Address comments)
 }
 
 func (i *instance) tryCommit(round uint64) error {
@@ -552,8 +549,12 @@ func (i *instance) beginDecide() {
 	i.broadcast(0, DECIDE_PHASE, i.value, nil)
 =======
 	i.phase = DECIDE
+<<<<<<< HEAD
 	i.broadcast(0, DECIDE, i.value, nil, AggEvidence{})
 >>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
+=======
+	i.broadcast(0, DECIDE, i.value, nil)
+>>>>>>> 9a3e132 (Address comments)
 }
 
 func (i *instance) tryDecide() error {
@@ -599,17 +600,26 @@ func (i *instance) terminated() bool {
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Ticket) *GMessage {
 =======
+=======
+>>>>>>> 902f1b3 (Address comments)
 <<<<<<< HEAD
 func (i *instance) broadcast(round uint32, step Phase, value ECChain, ticket Ticket) *GMessage {
 =======
 func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ticket, evidence AggEvidence) *GMessage {
 >>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
+<<<<<<< HEAD
 >>>>>>> d1d0792 (Require AggEvidence when broadcasting GMessage)
+=======
+=======
+func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ticket) *GMessage {
+>>>>>>> 9a3e132 (Address comments)
+>>>>>>> 902f1b3 (Address comments)
 	payload := SignaturePayload(i.instanceID, round, step, value)
 	signature := i.host.Sign(i.participantID, payload)
-	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature, evidence}
+	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature}
 	i.host.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
 	return gmsg
