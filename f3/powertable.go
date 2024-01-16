@@ -51,8 +51,8 @@ func NewPowerTableFromMap(entriesMap map[ActorID]uint) PowerTable {
 	}
 }
 
-// Add adds a new entry to the PowerTable. It is less efficient than NewPowerTableFromMap,
-// as it needs to sort the entries after each addition, but allows adding entries one by one.
+// Add adds a new entry to the PowerTable. 
+// This is linear in the table size, so adding many entries this way is inefficient.
 func (p *PowerTable) Add(id ActorID, power uint) {
 	if _, ok := p.Lookup[id]; ok {
 		panic("duplicate power entry")
