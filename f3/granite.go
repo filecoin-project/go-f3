@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/filecoin-project/go-bitfield"
 	"sort"
 )
 
@@ -44,24 +43,6 @@ type GMessage struct {
 	// VRF ticket for CONVERGE messages (otherwise empty byte array).
 	Ticket Ticket
 	// Signature by the sender's public key over Instance || Round || Step || Value.
-	Signature []byte
-
-	Evidence AggEvidence
-}
-
-// Aggregated list of GossiPBFT messages with the same instance, round and value. Used as evidence for justification of messages
-type AggEvidence struct {
-	Instance uint32
-
-	Round uint32
-
-	Step string
-
-	Value ECChain
-
-	// Indexes in the base power table of the signers (bitset)
-	Signers bitfield.BitField
-	// BLS aggregate signature of signers
 	Signature []byte
 }
 
@@ -299,40 +280,25 @@ func (i *instance) isValid(msg *GMessage) bool {
 		i.log("unexpected base %s", &msg.Value)
 		return false
 	}
-	if msg.Step == CONVERGE {
-		if !i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Round, msg.Sender, msg.Ticket) {
-			return false
-		}
-	}
-	return true
-}
-
-// Checks whether a message is justified by prior messages.
-// An unjustified message may later be justified by subsequent messages.
-func (i *instance) isJustified(msg *GMessage) bool {
 	if msg.Step == QUALITY {
-		// QUALITY needs no justification by prior messages.
 		return msg.Round == 0 && !msg.Value.IsZero()
 	} else if msg.Step == CONVERGE {
-		// CONVERGE is justified by a previous round strong quorum of PREPARE for the same value,
-		// or strong quorum of COMMIT for bottom.
-		// Bottom is not allowed as a value.
-		if msg.Round == 0 || msg.Value.IsZero() {
+		if msg.Round == 0 ||
+			msg.Value.IsZero() ||
+			!i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Round, msg.Sender, msg.Ticket) {
 			return false
 		}
-		return true
-	} else if msg.Step == PREPARE {
-		// PREPARE needs no justification by prior messages.
-		return true // i.quality.AllowsValue(msg.Value)
-	} else if msg.Step == COMMIT {
-		// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
-		// COMMIT for bottom is always justified.
-		return true
 	} else if msg.Step == DECIDE {
 		// DECIDE needs no justification
 		return !msg.Value.IsZero()
 	}
-	return false
+
+	return true
+}
+
+// TODO Checks whether a message is justified by prior messages.
+func (i *instance) isJustified(msg *GMessage) bool {
+	return true
 }
 
 // Sends this node's QUALITY message and begins the QUALITY phase.
@@ -340,7 +306,7 @@ func (i *instance) beginQuality() {
 	// Broadcast input value and wait up to Δ to receive from others.
 	i.phase = QUALITY
 	i.phaseTimeout = i.alarmAfterSynchrony(QUALITY)
-	i.broadcast(i.round, QUALITY, i.input, nil, AggEvidence{})
+	i.broadcast(i.round, QUALITY, i.input, nil)
 }
 
 // Attempts to end the QUALITY phase and begin PREPARE based on current state.
@@ -372,7 +338,7 @@ func (i *instance) beginConverge() {
 	i.phase = CONVERGE
 	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE)
-	i.broadcast(i.round, CONVERGE, i.proposal, ticket, AggEvidence{})
+	i.broadcast(i.round, CONVERGE, i.proposal, ticket)
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
@@ -408,7 +374,7 @@ func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
-	i.broadcast(i.round, PREPARE, i.value, nil, AggEvidence{})
+	i.broadcast(i.round, PREPARE, i.value, nil)
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -437,7 +403,7 @@ func (i *instance) tryPrepare() {
 func (i *instance) beginCommit() {
 	i.phase = COMMIT
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
-	i.broadcast(i.round, COMMIT, i.value, nil, AggEvidence{})
+	i.broadcast(i.round, COMMIT, i.value, nil)
 }
 
 func (i *instance) tryCommit(round uint32) {
@@ -476,7 +442,7 @@ func (i *instance) tryCommit(round uint32) {
 
 func (i *instance) beginDecide() {
 	i.phase = DECIDE
-	i.broadcast(0, DECIDE, i.value, nil, AggEvidence{})
+	i.broadcast(0, DECIDE, i.value, nil)
 }
 
 func (i *instance) tryDecide() {
@@ -519,10 +485,10 @@ func (i *instance) terminated() bool {
 	return i.phase == TERMINATED
 }
 
-func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ticket, evidence AggEvidence) *GMessage {
+func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ticket) *GMessage {
 	payload := SignaturePayload(i.instanceID, round, step, value)
 	signature := i.host.Sign(i.participantID, payload)
-	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature, evidence}
+	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature}
 	i.host.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
 	return gmsg
