@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/filecoin-project/go-bitfield"
 	"sort"
 )
 
@@ -73,6 +72,7 @@ type GMessage struct {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	// Justification for this message (some messages must be justified by a strong quorum of messages from some previous step).
 	Justification Justification
 =======
@@ -103,6 +103,8 @@ func (a AggEvidence) isZero() bool {
 	}
 	return a.Step == "" && a.Value.IsZero() && a.Instance == 0 && a.Round == 0 && signersCount == 0 && len(a.Signature) == 0
 >>>>>>> bcf86d8 (Add AggEvidence type)
+=======
+>>>>>>> dbf1545 (Merge and address comments)
 }
 
 type Justification struct {
