@@ -1,66 +1,60 @@
 package f3
 
-import "sort"
+import (
+	"sort"
+)
 
 // PowerEntry represents a single entry in the PowerTable.
 // It includes an ActorID and its Weight
 type PowerEntry struct {
-	ID    ActorID
-	Power uint
+	ID     ActorID
+	Power  *StoragePower
+	PubKey []byte
 }
 
 // PowerTable maps ActorID to a unique index in the range [0, len(powerTable.Entries)).
 // Entries is the reverse mapping to a PowerEntry.
 type PowerTable struct {
-	Entries []PowerEntry    // Slice to maintain the order
-	Lookup  map[ActorID]int // Map for quick index lookups
-	Total   uint
+	Entries []PowerEntry    // Slice to maintain the order. Meant to be maintained in order in order by (Power descending, ID ascending)
+	Lookup  map[ActorID]int // Maps ActorID to the index of the associated entry in Entries
+	Total   *StoragePower
 }
 
-func NewPowerTable() PowerTable {
-	return PowerTable{
-		Entries: make([]PowerEntry, 0),
-		Lookup:  make(map[ActorID]int),
-	}
-}
-
-// NewPowerTableFromMap creates a new PowerTable from a map of ActorID to weight.
+// NewPowerTable creates a new PowerTable from a slice of PowerEntry .
 // It is more efficient than Add, as it only needs to sort the entries once.
-func NewPowerTableFromMap(entriesMap map[ActorID]uint) PowerTable {
-	entries := make([]PowerEntry, 0, len(entriesMap))
-
-	for id, power := range entriesMap {
-		entries = append(entries, PowerEntry{ID: id, Power: power})
-	}
-
+func NewPowerTable(entries []PowerEntry) *PowerTable {
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Power > entries[j].Power || (entries[i].Power == entries[j].Power && entries[i].ID < entries[j].ID)
+		return entries[i].Power.Cmp(entries[j].Power) > 0 ||
+			(entries[i].Power.Cmp(entries[j].Power) == 0 && entries[i].ID < entries[j].ID)
 	})
 
-	lookup := make(map[ActorID]int, len(entriesMap))
-	var total uint = 0
+	lookup := make(map[ActorID]int, len(entries))
+	total := NewStoragePower(0)
 	for i, entry := range entries {
 		lookup[entry.ID] = i
-		total += entry.Power
+		total.Add(total, entry.Power)
 	}
 
-	return PowerTable{
+	return &PowerTable{
 		Entries: entries,
 		Lookup:  lookup,
 		Total:   total,
 	}
 }
 
-// Add adds a new entry to the PowerTable. 
+// Add adds a new entry to the PowerTable.
 // This is linear in the table size, so adding many entries this way is inefficient.
-func (p *PowerTable) Add(id ActorID, power uint) {
-	if _, ok := p.Lookup[id]; ok {
+func (p *PowerTable) Add(id ActorID, power *StoragePower, pubKey []byte) {
+	entry := PowerEntry{ID: id, Power: power, PubKey: pubKey}
+	index := sort.Search(len(p.Entries), func(i int) bool {
+		return p.Entries[i].Power.Cmp(power) > 0 ||
+			(p.Entries[i].Power.Cmp(power) == 0 && p.Entries[i].ID < id)
+	})
+
+	// Check for duplication at the found index or adjacent entries
+	if index < len(p.Entries) && (p.Entries[index].ID == id || (index > 0 && p.Entries[index-1].ID == id)) {
 		panic("duplicate power entry")
 	}
-	entry := PowerEntry{ID: id, Power: power}
-	index := sort.Search(len(p.Entries), func(i int) bool {
-		return p.Entries[i].Power > power || (p.Entries[i].Power == power && p.Entries[i].ID < id)
-	})
 
 	p.Entries = append(p.Entries, PowerEntry{})
 	copy(p.Entries[index+1:], p.Entries[index:])
@@ -70,12 +64,12 @@ func (p *PowerTable) Add(id ActorID, power uint) {
 	for i := index + 1; i < len(p.Entries); i++ {
 		p.Lookup[p.Entries[i].ID] = i
 	}
-	p.Total += power
+	p.Total.Add(p.Total, power)
 }
 
-func (p *PowerTable) GetPower(id ActorID) uint {
+func (p *PowerTable) Get(id ActorID) (*StoragePower, []byte, bool) {
 	if index, ok := p.Lookup[id]; ok {
-		return p.Entries[index].Power
+		return p.Entries[index].Power.Copy(), p.Entries[index].PubKey, true
 	}
-	return 0
+	return nil, nil, false
 }

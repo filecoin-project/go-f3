@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/filecoin-project/go-bitfield"
 	"sort"
 )
 
@@ -44,24 +43,6 @@ type GMessage struct {
 	// VRF ticket for CONVERGE messages (otherwise empty byte array).
 	Ticket Ticket
 	// Signature by the sender's public key over Instance || Round || Step || Value.
-	Signature []byte
-
-	Evidence AggEvidence
-}
-
-// Aggregated list of GossiPBFT messages with the same instance, round and value. Used as evidence for justification of messages
-type AggEvidence struct {
-	Instance uint32
-
-	Round uint32
-
-	Step string
-
-	Value ECChain
-
-	// Indexes in the base power table of the signers (bitset)
-	Signers bitfield.BitField
-	// BLS aggregate signature of signers
 	Signature []byte
 }
 
@@ -325,7 +306,7 @@ func (i *instance) beginQuality() {
 	// Broadcast input value and wait up to Δ to receive from others.
 	i.phase = QUALITY
 	i.phaseTimeout = i.alarmAfterSynchrony(QUALITY)
-	i.broadcast(i.round, QUALITY, i.input, nil, AggEvidence{})
+	i.broadcast(i.round, QUALITY, i.input, nil)
 }
 
 // Attempts to end the QUALITY phase and begin PREPARE based on current state.
@@ -357,7 +338,7 @@ func (i *instance) beginConverge() {
 	i.phase = CONVERGE
 	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE)
-	i.broadcast(i.round, CONVERGE, i.proposal, ticket, AggEvidence{})
+	i.broadcast(i.round, CONVERGE, i.proposal, ticket)
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
@@ -393,7 +374,7 @@ func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
-	i.broadcast(i.round, PREPARE, i.value, nil, AggEvidence{})
+	i.broadcast(i.round, PREPARE, i.value, nil)
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -422,7 +403,7 @@ func (i *instance) tryPrepare() {
 func (i *instance) beginCommit() {
 	i.phase = COMMIT
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
-	i.broadcast(i.round, COMMIT, i.value, nil, AggEvidence{})
+	i.broadcast(i.round, COMMIT, i.value, nil)
 }
 
 func (i *instance) tryCommit(round uint32) {
@@ -461,7 +442,7 @@ func (i *instance) tryCommit(round uint32) {
 
 func (i *instance) beginDecide() {
 	i.phase = DECIDE
-	i.broadcast(0, DECIDE, i.value, nil, AggEvidence{})
+	i.broadcast(0, DECIDE, i.value, nil)
 }
 
 func (i *instance) tryDecide() {
@@ -504,10 +485,10 @@ func (i *instance) terminated() bool {
 	return i.phase == TERMINATED
 }
 
-func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ticket, evidence AggEvidence) *GMessage {
+func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ticket) *GMessage {
 	payload := SignaturePayload(i.instanceID, round, step, value)
 	signature := i.host.Sign(i.participantID, payload)
-	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature, evidence}
+	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature}
 	i.host.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
 	return gmsg
@@ -539,7 +520,7 @@ type quorumState struct {
 	// The power supporting each chain so far.
 	chainPower map[TipSetID]chainPower
 	// Total power of all distinct senders from which some chain has been received so far.
-	sendersTotalPower uint
+	sendersTotalPower StoragePower
 	// Table of senders' power.
 	powerTable PowerTable
 }
@@ -547,13 +528,13 @@ type quorumState struct {
 // The set of chain heads from one sender, and that sender's power.
 type senderSent struct {
 	heads []TipSetID
-	power uint
+	power *StoragePower
 }
 
 // A chain value and the total power supporting it.
 type chainPower struct {
 	chain           ECChain
-	power           uint
+	power           *StoragePower
 	hasStrongQuorum bool
 	hasWeakQuorum   bool
 }
@@ -563,7 +544,7 @@ func newQuorumState(powerTable PowerTable) *quorumState {
 	return &quorumState{
 		received:          map[ActorID]senderSent{},
 		chainPower:        map[TipSetID]chainPower{},
-		sendersTotalPower: 0,
+		sendersTotalPower: *NewStoragePower(0),
 		powerTable:        powerTable,
 	}
 }
@@ -582,29 +563,36 @@ func (q *quorumState) Receive(sender ActorID, value ECChain) {
 		fromSender.heads = append(fromSender.heads, head)
 	} else {
 		// Add sender's power to total the first time a value is received from them.
-		senderPower := q.powerTable.GetPower(sender)
-		q.sendersTotalPower += senderPower
+		senderPower, _, _ := q.powerTable.Get(sender)
+		q.sendersTotalPower.Add(&q.sendersTotalPower, senderPower)
 		fromSender = senderSent{[]TipSetID{head}, senderPower}
 	}
 	q.received[sender] = fromSender
 
+	power, _, _ := q.powerTable.Get(sender)
 	candidate := chainPower{
 		chain:           value,
-		power:           q.powerTable.GetPower(sender),
+		power:           power,
 		hasStrongQuorum: false,
 		hasWeakQuorum:   false,
 	}
 	if found, ok := q.chainPower[head]; ok {
-		candidate.power += found.power
+		candidate.power.Add(candidate.power, found.power)
 	}
 
-	strongThreshold := q.powerTable.Total * 2 / 3
-	if candidate.power > strongThreshold {
+	two := NewStoragePower(2)
+	three := NewStoragePower(3)
+
+	strongThreshold := new(StoragePower).Mul(q.powerTable.Total, two)
+	strongThreshold.Div(strongThreshold, three)
+	if candidate.power.Cmp(strongThreshold) > 0 {
 		candidate.hasStrongQuorum = true
 	}
 
-	weakThreshold := q.powerTable.Total * 1 / 3
-	if candidate.power > weakThreshold {
+	one := NewStoragePower(1)
+	weakThreshold := new(StoragePower).Mul(q.powerTable.Total, one)
+	weakThreshold.Div(weakThreshold, three)
+	if candidate.power.Cmp(weakThreshold) > 0 {
 		candidate.hasWeakQuorum = true
 	}
 
@@ -634,7 +622,13 @@ func (q *quorumState) HasAgreement() bool {
 
 // Checks whether at least one message has been received from a strong quorum of senders.
 func (q *quorumState) ReceivedFromStrongQuorum() bool {
-	return q.sendersTotalPower > q.powerTable.Total*2/3
+	two := NewStoragePower(2)
+	three := NewStoragePower(3)
+
+	threshold := new(StoragePower).Mul(q.powerTable.Total, two)
+	threshold.Div(threshold, three)
+
+	return q.sendersTotalPower.Cmp(threshold) > 0
 }
 
 // Checks whether a chain (head) has reached a strong quorum.

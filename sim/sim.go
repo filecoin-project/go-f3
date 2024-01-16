@@ -33,12 +33,12 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 	vrf := f3.NewVRF(ntwk)
 
 	// Create participants.
-	genesisPower := f3.NewPowerTable()
+	genesisPower := f3.NewPowerTable(make([]f3.PowerEntry, 0))
 	participants := make([]*f3.Participant, simConfig.HonestCount)
 	for i := 0; i < len(participants); i++ {
 		participants[i] = f3.NewParticipant(f3.ActorID(i), graniteConfig, ntwk, vrf)
 		ntwk.AddParticipant(participants[i])
-		genesisPower.Add(participants[i].ID(), 1)
+		genesisPower.Add(participants[i].ID(), f3.NewStoragePower(1), make([]byte, 0))
 	}
 
 	// Create genesis tipset, which all participants are expected to agree on as a base.
@@ -47,7 +47,7 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 	return &Simulation{
 		Network:      ntwk,
 		Base:         baseChain,
-		PowerTable:   genesisPower,
+		PowerTable:   *genesisPower,
 		Beacon:       []byte("beacon"),
 		Participants: participants,
 		Adversary:    nil,
@@ -58,7 +58,7 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 func (s *Simulation) SetAdversary(adv AdversaryReceiver, power uint) {
 	s.Adversary = adv
 	s.Network.AddParticipant(adv)
-	s.PowerTable.Add(adv.ID(), power)
+	s.PowerTable.Add(adv.ID(), f3.NewStoragePower(int64(power)), make([]byte, 0))
 }
 
 type ChainCount struct {
