@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/filecoin-project/go-bitfield"
 	"sort"
 )
 
@@ -71,6 +70,7 @@ type GMessage struct {
 	// Signature by the sender's public key over Instance || Round || Step || Value.
 	Signature []byte
 <<<<<<< HEAD
+<<<<<<< HEAD
 	// Justification for this message (some messages must be justified by a strong quorum of messages from some previous step).
 	Justification Justification
 }
@@ -117,6 +117,8 @@ type AggEvidence struct {
 	Signature []byte
 <<<<<<< HEAD
 =======
+=======
+>>>>>>> 9a3e132 (Address comments)
 }
 
 <<<<<<< HEAD
@@ -519,8 +521,12 @@ func (i *instance) beginQuality() error {
 =======
 	i.phase = QUALITY
 	i.phaseTimeout = i.alarmAfterSynchrony(QUALITY)
+<<<<<<< HEAD
 	i.broadcast(i.round, QUALITY, i.input, nil, AggEvidence{})
 >>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
+=======
+	i.broadcast(i.round, QUALITY, i.input, nil)
+>>>>>>> 9a3e132 (Address comments)
 }
 
 // Attempts to end the QUALITY phase and begin PREPARE based on current state.
@@ -611,8 +617,12 @@ func (i *instance) beginConverge() {
 	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, ticket, justification)
 =======
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE)
+<<<<<<< HEAD
 	i.broadcast(i.round, CONVERGE, i.proposal, ticket, AggEvidence{})
 >>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
+=======
+	i.broadcast(i.round, CONVERGE, i.proposal, ticket)
+>>>>>>> 9a3e132 (Address comments)
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
@@ -654,8 +664,12 @@ func (i *instance) beginPrepare() {
 =======
 	i.phase = PREPARE
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
+<<<<<<< HEAD
 	i.broadcast(i.round, PREPARE, i.value, nil, AggEvidence{})
 >>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
+=======
+	i.broadcast(i.round, PREPARE, i.value, nil)
+>>>>>>> 9a3e132 (Address comments)
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -706,8 +720,12 @@ func (i *instance) beginCommit() {
 =======
 	i.phase = COMMIT
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
+<<<<<<< HEAD
 	i.broadcast(i.round, COMMIT, i.value, nil, AggEvidence{})
 >>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
+=======
+	i.broadcast(i.round, COMMIT, i.value, nil)
+>>>>>>> 9a3e132 (Address comments)
 }
 
 func (i *instance) tryCommit(round uint64) error {
@@ -752,8 +770,12 @@ func (i *instance) beginDecide() {
 	i.broadcast(0, DECIDE_PHASE, i.value, nil, Justification{})
 =======
 	i.phase = DECIDE
+<<<<<<< HEAD
 	i.broadcast(0, DECIDE, i.value, nil, AggEvidence{})
 >>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
+=======
+	i.broadcast(0, DECIDE, i.value, nil)
+>>>>>>> 9a3e132 (Address comments)
 }
 
 func (i *instance) tryDecide() error {
@@ -799,6 +821,7 @@ func (i *instance) terminated() bool {
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Ticket, justification Justification) *GMessage {
 	payload := SignaturePayload(i.instanceID, round, step, value)
 	signature := i.host.Sign(i.participantID, payload)
@@ -815,6 +838,12 @@ func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ti
 	signature := i.host.Sign(i.participantID, payload)
 	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature, evidence}
 >>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
+=======
+func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ticket) *GMessage {
+	payload := SignaturePayload(i.instanceID, round, step, value)
+	signature := i.host.Sign(i.participantID, payload)
+	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature}
+>>>>>>> 9a3e132 (Address comments)
 	i.host.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
 	return gmsg
