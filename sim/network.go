@@ -176,7 +176,7 @@ func (n *Network) Aggregate(sig []byte, aggSignature []byte) []byte {
 	return updatedAggSignature
 }
 
-func (n *Network) VerifyAggregate(payload, aggSig []byte, signers map[f3.ActorID]struct{}) bool {
+func (n *Network) VerifyAggregate(payload, aggSig []byte, signers [][]byte) bool {
 	aggBuf := bytes.NewReader(aggSig)
 
 	verifiedSigners := make(map[f3.ActorID]struct{})
@@ -220,7 +220,7 @@ func (n *Network) VerifyAggregate(payload, aggSig []byte, signers map[f3.ActorID
 		verifiedSigners[actorID] = struct{}{}
 	}
 
-	// Ensure all signers in the bitset are accounted for.
+	// Ensure all signers are accounted for.
 	return len(verifiedSigners) == len(signers)
 }
 
