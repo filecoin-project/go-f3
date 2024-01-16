@@ -2,52 +2,61 @@ package test
 
 import (
 	"fmt"
+	"testing"
+
 	"github.com/filecoin-project/go-f3/f3"
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 ///// Tests with no adversaries.
 
 func TestSingleton(t *testing.T) {
-	sm := sim.NewSimulation(newSyncConfig(1), GraniteConfig(), sim.TraceNone)
+	sm, err := sim.NewSimulation(newSyncConfig(1), GraniteConfig(), sim.TraceNone)
+	require.NoError(t, err)
 	a := sm.Base.Extend(sm.CIDGen.Sample())
-	sm.ReceiveChains(sim.ChainCount{Count: 1, Chain: a})
+	err = sm.ReceiveChains(sim.ChainCount{Count: 1, Chain: a})
+	require.NoError(t, err)
 
-	require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
+	require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 	expectRoundDecision(t, sm, 0, a.Head())
 }
 
 func TestSyncPair(t *testing.T) {
-	sm := sim.NewSimulation(newSyncConfig(2), GraniteConfig(), sim.TraceNone)
+	sm, err := sim.NewSimulation(newSyncConfig(2), GraniteConfig(), sim.TraceNone)
+	require.NoError(t, err)
 	a := sm.Base.Extend(sm.CIDGen.Sample())
-	sm.ReceiveChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
+	err = sm.ReceiveChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
+	require.NoError(t, err)
 
-	require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
+	require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 	expectRoundDecision(t, sm, 0, a.Head())
 }
 
 func TestASyncPair(t *testing.T) {
 	for i := 0; i < ASYNC_ITERS; i++ {
 		//fmt.Println("i =", i)
-		sm := sim.NewSimulation(newAsyncConfig(2, i), GraniteConfig(), sim.TraceNone)
+		sm, err := sim.NewSimulation(newAsyncConfig(2, i), GraniteConfig(), sim.TraceNone)
+		require.NoError(t, err)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
-		sm.ReceiveChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
+		err = sm.ReceiveChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
+		require.NoError(t, err)
 
-		require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
+		require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 		// Can't guarantee progress when async.
 		expectEventualDecision(t, sm, a.Head(), sm.Base.Head())
 	}
 }
 
 func TestSyncPairDisagree(t *testing.T) {
-	sm := sim.NewSimulation(newSyncConfig(2), GraniteConfig(), sim.TraceNone)
+	sm, err := sim.NewSimulation(newSyncConfig(2), GraniteConfig(), sim.TraceNone)
+	require.NoError(t, err)
 	a := sm.Base.Extend(sm.CIDGen.Sample())
 	b := sm.Base.Extend(sm.CIDGen.Sample())
-	sm.ReceiveChains(sim.ChainCount{Count: 1, Chain: a}, sim.ChainCount{Count: 1, Chain: b})
+	err = sm.ReceiveChains(sim.ChainCount{Count: 1, Chain: a}, sim.ChainCount{Count: 1, Chain: b})
+	require.NoError(t, err)
 
-	require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
+	require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 	// Decide base chain as the only common value.
 	expectRoundDecision(t, sm, 0, sm.Base.Head())
 }
@@ -55,12 +64,14 @@ func TestSyncPairDisagree(t *testing.T) {
 func TestAsyncPairDisagree(t *testing.T) {
 	for i := 0; i < ASYNC_ITERS; i++ {
 		//fmt.Println("i =", i)
-		sm := sim.NewSimulation(newAsyncConfig(2, i), GraniteConfig(), sim.TraceNone)
+		sm, err := sim.NewSimulation(newAsyncConfig(2, i), GraniteConfig(), sim.TraceNone)
+		require.NoError(t, err)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		b := sm.Base.Extend(sm.CIDGen.Sample())
-		sm.ReceiveChains(sim.ChainCount{Count: 1, Chain: a}, sim.ChainCount{Count: 1, Chain: b})
+		err = sm.ReceiveChains(sim.ChainCount{Count: 1, Chain: a}, sim.ChainCount{Count: 1, Chain: b})
+		require.NoError(t, err)
 
-		require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
+		require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 		// Decide base chain as the only common value.
 		// May not happen in round 0 when asynchronous.
 		expectEventualDecision(t, sm, sm.Base.Head())
@@ -69,10 +80,12 @@ func TestAsyncPairDisagree(t *testing.T) {
 
 func TestSyncAgreement(t *testing.T) {
 	for n := 3; n <= 50; n++ {
-		sm := sim.NewSimulation(newSyncConfig(n), GraniteConfig(), sim.TraceNone)
+		sm, err := sim.NewSimulation(newSyncConfig(n), GraniteConfig(), sim.TraceNone)
+		require.NoError(t, err)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
-		sm.ReceiveChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
-		require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
+		err = sm.ReceiveChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
+		require.NoError(t, err)
+		require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 		// Synchronous, agreeing groups always decide the candidate.
 		expectRoundDecision(t, sm, 0, a.Head())
 	}
@@ -84,11 +97,13 @@ func TestAsyncAgreement(t *testing.T) {
 	for n := 3; n <= 16; n++ {
 		for i := 0; i < ASYNC_ITERS; i++ {
 			//fmt.Println("n =", n, "i =", i)
-			sm := sim.NewSimulation(newAsyncConfig(n, i), GraniteConfig(), sim.TraceNone)
+			sm, err := sim.NewSimulation(newAsyncConfig(n, i), GraniteConfig(), sim.TraceNone)
+			require.NoError(t, err)
 			a := sm.Base.Extend(sm.CIDGen.Sample())
-			sm.ReceiveChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
+			err = sm.ReceiveChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
+			require.NoError(t, err)
 
-			require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
+			require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 			// Can't guarantee progress when async.
 			expectEventualDecision(t, sm, sm.Base.Head(), a.Head())
 		}
@@ -97,12 +112,14 @@ func TestAsyncAgreement(t *testing.T) {
 
 func TestSyncHalves(t *testing.T) {
 	for n := 4; n <= 50; n += 2 {
-		sm := sim.NewSimulation(newSyncConfig(n), GraniteConfig(), sim.TraceNone)
+		sm, err := sim.NewSimulation(newSyncConfig(n), GraniteConfig(), sim.TraceNone)
+		require.NoError(t, err)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		b := sm.Base.Extend(sm.CIDGen.Sample())
-		sm.ReceiveChains(sim.ChainCount{Count: n / 2, Chain: a}, sim.ChainCount{Count: n / 2, Chain: b})
+		err = sm.ReceiveChains(sim.ChainCount{Count: n / 2, Chain: a}, sim.ChainCount{Count: n / 2, Chain: b})
+		require.NoError(t, err)
 
-		require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
+		require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 		// Groups split 50/50 always decide the base.
 		expectRoundDecision(t, sm, 0, sm.Base.Head())
 	}
@@ -112,12 +129,14 @@ func TestAsyncHalves(t *testing.T) {
 	t.Parallel()
 	for n := 4; n <= 2; n += 2 {
 		for i := 0; i < ASYNC_ITERS; i++ {
-			sm := sim.NewSimulation(newAsyncConfig(n, i), GraniteConfig(), sim.TraceNone)
+			sm, err := sim.NewSimulation(newAsyncConfig(n, i), GraniteConfig(), sim.TraceNone)
+			require.NoError(t, err)
 			a := sm.Base.Extend(sm.CIDGen.Sample())
 			b := sm.Base.Extend(sm.CIDGen.Sample())
-			sm.ReceiveChains(sim.ChainCount{Count: n / 2, Chain: a}, sim.ChainCount{Count: n / 2, Chain: b})
+			err = sm.ReceiveChains(sim.ChainCount{Count: n / 2, Chain: a}, sim.ChainCount{Count: n / 2, Chain: b})
+			require.NoError(t, err)
 
-			require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
+			require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 			// Groups split 50/50 always decide the base.
 			expectRoundDecision(t, sm, 0, sm.Base.Head())
 		}
@@ -127,13 +146,15 @@ func TestAsyncHalves(t *testing.T) {
 func TestRequireStrongQuorumToProgress(t *testing.T) {
 	t.Parallel()
 	for i := 0; i < ASYNC_ITERS; i++ {
-		sm := sim.NewSimulation(newAsyncConfig(30, i), GraniteConfig(), sim.TraceNone)
+		sm, err := sim.NewSimulation(newAsyncConfig(30, i), GraniteConfig(), sim.TraceNone)
+		require.NoError(t, err)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		b := sm.Base.Extend(sm.CIDGen.Sample())
 		// No strict > quorum.
-		sm.ReceiveChains(sim.ChainCount{Count: 20, Chain: a}, sim.ChainCount{Count: 10, Chain: b})
+		err = sm.ReceiveChains(sim.ChainCount{Count: 20, Chain: a}, sim.ChainCount{Count: 10, Chain: b})
+		require.NoError(t, err)
 
-		require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
+		require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 		// Must decide base, but can't tell which round.
 		expectEventualDecision(t, sm, sm.Base.Head())
 	}

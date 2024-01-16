@@ -2,22 +2,25 @@ package test
 
 import (
 	"fmt"
+	"testing"
+
 	"github.com/filecoin-project/go-f3/adversary"
 	"github.com/filecoin-project/go-f3/f3"
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestWitholdCommit1(t *testing.T) {
 	i := 0
-	sm := sim.NewSimulation(sim.Config{
+	sm, err := sim.NewSimulation(sim.Config{
 		HonestCount: 7,
 		LatencySeed: int64(i),
 		LatencyMean: 0.01, // Near-synchrony
 	}, GraniteConfig(), sim.TraceNone)
+	require.NoError(t, err)
 	adv := adversary.NewWitholdCommit(99, sm.Network)
-	sm.SetAdversary(adv, 3) // Adversary has 30% of 10 total power.
+	err = sm.SetAdversary(adv, 3) // Adversary has 30% of 10 total power.
+	require.NoError(t, err)
 
 	a := sm.Base.Extend(sm.CIDGen.Sample())
 	b := sm.Base.Extend(sm.CIDGen.Sample())
@@ -30,14 +33,15 @@ func TestWitholdCommit1(t *testing.T) {
 	adv.SetVictim(victims, a)
 
 	adv.Begin()
-	sm.ReceiveChains(sim.ChainCount{Count: 4, Chain: a}, sim.ChainCount{Count: 3, Chain: b})
-	ok := sm.Run(MAX_ROUNDS)
-	if !ok {
+	err = sm.ReceiveChains(sim.ChainCount{Count: 4, Chain: a}, sim.ChainCount{Count: 3, Chain: b})
+	require.NoError(t, err)
+	err = sm.Run(MAX_ROUNDS)
+	if err != nil {
 		fmt.Printf("%s", sm.Describe())
 		sm.PrintResults()
 	}
 	// The adversary could convince the victim to decide a, so all must decide a.
-	require.True(t, ok)
+	require.NoError(t, err)
 	decision, _ := sm.Participants[0].Finalised()
 	require.Equal(t, *a.Head(), decision)
 }

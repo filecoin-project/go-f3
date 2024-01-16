@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/filecoin-project/go-f3/f3"
 	"sort"
 	"strings"
+
+	"github.com/filecoin-project/go-f3/f3"
 )
 
 type AdversaryReceiver interface {
@@ -156,7 +157,7 @@ func (n *Network) BroadcastSynchronous(sender f3.ActorID, msg f3.Message) {
 	}
 }
 
-func (n *Network) Tick(adv AdversaryReceiver) bool {
+func (n *Network) Tick(adv AdversaryReceiver) (bool, error) {
 	// Find first message the adversary will allow.
 	i := 0
 	if adv != nil && !n.globalStabilisationElapsed {
@@ -179,13 +180,19 @@ func (n *Network) Tick(adv AdversaryReceiver) bool {
 	payloadStr, ok := msg.payload.(string)
 	if ok && strings.HasPrefix(payloadStr, "ALARM:") {
 		n.log(TraceRecvd, "P%d %s", msg.source, payloadStr)
-		n.participants[msg.dest].ReceiveAlarm(strings.TrimPrefix(payloadStr, "ALARM:"))
+		err := n.participants[msg.dest].ReceiveAlarm(strings.TrimPrefix(payloadStr, "ALARM:"))
+		if err != nil {
+			return false, fmt.Errorf("failed receiving alarm: %w", err)
+		}
 	} else {
 		n.log(TraceRecvd, "P%d ← P%d: %v", msg.dest, msg.source, msg.payload)
 		gmsg := msg.payload.(f3.GMessage)
-		n.participants[msg.dest].ReceiveMessage(&gmsg)
+		err := n.participants[msg.dest].ReceiveMessage(&gmsg)
+		if err != nil {
+			return false, fmt.Errorf("error receiving message: %w", err)
+		}
 	}
-	return len(n.queue) > 0
+	return len(n.queue) > 0, nil
 }
 
 func (n *Network) log(level int, format string, args ...interface{}) {

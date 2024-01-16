@@ -120,9 +120,9 @@ func newInstance(
 	instanceID uint32,
 	input ECChain,
 	powerTable PowerTable,
-	beacon []byte) *instance {
+	beacon []byte) (*instance, error) {
 	if input.IsZero() {
-		panic("input is empty")
+		return nil, fmt.Errorf("input is empty")
 	}
 	return &instance{
 		config:        config,
@@ -143,7 +143,7 @@ func newInstance(
 		},
 		acceptable: input,
 		decision:   newQuorumState(powerTable),
-	}
+	}, nil
 }
 
 type roundState struct {
@@ -160,9 +160,9 @@ func newRoundState(powerTable PowerTable) *roundState {
 	}
 }
 
-func (i *instance) Start() {
+func (i *instance) Start() error {
 	i.beginQuality()
-	i.drainInbox()
+	return i.drainInbox()
 }
 
 // Receives a new acceptable chain and updates its current acceptable chain.
@@ -170,25 +170,28 @@ func (i *instance) receiveAcceptable(chain ECChain) {
 	i.acceptable = chain
 }
 
-func (i *instance) Receive(msg *GMessage) {
+func (i *instance) Receive(msg *GMessage) error {
 	if i.terminated() {
-		panic("received message after decision")
+		return fmt.Errorf("received message after decision")
 	}
 	if len(i.inbox) > 0 {
-		panic("received message while already processing inbox")
+		return fmt.Errorf("received message while already processing inbox")
 	}
 
 	// Enqueue the message for synchronous processing.
 	i.enqueueInbox(msg)
-	i.drainInbox()
+	return i.drainInbox()
 }
 
-func (i *instance) ReceiveAlarm(_ string) {
-	i.tryCompletePhase()
+func (i *instance) ReceiveAlarm(_ string) error {
+	err := i.tryCompletePhase()
+	if err != nil {
+		return fmt.Errorf("failed completing protocol phase: %w", err)
+	}
 
 	// A phase may have been successfully completed.
 	// Re-process any queued messages for the next phase.
-	i.drainInbox()
+	return i.drainInbox()
 }
 
 func (i *instance) Describe() string {
@@ -199,33 +202,38 @@ func (i *instance) enqueueInbox(msg *GMessage) {
 	i.inbox = append(i.inbox, msg)
 }
 
-func (i *instance) drainInbox() {
+func (i *instance) drainInbox() error {
 	for len(i.inbox) > 0 {
 		// Process one message.
 		// Note the message being processed is left in the inbox until after processing,
 		// as a signal that this loop is currently draining the inbox.
-		i.receiveOne(i.inbox[0])
+		err := i.receiveOne(i.inbox[0])
+		if err != nil {
+			return fmt.Errorf("failed receiving message: %w", err)
+		}
 		i.inbox = i.inbox[1:]
 	}
+
+	return nil
 }
 
 // Processes a single message.
-func (i *instance) receiveOne(msg *GMessage) {
+func (i *instance) receiveOne(msg *GMessage) error {
 	if i.phase == TERMINATED {
-		return // No-op
+		return nil // No-op
 	}
 
 	// Drop any messages that can never be valid.
 	if !i.isValid(msg) {
 		i.log("dropping invalid %s", msg)
-		return
+		return nil
 	}
 
 	if !i.isJustified(msg) {
 		// No implicit justification:
 		// if message not justified explicitly, then it will not be justified
 		i.log("dropping unjustified %s", msg)
-		return
+		return nil
 	}
 
 	round := i.roundState(msg.Round)
@@ -237,7 +245,9 @@ func (i *instance) receiveOne(msg *GMessage) {
 			i.quality.Receive(msg.Sender, prefix)
 		}
 	case CONVERGE:
-		round.converged.Receive(msg.Value, msg.Ticket)
+		if err := round.converged.Receive(msg.Value, msg.Ticket); err != nil {
+			return fmt.Errorf("failed processing CONVERGE message: %w", err)
+		}
 	case PREPARE:
 		round.prepared.Receive(msg.Sender, msg.Value)
 	case COMMIT:
@@ -254,28 +264,32 @@ func (i *instance) receiveOne(msg *GMessage) {
 	if msg.Step == COMMIT && i.phase != DECIDE {
 		i.tryCommit(msg.Round)
 	} else {
-		i.tryCompletePhase()
+		return i.tryCompletePhase()
 	}
+
+	return nil
 }
 
 // Attempts to complete the current phase and round.
-func (i *instance) tryCompletePhase() {
+func (i *instance) tryCompletePhase() error {
 	i.log("try step %s", i.phase)
 	switch i.phase {
 	case QUALITY:
-		i.tryQuality()
+		return i.tryQuality()
 	case CONVERGE:
-		i.tryConverge()
+		return i.tryConverge()
 	case PREPARE:
-		i.tryPrepare()
+		return i.tryPrepare()
 	case COMMIT:
 		i.tryCommit(i.round)
+		return nil
 	case DECIDE:
 		i.tryDecide()
+		return nil
 	case TERMINATED:
-		return // No-op
+		return nil // No-op
 	default:
-		panic(fmt.Sprintf("unexpected phase %s", i.phase))
+		return fmt.Errorf("unexpected phase %s", i.phase)
 	}
 }
 
@@ -327,9 +341,9 @@ func (i *instance) beginQuality() {
 
 // Attempts to end the QUALITY phase and begin PREPARE based on current state.
 // No-op if the current phase is not QUALITY.
-func (i *instance) tryQuality() {
+func (i *instance) tryQuality() error {
 	if i.phase != QUALITY {
-		panic(fmt.Sprintf("unexpected phase %s", i.phase))
+		return fmt.Errorf("unexpected phase %s", i.phase)
 	}
 	// Wait either for a strong quorum that agree on our proposal,
 	// or for the timeout to expire.
@@ -348,6 +362,8 @@ func (i *instance) tryQuality() {
 		i.log("adopting proposal/value %s", &i.proposal)
 		i.beginPrepare()
 	}
+
+	return nil
 }
 
 func (i *instance) beginConverge() {
@@ -359,18 +375,18 @@ func (i *instance) beginConverge() {
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
 // No-op if the current phase is not CONVERGE.
-func (i *instance) tryConverge() {
+func (i *instance) tryConverge() error {
 	if i.phase != CONVERGE {
-		panic(fmt.Sprintf("unexpected phase %s", i.phase))
+		return fmt.Errorf("unexpected phase %s", i.phase)
 	}
 	timeoutExpired := i.host.Time() >= i.phaseTimeout
 	if !timeoutExpired {
-		return
+		return nil
 	}
 
 	i.value = i.roundState(i.round).converged.findMinTicketProposal()
 	if i.value.IsZero() {
-		panic("no values at CONVERGE")
+		return fmt.Errorf("no values at CONVERGE")
 	}
 	if i.isAcceptable(i.value) {
 		// Sway to proposal if the value is acceptable.
@@ -383,6 +399,8 @@ func (i *instance) tryConverge() {
 		i.value = ECChain{}
 	}
 	i.beginPrepare()
+
+	return nil
 }
 
 // Sends this node's PREPARE message and begins the PREPARE phase.
@@ -395,9 +413,9 @@ func (i *instance) beginPrepare() {
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
 // No-op if the current phase is not PREPARE.
-func (i *instance) tryPrepare() {
+func (i *instance) tryPrepare() error {
 	if i.phase != PREPARE {
-		panic(fmt.Sprintf("unexpected phase %s", i.phase))
+		return fmt.Errorf("unexpected phase %s", i.phase)
 	}
 
 	prepared := i.roundState(i.round).prepared
@@ -414,6 +432,8 @@ func (i *instance) tryPrepare() {
 	if foundQuorum || timeoutExpired {
 		i.beginCommit()
 	}
+
+	return nil
 }
 
 func (i *instance) beginCommit() {
@@ -670,13 +690,15 @@ func newConvergeState() *convergeState {
 }
 
 // Receives a new CONVERGE value from a sender.
-func (c *convergeState) Receive(value ECChain, ticket Ticket) {
+func (c *convergeState) Receive(value ECChain, ticket Ticket) error {
 	if value.IsZero() {
-		panic("bottom cannot be justified for CONVERGE")
+		return fmt.Errorf("bottom cannot be justified for CONVERGE")
 	}
 	key := value.Head().CID
 	c.values[key] = value
 	c.tickets[key] = append(c.tickets[key], ticket)
+
+	return nil
 }
 
 func (c *convergeState) findMinTicketProposal() ECChain {

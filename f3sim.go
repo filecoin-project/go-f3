@@ -3,9 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"time"
+
 	"github.com/filecoin-project/go-f3/f3"
 	"github.com/filecoin-project/go-f3/sim"
-	"time"
 )
 
 func main() {
@@ -35,14 +36,20 @@ func main() {
 			Delta:     *graniteDelta,
 			DeltaRate: *graniteDeltaRate,
 		}
-		sm := sim.NewSimulation(simConfig, graniteConfig, *traceLevel)
+		sm, err := sim.NewSimulation(simConfig, graniteConfig, *traceLevel)
+		if err != nil {
+			panic(fmt.Errorf("failed creating new simulation: %w", err))
+		}
 
 		// Same chain for everyone.
 		candidate := sm.Base.Extend(sm.CIDGen.Sample())
-		sm.ReceiveChains(sim.ChainCount{Count: *participantCount, Chain: candidate})
+		err = sm.ReceiveChains(sim.ChainCount{Count: *participantCount, Chain: candidate})
+		if err != nil {
+			panic(err)
+		}
 
-		ok := sm.Run(uint32(*maxRounds))
-		if !ok {
+		err = sm.Run(uint32(*maxRounds))
+		if err != nil {
 			sm.PrintResults()
 		}
 	}

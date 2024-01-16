@@ -1,6 +1,7 @@
 package f3
 
 import (
+	"fmt"
 	"math/big"
 	"sort"
 )
@@ -49,7 +50,7 @@ func NewPowerTable(entries []PowerEntry) *PowerTable {
 
 // Add adds a new entry to the PowerTable.
 // This is linear in the table size, so adding many entries this way is inefficient.
-func (p *PowerTable) Add(id ActorID, power *StoragePower, pubKey []byte) {
+func (p *PowerTable) Add(id ActorID, power *StoragePower, pubKey []byte) error {
 	entry := PowerEntry{ID: id, Power: power, PubKey: pubKey}
 	index := sort.Search(len(p.Entries), func(i int) bool {
 		return comparePowerEntries(p.Entries[i], entry)
@@ -57,7 +58,7 @@ func (p *PowerTable) Add(id ActorID, power *StoragePower, pubKey []byte) {
 
 	// Check for duplication at the found index or adjacent entries
 	if index < len(p.Entries) && p.Entries[index].ID == id {
-		panic("duplicate power entry")
+		return fmt.Errorf("duplicate power entry")
 	}
 
 	p.Entries = append(p.Entries, PowerEntry{})
@@ -69,6 +70,8 @@ func (p *PowerTable) Add(id ActorID, power *StoragePower, pubKey []byte) {
 		p.Lookup[p.Entries[i].ID] = i
 	}
 	p.Total.Add(p.Total, power)
+
+	return nil
 }
 
 func (p *PowerTable) Get(id ActorID) (*StoragePower, []byte) {
