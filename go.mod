@@ -9,6 +9,7 @@ require (
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 <<<<<<< HEAD
+<<<<<<< HEAD
 	github.com/filecoin-project/go-bitfield v0.2.4 // indirect
 	github.com/filecoin-project/go-bitfield v0.2.4 // indirect
 	github.com/filecoin-project/go-bitfield v0.2.4 // indirect
@@ -22,6 +23,8 @@ require (
 	github.com/multiformats/go-multibase v0.0.1 // indirect
 	github.com/multiformats/go-multihash v0.0.13 // indirect
 	github.com/multiformats/go-varint v0.0.5 // indirect
+=======
+>>>>>>> 540a75e (Address comments III)
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
