@@ -361,20 +361,10 @@ func (i *instance) beginQuality() error {
 		return fmt.Errorf("cannot transition from %s to %s", i.phase, QUALITY_PHASE)
 	}
 	// Broadcast input value and wait up to Δ to receive from others.
-<<<<<<< HEAD
 	i.phase = QUALITY_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony(QUALITY_PHASE.String())
 	i.broadcast(i.round, QUALITY_PHASE, i.input, nil)
 	return nil
-=======
-	i.phase = QUALITY
-	i.phaseTimeout = i.alarmAfterSynchrony(QUALITY)
-<<<<<<< HEAD
-	i.broadcast(i.round, QUALITY, i.input, nil, AggEvidence{})
->>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
-=======
-	i.broadcast(i.round, QUALITY, i.input, nil)
->>>>>>> 9a3e132 (Address comments)
 }
 
 // Attempts to end the QUALITY phase and begin PREPARE based on current state.
@@ -406,17 +396,8 @@ func (i *instance) tryQuality() error {
 func (i *instance) beginConverge() {
 	i.phase = CONVERGE_PHASE
 	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
-<<<<<<< HEAD
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE_PHASE.String())
 	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, ticket)
-=======
-	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE)
-<<<<<<< HEAD
-	i.broadcast(i.round, CONVERGE, i.proposal, ticket, AggEvidence{})
->>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
-=======
-	i.broadcast(i.round, CONVERGE, i.proposal, ticket)
->>>>>>> 9a3e132 (Address comments)
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
@@ -451,19 +432,9 @@ func (i *instance) tryConverge() error {
 // Sends this node's PREPARE message and begins the PREPARE phase.
 func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
-<<<<<<< HEAD
 	i.phase = PREPARE_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE_PHASE.String())
 	i.broadcast(i.round, PREPARE_PHASE, i.value, nil)
-=======
-	i.phase = PREPARE
-	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
-<<<<<<< HEAD
-	i.broadcast(i.round, PREPARE, i.value, nil, AggEvidence{})
->>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
-=======
-	i.broadcast(i.round, PREPARE, i.value, nil)
->>>>>>> 9a3e132 (Address comments)
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -491,19 +462,9 @@ func (i *instance) tryPrepare() error {
 }
 
 func (i *instance) beginCommit() {
-<<<<<<< HEAD
 	i.phase = COMMIT_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE_PHASE.String())
 	i.broadcast(i.round, COMMIT_PHASE, i.value, nil)
-=======
-	i.phase = COMMIT
-	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
-<<<<<<< HEAD
-	i.broadcast(i.round, COMMIT, i.value, nil, AggEvidence{})
->>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
-=======
-	i.broadcast(i.round, COMMIT, i.value, nil)
->>>>>>> 9a3e132 (Address comments)
 }
 
 func (i *instance) tryCommit(round uint64) error {
@@ -544,17 +505,8 @@ func (i *instance) tryCommit(round uint64) error {
 }
 
 func (i *instance) beginDecide() {
-<<<<<<< HEAD
 	i.phase = DECIDE_PHASE
 	i.broadcast(0, DECIDE_PHASE, i.value, nil)
-=======
-	i.phase = DECIDE
-<<<<<<< HEAD
-	i.broadcast(0, DECIDE, i.value, nil, AggEvidence{})
->>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
-=======
-	i.broadcast(0, DECIDE, i.value, nil)
->>>>>>> 9a3e132 (Address comments)
 }
 
 func (i *instance) tryDecide() error {
@@ -601,6 +553,7 @@ func (i *instance) terminated() bool {
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Ticket) *GMessage {
 =======
 =======
@@ -617,6 +570,9 @@ func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ti
 func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ticket) *GMessage {
 >>>>>>> 9a3e132 (Address comments)
 >>>>>>> 902f1b3 (Address comments)
+=======
+func (i *instance) broadcast(round uint32, step Phase, value ECChain, ticket Ticket) *GMessage {
+>>>>>>> 5d427bf (Verify list of public keys when verifying aggregate)
 	payload := SignaturePayload(i.instanceID, round, step, value)
 	signature := i.host.Sign(i.participantID, payload)
 	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature}
