@@ -23,6 +23,7 @@ type PowerTable struct {
 
 // NewPowerTable creates a new PowerTable from a slice of PowerEntry .
 // It is more efficient than Add, as it only needs to sort the entries once.
+// Note that the function takes ownership of the slice - it must not be modified afterwards.
 func NewPowerTable(entries []PowerEntry) *PowerTable {
 	sort.Slice(entries, func(i, j int) bool {
 		return comparePowerEntries(entries[i], entries[j])

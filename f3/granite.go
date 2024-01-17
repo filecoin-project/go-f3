@@ -613,13 +613,7 @@ func (q *quorumState) HasAgreement() bool {
 
 // Checks whether at least one message has been received from a strong quorum of senders.
 func (q *quorumState) ReceivedFromStrongQuorum() bool {
-	two := NewStoragePower(2)
-	three := NewStoragePower(3)
-
-	threshold := new(StoragePower).Mul(q.powerTable.Total, two)
-	threshold.Div(threshold, three)
-
-	return q.sendersTotalPower.Cmp(threshold) > 0
+	return hasStrongQuorum(q.sendersTotalPower, q.powerTable.Total)
 }
 
 // Checks whether a chain (head) has reached a strong quorum.
