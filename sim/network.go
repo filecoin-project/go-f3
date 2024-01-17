@@ -183,6 +183,23 @@ func (n *Network) VerifyAggregate(payload, aggSig []byte, signers [][]byte) bool
 	// Calculate the expected length of each individual signature
 	signatureLength := 8 + len(payload) // 8 bytes for sender ID + length of message
 
+	// Extract pubkeys from signers slice and store them in a map
+	// This is used to ensure that all signers are accounted for
+	// (i.e. that the aggregate signature contains signatures from all signers)
+	signerPubKeys := make(map[f3.ActorID]struct{})
+	for _, s := range signers {
+		participantID, err := readParticipantID(s)
+		if err != nil {
+			n.log(n.traceLevel, fmt.Sprintf("Error in reading participant ID: %s", err))
+			return false // Error in reading participant ID.
+		}
+		signerPubKeys[f3.ActorID(participantID)] = struct{}{}
+	}
+
+	if len(signerPubKeys) != len(signers) {
+		return false // Duplicate signers
+	}
+
 	lastActorID := uint64(math.MaxUint64)
 	for {
 		// Read the signature corresponding to this sender ID.
@@ -217,6 +234,9 @@ func (n *Network) VerifyAggregate(payload, aggSig []byte, signers [][]byte) bool
 			return false // Signature verification failed.
 		}
 
+		if _, ok := signerPubKeys[actorID]; !ok {
+			return false // Signature from an unknown signer.
+		}
 		verifiedSigners[actorID] = struct{}{}
 	}
 
@@ -314,4 +334,28 @@ func (h *messageQueue) Remove(i int) messageInFlight {
 	copy((*h)[i:], (*h)[i+1:])
 	*h = (*h)[:len(*h)-1]
 	return v
+}
+
+///// Helpers /////
+
+// readParticipantID reads the participant ID from the given public key (only used by fake aggregation)
+func readParticipantID(pubkey []byte) (int64, error) {
+	// Read and discard the "PUBKEY:" prefix
+	buf := bytes.NewReader(pubkey)
+	prefix := make([]byte, 7)
+	if _, err := io.ReadFull(buf, prefix); err != nil {
+		return 0, err
+	}
+
+	if string(prefix) != "PUBKEY:" {
+		return 0, fmt.Errorf("Invalid prefix. Expected 'PUBKEY:'")
+	}
+
+	// Read the participant ID
+	var participantID int64
+	if err := binary.Read(buf, binary.BigEndian, &participantID); err != nil {
+		return 0, err
+	}
+
+	return participantID, nil
 }

@@ -41,10 +41,7 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 	for i := 0; i < len(participants); i++ {
 		participants[i] = f3.NewParticipant(f3.ActorID(i), graniteConfig, ntwk, vrf)
 		ntwk.AddParticipant(participants[i])
-		var buf bytes.Buffer
-		buf.WriteString("PUBKEY:")
-		_ = binary.Write(&buf, binary.BigEndian, participants[i].ID())
-		if err := genesisPower.Add(participants[i].ID(), f3.NewStoragePower(1), buf.Bytes()); err != nil {
+		if err := genesisPower.Add(participants[i].ID(), f3.NewStoragePower(1), getFakePubKey(participants[i].ID())); err != nil {
 			panic(fmt.Errorf("failed adding participant to power table: %w", err))
 		}
 	}
@@ -70,7 +67,7 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 func (s *Simulation) SetAdversary(adv AdversaryReceiver, power uint) {
 	s.Adversary = adv
 	s.Network.AddParticipant(adv)
-	if err := s.PowerTable.Add(adv.ID(), f3.NewStoragePower(int64(power)), make([]byte, 0)); err != nil {
+	if err := s.PowerTable.Add(adv.ID(), f3.NewStoragePower(int64(power)), getFakePubKey(adv.ID())); err != nil {
 		panic(err)
 	}
 }
@@ -202,3 +199,10 @@ func (c *CIDGen) next() uint64 {
 }
 
 var alphanum = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+
+func getFakePubKey(id f3.ActorID) []byte {
+	var buf bytes.Buffer
+	buf.WriteString("PUBKEY:")
+	_ = binary.Write(&buf, binary.BigEndian, id)
+	return buf.Bytes()
+}
