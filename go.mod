@@ -3,7 +3,6 @@ module github.com/filecoin-project/go-f3
 go 1.20
 
 require (
-	github.com/filecoin-project/go-bitfield v0.2.4
 	github.com/stretchr/testify v1.8.4
 )
 
