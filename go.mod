@@ -8,6 +8,14 @@ require (
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+	github.com/filecoin-project/go-bitfield v0.2.4 // indirect
+=======
+>>>>>>> f3066c4 (Add AggEvidence type)
+>>>>>>> 7f32a5a (Address comments III)
 	github.com/ipfs/go-cid v0.0.5 // indirect
 	github.com/minio/blake2b-simd v0.0.0-20160723061019-3f5f724cb5b1 // indirect
 	github.com/minio/sha256-simd v0.1.1-0.20190913151208-6de447530771 // indirect
@@ -16,6 +24,8 @@ require (
 	github.com/multiformats/go-multibase v0.0.1 // indirect
 	github.com/multiformats/go-multihash v0.0.13 // indirect
 	github.com/multiformats/go-varint v0.0.5 // indirect
+=======
+>>>>>>> 540a75e (Address comments III)
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
