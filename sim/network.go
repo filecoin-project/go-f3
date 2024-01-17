@@ -291,3 +291,27 @@ func (h *messageQueue) Remove(i int) messageInFlight {
 	*h = (*h)[:len(*h)-1]
 	return v
 }
+
+///// Helpers /////
+
+// readParticipantID reads the participant ID from the given public key (only used by fake aggregation)
+func readParticipantID(pubkey []byte) (int64, error) {
+	// Read and discard the "PUBKEY:" prefix
+	buf := bytes.NewReader(pubkey)
+	prefix := make([]byte, 7)
+	if _, err := io.ReadFull(buf, prefix); err != nil {
+		return 0, err
+	}
+
+	if string(prefix) != "PUBKEY:" {
+		return 0, fmt.Errorf("Invalid prefix. Expected 'PUBKEY:'")
+	}
+
+	// Read the participant ID
+	var participantID int64
+	if err := binary.Read(buf, binary.BigEndian, &participantID); err != nil {
+		return 0, err
+	}
+
+	return participantID, nil
+}
