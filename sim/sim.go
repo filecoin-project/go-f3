@@ -1,6 +1,8 @@
 package sim
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"github.com/filecoin-project/go-f3/f3"
 	"strings"
@@ -38,7 +40,10 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 	for i := 0; i < len(participants); i++ {
 		participants[i] = f3.NewParticipant(f3.ActorID(i), graniteConfig, ntwk, vrf)
 		ntwk.AddParticipant(participants[i])
-		genesisPower.Add(participants[i].ID(), f3.NewStoragePower(1), make([]byte, 0))
+		var buf bytes.Buffer
+		buf.WriteString("PUBKEY:")
+		_ = binary.Write(&buf, binary.BigEndian, participants[i].ID())
+		genesisPower.Add(participants[i].ID(), f3.NewStoragePower(1), buf.Bytes())
 	}
 
 	// Create genesis tipset, which all participants are expected to agree on as a base.

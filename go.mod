@@ -2,6 +2,7 @@ module github.com/filecoin-project/go-f3
 
 go 1.20
 
+require github.com/stretchr/testify v1.8.4
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -14,6 +15,5 @@ require (
 	github.com/multiformats/go-multihash v0.0.13 // indirect
 	github.com/multiformats/go-varint v0.0.5 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/stretchr/testify v1.8.4 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

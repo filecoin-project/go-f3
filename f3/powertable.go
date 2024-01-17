@@ -1,6 +1,7 @@
 package f3
 
 import (
+	"math/big"
 	"sort"
 )
 
@@ -24,8 +25,7 @@ type PowerTable struct {
 // It is more efficient than Add, as it only needs to sort the entries once.
 func NewPowerTable(entries []PowerEntry) *PowerTable {
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Power.Cmp(entries[j].Power) > 0 ||
-			(entries[i].Power.Cmp(entries[j].Power) == 0 && entries[i].ID < entries[j].ID)
+		return comparePowerEntries(entries[i], entries[j])
 	})
 
 	lookup := make(map[ActorID]int, len(entries))
@@ -33,6 +33,10 @@ func NewPowerTable(entries []PowerEntry) *PowerTable {
 	for i, entry := range entries {
 		lookup[entry.ID] = i
 		total.Add(total, entry.Power)
+	}
+
+	if len(entries) != len(lookup) {
+		panic("duplicate power entries")
 	}
 
 	return &PowerTable{
@@ -47,12 +51,11 @@ func NewPowerTable(entries []PowerEntry) *PowerTable {
 func (p *PowerTable) Add(id ActorID, power *StoragePower, pubKey []byte) {
 	entry := PowerEntry{ID: id, Power: power, PubKey: pubKey}
 	index := sort.Search(len(p.Entries), func(i int) bool {
-		return p.Entries[i].Power.Cmp(power) > 0 ||
-			(p.Entries[i].Power.Cmp(power) == 0 && p.Entries[i].ID < id)
+		return comparePowerEntries(p.Entries[i], entry)
 	})
 
 	// Check for duplication at the found index or adjacent entries
-	if index < len(p.Entries) && (p.Entries[index].ID == id || (index > 0 && p.Entries[index-1].ID == id)) {
+	if index < len(p.Entries) && p.Entries[index].ID == id {
 		panic("duplicate power entry")
 	}
 
@@ -67,9 +70,32 @@ func (p *PowerTable) Add(id ActorID, power *StoragePower, pubKey []byte) {
 	p.Total.Add(p.Total, power)
 }
 
-func (p *PowerTable) Get(id ActorID) (*StoragePower, []byte, bool) {
+func (p *PowerTable) Get(id ActorID) (*StoragePower, []byte) {
 	if index, ok := p.Lookup[id]; ok {
-		return p.Entries[index].Power.Copy(), p.Entries[index].PubKey, true
+		powerCopy := new(big.Int)
+		powerCopy.Set(p.Entries[index].Power)
+		return powerCopy, p.Entries[index].PubKey
 	}
-	return nil, nil, false
+	return nil, nil
+}
+
+// Has returns true iff the ActorID is part of the power table with positive power
+func (p *PowerTable) Has(id ActorID) bool {
+	index, ok := p.Lookup[id]
+	return ok && p.Entries[index].Power.Cmp(NewStoragePower(0)) > 0
+}
+
+///// General helpers /////
+
+// comparePowerEntries compares two PowerEntry elements.
+// It returns true if the first entry should be sorted before the second.
+func comparePowerEntries(a, b PowerEntry) bool {
+	cmp := a.Power.Cmp(b.Power)
+	if cmp > 0 {
+		return true
+	}
+	if cmp == 0 {
+		return a.ID < b.ID
+	}
+	return false
 }

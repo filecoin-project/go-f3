@@ -7,42 +7,11 @@ import (
 
 type ActorID uint64
 
-type StoragePower big.Int
+type StoragePower = big.Int
 
 // Creates a new StoragePower struct with a specific value and returns the result
 func NewStoragePower(value int64) *StoragePower {
-	return (*StoragePower)(new(big.Int).SetInt64(value))
-}
-
-// Add sets sp to the sum x+y and returns sp.
-func (sp *StoragePower) Add(x, y *StoragePower) *StoragePower {
-	return (*StoragePower)((*big.Int)(sp).Add((*big.Int)(x), (*big.Int)(y)))
-}
-
-// Mul sets z to the product of x and y and returns z.
-func (z *StoragePower) Mul(x, y *StoragePower) *StoragePower {
-	return (*StoragePower)((*big.Int)(z).Mul((*big.Int)(x), (*big.Int)(y)))
-}
-
-// Div sets z to the quotient x/y and returns z.
-func (z *StoragePower) Div(x, y *StoragePower) *StoragePower {
-	return (*StoragePower)((*big.Int)(z).Div((*big.Int)(x), (*big.Int)(y)))
-}
-
-// Copy creates a new StoragePower with the same value as the original.
-func (sp StoragePower) Copy() *StoragePower {
-	var copy StoragePower
-	(*big.Int)(&copy).Set((*big.Int)(&sp))
-	return &copy
-}
-
-// Cmp compares sp with other and returns:
-// -1 if sp <  other
-//
-//	0 if sp == other
-//	1 if sp >  other
-func (sp *StoragePower) Cmp(other *StoragePower) int {
-	return (*big.Int)(sp).Cmp((*big.Int)(other))
+	return new(big.Int).SetInt64(value)
 }
 
 // Opaque type identifying a tipset.

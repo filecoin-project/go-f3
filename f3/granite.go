@@ -276,6 +276,10 @@ func (i *instance) tryCompletePhase() {
 // Checks whether a message is valid.
 // An invalid message can never become valid, so may be dropped.
 func (i *instance) isValid(msg *GMessage) bool {
+	if !i.powerTable.Has(msg.Sender) {
+		i.log("sender with zero power or not in power table")
+		return false
+	}
 	if !(msg.Value.IsZero() || msg.Value.HasBase(i.input.Base())) {
 		i.log("unexpected base %s", &msg.Value)
 		return false
@@ -520,7 +524,7 @@ type quorumState struct {
 	// The power supporting each chain so far.
 	chainPower map[TipSetID]chainPower
 	// Total power of all distinct senders from which some chain has been received so far.
-	sendersTotalPower StoragePower
+	sendersTotalPower *StoragePower
 	// Table of senders' power.
 	powerTable PowerTable
 }
@@ -544,7 +548,7 @@ func newQuorumState(powerTable PowerTable) *quorumState {
 	return &quorumState{
 		received:          map[ActorID]senderSent{},
 		chainPower:        map[TipSetID]chainPower{},
-		sendersTotalPower: *NewStoragePower(0),
+		sendersTotalPower: NewStoragePower(0),
 		powerTable:        powerTable,
 	}
 }
@@ -563,13 +567,13 @@ func (q *quorumState) Receive(sender ActorID, value ECChain) {
 		fromSender.heads = append(fromSender.heads, head)
 	} else {
 		// Add sender's power to total the first time a value is received from them.
-		senderPower, _, _ := q.powerTable.Get(sender)
-		q.sendersTotalPower.Add(&q.sendersTotalPower, senderPower)
+		senderPower, _ := q.powerTable.Get(sender)
+		q.sendersTotalPower.Add(q.sendersTotalPower, senderPower)
 		fromSender = senderSent{[]TipSetID{head}, senderPower}
 	}
 	q.received[sender] = fromSender
 
-	power, _, _ := q.powerTable.Get(sender)
+	power, _ := q.powerTable.Get(sender)
 	candidate := chainPower{
 		chain:           value,
 		power:           power,
@@ -580,21 +584,8 @@ func (q *quorumState) Receive(sender ActorID, value ECChain) {
 		candidate.power.Add(candidate.power, found.power)
 	}
 
-	two := NewStoragePower(2)
-	three := NewStoragePower(3)
-
-	strongThreshold := new(StoragePower).Mul(q.powerTable.Total, two)
-	strongThreshold.Div(strongThreshold, three)
-	if candidate.power.Cmp(strongThreshold) > 0 {
-		candidate.hasStrongQuorum = true
-	}
-
-	one := NewStoragePower(1)
-	weakThreshold := new(StoragePower).Mul(q.powerTable.Total, one)
-	weakThreshold.Div(weakThreshold, three)
-	if candidate.power.Cmp(weakThreshold) > 0 {
-		candidate.hasWeakQuorum = true
-	}
+	candidate.hasStrongQuorum = hasStrongQuorum(candidate.power, q.powerTable.Total)
+	candidate.hasWeakQuorum = hasWeakQuorum(candidate.power, q.powerTable.Total)
 
 	q.chainPower[head] = candidate
 }
@@ -722,4 +713,22 @@ func sortByWeight(chains []ECChain) {
 		hj := chains[j].Head()
 		return hi.Compare(hj) > 0
 	})
+}
+
+// Check whether a portion of storage power is a strong quorum of the total
+func hasStrongQuorum(part, total *StoragePower) bool {
+	two := NewStoragePower(2)
+	three := NewStoragePower(3)
+
+	strongThreshold := new(StoragePower).Mul(total, two)
+	strongThreshold.Div(strongThreshold, three)
+	return part.Cmp(strongThreshold) > 0
+}
+
+// Check whether a portion of storage power is a weak quorum of the total
+func hasWeakQuorum(part, total *StoragePower) bool {
+	three := NewStoragePower(3)
+
+	weakThreshold := new(StoragePower).Div(total, three)
+	return part.Cmp(weakThreshold) > 0
 }
