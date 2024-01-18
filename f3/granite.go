@@ -656,7 +656,7 @@ func (i *instance) isJustified(msg *GMessage) bool {
 
 		payload := SignaturePayload(i.instanceID, prevRound, msg.Justification.Step, msg.Justification.Value)
 		signers := make([]PubKey, 0)
-		msg.Justification.Signers.ForEach(func(bit uint64) error {
+		if err := msg.Justification.Signers.ForEach(func(bit uint64) error {
 			if int(bit) >= len(i.powerTable.Entries) {
 				return nil //TODO handle error
 			}
@@ -830,7 +830,7 @@ func (i *instance) beginConverge() {
 		signatures := prevRoundState.committed.getSignatures(value, signers)
 		aggSignature := make([]byte, 0)
 		for _, sig := range signatures {
-			aggSignature = i.host.Aggregate(sig, aggSignature)
+			aggSignature = i.host.Aggregate([][]byte{sig}, aggSignature)
 		}
 		justification = Justification{
 			Instance:  i.instanceID,
@@ -846,7 +846,7 @@ func (i *instance) beginConverge() {
 		signatures := prevRoundState.prepared.getSignatures(value, signers)
 		aggSignature := make([]byte, 0)
 		for _, sig := range signatures {
-			aggSignature = i.host.Aggregate(sig, aggSignature)
+			aggSignature = i.host.Aggregate([][]byte{sig}, aggSignature)
 		}
 
 		justification = Justification{
@@ -977,7 +977,7 @@ func (i *instance) beginCommit() {
 	signatures := i.roundState(i.round).prepared.getSignatures(i.value, signers)
 	aggSignature := make([]byte, 0)
 	for _, sig := range signatures {
-		aggSignature = i.host.Aggregate(sig, aggSignature)
+		aggSignature = i.host.Aggregate([][]byte{sig}, aggSignature)
 	}
 	justification := Justification{
 		Instance:  i.instanceID,
