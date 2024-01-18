@@ -2,11 +2,12 @@ package test
 
 import (
 	"fmt"
+	"testing"
+
 	"github.com/filecoin-project/go-f3/adversary"
 	"github.com/filecoin-project/go-f3/f3"
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestWitholdCommit1(t *testing.T) {
@@ -31,13 +32,13 @@ func TestWitholdCommit1(t *testing.T) {
 
 	adv.Begin()
 	sm.ReceiveChains(sim.ChainCount{Count: 4, Chain: a}, sim.ChainCount{Count: 3, Chain: b})
-	ok := sm.Run(MAX_ROUNDS)
-	if !ok {
+	err := sm.Run(MAX_ROUNDS)
+	if err != nil {
 		fmt.Printf("%s", sm.Describe())
 		sm.PrintResults()
 	}
 	// The adversary could convince the victim to decide a, so all must decide a.
-	require.True(t, ok)
+	require.NoError(t, err)
 	decision, _ := sm.Participants[0].Finalised()
 	require.Equal(t, *a.Head(), decision)
 }

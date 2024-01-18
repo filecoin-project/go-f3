@@ -3,9 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"time"
+
 	"github.com/filecoin-project/go-f3/f3"
 	"github.com/filecoin-project/go-f3/sim"
-	"time"
 )
 
 func main() {
@@ -41,8 +42,8 @@ func main() {
 		candidate := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{Count: *participantCount, Chain: candidate})
 
-		ok := sm.Run(uint32(*maxRounds))
-		if !ok {
+		err := sm.Run(uint32(*maxRounds))
+		if err != nil {
 			sm.PrintResults()
 		}
 	}

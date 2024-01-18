@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/filecoin-project/go-f3/f3"
 	"sort"
 	"strings"
+
+	"github.com/filecoin-project/go-f3/f3"
 )
 
 type AdversaryReceiver interface {
@@ -108,8 +109,7 @@ func (n *Network) Sign(sender f3.ActorID, msg []byte) []byte {
 	// Fake implementation.
 	// Just prepends 8-byte sender ID to message.
 	buf := new(bytes.Buffer)
-	err := binary.Write(buf, binary.BigEndian, sender)
-	if err != nil {
+	if err := binary.Write(buf, binary.BigEndian, sender); err != nil {
 		panic(err)
 	}
 	return append(buf.Bytes(), msg...)
@@ -121,8 +121,7 @@ func (n *Network) Verify(sender f3.ActorID, msg, sig []byte) bool {
 	// and remaining bytes match message.
 	buf := bytes.NewReader(sig)
 	var recoveredSender uint64
-	err := binary.Read(buf, binary.BigEndian, &recoveredSender)
-	if err != nil {
+	if err := binary.Read(buf, binary.BigEndian, &recoveredSender); err != nil {
 		return false
 	}
 	remainingBytes := sig[8:]
@@ -156,7 +155,7 @@ func (n *Network) BroadcastSynchronous(sender f3.ActorID, msg f3.Message) {
 	}
 }
 
-func (n *Network) Tick(adv AdversaryReceiver) bool {
+func (n *Network) Tick(adv AdversaryReceiver) (bool, error) {
 	// Find first message the adversary will allow.
 	i := 0
 	if adv != nil && !n.globalStabilisationElapsed {
@@ -179,13 +178,17 @@ func (n *Network) Tick(adv AdversaryReceiver) bool {
 	payloadStr, ok := msg.payload.(string)
 	if ok && strings.HasPrefix(payloadStr, "ALARM:") {
 		n.log(TraceRecvd, "P%d %s", msg.source, payloadStr)
-		n.participants[msg.dest].ReceiveAlarm(strings.TrimPrefix(payloadStr, "ALARM:"))
+		if err := n.participants[msg.dest].ReceiveAlarm(strings.TrimPrefix(payloadStr, "ALARM:")); err != nil {
+			return false, fmt.Errorf("failed receiving alarm: %w", err)
+		}
 	} else {
 		n.log(TraceRecvd, "P%d ← P%d: %v", msg.dest, msg.source, msg.payload)
 		gmsg := msg.payload.(f3.GMessage)
-		n.participants[msg.dest].ReceiveMessage(&gmsg)
+		if err := n.participants[msg.dest].ReceiveMessage(&gmsg); err != nil {
+			return false, fmt.Errorf("error receiving message: %w", err)
+		}
 	}
-	return len(n.queue) > 0
+	return len(n.queue) > 0, nil
 }
 
 func (n *Network) log(level int, format string, args ...interface{}) {

@@ -1,5 +1,7 @@
 package f3
 
+import "fmt"
+
 // An F3 participant runs repeated instances of Granite to finalise longer chains.
 type Participant struct {
 	id     ActorID
@@ -40,41 +42,54 @@ func (p *Participant) Finalised() (TipSet, uint32) {
 
 // Receives a new canonical EC chain for the instance.
 // This becomes the instance's preferred value to finalise.
-func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, beacon []byte) {
+func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, beacon []byte) error {
 	p.nextChain = chain
 	if p.granite == nil {
-		p.granite = newInstance(p.config, p.host, p.vrf, p.id, p.nextInstance, chain, power, beacon)
+		var err error
+		p.granite, err = newInstance(p.config, p.host, p.vrf, p.id, p.nextInstance, chain, power, beacon)
+		if err != nil {
+			return fmt.Errorf("failed creating new granite instance: %w", err)
+		}
 		p.nextInstance += 1
-		p.granite.Start()
+		return p.granite.Start()
 	}
+	return nil
 }
 
 // Receives a new EC chain, and notifies the current instance if it extends its current acceptable chain.
 // This modifies the set of valid values for the current instance.
-func (p *Participant) ReceiveECChain(chain ECChain) {
+func (p *Participant) ReceiveECChain(chain ECChain) error {
 	if p.granite != nil && chain.HasPrefix(p.granite.acceptable) {
 		p.granite.receiveAcceptable(chain)
 	}
+	return nil
 }
 
 // Receives a Granite message from some other participant.
 // The message is delivered to the Granite instance if it is for the current instance.
-func (p *Participant) ReceiveMessage(msg *GMessage) {
+func (p *Participant) ReceiveMessage(msg *GMessage) error {
 	if p.granite != nil && msg.Instance == p.granite.instanceID {
-		p.granite.Receive(msg)
+		if err := p.granite.Receive(msg); err != nil {
+			return fmt.Errorf("error receiving message: %w", err)
+		}
 		p.handleDecision()
 	} else if msg.Instance >= p.nextInstance {
 		// Queue messages for later instances
 		p.mpool = append(p.mpool, msg)
 	}
+
+	return nil
 }
 
-func (p *Participant) ReceiveAlarm(payload string) {
+func (p *Participant) ReceiveAlarm(payload string) error {
 	// TODO include instance ID in alarm message, and filter here.
 	if p.granite != nil {
-		p.granite.ReceiveAlarm(payload)
+		if err := p.granite.ReceiveAlarm(payload); err != nil {
+			return fmt.Errorf("failed receiving alarm: %w", err)
+		}
 		p.handleDecision()
 	}
+	return nil
 }
 
 func (p *Participant) handleDecision() {

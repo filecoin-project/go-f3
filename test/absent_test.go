@@ -1,10 +1,11 @@
 package test
 
 import (
+	"testing"
+
 	"github.com/filecoin-project/go-f3/adversary"
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestAbsent(t *testing.T) {
@@ -21,6 +22,6 @@ func TestAbsent(t *testing.T) {
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
-		require.True(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
+		require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 	}
 }

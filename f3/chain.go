@@ -1,6 +1,7 @@
 package f3
 
 import (
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -58,15 +59,15 @@ func (t *TipSet) String() string {
 type ECChain []TipSet
 
 // Creates a new chain.
-func NewChain(base TipSet, suffix ...TipSet) ECChain {
+func NewChain(base TipSet, suffix ...TipSet) (ECChain, error) {
 	epoch := base.Epoch
 	for _, t := range suffix {
 		if t.Epoch <= epoch {
-			panic("tipsets not in order")
+			return nil, fmt.Errorf("tipsets not in order")
 		}
 		epoch = t.Epoch
 	}
-	return append([]TipSet{base}, suffix...)
+	return append([]TipSet{base}, suffix...), nil
 }
 
 func (c ECChain) IsZero() bool {

@@ -33,16 +33,20 @@ func (w *WitholdCommit) ID() f3.ActorID {
 	return w.id
 }
 
-func (w *WitholdCommit) ReceiveCanonicalChain(_ f3.ECChain, _ f3.PowerTable, _ []byte) {
+func (w *WitholdCommit) ReceiveCanonicalChain(_ f3.ECChain, _ f3.PowerTable, _ []byte) error {
+	return nil
 }
 
-func (w *WitholdCommit) ReceiveECChain(_ f3.ECChain) {
+func (w *WitholdCommit) ReceiveECChain(_ f3.ECChain) error {
+	return nil
 }
 
-func (w *WitholdCommit) ReceiveMessage(_ *f3.GMessage) {
+func (w *WitholdCommit) ReceiveMessage(_ *f3.GMessage) error {
+	return nil
 }
 
-func (w *WitholdCommit) ReceiveAlarm(_ string) {
+func (w *WitholdCommit) ReceiveAlarm(_ string) error {
+	return nil
 }
 
 func (w *WitholdCommit) Begin() {

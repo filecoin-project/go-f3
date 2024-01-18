@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/filecoin-project/go-f3/f3"
 	"strings"
+
+	"github.com/filecoin-project/go-f3/f3"
 )
 
 type Config struct {
@@ -43,12 +44,18 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 		var buf bytes.Buffer
 		buf.WriteString("PUBKEY:")
 		_ = binary.Write(&buf, binary.BigEndian, participants[i].ID())
-		genesisPower.Add(participants[i].ID(), f3.NewStoragePower(1), buf.Bytes())
+		if err := genesisPower.Add(participants[i].ID(), f3.NewStoragePower(1), buf.Bytes()); err != nil {
+			panic(fmt.Errorf("failed adding participant to power table: %w", err))
+		}
 	}
 
 	// Create genesis tipset, which all participants are expected to agree on as a base.
 	genesis := f3.NewTipSet(100, f3.NewTipSetIDFromString("genesis"), 1)
-	baseChain := f3.NewChain(genesis)
+	baseChain, err := f3.NewChain(genesis)
+	if err != nil {
+		panic(fmt.Errorf("failed creating new chain: %w", err))
+	}
+
 	return &Simulation{
 		Network:      ntwk,
 		Base:         baseChain,
@@ -63,7 +70,9 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 func (s *Simulation) SetAdversary(adv AdversaryReceiver, power uint) {
 	s.Adversary = adv
 	s.Network.AddParticipant(adv)
-	s.PowerTable.Add(adv.ID(), f3.NewStoragePower(int64(power)), make([]byte, 0))
+	if err := s.PowerTable.Add(adv.ID(), f3.NewStoragePower(int64(power)), make([]byte, 0)); err != nil {
+		panic(err)
+	}
 }
 
 type ChainCount struct {
@@ -76,12 +85,14 @@ func (s *Simulation) ReceiveChains(chains ...ChainCount) {
 	pidx := 0
 	for _, chain := range chains {
 		for i := 0; i < chain.Count; i++ {
-			s.Participants[pidx].ReceiveCanonicalChain(chain.Chain, s.PowerTable, s.Beacon)
+			if err := s.Participants[pidx].ReceiveCanonicalChain(chain.Chain, s.PowerTable, s.Beacon); err != nil {
+				panic(fmt.Errorf("participant %d failed receiving canonical chain %d: %w", pidx, i, err))
+			}
 			pidx += 1
 		}
 	}
 	if pidx != len(s.Participants) {
-		panic(fmt.Sprintf("%d participants but %d chains", len(s.Participants), pidx))
+		panic(fmt.Errorf("%d participants but %d chains", len(s.Participants), pidx))
 	}
 }
 
@@ -90,34 +101,41 @@ func (s *Simulation) ReceiveECChains(chains ...ChainCount) {
 	pidx := 0
 	for _, chain := range chains {
 		for i := 0; i < chain.Count; i++ {
-			s.Participants[pidx].ReceiveECChain(chain.Chain)
+			if err := s.Participants[pidx].ReceiveECChain(chain.Chain); err != nil {
+				panic(err)
+			}
 			pidx += 1
 		}
 	}
 	if pidx != len(s.Participants) {
-		panic(fmt.Sprintf("%d participants but %d chains", len(s.Participants), pidx))
+		panic(fmt.Errorf("%d participants but %d chains", len(s.Participants), pidx))
 	}
 }
 
 // Runs simulation, and returns whether all participants decided on the same value.
-func (s *Simulation) Run(maxRounds uint32) bool {
+func (s *Simulation) Run(maxRounds uint32) error {
+	var err error
+	var moreTicks bool
 	// Run until there are no more messages, meaning termination or deadlock.
-	for s.Network.Tick(s.Adversary) && s.Participants[0].CurrentRound() <= maxRounds {
+	for moreTicks, err = s.Network.Tick(s.Adversary); err == nil && moreTicks && s.Participants[0].CurrentRound() <= maxRounds; moreTicks, err = s.Network.Tick(s.Adversary) {
+	}
+	if err != nil {
+		return fmt.Errorf("error performing simulation step: %w", err)
 	}
 	if s.Participants[0].CurrentRound() >= maxRounds {
-		return false
+		return fmt.Errorf("reached maximum number of %d rounds", maxRounds)
 	}
 	first, _ := s.Participants[0].Finalised()
-	for _, p := range s.Participants {
+	for i, p := range s.Participants {
 		f, _ := p.Finalised()
 		if f.Eq(&f3.TipSet{}) {
-			return false
+			return fmt.Errorf("participant %d finalized empty tipset", i)
 		}
 		if !f.Eq(&first) {
-			return false
+			return fmt.Errorf("finalized tipset mismatch between first participant and participant %d", i)
 		}
 	}
-	return true
+	return nil
 }
 
 func (s *Simulation) PrintResults() {

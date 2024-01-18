@@ -4,11 +4,11 @@ package f3
 type ChainReceiver interface {
 	// Receives a chain appropriate for use as initial proposals for a Granite instance.
 	// The chain's base is assumed to be an appropriate base for the instance.
-	ReceiveCanonicalChain(chain ECChain, power PowerTable, beacon []byte)
+	ReceiveCanonicalChain(chain ECChain, power PowerTable, beacon []byte) error
 
 	// Receives a new EC chain, and notifies the current instance if it extends its current acceptable chain.
 	// This modifies the set of valid values for the current instance.
-	ReceiveECChain(chain ECChain)
+	ReceiveECChain(chain ECChain) error
 }
 
 // A consensus message.
@@ -19,8 +19,8 @@ type Message interface{}
 type MessageReceiver interface {
 	// Receives a message from another participant.
 	// No validation may be assumed to have been performed on the message.
-	ReceiveMessage(msg *GMessage)
-	ReceiveAlarm(payload string)
+	ReceiveMessage(msg *GMessage) error
+	ReceiveAlarm(payload string) error
 }
 
 // Interface which network participants must implement.
