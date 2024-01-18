@@ -19,12 +19,38 @@ type VRFer interface {
 	VRFTicketVerifier
 }
 
-const QUALITY = "QUALITY"
-const CONVERGE = "CONVERGE"
-const PREPARE = "PREPARE"
-const COMMIT = "COMMIT"
-const DECIDE = "DECIDE"
-const TERMINATED = "TERMINATED"
+type Phase uint8
+
+const (
+	INITIAL_PHASE Phase = iota
+	QUALITY_PHASE
+	CONVERGE_PHASE
+	PREPARE_PHASE
+	COMMIT_PHASE
+	DECIDE_PHASE
+	TERMINATED_PHASE
+)
+
+func (p Phase) String() string {
+	switch p {
+	case INITIAL_PHASE:
+		return "INITIAL"
+	case QUALITY_PHASE:
+		return "QUALITY"
+	case CONVERGE_PHASE:
+		return "CONVERGE"
+	case PREPARE_PHASE:
+		return "PREPARE"
+	case COMMIT_PHASE:
+		return "COMMIT"
+	case DECIDE_PHASE:
+		return "DECIDE"
+	case TERMINATED_PHASE:
+		return "TERMINATED"
+	default:
+		return "UNKNOWN"
+	}
+}
 
 const DOMAIN_SEPARATION_TAG = "GPBFT"
 
@@ -41,8 +67,8 @@ type GMessage struct {
 	Instance uint32
 	// GossiPBFT round number.
 	Round uint32
-	// GossiPBFT step name.
-	Step string
+	// GossiPBFT step.
+	Step Phase
 	// Chain of tipsets proposed/voted for finalisation.
 	// Always non-empty; the first entry is the base tipset finalised in the previous instance.
 	Value ECChain
@@ -58,12 +84,12 @@ func (m GMessage) String() string {
 }
 
 // Computes the payload for a GMessage signature.
-func SignaturePayload(instance uint32, round uint32, step string, value ECChain) []byte {
+func SignaturePayload(instance uint32, round uint32, step Phase, value ECChain) []byte {
 	var buf bytes.Buffer
 	buf.WriteString(DOMAIN_SEPARATION_TAG)
 	_ = binary.Write(&buf, binary.BigEndian, instance)
 	_ = binary.Write(&buf, binary.BigEndian, round)
-	buf.WriteString(step)
+	_ = binary.Write(&buf, binary.BigEndian, step)
 	for _, t := range value {
 		_ = binary.Write(&buf, binary.BigEndian, t.Epoch)
 		buf.Write(t.CID.Bytes())
@@ -88,7 +114,7 @@ type instance struct {
 	// Current round number.
 	round uint32
 	// Current phase in the round.
-	phase string
+	phase Phase
 	// Time at which the current phase can or must end.
 	// For QUALITY, PREPARE, and COMMIT, this is the latest time (the phase can end sooner).
 	// For CONVERGE, this is the exact time (the timeout solely defines the phase end).
@@ -134,7 +160,7 @@ func newInstance(
 		powerTable:    powerTable,
 		beacon:        beacon,
 		round:         0,
-		phase:         "",
+		phase:         INITIAL_PHASE,
 		proposal:      input,
 		value:         ECChain{},
 		quality:       newQuorumState(powerTable),
@@ -161,7 +187,9 @@ func newRoundState(powerTable PowerTable) *roundState {
 }
 
 func (i *instance) Start() error {
-	i.beginQuality()
+	if err := i.beginQuality(); err != nil {
+		return err
+	}
 	return i.drainInbox()
 }
 
@@ -217,7 +245,7 @@ func (i *instance) drainInbox() error {
 
 // Processes a single message.
 func (i *instance) receiveOne(msg *GMessage) error {
-	if i.phase == TERMINATED {
+	if i.phase == TERMINATED_PHASE {
 		return nil // No-op
 	}
 
@@ -236,21 +264,21 @@ func (i *instance) receiveOne(msg *GMessage) error {
 
 	round := i.roundState(msg.Round)
 	switch msg.Step {
-	case QUALITY:
+	case QUALITY_PHASE:
 		// Receive each prefix of the proposal independently.
 		for j := range msg.Value.Suffix() {
 			prefix := msg.Value.Prefix(j + 1)
 			i.quality.Receive(msg.Sender, prefix)
 		}
-	case CONVERGE:
+	case CONVERGE_PHASE:
 		if err := round.converged.Receive(msg.Value, msg.Ticket); err != nil {
 			return fmt.Errorf("failed processing CONVERGE message: %w", err)
 		}
-	case PREPARE:
+	case PREPARE_PHASE:
 		round.prepared.Receive(msg.Sender, msg.Value)
-	case COMMIT:
+	case COMMIT_PHASE:
 		round.committed.Receive(msg.Sender, msg.Value)
-	case DECIDE:
+	case DECIDE_PHASE:
 		i.decision.Receive(msg.Sender, msg.Value)
 	default:
 		i.log("unexpected message %v", msg)
@@ -259,7 +287,7 @@ func (i *instance) receiveOne(msg *GMessage) error {
 	// Try to complete the current phase.
 	// Every COMMIT phase stays open to new messages even after the protocol moves on to
 	// a new round. Late-arriving COMMITS can still (must) cause a local decision, *in that round*.
-	if msg.Step == COMMIT && i.phase != DECIDE {
+	if msg.Step == COMMIT_PHASE && i.phase != DECIDE_PHASE {
 		return i.tryCommit(msg.Round)
 	}
 	return i.tryCompletePhase()
@@ -269,17 +297,17 @@ func (i *instance) receiveOne(msg *GMessage) error {
 func (i *instance) tryCompletePhase() error {
 	i.log("try step %s", i.phase)
 	switch i.phase {
-	case QUALITY:
+	case QUALITY_PHASE:
 		return i.tryQuality()
-	case CONVERGE:
+	case CONVERGE_PHASE:
 		return i.tryConverge()
-	case PREPARE:
+	case PREPARE_PHASE:
 		return i.tryPrepare()
-	case COMMIT:
+	case COMMIT_PHASE:
 		return i.tryCommit(i.round)
-	case DECIDE:
+	case DECIDE_PHASE:
 		return i.tryDecide()
-	case TERMINATED:
+	case TERMINATED_PHASE:
 		return nil // No-op
 	default:
 		return fmt.Errorf("unexpected phase %s", i.phase)
@@ -297,15 +325,15 @@ func (i *instance) isValid(msg *GMessage) bool {
 		i.log("unexpected base %s", &msg.Value)
 		return false
 	}
-	if msg.Step == QUALITY {
+	if msg.Step == QUALITY_PHASE {
 		return msg.Round == 0 && !msg.Value.IsZero()
-	} else if msg.Step == CONVERGE {
+	} else if msg.Step == CONVERGE_PHASE {
 		if msg.Round == 0 ||
 			msg.Value.IsZero() ||
 			!i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Round, msg.Sender, msg.Ticket) {
 			return false
 		}
-	} else if msg.Step == DECIDE {
+	} else if msg.Step == DECIDE_PHASE {
 		// DECIDE needs no justification
 		return !msg.Value.IsZero()
 	}
@@ -325,17 +353,21 @@ func (i *instance) isJustified(msg *GMessage) bool {
 }
 
 // Sends this node's QUALITY message and begins the QUALITY phase.
-func (i *instance) beginQuality() {
+func (i *instance) beginQuality() error {
+	if i.phase != INITIAL_PHASE {
+		return fmt.Errorf("cannot transition from %s to %s", i.phase, QUALITY_PHASE)
+	}
 	// Broadcast input value and wait up to Δ to receive from others.
-	i.phase = QUALITY
-	i.phaseTimeout = i.alarmAfterSynchrony(QUALITY)
-	i.broadcast(i.round, QUALITY, i.input, nil)
+	i.phase = QUALITY_PHASE
+	i.phaseTimeout = i.alarmAfterSynchrony(QUALITY_PHASE.String())
+	i.broadcast(i.round, QUALITY_PHASE, i.input, nil)
+	return nil
 }
 
 // Attempts to end the QUALITY phase and begin PREPARE based on current state.
 func (i *instance) tryQuality() error {
-	if i.phase != QUALITY {
-		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, QUALITY)
+	if i.phase != QUALITY_PHASE {
+		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, QUALITY_PHASE)
 	}
 	// Wait either for a strong quorum that agree on our proposal,
 	// or for the timeout to expire.
@@ -359,16 +391,16 @@ func (i *instance) tryQuality() error {
 }
 
 func (i *instance) beginConverge() {
-	i.phase = CONVERGE
+	i.phase = CONVERGE_PHASE
 	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
-	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE)
-	i.broadcast(i.round, CONVERGE, i.proposal, ticket)
+	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE_PHASE.String())
+	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, ticket)
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
 func (i *instance) tryConverge() error {
-	if i.phase != CONVERGE {
-		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, CONVERGE)
+	if i.phase != CONVERGE_PHASE {
+		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, CONVERGE_PHASE)
 	}
 	timeoutExpired := i.host.Time() >= i.phaseTimeout
 	if !timeoutExpired {
@@ -397,15 +429,15 @@ func (i *instance) tryConverge() error {
 // Sends this node's PREPARE message and begins the PREPARE phase.
 func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
-	i.phase = PREPARE
-	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
-	i.broadcast(i.round, PREPARE, i.value, nil)
+	i.phase = PREPARE_PHASE
+	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE_PHASE.String())
+	i.broadcast(i.round, PREPARE_PHASE, i.value, nil)
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
 func (i *instance) tryPrepare() error {
-	if i.phase != PREPARE {
-		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, PREPARE)
+	if i.phase != PREPARE_PHASE {
+		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, PREPARE_PHASE)
 	}
 
 	prepared := i.roundState(i.round).prepared
@@ -427,9 +459,9 @@ func (i *instance) tryPrepare() error {
 }
 
 func (i *instance) beginCommit() {
-	i.phase = COMMIT
-	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
-	i.broadcast(i.round, COMMIT, i.value, nil)
+	i.phase = COMMIT_PHASE
+	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE_PHASE.String())
+	i.broadcast(i.round, COMMIT_PHASE, i.value, nil)
 }
 
 func (i *instance) tryCommit(round uint32) error {
@@ -445,7 +477,7 @@ func (i *instance) tryCommit(round uint32) error {
 		// The participant isn't influencing that decision against their interest, just accepting it.
 		i.value = foundQuorum[0]
 		i.beginDecide()
-	} else if i.round == round && i.phase == COMMIT && timeoutExpired && committed.ReceivedFromStrongQuorum() {
+	} else if i.round == round && i.phase == COMMIT_PHASE && timeoutExpired && committed.ReceivedFromStrongQuorum() {
 		// Adopt any non-empty value committed by another participant (there can only be one).
 		// This node has observed the strong quorum of PREPARE messages that justify it,
 		// and mean that some other nodes may decide that value (if they observe more COMMITs).
@@ -469,8 +501,8 @@ func (i *instance) tryCommit(round uint32) error {
 }
 
 func (i *instance) beginDecide() {
-	i.phase = DECIDE
-	i.broadcast(0, DECIDE, i.value, nil)
+	i.phase = DECIDE_PHASE
+	i.broadcast(0, DECIDE_PHASE, i.value, nil)
 }
 
 func (i *instance) tryDecide() error {
@@ -505,17 +537,17 @@ func (i *instance) isAcceptable(c ECChain) bool {
 
 func (i *instance) terminate(value ECChain, round uint32) {
 	i.log("✅ terminated %s in round %d", &i.value, round)
-	i.phase = TERMINATED
+	i.phase = TERMINATED_PHASE
 	// Round is a parameter since a late COMMIT message can result in a decision for a round prior to the current one.
 	i.round = round
 	i.value = value
 }
 
 func (i *instance) terminated() bool {
-	return i.phase == TERMINATED
+	return i.phase == TERMINATED_PHASE
 }
 
-func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ticket) *GMessage {
+func (i *instance) broadcast(round uint32, step Phase, value ECChain, ticket Ticket) *GMessage {
 	payload := SignaturePayload(i.instanceID, round, step, value)
 	signature := i.host.Sign(i.participantID, payload)
 	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature}
