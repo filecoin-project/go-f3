@@ -20,17 +20,19 @@ type VRFTicketSource interface {
 }
 
 type VRFTicketVerifier interface {
-	VerifyTicket(beacon []byte, instance uint32, round uint32, signer ActorID, ticket Ticket) bool
+	VerifyTicket(beacon []byte, instance uint32, round uint32, signer PubKey, ticket Ticket) bool
 }
 
 // VRF used for the CONVERGE step of GossiPBFT.
 type VRF struct {
-	signer Signer
+	signer   Signer
+	verifier Verifier
 }
 
-func NewVRF(signer Signer) *VRF {
+func NewVRF(signer Signer, verifier Verifier) *VRF {
 	return &VRF{
-		signer: signer,
+		signer:   signer,
+		verifier: verifier,
 	}
 }
 
@@ -38,8 +40,8 @@ func (f *VRF) MakeTicket(beacon []byte, instance uint32, round uint32, signer Ac
 	return f.signer.Sign(signer, f.serializeSigInput(beacon, instance, round))
 }
 
-func (f *VRF) VerifyTicket(beacon []byte, instance uint32, round uint32, signer ActorID, ticket Ticket) bool {
-	return f.signer.Verify(signer, f.serializeSigInput(beacon, instance, round), ticket)
+func (f *VRF) VerifyTicket(beacon []byte, instance uint32, round uint32, signer PubKey, ticket Ticket) bool {
+	return f.verifier.Verify(signer, f.serializeSigInput(beacon, instance, round), ticket)
 }
 
 // Serializes the input to the VRF signature for the CONVERGE step of GossiPBFT.

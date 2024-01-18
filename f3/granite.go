@@ -220,6 +220,7 @@ func (i *instance) receiveOne(msg *GMessage) error {
 	if i.phase == TERMINATED {
 		return nil // No-op
 	}
+	round := i.roundState(msg.Round)
 
 	// Drop any messages that can never be valid.
 	if !i.isValid(msg) {
@@ -234,7 +235,6 @@ func (i *instance) receiveOne(msg *GMessage) error {
 		return nil
 	}
 
-	round := i.roundState(msg.Round)
 	switch msg.Step {
 	case QUALITY:
 		// Receive each prefix of the proposal independently.
@@ -259,6 +259,7 @@ func (i *instance) receiveOne(msg *GMessage) error {
 	// Try to complete the current phase.
 	// Every COMMIT phase stays open to new messages even after the protocol moves on to
 	// a new round. Late-arriving COMMITS can still (must) cause a local decision, *in that round*.
+
 	if msg.Step == COMMIT && i.phase != DECIDE {
 		return i.tryCommit(msg.Round)
 	}
@@ -293,6 +294,9 @@ func (i *instance) isValid(msg *GMessage) bool {
 		i.log("sender with zero power or not in power table")
 		return false
 	}
+
+	_, pubKey := i.powerTable.Get(msg.Sender)
+
 	if !(msg.Value.IsZero() || msg.Value.HasBase(i.input.Base())) {
 		i.log("unexpected base %s", &msg.Value)
 		return false
@@ -300,9 +304,10 @@ func (i *instance) isValid(msg *GMessage) bool {
 	if msg.Step == QUALITY {
 		return msg.Round == 0 && !msg.Value.IsZero()
 	} else if msg.Step == CONVERGE {
+
 		if msg.Round == 0 ||
 			msg.Value.IsZero() ||
-			!i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Round, msg.Sender, msg.Ticket) {
+			!i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Round, pubKey, msg.Ticket) {
 			return false
 		}
 	} else if msg.Step == DECIDE {
@@ -311,7 +316,7 @@ func (i *instance) isValid(msg *GMessage) bool {
 	}
 
 	sigPayload := SignaturePayload(msg.Instance, msg.Round, msg.Step, msg.Value)
-	if !i.host.Verify(msg.Sender, sigPayload, msg.Signature) {
+	if !i.host.Verify(pubKey, sigPayload, msg.Signature) {
 		i.log("invalid signature on %v", msg)
 		return false
 	}
@@ -462,6 +467,7 @@ func (i *instance) tryCommit(round uint32) error {
 			}
 
 		}
+
 		i.beginNextRound()
 	}
 
