@@ -28,6 +28,12 @@ const TERMINATED = "TERMINATED"
 
 const DOMAIN_SEPARATION_TAG = "GPBFT"
 
+// A message in the Granite protocol.
+// The same message structure is used for all rounds and phases.
+// Note that the message is self-attesting so no separate envelope or signature is needed.
+// - The signature field fixes the included sender ID via the implied public key;
+// - The signature payload includes all fields a sender can freely choose;
+// - The ticket field is a signature of the same public key, so also self-attesting.
 type GMessage struct {
 	// ID of the sender/signer of this message (a miner actor ID).
 	Sender ActorID
@@ -295,6 +301,12 @@ func (i *instance) isValid(msg *GMessage) bool {
 	} else if msg.Step == DECIDE {
 		// DECIDE needs no justification
 		return !msg.Value.IsZero()
+	}
+
+	sigPayload := SignaturePayload(msg.Instance, msg.Round, msg.Step, msg.Value)
+	if !i.host.Verify(msg.Sender, sigPayload, msg.Signature) {
+		i.log("invalid signature on %v", msg)
+		return false
 	}
 
 	return true

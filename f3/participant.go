@@ -58,12 +58,8 @@ func (p *Participant) ReceiveECChain(chain ECChain) {
 }
 
 // Receives a Granite message from some other participant.
+// The message is delivered to the Granite instance if it is for the current instance.
 func (p *Participant) ReceiveMessage(msg *GMessage) {
-	sigPayload := SignaturePayload(msg.Instance, msg.Round, msg.Step, msg.Value)
-	if !p.host.Verify(msg.Sender, sigPayload, msg.Signature) {
-		p.host.Log("P%d: invalid signature on %v", p.id, msg)
-		return
-	}
 	if p.granite != nil && msg.Instance == p.granite.instanceID {
 		p.granite.Receive(msg)
 		p.handleDecision()

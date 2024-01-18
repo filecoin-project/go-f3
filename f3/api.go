@@ -18,7 +18,7 @@ type Message interface{}
 // Receives a Granite protocol message.
 type MessageReceiver interface {
 	// Receives a message from another participant.
-	// The message is assumed to have been validated as being sent by `msg.Sender`.
+	// No validation may be assumed to have been performed on the message.
 	ReceiveMessage(msg *GMessage)
 	ReceiveAlarm(payload string)
 }
