@@ -858,11 +858,10 @@ func (i *instance) beginConverge() {
 			Signature: aggSignature,
 		}
 	} else if justification, ok = prevRoundState.committed.justifiedMessages[i.proposal.Head().CID]; ok {
-		//justification already assigned at the if statement
+		//justification already assigned in the if statement
 	} else {
 		panic("beginConverge called but no evidence found")
 	}
-
 	i.broadcast(i.round, CONVERGE, i.proposal, ticket, justification)
 >>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 }
@@ -1237,12 +1236,19 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, j
 	candidate.hasWeakQuorum = hasWeakQuorum(candidate.power, q.powerTable.Total)
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 	if !value.IsZero() && justification.Payload.Step == PREPARE_PHASE { //only committed roundStates need to store justifications
 		q.justifiedMessages[value.Head().CID] = justification
 	}
 =======
 	q.justifiedMessages[value.HeadCIDOrZero()] = justification
 >>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
+=======
+	if !value.IsZero() && justification.Step == "PREPARE" { //only committed roundStates need to store justifications
+		q.justifiedMessages[value.Head().CID] = justification
+	}
+
+>>>>>>> e8b34ed (Only store justification of COMMIT for non-bottom value)
 	q.chainSupport[head] = candidate
 }
 
