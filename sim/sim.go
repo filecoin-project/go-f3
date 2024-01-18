@@ -41,11 +41,15 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 	for i := 0; i < len(participants); i++ {
 		participants[i] = f3.NewParticipant(f3.ActorID(i), graniteConfig, ntwk, vrf)
 <<<<<<< HEAD
+<<<<<<< HEAD
 		pubKey := getFakePubKey(participants[i].ID())
 		ntwk.AddParticipant(participants[i], pubKey)
 		if err := genesisPower.Add(participants[i].ID(), f3.NewStoragePower(1), pubKey); err != nil {
 =======
 		ntwk.AddParticipant(participants[i])
+=======
+		ntwk.AddParticipant(participants[i], getFakePubKey(participants[i].ID()))
+>>>>>>> 6ee56ae (Ensure signing and verifying modifies no input)
 		if err := genesisPower.Add(participants[i].ID(), f3.NewStoragePower(1), getFakePubKey(participants[i].ID())); err != nil {
 >>>>>>> 5da2ee3 (Verify list of public keys when verifying aggregate)
 			panic(fmt.Errorf("failed adding participant to power table: %w", err))
@@ -73,11 +77,15 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 func (s *Simulation) SetAdversary(adv AdversaryReceiver, power uint) {
 	s.Adversary = adv
 <<<<<<< HEAD
+<<<<<<< HEAD
 	pubKey := getFakePubKey(adv.ID())
 	s.Network.AddParticipant(adv, pubKey)
 	if err := s.PowerTable.Add(adv.ID(), f3.NewStoragePower(int64(power)), pubKey); err != nil {
 =======
 	s.Network.AddParticipant(adv)
+=======
+	s.Network.AddParticipant(adv, getFakePubKey(adv.ID()))
+>>>>>>> 6ee56ae (Ensure signing and verifying modifies no input)
 	if err := s.PowerTable.Add(adv.ID(), f3.NewStoragePower(int64(power)), getFakePubKey(adv.ID())); err != nil {
 >>>>>>> 5da2ee3 (Verify list of public keys when verifying aggregate)
 		panic(err)
