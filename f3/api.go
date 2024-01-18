@@ -58,13 +58,6 @@ type Verifier interface {
 	VerifyAggregate(payload, aggSig []byte, signers []PubKey) bool
 }
 
-type Aggregator interface {
-	// Aggregates signatures from a participant to an existing signature.
-	Aggregate(sig []byte, aggSignature []byte) []byte
-	// VerifyAggregate verifies an aggregate signature.
-	VerifyAggregate(payload, aggSig []byte, signers [][]byte) bool
-}
-
 // Participant interface to the host system resources.
 type Host interface {
 	Network
