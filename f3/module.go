@@ -20,7 +20,7 @@ type Module struct {
 
 	ds     datastore.Datastore
 	host   host.Host
-	pubsub pubsub.PubSub
+	pubsub *pubsub.PubSub
 	sigs   SigningBackend
 
 	topic *pubsub.Topic
@@ -29,7 +29,7 @@ type Module struct {
 // NewModule creates and setups new libp2p f3 module
 // TODO notification about new EC chains
 // TODO FCEX
-func NewModule(nn NetworkName, ds datastore.Datastore, h host.Host, ps pubsub.PubSub, sigs SigningBackend) (*Module, error) {
+func NewModule(nn NetworkName, ds datastore.Datastore, h host.Host, ps *pubsub.PubSub, sigs SigningBackend) (*Module, error) {
 	ds = namespace.Wrap(ds, nn.DatastorePrefix())
 	cs, err := NewCertStore(ds)
 	if err != nil {
