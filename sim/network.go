@@ -2,11 +2,10 @@ package sim
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"github.com/filecoin-project/go-f3/f3"
 	"io"
-	"math"
+	"reflect"
 	"sort"
 	"strings"
 )
@@ -49,6 +48,8 @@ type Network struct {
 	globalStabilisationElapsed bool
 	// Trace level.
 	traceLevel int
+	//TODO
+	actor2PubKey map[f3.ActorID]f3.PubKey
 }
 
 func NewNetwork(latency LatencyModel, traceLevel int) *Network {
@@ -60,15 +61,17 @@ func NewNetwork(latency LatencyModel, traceLevel int) *Network {
 		latency:                    latency,
 		globalStabilisationElapsed: false,
 		traceLevel:                 traceLevel,
+		actor2PubKey:               map[f3.ActorID]f3.PubKey{},
 	}
 }
 
-func (n *Network) AddParticipant(p f3.Receiver) {
+func (n *Network) AddParticipant(p f3.Receiver, pubKey f3.PubKey) {
 	if n.participants[p.ID()] != nil {
 		panic("duplicate participant ID")
 	}
 	n.participantIDs = append(n.participantIDs, p.ID())
 	n.participants[p.ID()] = p
+	n.actor2PubKey[p.ID()] = pubKey
 }
 
 ////// Network interface
@@ -108,140 +111,94 @@ func (n *Network) SetAlarm(sender f3.ActorID, payload string, at float64) {
 
 func (n *Network) Sign(sender f3.ActorID, msg []byte) []byte {
 	// Fake implementation.
-	// Just prepends 8-byte sender ID to message.
-	buf := new(bytes.Buffer)
-	if err := binary.Write(buf, binary.BigEndian, sender); err != nil {
-		panic(err)
-	}
-	return append(buf.Bytes(), msg...)
+	// Just prepends the pubkey associated with the sender ID to message.
+	aux := append([]byte(nil), n.actor2PubKey[sender]...)
+	return append(aux, msg...)
 }
 
-func (n *Network) Verify(sender f3.ActorID, msg, sig []byte) bool {
+func (n *Network) Verify(pubKey f3.PubKey, msg, sig []byte) bool {
 	// Fake implementation.
-	// Just checks that first 8 bytes of signature match sender ID,
+	// Just checks that first bytes of the signature match sender ID,
 	// and remaining bytes match message.
-	buf := bytes.NewReader(sig)
-	var recoveredSender uint64
-	if err := binary.Read(buf, binary.BigEndian, &recoveredSender); err != nil {
-		return false
-	}
-	remainingBytes := sig[8:]
-	if recoveredSender != uint64(sender) {
-		return false
-	}
-	if !bytes.Equal(remainingBytes, msg) {
-		return false
-	}
-	return true
+	aux := append([]byte(nil), pubKey...)
+	aux = append(aux, msg...)
+	return bytes.Equal(aux, sig)
 }
 
-func (n *Network) Aggregate(sig []byte, aggSignature []byte) []byte {
+func (n *Network) Aggregate(sigs [][]byte, aggSignature []byte) []byte {
 	// Fake implementation.
 	// Just appends signature to aggregate signature.
 	// This fake aggregation is not commutative (order matters)
 	// But determinism is preserved by sorting by weight both here and in VerifyAggregate
 	// (That contains the sender ID in the signature)
 
-	// Extract existing signatures along with their actorIDs
-	signatures := [][]byte{}
-	buf := bytes.NewReader(aggSignature)
-	existingSigLen := len(sig)
-	for {
-		// The length of each existing signature (minus 8 bytes for the actorID)
-		existingSig := make([]byte, existingSigLen)
-		if _, err := io.ReadFull(buf, existingSig); err != nil {
-			if err == io.EOF {
-				break // End of the aggregate signature.
-			} else if err != nil {
-				panic(err) // Error in reading the signature.
-			}
-		}
-		signatures = append(signatures, existingSig)
+	// Sort the pubKeys based on descending order of actorID
+	// take any pubkey from the actor2pubkey
+	var pubKeyLen int
+	for _, pubKey := range n.actor2PubKey {
+		pubKeyLen = len(pubKey)
+		break
 	}
-	signatures = append(signatures, sig) // Append the new signature
 
-	// Sort the signatures based on descending order of actorID
-	sort.Slice(signatures, func(i, j int) bool {
-		actorIDI := binary.BigEndian.Uint64(signatures[i][:8])
-		actorIDJ := binary.BigEndian.Uint64(signatures[j][:8])
-		return actorIDI > actorIDJ
+	msg := sigs[0][pubKeyLen:]
+	msgLen := len(msg)
+
+	// Extract existing pubKeys along with their actorIDs
+	pubKeys := [][]byte{}
+	if len(aggSignature) > 0 {
+		buf := bytes.NewReader(aggSignature[msgLen:])
+		for {
+			existingPubKey := make([]byte, pubKeyLen)
+			if _, err := io.ReadFull(buf, existingPubKey); err != nil {
+				if err == io.EOF {
+					break // End of the aggregate signature.
+				} else if err != nil {
+					panic(err) // Error in reading the signature.
+				}
+			}
+			pubKeys = append(pubKeys, existingPubKey)
+		}
+	}
+
+	for i := 0; i < len(sigs); i++ {
+		if !reflect.DeepEqual(msg, sigs[i][pubKeyLen:]) {
+			panic("Payload mismatch")
+		}
+		pubKeys = append(pubKeys, sigs[i][:pubKeyLen])
+	}
+
+	sort.Slice(pubKeys, func(i, j int) bool {
+		return bytes.Compare(pubKeys[i], pubKeys[j]) > 0
 	})
 
+	for i := 0; i < len(pubKeys)-1; i++ {
+		if bytes.Equal(pubKeys[i], pubKeys[i+1]) {
+			panic("Duplicate pubkeys")
+		}
+	}
+
 	// Reconstruct the aggregated signature in sorted order
-	var updatedAggSignature []byte
-	for _, s := range signatures {
+	updatedAggSignature := append([]byte(nil), msg...)
+	for _, s := range pubKeys {
 		updatedAggSignature = append(updatedAggSignature, s...)
 	}
 
 	return updatedAggSignature
 }
 
-func (n *Network) VerifyAggregate(payload, aggSig []byte, signers [][]byte) bool {
-	aggBuf := bytes.NewReader(aggSig)
+func (n *Network) VerifyAggregate(payload, aggSig []byte, signers []f3.PubKey) bool {
+	sort.Slice(signers, func(i, j int) bool {
+		return bytes.Compare(signers[i], signers[j]) > 0
+	})
 
-	verifiedSigners := make(map[f3.ActorID]struct{})
-	// Calculate the expected length of each individual signature
-	signatureLength := 8 + len(payload) // 8 bytes for sender ID + length of message
-
-	// Extract pubkeys from signers slice and store them in a map
-	// This is used to ensure that all signers are accounted for
-	// (i.e. that the aggregate signature contains signatures from all signers)
-	signerPubKeys := make(map[f3.ActorID]struct{})
-	for _, s := range signers {
-		participantID, err := readParticipantID(s)
-		if err != nil {
-			n.log(n.traceLevel, fmt.Sprintf("Error in reading participant ID: %s", err))
-			return false // Error in reading participant ID.
-		}
-		signerPubKeys[f3.ActorID(participantID)] = struct{}{}
+	signersConcat := make([]byte, 0)
+	for _, signer := range signers {
+		signersConcat = append(signersConcat, signer...)
 	}
 
-	if len(signerPubKeys) != len(signers) {
-		return false // Duplicate signers
-	}
-
-	lastActorID := uint64(math.MaxUint64)
-	for {
-		// Read the signature corresponding to this sender ID.
-		signature := make([]byte, signatureLength)
-		if _, err := io.ReadFull(aggBuf, signature); err != nil {
-			if err == io.EOF {
-				break // End of the aggregate signature.
-			} else if err != nil {
-				return false // Error in reading the signature.
-			}
-		}
-
-		buf := bytes.NewReader(signature)
-
-		var senderID uint64
-		err := binary.Read(buf, binary.BigEndian, &senderID)
-		if err == io.EOF {
-			break // End of the aggregate signature.
-		} else if err != nil {
-			return false // Error in reading sender ID.
-		}
-
-		//enforce sorted order (to counteract non-commutativity and ensure uniqueness of aggregated signature)
-		if senderID >= lastActorID {
-			return false // ActorID index is not in the correct descending order.
-		}
-		lastActorID = senderID
-
-		// Verify the signature.
-		actorID := f3.ActorID(senderID)
-		if !n.Verify(actorID, payload, signature) {
-			return false // Signature verification failed.
-		}
-
-		if _, ok := signerPubKeys[actorID]; !ok {
-			return false // Signature from an unknown signer.
-		}
-		verifiedSigners[actorID] = struct{}{}
-	}
-
-	// Ensure all signers are accounted for.
-	return len(verifiedSigners) == len(signers)
+	aux := append([]byte(nil), payload...)
+	aux = append(aux, signersConcat...)
+	return bytes.Equal(aux, aggSig)
 }
 
 func (n *Network) Log(format string, args ...interface{}) {
@@ -334,28 +291,4 @@ func (h *messageQueue) Remove(i int) messageInFlight {
 	copy((*h)[i:], (*h)[i+1:])
 	*h = (*h)[:len(*h)-1]
 	return v
-}
-
-///// Helpers /////
-
-// readParticipantID reads the participant ID from the given public key (only used by fake aggregation)
-func readParticipantID(pubkey []byte) (int64, error) {
-	// Read and discard the "PUBKEY:" prefix
-	buf := bytes.NewReader(pubkey)
-	prefix := make([]byte, 7)
-	if _, err := io.ReadFull(buf, prefix); err != nil {
-		return 0, err
-	}
-
-	if string(prefix) != "PUBKEY:" {
-		return 0, fmt.Errorf("Invalid prefix. Expected 'PUBKEY:'")
-	}
-
-	// Read the participant ID
-	var participantID int64
-	if err := binary.Read(buf, binary.BigEndian, &participantID); err != nil {
-		return 0, err
-	}
-
-	return participantID, nil
 }
