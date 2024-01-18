@@ -333,7 +333,6 @@ func (i *instance) beginQuality() {
 }
 
 // Attempts to end the QUALITY phase and begin PREPARE based on current state.
-// No-op if the current phase is not QUALITY.
 func (i *instance) tryQuality() error {
 	if i.phase != QUALITY {
 		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, QUALITY)
@@ -367,7 +366,6 @@ func (i *instance) beginConverge() {
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
-// No-op if the current phase is not CONVERGE.
 func (i *instance) tryConverge() error {
 	if i.phase != CONVERGE {
 		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, CONVERGE)
@@ -405,7 +403,6 @@ func (i *instance) beginPrepare() {
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
-// No-op if the current phase is not PREPARE.
 func (i *instance) tryPrepare() error {
 	if i.phase != PREPARE {
 		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, PREPARE)
