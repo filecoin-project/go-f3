@@ -12,15 +12,13 @@ import (
 
 func TestWitholdCommit1(t *testing.T) {
 	i := 0
-	sm, err := sim.NewSimulation(sim.Config{
+	sm := sim.NewSimulation(sim.Config{
 		HonestCount: 7,
 		LatencySeed: int64(i),
 		LatencyMean: 0.01, // Near-synchrony
 	}, GraniteConfig(), sim.TraceNone)
-	require.NoError(t, err)
 	adv := adversary.NewWitholdCommit(99, sm.Network)
-	err = sm.SetAdversary(adv, 3) // Adversary has 30% of 10 total power.
-	require.NoError(t, err)
+	sm.SetAdversary(adv, 3) // Adversary has 30% of 10 total power.
 
 	a := sm.Base.Extend(sm.CIDGen.Sample())
 	b := sm.Base.Extend(sm.CIDGen.Sample())
@@ -33,9 +31,8 @@ func TestWitholdCommit1(t *testing.T) {
 	adv.SetVictim(victims, a)
 
 	adv.Begin()
-	err = sm.ReceiveChains(sim.ChainCount{Count: 4, Chain: a}, sim.ChainCount{Count: 3, Chain: b})
-	require.NoError(t, err)
-	err = sm.Run(MAX_ROUNDS)
+	sm.ReceiveChains(sim.ChainCount{Count: 4, Chain: a}, sim.ChainCount{Count: 3, Chain: b})
+	err := sm.Run(MAX_ROUNDS)
 	if err != nil {
 		fmt.Printf("%s", sm.Describe())
 		sm.PrintResults()

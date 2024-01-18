@@ -36,19 +36,13 @@ func main() {
 			Delta:     *graniteDelta,
 			DeltaRate: *graniteDeltaRate,
 		}
-		sm, err := sim.NewSimulation(simConfig, graniteConfig, *traceLevel)
-		if err != nil {
-			panic(fmt.Errorf("failed creating new simulation: %w", err))
-		}
+		sm := sim.NewSimulation(simConfig, graniteConfig, *traceLevel)
 
 		// Same chain for everyone.
 		candidate := sm.Base.Extend(sm.CIDGen.Sample())
-		err = sm.ReceiveChains(sim.ChainCount{Count: *participantCount, Chain: candidate})
-		if err != nil {
-			panic(err)
-		}
+		sm.ReceiveChains(sim.ChainCount{Count: *participantCount, Chain: candidate})
 
-		err = sm.Run(uint32(*maxRounds))
+		err := sm.Run(uint32(*maxRounds))
 		if err != nil {
 			sm.PrintResults()
 		}
