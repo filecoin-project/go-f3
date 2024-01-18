@@ -5,9 +5,11 @@ import (
 
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
+
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	peer "github.com/libp2p/go-libp2p/core/peer"
+
 	"go.uber.org/multierr"
 	"golang.org/x/xerrors"
 )
