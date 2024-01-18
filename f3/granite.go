@@ -184,8 +184,7 @@ func (i *instance) Receive(msg *GMessage) error {
 }
 
 func (i *instance) ReceiveAlarm(_ string) error {
-	err := i.tryCompletePhase()
-	if err != nil {
+	if err := i.tryCompletePhase(); err != nil {
 		return fmt.Errorf("failed completing protocol phase: %w", err)
 	}
 
@@ -207,8 +206,7 @@ func (i *instance) drainInbox() error {
 		// Process one message.
 		// Note the message being processed is left in the inbox until after processing,
 		// as a signal that this loop is currently draining the inbox.
-		err := i.receiveOne(i.inbox[0])
-		if err != nil {
+		if err := i.receiveOne(i.inbox[0]); err != nil {
 			return fmt.Errorf("failed receiving message: %w", err)
 		}
 		i.inbox = i.inbox[1:]
@@ -262,12 +260,9 @@ func (i *instance) receiveOne(msg *GMessage) error {
 	// Every COMMIT phase stays open to new messages even after the protocol moves on to
 	// a new round. Late-arriving COMMITS can still (must) cause a local decision, *in that round*.
 	if msg.Step == COMMIT && i.phase != DECIDE {
-		i.tryCommit(msg.Round)
-	} else {
-		return i.tryCompletePhase()
+		return i.tryCommit(msg.Round)
 	}
-
-	return nil
+	return i.tryCompletePhase()
 }
 
 // Attempts to complete the current phase and round.
@@ -281,11 +276,9 @@ func (i *instance) tryCompletePhase() error {
 	case PREPARE:
 		return i.tryPrepare()
 	case COMMIT:
-		i.tryCommit(i.round)
-		return nil
+		return i.tryCommit(i.round)
 	case DECIDE:
-		i.tryDecide()
-		return nil
+		return i.tryDecide()
 	case TERMINATED:
 		return nil // No-op
 	default:
@@ -343,7 +336,7 @@ func (i *instance) beginQuality() {
 // No-op if the current phase is not QUALITY.
 func (i *instance) tryQuality() error {
 	if i.phase != QUALITY {
-		return fmt.Errorf("unexpected phase %s", i.phase)
+		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, QUALITY)
 	}
 	// Wait either for a strong quorum that agree on our proposal,
 	// or for the timeout to expire.
@@ -377,7 +370,7 @@ func (i *instance) beginConverge() {
 // No-op if the current phase is not CONVERGE.
 func (i *instance) tryConverge() error {
 	if i.phase != CONVERGE {
-		return fmt.Errorf("unexpected phase %s", i.phase)
+		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, CONVERGE)
 	}
 	timeoutExpired := i.host.Time() >= i.phaseTimeout
 	if !timeoutExpired {
@@ -415,7 +408,7 @@ func (i *instance) beginPrepare() {
 // No-op if the current phase is not PREPARE.
 func (i *instance) tryPrepare() error {
 	if i.phase != PREPARE {
-		return fmt.Errorf("unexpected phase %s", i.phase)
+		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, PREPARE)
 	}
 
 	prepared := i.roundState(i.round).prepared
@@ -442,7 +435,7 @@ func (i *instance) beginCommit() {
 	i.broadcast(i.round, COMMIT, i.value, nil)
 }
 
-func (i *instance) tryCommit(round uint32) {
+func (i *instance) tryCommit(round uint32) error {
 	// Unlike all other phases, the COMMIT phase stays open to new messages even after an initial quorum is reached,
 	// and the algorithm moves on to the next round.
 	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
@@ -474,6 +467,8 @@ func (i *instance) tryCommit(round uint32) {
 		}
 		i.beginNextRound()
 	}
+
+	return nil
 }
 
 func (i *instance) beginDecide() {
@@ -481,11 +476,13 @@ func (i *instance) beginDecide() {
 	i.broadcast(0, DECIDE, i.value, nil)
 }
 
-func (i *instance) tryDecide() {
+func (i *instance) tryDecide() error {
 	foundQuorum := i.decision.ListStrongQuorumAgreedValues()
 	if len(foundQuorum) > 0 {
 		i.terminate(foundQuorum[0], i.round)
 	}
+
+	return nil
 }
 
 func (i *instance) roundState(r uint32) *roundState {

@@ -25,7 +25,8 @@ func (a *Absent) ReceiveCanonicalChain(_ f3.ECChain, _ f3.PowerTable, _ []byte) 
 	return nil
 }
 
-func (a *Absent) ReceiveECChain(_ f3.ECChain) {
+func (a *Absent) ReceiveECChain(_ f3.ECChain) error {
+	return nil
 }
 
 func (a *Absent) ReceiveMessage(_ *f3.GMessage) error {

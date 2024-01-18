@@ -37,7 +37,8 @@ func (w *WitholdCommit) ReceiveCanonicalChain(_ f3.ECChain, _ f3.PowerTable, _ [
 	return nil
 }
 
-func (w *WitholdCommit) ReceiveECChain(_ f3.ECChain) {
+func (w *WitholdCommit) ReceiveECChain(_ f3.ECChain) error {
+	return nil
 }
 
 func (w *WitholdCommit) ReceiveMessage(_ *f3.GMessage) error {

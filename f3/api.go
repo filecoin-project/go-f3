@@ -8,7 +8,7 @@ type ChainReceiver interface {
 
 	// Receives a new EC chain, and notifies the current instance if it extends its current acceptable chain.
 	// This modifies the set of valid values for the current instance.
-	ReceiveECChain(chain ECChain)
+	ReceiveECChain(chain ECChain) error
 }
 
 // A consensus message.

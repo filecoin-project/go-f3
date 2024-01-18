@@ -58,10 +58,11 @@ func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, bea
 
 // Receives a new EC chain, and notifies the current instance if it extends its current acceptable chain.
 // This modifies the set of valid values for the current instance.
-func (p *Participant) ReceiveECChain(chain ECChain) {
+func (p *Participant) ReceiveECChain(chain ECChain) error {
 	if p.granite != nil && chain.HasPrefix(p.granite.acceptable) {
 		p.granite.receiveAcceptable(chain)
 	}
+	return nil
 }
 
 // Receives a Granite message from some other participant.
@@ -73,8 +74,7 @@ func (p *Participant) ReceiveMessage(msg *GMessage) error {
 		return nil
 	}
 	if p.granite != nil && msg.Instance == p.granite.instanceID {
-		err := p.granite.Receive(msg)
-		if err != nil {
+		if err := p.granite.Receive(msg); err != nil {
 			return fmt.Errorf("error receiving message: %w", err)
 		}
 		p.handleDecision()
@@ -89,8 +89,7 @@ func (p *Participant) ReceiveMessage(msg *GMessage) error {
 func (p *Participant) ReceiveAlarm(payload string) error {
 	// TODO include instance ID in alarm message, and filter here.
 	if p.granite != nil {
-		err := p.granite.ReceiveAlarm(payload)
-		if err != nil {
+		if err := p.granite.ReceiveAlarm(payload); err != nil {
 			return fmt.Errorf("failed receiving alarm: %w", err)
 		}
 		p.handleDecision()
