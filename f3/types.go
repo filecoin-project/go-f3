@@ -1,10 +1,18 @@
 package f3
 
 import (
+	"math/big"
 	"strings"
 )
 
 type ActorID uint64
+
+type StoragePower = big.Int
+
+// Creates a new StoragePower struct with a specific value and returns the result
+func NewStoragePower(value int64) *StoragePower {
+	return new(big.Int).SetInt64(value)
+}
 
 // Opaque type identifying a tipset.
 // This is expected to be a concatenation of CIDs of block headers identifying a tipset.
