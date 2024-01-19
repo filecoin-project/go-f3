@@ -461,6 +461,7 @@ func (i *instance) beginConverge() {
 	if prevRoundState.committed.HasStrongQuorumAgreement(ZeroTipSetID()) {
 		value := ECChain{}
 		signers := prevRoundState.committed.getSigners(value)
+
 		signatures := prevRoundState.committed.getSignatures(value, signers)
 		aggSignature := make([]byte, 0)
 		for _, sig := range signatures {
@@ -736,19 +737,20 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, j
 	head := value.HeadCIDOrZero()
 	fromSender, ok := q.received[sender]
 	senderPower, _ := q.powerTable.Get(sender)
-
+	sigCopy := make([]byte, len(signature))
+	copy(sigCopy, signature)
 	if ok {
 		// Don't double-count the same chain head for a single participant.
 		if _, ok := fromSender.heads[head]; ok {
 			return
 		}
-		fromSender.heads[head] = signature
+		fromSender.heads[head] = sigCopy
 	} else {
 		// Add sender's power to total the first time a value is received from them.
 		q.sendersTotalPower.Add(q.sendersTotalPower, senderPower)
 		fromSender = senderSent{
 			heads: map[TipSetID][]byte{
-				head: signature,
+				head: sigCopy,
 			},
 			power: senderPower,
 		}
@@ -774,7 +776,6 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, j
 	if !value.IsZero() && justification.Step == "PREPARE" { //only committed roundStates need to store justifications
 		q.justifiedMessages[value.Head().CID] = justification
 	}
-
 	q.chainSupport[head] = candidate
 }
 
@@ -816,7 +817,7 @@ func (q *quorumState) getSignatures(value ECChain, signers bitfield.BitField) []
 		}
 		return nil
 	}); err != nil {
-		return signatures
+		panic("Error while iterating over signers")
 		//TODO handle error
 	}
 	return signatures
