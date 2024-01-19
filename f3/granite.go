@@ -625,22 +625,10 @@ func (i *instance) isJustified(msg *GMessage) error {
 =======
 // Checks whether a message is justified.
 func (i *instance) isJustified(msg *GMessage) bool {
-	if msg.Instance != msg.Justification.Instance {
-		i.log("dropping message with instanceID %v with evidence from wrong instanceID: %v", msg.Instance, msg.Justification.Instance)
-		return false
+	if msg.Step == QUALITY || msg.Step == PREPARE {
+		//TODO check that the justification is Zero? necessary?
+		return true
 	}
-
-	power := NewStoragePower(0)
-	msg.Justification.Signers.ForEach(func(bit uint64) error {
-		power.Add(power, i.powerTable.Entries[bit].Power)
-		return nil
-	})
-
-	if !hasStrongQuorum(power, i.powerTable.Total) {
-		i.log("dropping message as no evidence from a strong quorum: %v", msg.Justification.Signers)
-		return false
-	}
-
 	if msg.Step == CONVERGE {
 		//CONVERGE is justified by a strong quorum of COMMIT for bottom from the previous round.
 		// or a strong quorum of PREPARE for the same value from the previous round.
@@ -665,51 +653,63 @@ func (i *instance) isJustified(msg *GMessage) bool {
 			return false
 		}
 
-		payload := SignaturePayload(i.instanceID, prevRound, msg.Justification.Step, msg.Justification.Value)
-		signers := make([]PubKey, 0)
-		if err := msg.Justification.Signers.ForEach(func(bit uint64) error {
-			if int(bit) >= len(i.powerTable.Entries) {
-				return nil //TODO handle error
-			}
-			signers = append(signers, i.powerTable.Entries[bit].PubKey)
-			return nil
-		}); err != nil {
-			return false
-			//TODO handle error
-		}
-
-		if !i.host.VerifyAggregate(payload, msg.Justification.Signature, signers) {
-			i.log("dropping CONVERGE %v with invalid evidence signature: %v", msg, msg.Justification)
-			return false
-		}
 	} else if msg.Step == COMMIT {
 		// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
 		// COMMIT for bottom is always justified.
+		if msg.Value.IsZero() {
+			return true
+		}
+
 		if msg.Round != msg.Justification.Round {
 			i.log("dropping COMMIT %v with evidence from wrong round %d", msg.Round, msg.Justification.Round)
 			return false
 		}
 
-		if msg.Value.IsZero() {
-			return true
-		}
-		payload := SignaturePayload(i.instanceID, msg.Round, PREPARE, msg.Value)
-		signers := make([]PubKey, 0)
-		if err := msg.Justification.Signers.ForEach(func(bit uint64) error {
-			if int(bit) >= len(i.powerTable.Entries) {
-				return nil //TODO handle error
-			}
-			signers = append(signers, i.powerTable.Entries[bit].PubKey)
-			return nil
-		}); err != nil {
-			//TODO handle error
+		if msg.Justification.Step != PREPARE {
+			i.log("dropping COMMIT %v with evidence from wrong step %v", msg.Round, msg.Justification.Step)
 			return false
 		}
-		if !i.host.VerifyAggregate(payload, msg.Justification.Signature, signers) {
-			i.log("dropping COMMIT %v with invalid evidence signature: %v", msg, msg.Justification)
+
+		if msg.Value.Head().CID != msg.Justification.Value.HeadCIDOrZero() {
+			i.log("dropping COMMIT %v with evidence for a different value: %v", msg.Value, msg.Justification.Value)
 			return false
 		}
+	} //TODO else if DECIDE
+
+	if msg.Instance != msg.Justification.Instance {
+		i.log("dropping message with instanceID %v with evidence from wrong instanceID: %v", msg.Instance, msg.Justification.Instance)
+		return false
 	}
+
+	power := NewStoragePower(0)
+	msg.Justification.Signers.ForEach(func(bit uint64) error {
+		power.Add(power, i.powerTable.Entries[bit].Power)
+		return nil
+	})
+
+	if !hasStrongQuorum(power, i.powerTable.Total) {
+		i.log("dropping message as no evidence from a strong quorum: %v", msg.Justification.Signers)
+		return false
+	}
+
+	payload := SignaturePayload(msg.Justification.Instance, msg.Justification.Round, msg.Justification.Step, msg.Justification.Value)
+	signers := make([]PubKey, 0)
+	if err := msg.Justification.Signers.ForEach(func(bit uint64) error {
+		if int(bit) >= len(i.powerTable.Entries) {
+			return nil //TODO handle error
+		}
+		signers = append(signers, i.powerTable.Entries[bit].PubKey)
+		return nil
+	}); err != nil {
+		return false
+		//TODO handle error
+	}
+
+	if !i.host.VerifyAggregate(payload, msg.Justification.Signature, signers) {
+		i.log("dropping Message %v with invalid evidence signature: %v", msg, msg.Justification)
+		return false
+	}
+
 	return true
 >>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
 }
