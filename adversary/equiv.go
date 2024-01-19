@@ -66,6 +66,7 @@ func (w *WitholdCommit) Begin() {
 		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.QUALITY_PHASE, w.victimValue)),
 	})
 	w.host.BroadcastSynchronous(w.id, f3.GMessage{
+<<<<<<< HEAD
 		Sender: w.id,
 		Current: f3.SignedMessage{
 			Instance: 0,
@@ -98,15 +99,47 @@ func (w *WitholdCommit) Begin() {
 			Signers:   bitfield.New(),
 			Signature: nil,
 		},
+=======
+		Sender:    w.id,
+		Instance:  0,
+		Round:     0,
+		Step:      f3.PREPARE,
+		Value:     w.victimValue,
+		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.PREPARE, w.victimValue)),
+	})
+
+	message := f3.GMessage{
+		Sender:    w.id,
+		Instance:  0,
+		Round:     0,
+		Step:      f3.COMMIT,
+		Value:     w.victimValue,
+		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.COMMIT, w.victimValue)),
+	}
+	payload := f3.SignaturePayload(0, 0, f3.PREPARE, w.victimValue)
+	justification := f3.Justification{
+		Step:      f3.PREPARE,
+		Value:     w.victimValue,
+		Instance:  0,
+		Round:     0,
+		Signers:   bitfield.New(),
+		Signature: nil,
+>>>>>>> f944d14 (Update tests and calls to signer/verifier interfaces)
 	}
 	signatures := make([][]byte, 0)
 	for _, actorID := range w.victims {
 		signatures = append(signatures, w.host.Sign(actorID, payload))
+<<<<<<< HEAD
 		justification.QuorumSignature.Signers.Set(uint64(w.powertable.Lookup[actorID]))
 	}
 	signatures = append(signatures, w.host.Sign(w.id, payload))
 	justification.QuorumSignature.Signers.Set(uint64(w.powertable.Lookup[w.id]))
 	justification.QuorumSignature.Signature = w.host.Aggregate(signatures, justification.QuorumSignature.Signature)
+=======
+		justification.Signers.Set(uint64(w.powertable.Lookup[actorID]))
+	}
+	justification.Signature = w.host.Aggregate(signatures, justification.Signature)
+>>>>>>> f944d14 (Update tests and calls to signer/verifier interfaces)
 	message.Justification = justification
 	w.host.BroadcastSynchronous(w.id, message)
 }

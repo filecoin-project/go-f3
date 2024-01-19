@@ -826,6 +826,7 @@ func (i *instance) beginConverge() {
 	if prevRoundState.committed.HasStrongQuorumAgreement(ZeroTipSetID()) {
 		value := ECChain{}
 		signers := prevRoundState.committed.getSigners(value)
+
 		signatures := prevRoundState.committed.getSignatures(value, signers)
 		aggSignature := make([]byte, 0)
 		for _, sig := range signatures {
@@ -1187,31 +1188,44 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, j
 	fromSender, ok := q.received[sender]
 	senderPower, _ := q.powerTable.Get(sender)
 <<<<<<< HEAD
+<<<<<<< HEAD
 	sigCopy := make([]byte, len(signature))
 	copy(sigCopy, signature)
 =======
 
 >>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
+=======
+	sigCopy := make([]byte, len(signature))
+	copy(sigCopy, signature)
+>>>>>>> f944d14 (Update tests and calls to signer/verifier interfaces)
 	if ok {
 		// Don't double-count the same chain head for a single participant.
 		if _, ok := fromSender.heads[head]; ok {
 			return
 		}
 <<<<<<< HEAD
+<<<<<<< HEAD
 		fromSender.heads[head] = sigCopy
 =======
 		fromSender.heads[head] = signature
 >>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
+=======
+		fromSender.heads[head] = sigCopy
+>>>>>>> f944d14 (Update tests and calls to signer/verifier interfaces)
 	} else {
 		// Add sender's power to total the first time a value is received from them.
 		q.sendersTotalPower.Add(q.sendersTotalPower, senderPower)
 		fromSender = senderSent{
 			heads: map[TipSetID][]byte{
 <<<<<<< HEAD
+<<<<<<< HEAD
 				head: sigCopy,
 =======
 				head: signature,
 >>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
+=======
+				head: sigCopy,
+>>>>>>> f944d14 (Update tests and calls to signer/verifier interfaces)
 			},
 			power: senderPower,
 		}
@@ -1246,8 +1260,11 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, j
 	if !value.IsZero() && justification.Step == "PREPARE" { //only committed roundStates need to store justifications
 		q.justifiedMessages[value.Head().CID] = justification
 	}
+<<<<<<< HEAD
 
 >>>>>>> e8b34ed (Only store justification of COMMIT for non-bottom value)
+=======
+>>>>>>> f944d14 (Update tests and calls to signer/verifier interfaces)
 	q.chainSupport[head] = candidate
 }
 
@@ -1312,8 +1329,12 @@ func (q *quorumState) getSignatures(value ECChain, signers bitfield.BitField) []
 		}
 		return nil
 	}); err != nil {
+<<<<<<< HEAD
 		return signatures
 >>>>>>> bf3fd83 (Implement aggregation and verification of COMMIT and CONVERGE)
+=======
+		panic("Error while iterating over signers")
+>>>>>>> f944d14 (Update tests and calls to signer/verifier interfaces)
 		//TODO handle error
 	}
 	return signatures
