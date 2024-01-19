@@ -375,17 +375,28 @@ func (i *instance) isValid(msg *GMessage) bool {
 
 // Checks whether a message is justified.
 func (i *instance) isJustified(msg *GMessage) bool {
+	if msg.Instance != msg.Justification.Instance {
+		i.log("dropping message with instanceID %v with evidence from wrong instanceID: %v", msg.Instance, msg.Justification.Instance)
+		return false
+	}
+
+	power := NewStoragePower(0)
+	msg.Justification.Signers.ForEach(func(bit uint64) error {
+		power.Add(power, i.powerTable.Entries[bit].Power)
+		return nil
+	})
+
+	if !hasStrongQuorum(power, i.powerTable.Total) {
+		i.log("dropping message as no evidence from a strong quorum: %v", msg.Justification.Signers)
+		return false
+	}
+
 	if msg.Step == CONVERGE_PHASE {
 		//CONVERGE is justified by a strong quorum of COMMIT for bottom from the previous round.
 		// or a strong quorum of PREPARE for the same value from the previous round.
 		prevRound := msg.Round - 1
 		if msg.Justification.Round != prevRound {
 			i.log("dropping CONVERGE %v with evidence from wrong round %d", msg.Round, msg.Justification.Round)
-			return false
-		}
-
-		if i.instanceID != msg.Justification.Instance {
-			i.log("dropping CONVERGE with instanceID %v with evidence from wrong instanceID: %v", msg.Instance, msg.Justification.Instance)
 			return false
 		}
 
@@ -424,6 +435,11 @@ func (i *instance) isJustified(msg *GMessage) bool {
 	} else if msg.Step == COMMIT_PHASE {
 		// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
 		// COMMIT for bottom is always justified.
+		if msg.Round != msg.Justification.Round {
+			i.log("dropping COMMIT %v with evidence from wrong round %d", msg.Round, msg.Justification.Round)
+			return false
+		}
+
 		if msg.Value.IsZero() {
 			return true
 		}
