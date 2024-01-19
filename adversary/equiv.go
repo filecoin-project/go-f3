@@ -94,6 +94,8 @@ func (w *WitholdCommit) Begin() {
 		signatures = append(signatures, w.host.Sign(actorID, payload))
 		justification.Signers.Set(uint64(w.powertable.Lookup[actorID]))
 	}
+	signatures = append(signatures, w.host.Sign(w.id, payload))
+	justification.Signers.Set(uint64(w.powertable.Lookup[w.id]))
 	justification.Signature = w.host.Aggregate(signatures, justification.Signature)
 	message.Justification = justification
 	w.host.BroadcastSynchronous(w.id, message)
