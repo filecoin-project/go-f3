@@ -394,7 +394,10 @@ func (i *instance) isJustified(msg *GMessage) bool {
 			i.log("dropping COMMIT %v with evidence for a different value: %v", msg.Value, msg.Justification.Value)
 			return false
 		}
-	} //TODO else if DECIDE
+	} else if msg.Step == DECIDE {
+		//TODO Implement actual justification of DECIDES (upcoming PR)
+		return true
+	}
 
 	if msg.Instance != msg.Justification.Instance {
 		i.log("dropping message with instanceID %v with evidence from wrong instanceID: %v", msg.Instance, msg.Justification.Instance)
@@ -402,7 +405,7 @@ func (i *instance) isJustified(msg *GMessage) bool {
 	}
 
 	power := NewStoragePower(0)
-	msg.Justification.Signers.ForEach(func(bit uint64) error {
+	_ = msg.Justification.Signers.ForEach(func(bit uint64) error {
 		power.Add(power, i.powerTable.Entries[bit].Power)
 		return nil
 	})
