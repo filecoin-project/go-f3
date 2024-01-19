@@ -395,8 +395,18 @@ func (i *instance) isJustified(msg *GMessage) bool {
 			return false
 		}
 	} else if msg.Step == DECIDE {
-		//TODO Implement actual justification of DECIDES (upcoming PR)
-		return true
+		if msg.Justification.Step != COMMIT {
+			i.log("dropping DECIDE %v with evidence from wrong step %v", msg.Round, msg.Justification.Step)
+			return false
+		}
+		if msg.Value.IsZero() || msg.Justification.Value.IsZero() {
+			i.log("dropping DECIDE %v with evidence for a zero value: %v", msg.Value, msg.Justification.Value)
+			return false
+		}
+		if msg.Value.Head().CID != msg.Justification.Value.Head().CID {
+			i.log("dropping DECIDE %v with evidence for a different value: %v", msg.Value, msg.Justification.Value)
+			return false
+		}
 	}
 
 	if msg.Instance != msg.Justification.Instance {
@@ -612,7 +622,7 @@ func (i *instance) tryCommit(round uint32) error {
 		// A participant may be forced to decide a value that's not its preferred chain.
 		// The participant isn't influencing that decision against their interest, just accepting it.
 		i.value = foundQuorum[0]
-		i.beginDecide()
+		i.beginDecide(round)
 	} else if i.round == round && i.phase == COMMIT && timeoutExpired && committed.ReceivedFromStrongQuorum() {
 		// Adopt any non-empty value committed by another participant (there can only be one).
 		// This node has observed the strong quorum of PREPARE messages that justify it,
@@ -636,9 +646,27 @@ func (i *instance) tryCommit(round uint32) error {
 	return nil
 }
 
-func (i *instance) beginDecide() {
+func (i *instance) beginDecide(round uint32) {
 	i.phase = DECIDE
-	i.broadcast(0, DECIDE, i.value, nil, Justification{})
+	roundState := i.roundState(round)
+	if !roundState.committed.HasStrongQuorumAgreement(i.value.Head().CID) {
+		panic("beginDecide called but no evidence found")
+	}
+	signers := roundState.committed.getSigners(i.value)
+	signatures := roundState.committed.getSignatures(i.value, signers)
+	aggSignature := make([]byte, 0)
+	for _, sig := range signatures {
+		aggSignature = i.host.Aggregate([][]byte{sig}, aggSignature)
+	}
+	justification := Justification{
+		Instance:  i.instanceID,
+		Round:     round,
+		Step:      COMMIT,
+		Value:     i.value,
+		Signers:   signers,
+		Signature: aggSignature,
+	}
+	i.broadcast(0, DECIDE, i.value, nil, justification)
 }
 
 func (i *instance) tryDecide() error {
