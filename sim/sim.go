@@ -88,6 +88,7 @@ func (s *Simulation) SetAdversary(adv AdversaryReceiver, power uint) {
 	pubKey := getFakePubKey(adv.ID())
 	s.Network.AddParticipant(adv, pubKey)
 	if err := s.PowerTable.Add(adv.ID(), f3.NewStoragePower(int64(power)), pubKey); err != nil {
+<<<<<<< HEAD
 =======
 	s.Network.AddParticipant(adv)
 =======
@@ -99,9 +100,10 @@ func (s *Simulation) SetAdversary(adv AdversaryReceiver, power uint) {
 >>>>>>> 372f257 (Ensure signing and verifying modifies no input)
 	if err := s.PowerTable.Add(adv.ID(), f3.NewStoragePower(int64(power)), getFakePubKey(adv.ID())); err != nil {
 >>>>>>> 5da2ee3 (Verify list of public keys when verifying aggregate)
+=======
+>>>>>>> 90f3cc6 (Fix rebasing mistake)
 		panic(err)
 	}
-	s.Network.AddParticipant(adv, pubKey)
 }
 
 type ChainCount struct {
