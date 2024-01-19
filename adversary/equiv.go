@@ -1,6 +1,7 @@
 package adversary
 
 import (
+	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-f3/f3"
 	"github.com/filecoin-project/go-f3/sim"
 )
@@ -9,18 +10,20 @@ import (
 // Against a naive algorithm, when set up with 30% of power, and a victim set with 40%,
 // it can cause one victim to decide, while others revert to the base.
 type WitholdCommit struct {
-	id   f3.ActorID
-	host sim.AdversaryHost
+	id         f3.ActorID
+	host       sim.AdversaryHost
+	powertable f3.PowerTable
 	// The first victim is the target, others are those who need to confirm.
 	victims     []f3.ActorID
 	victimValue f3.ECChain
 }
 
 // A participant that never sends anything.
-func NewWitholdCommit(id f3.ActorID, host sim.AdversaryHost) *WitholdCommit {
+func NewWitholdCommit(id f3.ActorID, host sim.AdversaryHost, powertable f3.PowerTable) *WitholdCommit {
 	return &WitholdCommit{
-		id:   id,
-		host: host,
+		id:         id,
+		host:       host,
+		powertable: powertable,
 	}
 }
 
@@ -58,7 +61,7 @@ func (w *WitholdCommit) Begin() {
 		Round:     0,
 		Step:      f3.QUALITY_PHASE,
 		Value:     w.victimValue,
-		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.QUALITY_PHASE, w.victimValue)),
+		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.QUALITY_PHASE.String(), w.victimValue)),
 	})
 	w.host.BroadcastSynchronous(w.id, f3.GMessage{
 		Sender:    w.id,
@@ -66,16 +69,34 @@ func (w *WitholdCommit) Begin() {
 		Round:     0,
 		Step:      f3.PREPARE_PHASE,
 		Value:     w.victimValue,
-		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.PREPARE_PHASE, w.victimValue)),
+		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.PREPARE_PHASE.String(), w.victimValue)),
 	})
-	w.host.BroadcastSynchronous(w.id, f3.GMessage{
+
+	message := f3.GMessage{
 		Sender:    w.id,
 		Instance:  0,
 		Round:     0,
 		Step:      f3.COMMIT_PHASE,
 		Value:     w.victimValue,
-		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.COMMIT_PHASE, w.victimValue)),
-	})
+		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.COMMIT_PHASE.String(), w.victimValue)),
+	}
+	payload := f3.SignaturePayload(0, 0, f3.PREPARE_PHASE.String(), w.victimValue)
+	justification := f3.Justification{
+		Step:      f3.PREPARE_PHASE.String(),
+		Value:     w.victimValue,
+		Instance:  0,
+		Round:     0,
+		Signers:   bitfield.New(),
+		Signature: nil,
+	}
+	signatures := make([][]byte, 0)
+	for _, actorID := range w.victims {
+		signatures = append(signatures, w.host.Sign(actorID, payload))
+		justification.Signers.Set(uint64(w.powertable.Lookup[actorID]))
+	}
+	justification.Signature = w.host.Aggregate(signatures, justification.Signature)
+	message.Justification = justification
+	w.host.BroadcastSynchronous(w.id, message)
 }
 
 func (w *WitholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Message) bool {

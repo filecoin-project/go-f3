@@ -103,12 +103,16 @@ func (m GMessage) String() string {
 }
 
 // Computes the payload for a GMessage signature.
+<<<<<<< HEAD
 func SignaturePayload(instance uint64, round uint64, step Phase, value ECChain) []byte {
+=======
+func SignaturePayload(instance uint32, round uint32, step string, value ECChain) []byte {
+>>>>>>> fa80b7e (Update tests and calls to signer/verifier interfaces)
 	var buf bytes.Buffer
 	buf.WriteString(DOMAIN_SEPARATION_TAG)
 	_ = binary.Write(&buf, binary.BigEndian, instance)
 	_ = binary.Write(&buf, binary.BigEndian, round)
-	_ = binary.Write(&buf, binary.BigEndian, step)
+	_ = binary.Write(&buf, binary.BigEndian, []byte(step))
 	for _, t := range value {
 		_ = binary.Write(&buf, binary.BigEndian, t.Epoch)
 		buf.Write(t.CID.Bytes())
@@ -360,7 +364,7 @@ func (i *instance) isValid(msg *GMessage) bool {
 		return !msg.Value.IsZero()
 	}
 
-	sigPayload := SignaturePayload(msg.Instance, msg.Round, msg.Step, msg.Value)
+	sigPayload := SignaturePayload(msg.Instance, msg.Round, msg.Step.String(), msg.Value)
 	if !i.host.Verify(pubKey, sigPayload, msg.Signature) {
 		i.log("invalid signature on %v", msg)
 		return false
@@ -371,7 +375,7 @@ func (i *instance) isValid(msg *GMessage) bool {
 
 // Checks whether a message is justified.
 func (i *instance) isJustified(msg *GMessage) bool {
-	if msg.Step == CONVERGE {
+	if msg.Step == CONVERGE_PHASE {
 		//CONVERGE is justified by a strong quorum of COMMIT for bottom from the previous round.
 		// or a strong quorum of PREPARE for the same value from the previous round.
 		prevRound := msg.Round - 1
@@ -385,12 +389,12 @@ func (i *instance) isJustified(msg *GMessage) bool {
 			return false
 		}
 
-		if msg.Justification.Step == PREPARE {
+		if msg.Justification.Step == PREPARE_PHASE.String() {
 			if msg.Value.HeadCIDOrZero() != msg.Justification.Value.HeadCIDOrZero() {
 				i.log("dropping CONVERGE for value %v with PREPARE evidence for a different value: %v", msg.Value, msg.Justification.Value)
 				return false
 			}
-		} else if msg.Justification.Step == COMMIT {
+		} else if msg.Justification.Step == COMMIT_PHASE.String() {
 			if msg.Justification.Value.HeadCIDOrZero() != ZeroTipSetID() {
 				i.log("dropping CONVERGE with COMMIT evidence for non-zero value: %v", msg.Justification.Value)
 				return false
@@ -417,13 +421,13 @@ func (i *instance) isJustified(msg *GMessage) bool {
 			i.log("dropping CONVERGE %v with invalid evidence signature: %v", msg, msg.Justification)
 			return false
 		}
-	} else if msg.Step == COMMIT {
+	} else if msg.Step == COMMIT_PHASE {
 		// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
 		// COMMIT for bottom is always justified.
 		if msg.Value.IsZero() {
 			return true
 		}
-		payload := SignaturePayload(i.instanceID, msg.Round, PREPARE, msg.Value)
+		payload := SignaturePayload(i.instanceID, msg.Round, PREPARE_PHASE.String(), msg.Value)
 		signers := make([]PubKey, 0)
 		if err := msg.Justification.Signers.ForEach(func(bit uint64) error {
 			if int(bit) >= len(i.powerTable.Entries) {
@@ -491,6 +495,7 @@ func (i *instance) beginConverge() {
 	if prevRoundState.committed.HasStrongQuorumAgreement(ZeroTipSetID()) {
 		value := ECChain{}
 		signers := prevRoundState.committed.getSigners(value)
+
 		signatures := prevRoundState.committed.getSignatures(value, signers)
 		aggSignature := make([]byte, 0)
 		for _, sig := range signatures {
@@ -697,6 +702,7 @@ func (i *instance) terminated() bool {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Ticket) *GMessage {
 =======
 =======
@@ -720,6 +726,10 @@ func (i *instance) broadcast(round uint32, step Phase, value ECChain, ticket Tic
 func (i *instance) broadcast(round uint32, step Phase, value ECChain, ticket Ticket, Justification justification) *GMessage {
 >>>>>>> efbc3dc (Implement aggregation and verification of COMMIT and CONVERGE)
 	payload := SignaturePayload(i.instanceID, round, step, value)
+=======
+func (i *instance) broadcast(round uint32, step Phase, value ECChain, ticket Ticket, justification Justification) *GMessage {
+	payload := SignaturePayload(i.instanceID, round, step.String(), value)
+>>>>>>> fa80b7e (Update tests and calls to signer/verifier interfaces)
 	signature := i.host.Sign(i.participantID, payload)
 	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature, justification}
 	i.host.Broadcast(gmsg)
@@ -791,19 +801,20 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, j
 	head := value.HeadCIDOrZero()
 	fromSender, ok := q.received[sender]
 	senderPower, _ := q.powerTable.Get(sender)
-
+	sigCopy := make([]byte, len(signature))
+	copy(sigCopy, signature)
 	if ok {
 		// Don't double-count the same chain head for a single participant.
 		if _, ok := fromSender.heads[head]; ok {
 			return
 		}
-		fromSender.heads[head] = signature
+		fromSender.heads[head] = sigCopy
 	} else {
 		// Add sender's power to total the first time a value is received from them.
 		q.sendersTotalPower.Add(q.sendersTotalPower, senderPower)
 		fromSender = senderSent{
 			heads: map[TipSetID][]byte{
-				head: signature,
+				head: sigCopy,
 			},
 			power: senderPower,
 		}
@@ -829,7 +840,6 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, j
 	if !value.IsZero() && justification.Step == "PREPARE" { //only committed roundStates need to store justifications
 		q.justifiedMessages[value.Head().CID] = justification
 	}
-
 	q.chainSupport[head] = candidate
 }
 
@@ -871,7 +881,7 @@ func (q *quorumState) getSignatures(value ECChain, signers bitfield.BitField) []
 		}
 		return nil
 	}); err != nil {
-		return signatures
+		panic("Error while iterating over signers")
 		//TODO handle error
 	}
 	return signatures
