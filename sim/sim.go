@@ -69,10 +69,9 @@ func (s *Simulation) SetAdversary(adv AdversaryReceiver, power uint) {
 	s.Adversary = adv
 	pubKey := getFakePubKey(adv.ID())
 	s.Network.AddParticipant(adv, pubKey)
-	if err := s.PowerTable.Add(adv.ID(), f3.NewStoragePower(int64(power)), getFakePubKey(adv.ID())); err != nil {
+	if err := s.PowerTable.Add(adv.ID(), f3.NewStoragePower(int64(power)), pubKey); err != nil {
 		panic(err)
 	}
-	s.Network.AddParticipant(adv, pubKey)
 }
 
 type ChainCount struct {
