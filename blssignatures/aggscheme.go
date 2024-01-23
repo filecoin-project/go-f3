@@ -12,17 +12,16 @@ import (
 	"github.com/filecoin-project/go-f3/f3"
 )
 
-// BLSScheme represents a BLS aggregate signature scheme.
-type BLSScheme struct {
+// BLSAggScheme represents a BLS aggregate signature scheme.
+type BLSAggScheme struct {
 	suite      pairing.Suite
 	keyGroup   kyber.Group
-	privKey    kyber.Scalar
 	powerTable *f3.PowerTable
 	pubKeys    []kyber.Point // deserialized public keys from the power table
 }
 
-// NewBLSScheme implements signing, verifying, and signature aggregation using BLS.
-func NewBLSScheme(privKeyData []byte, powerTable *f3.PowerTable) (*BLSScheme, error) {
+// NewBLSAggScheme implements signing, verifying, and signature aggregation using BLS.
+func NewBLSAggScheme(powerTable *f3.PowerTable) (*BLSAggScheme, error) {
 
 	// This implementation is forced to use the group G2 for keys, because the underlying implementation
 	// of the bdn package is hard-coded to use such a configuration.
@@ -30,13 +29,6 @@ func NewBLSScheme(privKeyData []byte, powerTable *f3.PowerTable) (*BLSScheme, er
 	// Then, this code can very easily be generalized as well.
 	suite := bls12381.NewBLS12381Suite()
 	keyGroup := suite.G2()
-
-	// Deserialize private key.
-	privKey := keyGroup.Scalar()
-	err := privKey.UnmarshalBinary(privKeyData)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal private key: %w", err)
-	}
 
 	// Deserialize public keys.
 	pubKeys := make([]kyber.Point, len(powerTable.Entries))
@@ -48,31 +40,15 @@ func NewBLSScheme(privKeyData []byte, powerTable *f3.PowerTable) (*BLSScheme, er
 		pubKeys[i] = pubKey
 	}
 
-	return &BLSScheme{
+	return &BLSAggScheme{
 		suite:      suite,
 		keyGroup:   keyGroup,
-		privKey:    privKey,
 		powerTable: powerTable,
 		pubKeys:    pubKeys,
 	}, nil
 }
 
-func (s *BLSScheme) Sign(msg []byte) ([]byte, error) {
-	return bdn.Sign(s.suite, s.privKey, msg)
-}
-
-func (s *BLSScheme) Verify(signer f3.ActorID, msg, sig []byte) error {
-
-	// Get sender's public key from power table.
-	pubKey, err := s.lookUpPubKeyById(signer)
-	if err != nil {
-		return err
-	}
-
-	return bdn.Verify(s.suite, pubKey, msg, sig)
-}
-
-func (s *BLSScheme) NewAggregator() (f3.SigAggregator, error) {
+func (s *BLSAggScheme) NewAggregator() (f3.SigAggregator, error) {
 	mask, err := sign.NewMask(s.suite, s.pubKeys, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create empty public key mask: %w", err)
@@ -85,7 +61,7 @@ func (s *BLSScheme) NewAggregator() (f3.SigAggregator, error) {
 	}, nil
 }
 
-func (s *BLSScheme) VerifyAggSig(msg []byte, sig []byte) error {
+func (s *BLSAggScheme) VerifyAggSig(msg []byte, sig []byte) error {
 
 	var data aggSigData
 	if err := json.Unmarshal(sig, &data); err != nil {
@@ -111,23 +87,4 @@ func (s *BLSScheme) VerifyAggSig(msg []byte, sig []byte) error {
 	}
 
 	return bdn.Verify(s.suite, aggPubKey, msg, data.Sig)
-}
-
-func (s *BLSScheme) lookUpPubKeyById(signer f3.ActorID) (kyber.Point, error) {
-	signerIndex, ok := s.powerTable.Lookup[signer]
-	if !ok {
-		return nil, fmt.Errorf("unknown signer: %v", signer)
-	}
-	return s.lookUpPubKeyByIndex(signerIndex)
-}
-
-func (s *BLSScheme) lookUpPubKeyByIndex(signerIndex int) (kyber.Point, error) {
-	pubKey := s.keyGroup.Point()
-	err := pubKey.UnmarshalBinary(s.powerTable.Entries[signerIndex].PubKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal public key at index %d", signerIndex)
-	}
-	return pubKey, nil
-
-	// TODO: Cache deserialized public keys, so they don't have to be deserialized over and over again.
 }

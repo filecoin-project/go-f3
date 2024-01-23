@@ -68,31 +68,31 @@ func TestBDN(t *testing.T) {
 	require.NoError(t, bdn.Verify(suite, aggKey, dummyMessage, aggSigBytes))
 }
 
-func TestBLSScheme_Sign_Verify(t *testing.T) {
-	schemes := dummySystem(t, 2)
+func TestBLSSigner_Sign_Verify(t *testing.T) {
+	signers, schemes := dummySystem(t, 2)
 	require.Equal(t, 2, len(schemes))
 
-	sig0, err := schemes[0].Sign(dummyMessage)
+	sig0, err := signers[0].Sign(dummyMessage)
 	require.NoError(t, err)
-	sig1, err := schemes[1].Sign(dummyMessage)
+	sig1, err := signers[1].Sign(dummyMessage)
 	require.NoError(t, err)
 
-	require.NoError(t, schemes[0].Verify(0, dummyMessage, sig0))
-	require.NoError(t, schemes[0].Verify(1, dummyMessage, sig1))
-	require.NoError(t, schemes[1].Verify(0, dummyMessage, sig0))
-	require.NoError(t, schemes[1].Verify(1, dummyMessage, sig1))
+	require.NoError(t, signers[0].Verify(0, dummyMessage, sig0))
+	require.NoError(t, signers[0].Verify(1, dummyMessage, sig1))
+	require.NoError(t, signers[1].Verify(0, dummyMessage, sig0))
+	require.NoError(t, signers[1].Verify(1, dummyMessage, sig1))
 
-	require.NotNil(t, schemes[0].Verify(0, dummyMessage, sig1))
-	require.NotNil(t, schemes[0].Verify(1, differentDummyMessage, sig1))
+	require.NotNil(t, signers[0].Verify(0, dummyMessage, sig1))
+	require.NotNil(t, signers[0].Verify(1, differentDummyMessage, sig1))
 }
 
 func TestBLSScheme_Aggregate(t *testing.T) {
-	schemes := dummySystem(t, 4)
+	signers, schemes := dummySystem(t, 4)
 
 	sigs := make([][]byte, 4)
-	for i, scheme := range schemes {
+	for i, signer := range signers {
 		var err error
-		sigs[i], err = scheme.Sign(dummyMessage)
+		sigs[i], err = signer.Sign(dummyMessage)
 		require.NoError(t, err)
 	}
 
@@ -169,7 +169,7 @@ func TestBLSScheme_Aggregate(t *testing.T) {
 	require.NotNil(t, schemes[1].VerifyAggSig(differentDummyMessage, invalidSig))
 }
 
-func dummySystem(t *testing.T, numParticipants int) []*BLSScheme {
+func dummySystem(t *testing.T, numParticipants int) ([]*BLSSigner, []*BLSAggScheme) {
 	t.Helper()
 
 	// Create power table and private keys.
@@ -190,12 +190,15 @@ func dummySystem(t *testing.T, numParticipants int) []*BLSScheme {
 	}
 
 	// Create one signature scheme object per private key.
-	schemes := make([]*BLSScheme, numParticipants)
+	schemes := make([]*BLSAggScheme, numParticipants)
+	signers := make([]*BLSSigner, numParticipants)
 	for i, privKey := range privKeys {
 		var err error
-		schemes[i], err = NewBLSScheme(privKey, powerTable)
+		signers[i], err = NewBLSSigner(privKey, powerTable)
+		require.NoError(t, err)
+		schemes[i], err = NewBLSAggScheme(powerTable)
 		require.NoError(t, err)
 	}
 
-	return schemes
+	return signers, schemes
 }

@@ -13,7 +13,7 @@ import (
 // SigAggregator holds the intermediate state of signature aggregation.
 // Must not be allocated directly. Always use AggSignatureScheme.NewAggregator to create a new instance.
 type SigAggregator struct {
-	blsScheme  *BLSScheme
+	blsScheme  *BLSAggScheme
 	sigs       []indexedSig
 	signerMask *sign.Mask
 }
@@ -47,9 +47,9 @@ func (as *SigAggregator) Add(signer f3.ActorID, sig []byte) error {
 // Aggregate aggregates all the signatures previously added using the Add method.
 // The returned byte slice is an opaque encoding of the signature itself,
 // along with references to the identities of the signers.
-// The returned data can be passed to BLSScheme.VerifyAggSig for verification.
-// Note that the verifying BLSScheme must have been created using the same power table
-// as the BLSScheme that produced this aggregator. Otherwise, the verification result is undefined.
+// The returned data can be passed to BLSAggScheme.VerifyAggSig for verification.
+// Note that the verifying BLSAggScheme must have been created using the same power table
+// as the BLSAggScheme that produced this aggregator. Otherwise, the verification result is undefined.
 func (as *SigAggregator) Aggregate() ([]byte, error) {
 
 	// Since the bdn.AggregateSignatures library function expects the signatures to be ordered
