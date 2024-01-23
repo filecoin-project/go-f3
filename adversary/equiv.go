@@ -56,25 +56,25 @@ func (w *WitholdCommit) Begin() {
 		Sender:    w.id,
 		Instance:  0,
 		Round:     0,
-		Step:      f3.QUALITY,
+		Step:      f3.QUALITY_PHASE,
 		Value:     w.victimValue,
-		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.QUALITY, w.victimValue)),
+		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.QUALITY_PHASE, w.victimValue)),
 	})
 	w.host.BroadcastSynchronous(w.id, f3.GMessage{
 		Sender:    w.id,
 		Instance:  0,
 		Round:     0,
-		Step:      f3.PREPARE,
+		Step:      f3.PREPARE_PHASE,
 		Value:     w.victimValue,
-		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.PREPARE, w.victimValue)),
+		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.PREPARE_PHASE, w.victimValue)),
 	})
 	w.host.BroadcastSynchronous(w.id, f3.GMessage{
 		Sender:    w.id,
 		Instance:  0,
 		Round:     0,
-		Step:      f3.COMMIT,
+		Step:      f3.COMMIT_PHASE,
 		Value:     w.victimValue,
-		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.COMMIT, w.victimValue)),
+		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.COMMIT_PHASE, w.victimValue)),
 	})
 }
 
@@ -88,17 +88,17 @@ func (w *WitholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Message
 				toAnyVictim = true
 			}
 		}
-		if gmsg.Step == f3.QUALITY {
+		if gmsg.Step == f3.QUALITY_PHASE {
 			// Don't allow victims to see dissenting QUALITY.
 			if toAnyVictim && !gmsg.Value.Eq(w.victimValue) {
 				return false
 			}
-		} else if gmsg.Step == f3.PREPARE {
+		} else if gmsg.Step == f3.PREPARE_PHASE {
 			// Don't allow victims to see dissenting PREPARE.
 			if toAnyVictim && !gmsg.Value.Eq(w.victimValue) {
 				return false
 			}
-		} else if gmsg.Step == f3.COMMIT {
+		} else if gmsg.Step == f3.COMMIT_PHASE {
 			// Allow only the main victim to see our COMMIT.
 			if !toMainVictim && gmsg.Sender == w.id {
 				return false

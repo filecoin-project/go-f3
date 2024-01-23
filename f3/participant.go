@@ -101,7 +101,7 @@ func (p *Participant) handleDecision() {
 }
 
 func (p *Participant) terminated() bool {
-	return p.granite != nil && p.granite.phase == TERMINATED
+	return p.granite != nil && p.granite.phase == TERMINATED_PHASE
 }
 
 func (p *Participant) Describe() string {
