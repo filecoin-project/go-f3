@@ -414,30 +414,43 @@ func (i *instance) isJustified(msg *GMessage) bool {
 		return false
 	}
 
-	power := NewStoragePower(0)
-	_ = msg.Justification.Signers.ForEach(func(bit uint64) error {
-		power.Add(power, i.powerTable.Entries[bit].Power)
-		return nil
-	})
+	signers := make([]PubKey, 0)
+	setBits, _ := msg.Justification.Signers.All(uint64(len(i.powerTable.Entries)))
+	justificationPower := NewStoragePower(0)
+	var bitIndex int
+	var bit uint64
+	for bitIndex, bit = range setBits {
+		if int(bit) >= len(i.powerTable.Entries) {
+			break //TODO handle error
+		}
+		signers = append(signers, i.powerTable.Entries[bit].PubKey)
+		justificationPower.Add(justificationPower, i.powerTable.Entries[bit].Power)
+		if hasStrongQuorum(justificationPower, i.powerTable.Total) {
+			break // no need to keep calculating
+		}
+	}
 
-	if !hasStrongQuorum(power, i.powerTable.Total) {
+	if !hasStrongQuorum(justificationPower, i.powerTable.Total) {
 		i.log("dropping message as no evidence from a strong quorum: %v", msg.Justification.Signers)
 		return false
 	}
 
-	payload := SignaturePayload(msg.Justification.Instance, msg.Justification.Round, msg.Justification.Step, msg.Justification.Value)
-	signers := make([]PubKey, 0)
-	if err := msg.Justification.Signers.ForEach(func(bit uint64) error {
+	// need to retrieve the remaining pubkeys just to verify the aggregate
+	//TODO we could enforce here a tight strong quorum and no extra signatures
+	// to prevent wasting time in verifying too many aggregated signatures
+	// but should be careful with oligopolies (check out issue #49)
+	// A deterministic but drand-sourced permutation could prevent oligopolies
+	// if a random permutation affects performance we could do a weighted random permutation
+	// To favour with more power.
+	for bitIndex++; bitIndex < len(setBits); bitIndex++ {
+		bit = setBits[bitIndex]
 		if int(bit) >= len(i.powerTable.Entries) {
-			return nil //TODO handle error
+			break //TODO handle error
 		}
 		signers = append(signers, i.powerTable.Entries[bit].PubKey)
-		return nil
-	}); err != nil {
-		return false
-		//TODO handle error
 	}
 
+	payload := SignaturePayload(msg.Justification.Instance, msg.Justification.Round, msg.Justification.Step, msg.Justification.Value)
 	if !i.host.VerifyAggregate(payload, msg.Justification.Signature, signers) {
 		i.log("dropping Message %v with invalid evidence signature: %v", msg, msg.Justification)
 		return false
@@ -489,8 +502,7 @@ func (i *instance) beginConverge() {
 	var ok bool
 	if prevRoundState.committed.HasStrongQuorumAgreement(ZeroTipSetID()) {
 		value := ECChain{}
-		signers := prevRoundState.committed.getSigners(value)
-
+		signers := prevRoundState.committed.getStrongQuorumSigners(value)
 		signatures := prevRoundState.committed.getSignatures(value, signers)
 		aggSignature := make([]byte, 0)
 		for _, sig := range signatures {
@@ -506,7 +518,7 @@ func (i *instance) beginConverge() {
 		}
 	} else if prevRoundState.prepared.HasStrongQuorumAgreement(i.proposal.Head().CID) {
 		value := i.proposal
-		signers := prevRoundState.prepared.getSigners(value)
+		signers := prevRoundState.prepared.getStrongQuorumSigners(value)
 		signatures := prevRoundState.prepared.getSignatures(value, signers)
 		aggSignature := make([]byte, 0)
 		for _, sig := range signatures {
@@ -847,6 +859,27 @@ func (q *quorumState) getSigners(value ECChain) bitfield.BitField {
 	}
 
 	return signers
+}
+
+// getStrongQuorumSigners retrieves just a strong quorum of signers of the given ECChain.
+// At the moment, this is the signers with the most power until reaching a strong quorum.
+func (q *quorumState) getStrongQuorumSigners(value ECChain) bitfield.BitField {
+	signers := q.getSigners(value)
+	strongQuorumSigners := bitfield.New()
+	justificationPower := NewStoragePower(0)
+	setBits, _ := signers.All(uint64(len(q.powerTable.Entries)))
+	for _, bit := range setBits {
+		justificationPower.Add(justificationPower, q.powerTable.Entries[bit].Power)
+		strongQuorumSigners.Set(bit)
+		if hasStrongQuorum(justificationPower, q.powerTable.Total) {
+			break // no need to keep calculating
+		}
+	}
+	if !hasStrongQuorum(justificationPower, q.powerTable.Total) {
+		// if we didn't find a strong quorum, return an empty bitfield
+		return bitfield.New()
+	}
+	return strongQuorumSigners
 }
 
 // getSignatures returns the corresponding signatures for a given bitset of signers
