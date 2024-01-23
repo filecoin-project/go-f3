@@ -52,29 +52,41 @@ func (w *WitholdCommit) ReceiveAlarm(_ string) error {
 func (w *WitholdCommit) Begin() {
 	// All victims need to see QUALITY and PREPARE in order to send their COMMIT,
 	// but only the one victim will see our COMMIT.
+	sig, err := w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.QUALITY, w.victimValue))
+	if err != nil {
+		panic(err)
+	}
 	w.host.BroadcastSynchronous(w.id, f3.GMessage{
 		Sender:    w.id,
 		Instance:  0,
 		Round:     0,
 		Step:      f3.QUALITY,
 		Value:     w.victimValue,
-		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.QUALITY, w.victimValue)),
+		Signature: sig,
 	})
+	sig, err = w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.PREPARE, w.victimValue))
+	if err != nil {
+		panic(err)
+	}
 	w.host.BroadcastSynchronous(w.id, f3.GMessage{
 		Sender:    w.id,
 		Instance:  0,
 		Round:     0,
 		Step:      f3.PREPARE,
 		Value:     w.victimValue,
-		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.PREPARE, w.victimValue)),
+		Signature: sig,
 	})
+	sig, err = w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.COMMIT, w.victimValue))
+	if err != nil {
+		panic(err)
+	}
 	w.host.BroadcastSynchronous(w.id, f3.GMessage{
 		Sender:    w.id,
 		Instance:  0,
 		Round:     0,
 		Step:      f3.COMMIT,
 		Value:     w.victimValue,
-		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.COMMIT, w.victimValue)),
+		Signature: sig,
 	})
 }
 

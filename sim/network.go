@@ -105,33 +105,33 @@ func (n *Network) SetAlarm(sender f3.ActorID, payload string, at float64) {
 
 ///// Signer interface
 
-func (n *Network) Sign(sender f3.ActorID, msg []byte) []byte {
+func (n *Network) Sign(sender f3.ActorID, msg []byte) ([]byte, error) {
 	// Fake implementation.
 	// Just prepends 8-byte sender ID to message.
 	buf := new(bytes.Buffer)
 	if err := binary.Write(buf, binary.BigEndian, sender); err != nil {
-		panic(err)
+		return nil, err
 	}
-	return append(buf.Bytes(), msg...)
+	return append(buf.Bytes(), msg...), nil
 }
 
-func (n *Network) Verify(sender f3.ActorID, msg, sig []byte) bool {
+func (n *Network) Verify(sender f3.ActorID, msg, sig []byte) error {
 	// Fake implementation.
 	// Just checks that first 8 bytes of signature match sender ID,
 	// and remaining bytes match message.
 	buf := bytes.NewReader(sig)
 	var recoveredSender uint64
 	if err := binary.Read(buf, binary.BigEndian, &recoveredSender); err != nil {
-		return false
+		return err
 	}
 	remainingBytes := sig[8:]
 	if recoveredSender != uint64(sender) {
-		return false
+		return fmt.Errorf("sender mismatch")
 	}
 	if !bytes.Equal(remainingBytes, msg) {
-		return false
+		return fmt.Errorf("signature data mismatch")
 	}
-	return true
+	return nil
 }
 
 func (n *Network) Log(format string, args ...interface{}) {

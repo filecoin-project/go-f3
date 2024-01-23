@@ -46,9 +46,9 @@ type Clock interface {
 
 type Signer interface {
 	// Signs a message for the given sender ID.
-	Sign(sender ActorID, msg []byte) []byte
+	Sign(sender ActorID, msg []byte) ([]byte, error)
 	// Verifies a signature for the given sender ID.
-	Verify(sender ActorID, msg, sig []byte) bool
+	Verify(sender ActorID, msg, sig []byte) error
 }
 
 // AggSignatureScheme encapsulates signature aggregation functionality.

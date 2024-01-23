@@ -161,7 +161,9 @@ func newRoundState(powerTable PowerTable) *roundState {
 }
 
 func (i *instance) Start() error {
-	i.beginQuality()
+	if err := i.beginQuality(); err != nil {
+		return err
+	}
 	return i.drainInbox()
 }
 
@@ -311,7 +313,7 @@ func (i *instance) isValid(msg *GMessage) bool {
 	}
 
 	sigPayload := SignaturePayload(msg.Instance, msg.Round, msg.Step, msg.Value)
-	if !i.host.Verify(msg.Sender, sigPayload, msg.Signature) {
+	if err := i.host.Verify(msg.Sender, sigPayload, msg.Signature); err != nil {
 		i.log("invalid signature on %v", msg)
 		return false
 	}
@@ -325,11 +327,14 @@ func (i *instance) isJustified(msg *GMessage) bool {
 }
 
 // Sends this node's QUALITY message and begins the QUALITY phase.
-func (i *instance) beginQuality() {
+func (i *instance) beginQuality() error {
 	// Broadcast input value and wait up to Δ to receive from others.
 	i.phase = QUALITY
 	i.phaseTimeout = i.alarmAfterSynchrony(QUALITY)
-	i.broadcast(i.round, QUALITY, i.input, nil)
+	if _, err := i.broadcast(i.round, QUALITY, i.input, nil); err != nil {
+		return fmt.Errorf("failed to broadast message: %w", err)
+	}
+	return nil
 }
 
 // Attempts to end the QUALITY phase and begin PREPARE based on current state.
@@ -352,17 +357,23 @@ func (i *instance) tryQuality() error {
 	if foundQuorum || timeoutExpired {
 		i.value = i.proposal
 		i.log("adopting proposal/value %s", &i.proposal)
-		i.beginPrepare()
+		return i.beginPrepare()
 	}
 
 	return nil
 }
 
-func (i *instance) beginConverge() {
+func (i *instance) beginConverge() error {
 	i.phase = CONVERGE
-	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
+	ticket, err := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
+	if err != nil {
+		return fmt.Errorf("failed creatig VRF ticket: %w", err)
+	}
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE)
-	i.broadcast(i.round, CONVERGE, i.proposal, ticket)
+	if _, err := i.broadcast(i.round, CONVERGE, i.proposal, ticket); err != nil {
+		return fmt.Errorf("failed to broadast message: %w", err)
+	}
+	return nil
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
@@ -389,17 +400,18 @@ func (i *instance) tryConverge() error {
 		// Vote for not deciding in this round
 		i.value = ECChain{}
 	}
-	i.beginPrepare()
-
-	return nil
+	return i.beginPrepare()
 }
 
 // Sends this node's PREPARE message and begins the PREPARE phase.
-func (i *instance) beginPrepare() {
+func (i *instance) beginPrepare() error {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
-	i.broadcast(i.round, PREPARE, i.value, nil)
+	if _, err := i.broadcast(i.round, PREPARE, i.value, nil); err != nil {
+		return fmt.Errorf("failed to broadast message: %w", err)
+	}
+	return nil
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -420,16 +432,19 @@ func (i *instance) tryPrepare() error {
 	}
 
 	if foundQuorum || timeoutExpired {
-		i.beginCommit()
+		return i.beginCommit()
 	}
 
 	return nil
 }
 
-func (i *instance) beginCommit() {
+func (i *instance) beginCommit() error {
 	i.phase = COMMIT
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE)
-	i.broadcast(i.round, COMMIT, i.value, nil)
+	if _, err := i.broadcast(i.round, COMMIT, i.value, nil); err != nil {
+		return fmt.Errorf("failed to broadast message: %w", err)
+	}
+	return nil
 }
 
 func (i *instance) tryCommit(round uint32) error {
@@ -444,7 +459,7 @@ func (i *instance) tryCommit(round uint32) error {
 		// A participant may be forced to decide a value that's not its preferred chain.
 		// The participant isn't influencing that decision against their interest, just accepting it.
 		i.value = foundQuorum[0]
-		i.beginDecide()
+		return i.beginDecide()
 	} else if i.round == round && i.phase == COMMIT && timeoutExpired && committed.ReceivedFromStrongQuorum() {
 		// Adopt any non-empty value committed by another participant (there can only be one).
 		// This node has observed the strong quorum of PREPARE messages that justify it,
@@ -462,15 +477,18 @@ func (i *instance) tryCommit(round uint32) error {
 			}
 
 		}
-		i.beginNextRound()
+		return i.beginNextRound()
 	}
 
 	return nil
 }
 
-func (i *instance) beginDecide() {
+func (i *instance) beginDecide() error {
 	i.phase = DECIDE
-	i.broadcast(0, DECIDE, i.value, nil)
+	if _, err := i.broadcast(0, DECIDE, i.value, nil); err != nil {
+		return fmt.Errorf("failed to broadast message: %w", err)
+	}
+	return nil
 }
 
 func (i *instance) tryDecide() error {
@@ -491,10 +509,10 @@ func (i *instance) roundState(r uint32) *roundState {
 	return round
 }
 
-func (i *instance) beginNextRound() {
+func (i *instance) beginNextRound() error {
 	i.round += 1
 	i.log("moving to round %d with %s", i.round, i.proposal.String())
-	i.beginConverge()
+	return i.beginConverge()
 }
 
 // Returns whether a chain is acceptable as a proposal for this instance to vote for.
@@ -515,13 +533,16 @@ func (i *instance) terminated() bool {
 	return i.phase == TERMINATED
 }
 
-func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ticket) *GMessage {
+func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ticket) (*GMessage, error) {
 	payload := SignaturePayload(i.instanceID, round, step, value)
-	signature := i.host.Sign(i.participantID, payload)
+	signature, err := i.host.Sign(i.participantID, payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed signing message payload: %w", err)
+	}
 	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature}
 	i.host.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
-	return gmsg
+	return gmsg, nil
 }
 
 // Sets an alarm to be delivered after a synchrony delay.
