@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/filecoin-project/go-f3/f3"
 	"io"
-	"reflect"
 	"sort"
 	"strings"
 )
@@ -161,7 +160,7 @@ func (n *Network) Aggregate(sigs [][]byte, aggSignature []byte) []byte {
 	}
 
 	for i := 0; i < len(sigs); i++ {
-		if !reflect.DeepEqual(msg, sigs[i][pubKeyLen:]) {
+		if !bytes.Equal(msg, sigs[i][pubKeyLen:]) {
 			panic("Payload mismatch")
 		}
 		pubKeys = append(pubKeys, sigs[i][:pubKeyLen])
