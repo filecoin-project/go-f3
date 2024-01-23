@@ -51,6 +51,42 @@ type Signer interface {
 	Verify(sender ActorID, msg, sig []byte) bool
 }
 
+// AggSignatureScheme encapsulates signature aggregation functionality.
+// The implementation is expected to be aware of a mapping between ActorIDs and public keys.
+// A single instance of AggSignatureScheme is expected to be used for each Granite instance.
+type AggSignatureScheme interface {
+
+	// NewAggregator returns an aggregator with an "empty" aggregate signature, i.e.,
+	// one to which no signatures have yet been added.
+	// Signatures can be aggregated by calling the Add method of the returned aggregator.
+	NewAggregator() (SigAggregator, error)
+
+	// VerifyAggSig verifies the aggregate signature agg of message msg produced by a call to SigAggregator.Aggregate().
+	// Note that the SigAggregator must have been created by an AggSignatureScheme associated with the same power table
+	// as this AggSignatureScheme, otherwise the behavior of VerifyAggSig is undefined.
+	// VerifyAggSig returns nil if sig is a valid aggregate signature of msg
+	// (with respect to the associated power table) and a non-nil error otherwise.
+	VerifyAggSig(msg []byte, sig []byte) error
+}
+
+// SigAggregator holds the intermediate state of signature aggregation.
+// Use one aggregator per aggregated signature.
+type SigAggregator interface {
+
+	// Add a simple signature (produced by signer) to the aggregate.
+	Add(signer ActorID, sig []byte) error
+
+	// Aggregate aggregates all the signatures previously added using the Add method.
+	// The returned byte slice is an opaque encoding of the signature itself,
+	// along with references to the identities of the signers with respect to a specific power table
+	// associated with instance of AggSignatureScheme that created this SigAggregator.
+	// The returned data can be passed to a compatible implementation
+	// of AggSignatureScheme.VerifyAggSig for verification.
+	// Note that the verifying AggSignatureScheme must have been created using the same power table
+	// as the BLSScheme that produced this aggregator. Otherwise, the verification result is undefined.
+	Aggregate() ([]byte, error)
+}
+
 // Participant interface to the host system resources.
 type Host interface {
 	Network
