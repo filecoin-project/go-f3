@@ -51,15 +51,13 @@ func NewPowerTable(entries []PowerEntry) *PowerTable {
 // Add adds a new entry to the PowerTable.
 // This is linear in the table size, so adding many entries this way is inefficient.
 func (p *PowerTable) Add(id ActorID, power *StoragePower, pubKey []byte) error {
+	if _, ok := p.Lookup[id]; ok {
+		return fmt.Errorf("duplicate power entry")
+	}
 	entry := PowerEntry{ID: id, Power: power, PubKey: pubKey}
 	index := sort.Search(len(p.Entries), func(i int) bool {
 		return comparePowerEntries(p.Entries[i], entry)
 	})
-
-	// Check for duplication at the found index or adjacent entries
-	if index < len(p.Entries) && p.Entries[index].ID == id {
-		return fmt.Errorf("duplicate power entry")
-	}
 
 	p.Entries = append(p.Entries, PowerEntry{})
 	copy(p.Entries[index+1:], p.Entries[index:])
