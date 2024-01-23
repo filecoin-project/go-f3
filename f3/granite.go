@@ -372,6 +372,7 @@ func (i *instance) isValid(msg *GMessage) bool {
 }
 
 func (i *instance) VerifyJustification(justification Justification) error {
+<<<<<<< HEAD
 
 	power := NewStoragePower(0)
 	signers := make([]PubKey, 0)
@@ -391,8 +392,52 @@ func (i *instance) VerifyJustification(justification Justification) error {
 		return nil
 	})
 
+=======
+	signers := make([]PubKey, 0)
+	setBits, err := justification.QuorumSignature.Signers.All(uint64(len(i.powerTable.Entries)))
+	if err != nil {
+		return fmt.Errorf("failed to get all set bits: %w", err)
+	}
+
+	justificationPower := NewStoragePower(0)
+	var bitIndex int
+	var bit uint64
+	strongQuorum := false
+	for bitIndex, bit = range setBits {
+		if int(bit) >= len(i.powerTable.Entries) {
+			return fmt.Errorf("invalid bit index %d", bit)
+		}
+		signers = append(signers, i.powerTable.Entries[bit].PubKey)
+		justificationPower.Add(justificationPower, i.powerTable.Entries[bit].Power)
+		if hasStrongQuorum(justificationPower, i.powerTable.Total) {
+			strongQuorum = true
+			break // no need to keep calculating
+		}
+	}
+
+	if !strongQuorum {
+		return fmt.Errorf("No evidence from a strong quorum: %v", justification.QuorumSignature.Signers)
+	}
+
+	// need to retrieve the remaining pubkeys just to verify the aggregate
+	//TODO we could enforce here a tight strong quorum and no extra signatures
+	// to prevent wasting time in verifying too many aggregated signatures
+	// but should be careful with oligopolies (check out issue #49)
+	// A deterministic but drand-sourced permutation could prevent oligopolies
+	// if a random permutation affects performance we could do a weighted random permutation
+	// To favour with more power.
+	for bitIndex++; bitIndex < len(setBits); bitIndex++ {
+		bit = setBits[bitIndex]
+		if int(bit) >= len(i.powerTable.Entries) {
+			return fmt.Errorf("invalid bit index %d", bit)
+		}
+		signers = append(signers, i.powerTable.Entries[bit].PubKey)
+	}
+
+	payload := SignaturePayload(justification.Payload.Instance, justification.Payload.Round, justification.Payload.Step, justification.Payload.Value)
+>>>>>>> d7f0dc0 (Optimize justification creation and verification)
 	if !i.host.VerifyAggregate(payload, justification.QuorumSignature.Signature, signers) {
-		return fmt.Errorf("verification of the aggregate failed: %v", justification)
+		return fmt.Errorf("Invalid justification signature: %v", justification)
 	}
 
 	return nil
@@ -520,6 +565,11 @@ func (i *instance) beginConverge() {
 	var justification Justification
 	if signers, signatures, ok := prevRoundState.committed.FindStrongQuorumAgreement(ZeroTipSetID()); ok {
 		value := ECChain{}
+<<<<<<< HEAD
+=======
+		signers := prevRoundState.committed.getStrongQuorumSigners(value)
+		signatures := prevRoundState.committed.getSignatures(value, signers)
+>>>>>>> d7f0dc0 (Optimize justification creation and verification)
 		aggSignature := make([]byte, 0)
 		for _, sig := range signatures {
 			aggSignature = i.host.Aggregate([][]byte{sig}, aggSignature)
@@ -540,6 +590,11 @@ func (i *instance) beginConverge() {
 		}
 	} else if signers, signatures, ok = prevRoundState.prepared.FindStrongQuorumAgreement(i.proposal.Head().CID); ok {
 		value := i.proposal
+<<<<<<< HEAD
+=======
+		signers := prevRoundState.prepared.getStrongQuorumSigners(value)
+		signatures := prevRoundState.prepared.getSignatures(value, signers)
+>>>>>>> d7f0dc0 (Optimize justification creation and verification)
 		aggSignature := make([]byte, 0)
 		for _, sig := range signatures {
 			aggSignature = i.host.Aggregate([][]byte{sig}, aggSignature)
@@ -912,6 +967,7 @@ func (q *quorumState) getSignersAndSignatures(value ECChain) (bitfield.BitField,
 
 	return signers, signatures
 }
+
 
 // Lists all values that have been senders from any sender.
 // The order of returned values is not defined.
