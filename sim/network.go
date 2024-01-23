@@ -7,12 +7,15 @@ import (
 	"io"
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 	"math"
 >>>>>>> 2bf4739 (Implement Aggregator interface for Network)
 =======
 	"reflect"
 >>>>>>> 6ee56ae (Ensure signing and verifying modifies no input)
+=======
+>>>>>>> 9cbfe28 (Use bytes.equal)
 	"sort"
 	"strings"
 )
@@ -258,7 +261,7 @@ func (n *Network) Aggregate(sigs [][]byte, aggSignature []byte) []byte {
 	}
 
 	for i := 0; i < len(sigs); i++ {
-		if !reflect.DeepEqual(msg, sigs[i][pubKeyLen:]) {
+		if !bytes.Equal(msg, sigs[i][pubKeyLen:]) {
 			panic("Payload mismatch")
 		}
 		pubKeys = append(pubKeys, sigs[i][:pubKeyLen])
