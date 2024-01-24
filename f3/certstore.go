@@ -9,6 +9,8 @@ import (
 
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
+	"github.com/libp2p/go-libp2p/core/event"
+	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 
 	"golang.org/x/xerrors"
 )
@@ -31,27 +33,47 @@ func (c Cert) MarshalBinary() ([]byte, error) {
 }
 
 var ErrCertAlreadyExists = errors.New("certificate already exists in the CertStore")
+var ErrCertNotFound = errors.New("certificate not found")
+
+type EvtNewCert struct {
+	Cert Cert
+}
 
 // CertStore is responsible for storying and relaying information about new finality certificates
 type CertStore struct {
-	lk sync.Mutex
-	ds datastore.Datastore
+	dsLk sync.Mutex
+	ds   datastore.Datastore
 
-	// TODO: add libp2p/go-eventbus
+	// Bus is used to spread events happening in f3
+	// Events used are:
+	//   - EvtNewCert
+	Bus            event.Bus
+	newCertEmitter event.Emitter
 }
 
 func NewCertStore(ds datastore.Datastore) (*CertStore, error) {
+
 	cs := &CertStore{
-		ds: namespace.Wrap(ds, datastore.NewKey("/certstore")),
+		ds:  namespace.Wrap(ds, datastore.NewKey("/certstore")),
+		Bus: eventbus.NewBus(),
 	}
+	var err error
+	cs.newCertEmitter, err = cs.Bus.Emitter(new(EvtNewCert), eventbus.Stateful)
+	if err != nil {
+		return nil, xerrors.Errorf("creating emitter: %w", err)
+	}
+
 	return cs, nil
 }
 
 func (cs *CertStore) Get(ctx context.Context, instance uint64) (*Cert, error) {
-	cs.lk.Lock()
+	cs.dsLk.Lock()
 	b, err := cs.ds.Get(ctx, cs.keyForInstance(instance))
-	cs.lk.Unlock()
+	cs.dsLk.Unlock()
 
+	if errors.Is(err, datastore.ErrNotFound) {
+		return nil, xerrors.Errorf("cert at %d: %w", instance, ErrCertNotFound)
+	}
 	if err != nil {
 		return nil, xerrors.Errorf("accessing cert in datastore: %w", err)
 	}
@@ -61,6 +83,44 @@ func (cs *CertStore) Get(ctx context.Context, instance uint64) (*Cert, error) {
 		return nil, xerrors.Errorf("unmarshalling cert: %w", err)
 	}
 	return &c, err
+}
+
+// GetRange returns a range of certs from start to end inclusive.
+// If it encouters missing cert, it returns a wrapped ErrCertNotFound and the available certs
+func (cs *CertStore) GetRange(ctx context.Context, start uint64, end uint64) ([]Cert, error) {
+	if start > end {
+		return nil, xerrors.Errorf("start is larger then end: %d > %d", start, end)
+	}
+	bCerts := make([][]byte, 0, start-end+1)
+	i := start
+
+	cs.dsLk.Lock()
+	for ; i <= end; i++ {
+		b, err := cs.ds.Get(ctx, cs.keyForInstance(i))
+		if errors.Is(err, datastore.ErrNotFound) {
+			break
+		}
+		if err != nil {
+			cs.dsLk.Unlock()
+			return nil, xerrors.Errorf("accessing cert at %d for range request: %w", i, err)
+		}
+
+		bCerts = append(bCerts, b)
+	}
+	cs.dsLk.Unlock()
+
+	certs := make([]Cert, 0, len(bCerts))
+	for i := 0; i < len(bCerts); i++ {
+		err := certs[i].UnmarshalBinary(bCerts[i])
+		if err != nil {
+			return nil, xerrors.Errorf("unmarshalling a cert at i=%d, instance %d: %w", i, start+uint64(i), err)
+		}
+	}
+
+	if uint64(len(certs)) < start-end {
+		return certs, xerrors.Errorf("cert at %d: %w", i, ErrCertNotFound)
+	}
+	return certs, nil
 }
 
 func (_ *CertStore) keyForInstance(i uint64) datastore.Key {
@@ -77,16 +137,15 @@ func (cs *CertStore) Put(ctx context.Context, c *Cert) error {
 	if err := cs.putInner(ctx, c.Instance, certBytes); err != nil {
 		return xerrors.Errorf("saving cert at %d: %w", c.Instance, err)
 	}
-
-	// TODO notify listeners
+	cs.newCertEmitter.Emit(EvtNewCert{Cert: *c})
 
 	return nil
 }
 func (cs *CertStore) putInner(ctx context.Context, instance uint64, certBytes []byte) error {
 	key := cs.keyForInstance(instance)
 
-	cs.lk.Lock()
-	defer cs.lk.Unlock()
+	cs.dsLk.Lock()
+	defer cs.dsLk.Unlock()
 
 	exists, err := cs.ds.Has(ctx, key)
 	if err != nil {
@@ -101,5 +160,3 @@ func (cs *CertStore) putInner(ctx context.Context, instance uint64, certBytes []
 	}
 	return nil
 }
-
-// TODO listen for new finality certs
