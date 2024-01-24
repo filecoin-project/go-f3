@@ -47,7 +47,7 @@ type Network struct {
 	globalStabilisationElapsed bool
 	// Trace level.
 	traceLevel int
-	//TODO
+
 	actor2PubKey map[f3.ActorID]f3.PubKey
 }
 
@@ -111,7 +111,7 @@ func (n *Network) SetAlarm(sender f3.ActorID, payload string, at float64) {
 func (n *Network) Sign(sender f3.ActorID, msg []byte) []byte {
 	// Fake implementation.
 	// Just prepends the pubkey associated with the sender ID to message.
-	aux := append([]byte(nil), n.actor2PubKey[sender]...)
+	aux := append([]byte{}, n.actor2PubKey[sender]...)
 	return append(aux, msg...)
 }
 
@@ -119,7 +119,7 @@ func (n *Network) Verify(pubKey f3.PubKey, msg, sig []byte) bool {
 	// Fake implementation.
 	// Just checks that first bytes of the signature match sender ID,
 	// and remaining bytes match message.
-	aux := append([]byte(nil), pubKey...)
+	aux := append([]byte{}, pubKey...)
 	aux = append(aux, msg...)
 	return bytes.Equal(aux, sig)
 }
@@ -177,7 +177,7 @@ func (n *Network) Aggregate(sigs [][]byte, aggSignature []byte) []byte {
 	}
 
 	// Reconstruct the aggregated signature in sorted order
-	updatedAggSignature := append([]byte(nil), msg...)
+	updatedAggSignature := append([]byte{}, msg...)
 	for _, s := range pubKeys {
 		updatedAggSignature = append(updatedAggSignature, s...)
 	}
@@ -195,7 +195,7 @@ func (n *Network) VerifyAggregate(payload, aggSig []byte, signers []f3.PubKey) b
 		signersConcat = append(signersConcat, signer...)
 	}
 
-	aux := append([]byte(nil), payload...)
+	aux := append([]byte{}, payload...)
 	aux = append(aux, signersConcat...)
 	return bytes.Equal(aux, aggSig)
 }
