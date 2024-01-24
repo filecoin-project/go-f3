@@ -64,10 +64,10 @@ type GMessage struct {
 	// ID of the sender/signer of this message (a miner actor ID).
 	Sender ActorID
 	// GossiPBFT instance (epoch) number.
-	Instance uint32
+	Instance uint64
 	// GossiPBFT round number.
-	Round uint32
-	// GossiPBFT step.
+	Round uint64
+	// GossiPBFT step name.
 	Step Phase
 	// Chain of tipsets proposed/voted for finalisation.
 	// Always non-empty; the first entry is the base tipset finalised in the previous instance.
@@ -84,7 +84,7 @@ func (m GMessage) String() string {
 }
 
 // Computes the payload for a GMessage signature.
-func SignaturePayload(instance uint32, round uint32, step Phase, value ECChain) []byte {
+func SignaturePayload(instance uint64, round uint64, step Phase, value ECChain) []byte {
 	var buf bytes.Buffer
 	buf.WriteString(DOMAIN_SEPARATION_TAG)
 	_ = binary.Write(&buf, binary.BigEndian, instance)
@@ -104,7 +104,7 @@ type instance struct {
 	host          Host
 	vrf           VRFer
 	participantID ActorID
-	instanceID    uint32
+	instanceID    uint64
 	// The EC chain input to this instance.
 	input ECChain
 	// The power table for the base chain, used for power in this instance.
@@ -112,7 +112,7 @@ type instance struct {
 	// The beacon value from the base chain, used for tickets in this instance.
 	beacon []byte
 	// Current round number.
-	round uint32
+	round uint64
 	// Current phase in the round.
 	phase Phase
 	// Time at which the current phase can or must end.
@@ -131,7 +131,7 @@ type instance struct {
 	quality *quorumState
 	// State for each round of phases.
 	// State from prior rounds must be maintained to provide justification for values in subsequent rounds.
-	rounds map[uint32]*roundState
+	rounds map[uint64]*roundState
 	// Acceptable chain
 	acceptable ECChain
 	// Decision state. Collects DECIDE messages until a decision can be made, independently of protocol phases/rounds.
@@ -143,7 +143,7 @@ func newInstance(
 	host Host,
 	vrf VRFer,
 	participantID ActorID,
-	instanceID uint32,
+	instanceID uint64,
 	input ECChain,
 	powerTable PowerTable,
 	beacon []byte) (*instance, error) {
@@ -164,7 +164,7 @@ func newInstance(
 		proposal:      input,
 		value:         ECChain{},
 		quality:       newQuorumState(powerTable),
-		rounds: map[uint32]*roundState{
+		rounds: map[uint64]*roundState{
 			0: newRoundState(powerTable),
 		},
 		acceptable: input,
@@ -467,7 +467,7 @@ func (i *instance) beginCommit() {
 	i.broadcast(i.round, COMMIT_PHASE, i.value, nil)
 }
 
-func (i *instance) tryCommit(round uint32) error {
+func (i *instance) tryCommit(round uint64) error {
 	// Unlike all other phases, the COMMIT phase stays open to new messages even after an initial quorum is reached,
 	// and the algorithm moves on to the next round.
 	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
@@ -518,7 +518,7 @@ func (i *instance) tryDecide() error {
 	return nil
 }
 
-func (i *instance) roundState(r uint32) *roundState {
+func (i *instance) roundState(r uint64) *roundState {
 	round, ok := i.rounds[r]
 	if !ok {
 		round = newRoundState(i.powerTable)
@@ -539,7 +539,7 @@ func (i *instance) isAcceptable(c ECChain) bool {
 	return i.acceptable.HasPrefix(c)
 }
 
-func (i *instance) terminate(value ECChain, round uint32) {
+func (i *instance) terminate(value ECChain, round uint64) {
 	i.log("✅ terminated %s in round %d", &i.value, round)
 	i.phase = TERMINATED_PHASE
 	// Round is a parameter since a late COMMIT message can result in a decision for a round prior to the current one.
@@ -551,7 +551,7 @@ func (i *instance) terminated() bool {
 	return i.phase == TERMINATED_PHASE
 }
 
-func (i *instance) broadcast(round uint32, step Phase, value ECChain, ticket Ticket) *GMessage {
+func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Ticket) *GMessage {
 	payload := SignaturePayload(i.instanceID, round, step, value)
 	signature := i.host.Sign(i.participantID, payload)
 	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature}

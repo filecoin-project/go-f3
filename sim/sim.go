@@ -110,7 +110,7 @@ func (s *Simulation) ReceiveECChains(chains ...ChainCount) {
 }
 
 // Runs simulation, and returns whether all participants decided on the same value.
-func (s *Simulation) Run(maxRounds uint32) error {
+func (s *Simulation) Run(maxRounds uint64) error {
 	var err error
 	var moreTicks bool
 	// Run until there are no more messages, meaning termination or deadlock.

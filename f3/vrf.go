@@ -16,11 +16,11 @@ func (t Ticket) Compare(other Ticket) int {
 // A VRF ticket is produced by signing a payload which digests a beacon randomness value and
 // the instance and round numbers.
 type VRFTicketSource interface {
-	MakeTicket(beacon []byte, instance uint32, round uint32, signer ActorID) Ticket
+	MakeTicket(beacon []byte, instance uint64, round uint64, signer ActorID) Ticket
 }
 
 type VRFTicketVerifier interface {
-	VerifyTicket(beacon []byte, instance uint32, round uint32, signer PubKey, ticket Ticket) bool
+	VerifyTicket(beacon []byte, instance uint64, round uint64, signer PubKey, ticket Ticket) bool
 }
 
 // VRF used for the CONVERGE step of GossiPBFT.
@@ -36,25 +36,22 @@ func NewVRF(signer Signer, verifier Verifier) *VRF {
 	}
 }
 
-func (f *VRF) MakeTicket(beacon []byte, instance uint32, round uint32, signer ActorID) Ticket {
+func (f *VRF) MakeTicket(beacon []byte, instance uint64, round uint64, signer ActorID) Ticket {
 	return f.signer.Sign(signer, f.serializeSigInput(beacon, instance, round))
 }
 
-func (f *VRF) VerifyTicket(beacon []byte, instance uint32, round uint32, signer PubKey, ticket Ticket) bool {
+func (f *VRF) VerifyTicket(beacon []byte, instance uint64, round uint64, signer PubKey, ticket Ticket) bool {
 	return f.verifier.Verify(signer, f.serializeSigInput(beacon, instance, round), ticket)
 }
 
 // Serializes the input to the VRF signature for the CONVERGE step of GossiPBFT.
 // Only used for VRF ticket creation and/or verification.
-func (f *VRF) serializeSigInput(beacon []byte, instance uint32, round uint32) []byte {
-	instanceBytes := make([]byte, 4)
-	roundBytes := make([]byte, 4)
+func (f *VRF) serializeSigInput(beacon []byte, instance uint64, round uint64) []byte {
+	// TODO: DST
+	buf := make([]byte, 0, len(beacon)+8+8)
+	buf = append(buf, beacon...)
+	buf = binary.BigEndian.AppendUint64(buf, instance)
+	buf = binary.BigEndian.AppendUint64(buf, round)
 
-	binary.BigEndian.PutUint32(instanceBytes, instance)
-	binary.BigEndian.PutUint32(roundBytes, round)
-
-	sigInput := append(beacon, instanceBytes...)
-	sigInput = append(sigInput, roundBytes...)
-
-	return sigInput
+	return buf
 }
