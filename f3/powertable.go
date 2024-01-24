@@ -11,7 +11,7 @@ import (
 type PowerEntry struct {
 	ID     ActorID
 	Power  *StoragePower
-	PubKey []byte
+	PubKey PubKey
 }
 
 // PowerTable maps ActorID to a unique index in the range [0, len(powerTable.Entries)).
@@ -40,7 +40,6 @@ func NewPowerTable(entries []PowerEntry) *PowerTable {
 	if len(entries) != len(lookup) {
 		panic("duplicate power entries")
 	}
-
 	return &PowerTable{
 		Entries: entries,
 		Lookup:  lookup,
