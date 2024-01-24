@@ -156,7 +156,7 @@ func newAsyncConfig(honestCount int, latencySeed int) sim.Config {
 	}
 }
 
-func expectRoundDecision(t *testing.T, sm *sim.Simulation, expectedRound uint32, expected ...*f3.TipSet) {
+func expectRoundDecision(t *testing.T, sm *sim.Simulation, expectedRound uint64, expected ...*f3.TipSet) {
 	decision, round := sm.Participants[0].Finalised()
 	require.Equal(t, expectedRound, round)
 
