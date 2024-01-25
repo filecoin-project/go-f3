@@ -372,30 +372,37 @@ func (i *instance) isValid(msg *GMessage) bool {
 	return true
 }
 
-func (i *instance) VerifyJustification(msg *GMessage) error {
+func (i *instance) VerifyJustification(justification Justification) error {
 
 	power := NewStoragePower(0)
-	_ = msg.Justification.QuorumSignature.Signers.ForEach(func(bit uint64) error {
+	if err := justification.QuorumSignature.Signers.ForEach(func(bit uint64) error {
+		if int(bit) >= len(i.powerTable.Entries) {
+			return fmt.Errorf("invalid signer index: %d", bit)
+		}
 		power.Add(power, i.powerTable.Entries[bit].Power)
 		return nil
-	})
-
-	if !hasStrongQuorum(power, i.powerTable.Total) {
-		return fmt.Errorf("dropping message as no evidence from a strong quorum: %v", msg.Justification.QuorumSignature.Signers)
+	}); err != nil {
+		return fmt.Errorf("failed to iterate over signers: %w", err)
 	}
 
-	payload := SignaturePayload(msg.Justification.Payload.Instance, msg.Justification.Payload.Round, msg.Justification.Payload.Step, msg.Justification.Payload.Value)
+	if !hasStrongQuorum(power, i.powerTable.Total) {
+		return fmt.Errorf("dropping message as no evidence from a strong quorum: %v", justification.QuorumSignature.Signers)
+	}
+
+	payload := SignaturePayload(justification.Payload.Instance, justification.Payload.Round, justification.Payload.Step, justification.Payload.Value)
 	signers := make([]PubKey, 0)
-	_ = msg.Justification.QuorumSignature.Signers.ForEach(func(bit uint64) error {
+	if err := justification.QuorumSignature.Signers.ForEach(func(bit uint64) error {
 		if int(bit) >= len(i.powerTable.Entries) {
-			return nil //TODO handle error
+			return fmt.Errorf("invalid signer index: %d", bit)
 		}
 		signers = append(signers, i.powerTable.Entries[bit].PubKey)
 		return nil
-	})
+	}); err != nil {
+		return fmt.Errorf("failed to iterate over signers: %w", err)
+	}
 
-	if !i.host.VerifyAggregate(payload, msg.Justification.QuorumSignature.Signature, signers) {
-		return fmt.Errorf("dropping Message %v with invalid evidence signature: %v", msg, msg.Justification)
+	if !i.host.VerifyAggregate(payload, justification.QuorumSignature.Signature, signers) {
+		return fmt.Errorf("verification of the aggregate failed: %v", justification)
 	}
 
 	return nil
@@ -464,7 +471,7 @@ func (i *instance) isJustified(msg *GMessage) error {
 		return fmt.Errorf("message with instanceID %v has evidence from wrong instanceID: %v", msg.Current.Instance, msg.Justification.Payload.Instance)
 	}
 
-	return i.VerifyJustification(msg)
+	return i.VerifyJustification(msg.Justification)
 }
 
 // Sends this node's QUALITY message and begins the QUALITY phase.
@@ -880,8 +887,11 @@ func (q *quorumState) getSigners(value ECChain) bitfield.BitField {
 func (q *quorumState) getSignatures(value ECChain, signers bitfield.BitField) [][]byte {
 	head := value.HeadCIDOrZero()
 	signatures := make([][]byte, 0)
-	if err := signers.ForEach(func(i uint64) error {
-		if signature, ok := q.received[q.powerTable.Entries[i].ID].heads[head]; ok {
+	if err := signers.ForEach(func(bit uint64) error {
+		if int(bit) >= len(q.powerTable.Entries) {
+			return fmt.Errorf("invalid signer index: %d", bit)
+		}
+		if signature, ok := q.received[q.powerTable.Entries[bit].ID].heads[head]; ok {
 			if len(signature) == 0 {
 				panic("signature is 0")
 			}
