@@ -1,6 +1,7 @@
 package adversary
 
 import (
+	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-f3/f3"
 	"github.com/filecoin-project/go-f3/sim"
 )
@@ -9,18 +10,20 @@ import (
 // Against a naive algorithm, when set up with 30% of power, and a victim set with 40%,
 // it can cause one victim to decide, while others revert to the base.
 type WitholdCommit struct {
-	id   f3.ActorID
-	host sim.AdversaryHost
+	id         f3.ActorID
+	host       sim.AdversaryHost
+	powertable f3.PowerTable
 	// The first victim is the target, others are those who need to confirm.
 	victims     []f3.ActorID
 	victimValue f3.ECChain
 }
 
 // A participant that never sends anything.
-func NewWitholdCommit(id f3.ActorID, host sim.AdversaryHost) *WitholdCommit {
+func NewWitholdCommit(id f3.ActorID, host sim.AdversaryHost, powertable f3.PowerTable) *WitholdCommit {
 	return &WitholdCommit{
-		id:   id,
-		host: host,
+		id:         id,
+		host:       host,
+		powertable: powertable,
 	}
 }
 
@@ -53,29 +56,59 @@ func (w *WitholdCommit) Begin() {
 	// All victims need to see QUALITY and PREPARE in order to send their COMMIT,
 	// but only the one victim will see our COMMIT.
 	w.host.BroadcastSynchronous(w.id, f3.GMessage{
-		Sender:    w.id,
-		Instance:  0,
-		Round:     0,
-		Step:      f3.QUALITY_PHASE,
-		Value:     w.victimValue,
+		Sender: w.id,
+		Current: f3.SignedMessage{
+			Instance: 0,
+			Round:    0,
+			Step:     f3.QUALITY_PHASE,
+			Value:    w.victimValue,
+		},
 		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.QUALITY_PHASE, w.victimValue)),
 	})
 	w.host.BroadcastSynchronous(w.id, f3.GMessage{
-		Sender:    w.id,
-		Instance:  0,
-		Round:     0,
-		Step:      f3.PREPARE_PHASE,
-		Value:     w.victimValue,
+		Sender: w.id,
+		Current: f3.SignedMessage{
+			Instance: 0,
+			Round:    0,
+			Step:     f3.PREPARE_PHASE,
+			Value:    w.victimValue,
+		},
 		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.PREPARE_PHASE, w.victimValue)),
 	})
-	w.host.BroadcastSynchronous(w.id, f3.GMessage{
-		Sender:    w.id,
-		Instance:  0,
-		Round:     0,
-		Step:      f3.COMMIT_PHASE,
-		Value:     w.victimValue,
+
+	message := f3.GMessage{
+		Sender: w.id,
+		Current: f3.SignedMessage{
+			Instance: 0,
+			Round:    0,
+			Step:     f3.COMMIT_PHASE,
+			Value:    w.victimValue,
+		},
 		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.COMMIT_PHASE, w.victimValue)),
-	})
+	}
+	payload := f3.SignaturePayload(0, 0, f3.PREPARE_PHASE, w.victimValue)
+	justification := f3.Justification{
+		Payload: f3.SignedMessage{
+			Step:     f3.PREPARE_PHASE,
+			Value:    w.victimValue,
+			Instance: 0,
+			Round:    0,
+		},
+		QuorumSignature: f3.QuorumSignature{
+			Signers:   bitfield.New(),
+			Signature: nil,
+		},
+	}
+	signatures := make([][]byte, 0)
+	for _, actorID := range w.victims {
+		signatures = append(signatures, w.host.Sign(actorID, payload))
+		justification.QuorumSignature.Signers.Set(uint64(w.powertable.Lookup[actorID]))
+	}
+	signatures = append(signatures, w.host.Sign(w.id, payload))
+	justification.QuorumSignature.Signers.Set(uint64(w.powertable.Lookup[w.id]))
+	justification.QuorumSignature.Signature = w.host.Aggregate(signatures, justification.QuorumSignature.Signature)
+	message.Justification = justification
+	w.host.BroadcastSynchronous(w.id, message)
 }
 
 func (w *WitholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Message) bool {
@@ -88,23 +121,23 @@ func (w *WitholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Message
 				toAnyVictim = true
 			}
 		}
-		if gmsg.Step == f3.QUALITY_PHASE {
+		if gmsg.Current.Step == f3.QUALITY_PHASE {
 			// Don't allow victims to see dissenting QUALITY.
-			if toAnyVictim && !gmsg.Value.Eq(w.victimValue) {
+			if toAnyVictim && !gmsg.Current.Value.Eq(w.victimValue) {
 				return false
 			}
-		} else if gmsg.Step == f3.PREPARE_PHASE {
+		} else if gmsg.Current.Step == f3.PREPARE_PHASE {
 			// Don't allow victims to see dissenting PREPARE.
-			if toAnyVictim && !gmsg.Value.Eq(w.victimValue) {
+			if toAnyVictim && !gmsg.Current.Value.Eq(w.victimValue) {
 				return false
 			}
-		} else if gmsg.Step == f3.COMMIT_PHASE {
+		} else if gmsg.Current.Step == f3.COMMIT_PHASE {
 			// Allow only the main victim to see our COMMIT.
 			if !toMainVictim && gmsg.Sender == w.id {
 				return false
 			}
 			// Don't allow the main victim to see any dissenting COMMIts.
-			if toMainVictim && !gmsg.Value.Eq(w.victimValue) {
+			if toMainVictim && !gmsg.Current.Value.Eq(w.victimValue) {
 				return false
 			}
 		}

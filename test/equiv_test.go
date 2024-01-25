@@ -17,7 +17,7 @@ func TestWitholdCommit1(t *testing.T) {
 		LatencySeed: int64(i),
 		LatencyMean: 0.01, // Near-synchrony
 	}, GraniteConfig(), sim.TraceNone)
-	adv := adversary.NewWitholdCommit(99, sm.Network)
+	adv := adversary.NewWitholdCommit(99, sm.Network, sm.PowerTable)
 	sm.SetAdversary(adv, 3) // Adversary has 30% of 10 total power.
 
 	a := sm.Base.Extend(sm.CIDGen.Sample())
