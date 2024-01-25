@@ -663,7 +663,11 @@ func (i *instance) beginCommit() {
 		Signers:   signers,
 		Signature: aggSignature,
 	}
-	i.broadcast(i.round, COMMIT_PHASE, i.value, nil, Justification{justificationPayload, justificationSignature})
+	justification := Justification{
+		Payload:         justificationPayload,
+		QuorumSignature: justificationSignature,
+	}
+	i.broadcast(i.round, COMMIT_PHASE, i.value, nil, justification)
 }
 
 func (i *instance) tryCommit(round uint64) error {
@@ -724,7 +728,11 @@ func (i *instance) beginDecide(round uint64) {
 		Signers:   signers,
 		Signature: aggSignature,
 	}
-	i.broadcast(0, DECIDE_PHASE, i.value, nil, Justification{justificationPayload, justificationSignature})
+	justification := Justification{
+		Payload:         justificationPayload,
+		QuorumSignature: justificationSignature,
+	}
+	i.broadcast(0, DECIDE_PHASE, i.value, nil, justification)
 }
 
 func (i *instance) tryDecide() error {
