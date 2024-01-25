@@ -20,11 +20,7 @@ type VRFTicketSource interface {
 }
 
 type VRFTicketVerifier interface {
-<<<<<<< HEAD
 	VerifyTicket(beacon []byte, instance uint64, round uint64, signer PubKey, ticket Ticket) bool
-=======
-	VerifyTicket(beacon []byte, instance uint32, round uint32, signer PubKey, ticket Ticket) bool
->>>>>>> 6ee56ae (Ensure signing and verifying modifies no input)
 }
 
 // VRF used for the CONVERGE step of GossiPBFT.
@@ -44,11 +40,7 @@ func (f *VRF) MakeTicket(beacon []byte, instance uint64, round uint64, signer Ac
 	return f.signer.Sign(signer, f.serializeSigInput(beacon, instance, round))
 }
 
-<<<<<<< HEAD
 func (f *VRF) VerifyTicket(beacon []byte, instance uint64, round uint64, signer PubKey, ticket Ticket) bool {
-=======
-func (f *VRF) VerifyTicket(beacon []byte, instance uint32, round uint32, signer PubKey, ticket Ticket) bool {
->>>>>>> 6ee56ae (Ensure signing and verifying modifies no input)
 	return f.verifier.Verify(signer, f.serializeSigInput(beacon, instance, round), ticket)
 }
 

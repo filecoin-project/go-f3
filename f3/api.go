@@ -47,18 +47,6 @@ type Clock interface {
 type Signer interface {
 	// Signs a message for the given sender ID.
 	Sign(sender ActorID, msg []byte) []byte
-<<<<<<< HEAD
-}
-
-type Verifier interface {
-	// Verifies a signature for the given sender ID.
-	Verify(pubKey PubKey, msg, sig []byte) bool
-	// Aggregates signatures from a participant to an existing signature.
-	Aggregate(sig [][]byte, aggSignature []byte) []byte
-	// VerifyAggregate verifies an aggregate signature.
-	VerifyAggregate(payload, aggSig []byte, signers []PubKey) bool
-=======
->>>>>>> 6ee56ae (Ensure signing and verifying modifies no input)
 }
 
 type Verifier interface {
@@ -75,16 +63,7 @@ type Host interface {
 	Network
 	Clock
 	Signer
-<<<<<<< HEAD
-<<<<<<< HEAD
 	Verifier
-=======
-	Aggregator
->>>>>>> 6a6a655 (Add Aggregator interface)
-=======
-	Verifier
->>>>>>> 6ee56ae (Ensure signing and verifying modifies no input)
-
 	// Logs a message at the "logic" level
 	Log(format string, args ...interface{})
 }

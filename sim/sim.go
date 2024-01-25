@@ -40,24 +40,9 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 	participants := make([]*f3.Participant, simConfig.HonestCount)
 	for i := 0; i < len(participants); i++ {
 		participants[i] = f3.NewParticipant(f3.ActorID(i), graniteConfig, ntwk, vrf)
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
 		pubKey := getFakePubKey(participants[i].ID())
 		ntwk.AddParticipant(participants[i], pubKey)
 		if err := genesisPower.Add(participants[i].ID(), f3.NewStoragePower(1), pubKey); err != nil {
-=======
-		ntwk.AddParticipant(participants[i])
-=======
-		ntwk.AddParticipant(participants[i], getFakePubKey(participants[i].ID()))
->>>>>>> 6ee56ae (Ensure signing and verifying modifies no input)
-		if err := genesisPower.Add(participants[i].ID(), f3.NewStoragePower(1), getFakePubKey(participants[i].ID())); err != nil {
->>>>>>> 5da2ee3 (Verify list of public keys when verifying aggregate)
-=======
-		pubKey := getFakePubKey(participants[i].ID())
-		ntwk.AddParticipant(participants[i], pubKey)
-		if err := genesisPower.Add(participants[i].ID(), f3.NewStoragePower(1), pubKey); err != nil {
->>>>>>> 372f257 (Ensure signing and verifying modifies no input)
 			panic(fmt.Errorf("failed adding participant to power table: %w", err))
 		}
 	}
@@ -82,26 +67,9 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 
 func (s *Simulation) SetAdversary(adv AdversaryReceiver, power uint) {
 	s.Adversary = adv
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
 	pubKey := getFakePubKey(adv.ID())
 	s.Network.AddParticipant(adv, pubKey)
 	if err := s.PowerTable.Add(adv.ID(), f3.NewStoragePower(int64(power)), pubKey); err != nil {
-<<<<<<< HEAD
-=======
-	s.Network.AddParticipant(adv)
-=======
-	s.Network.AddParticipant(adv, getFakePubKey(adv.ID()))
->>>>>>> 6ee56ae (Ensure signing and verifying modifies no input)
-=======
-	pubKey := getFakePubKey(adv.ID())
-	s.Network.AddParticipant(adv, pubKey)
->>>>>>> 372f257 (Ensure signing and verifying modifies no input)
-	if err := s.PowerTable.Add(adv.ID(), f3.NewStoragePower(int64(power)), getFakePubKey(adv.ID())); err != nil {
->>>>>>> 5da2ee3 (Verify list of public keys when verifying aggregate)
-=======
->>>>>>> 90f3cc6 (Fix rebasing mistake)
 		panic(err)
 	}
 }
@@ -234,15 +202,7 @@ func (c *CIDGen) next() uint64 {
 
 var alphanum = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 func getFakePubKey(id f3.ActorID) f3.PubKey {
-=======
-func getFakePubKey(id f3.ActorID) []byte {
->>>>>>> 5da2ee3 (Verify list of public keys when verifying aggregate)
-=======
-func getFakePubKey(id f3.ActorID) f3.PubKey {
->>>>>>> 372f257 (Ensure signing and verifying modifies no input)
 	var buf bytes.Buffer
 	buf.WriteString("PUBKEY:")
 	_ = binary.Write(&buf, binary.BigEndian, id)
