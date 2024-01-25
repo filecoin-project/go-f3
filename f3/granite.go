@@ -283,10 +283,10 @@ func (i *instance) receiveOne(msg *GMessage) error {
 		return nil
 	}
 
-	if !i.isJustified(msg) {
+	if err := i.isJustified(msg); err != nil {
 		// No implicit justification:
 		// if message not justified explicitly, then it will not be justified
-		i.log("dropping unjustified %s from sender %v", msg, msg.Sender)
+		i.log("dropping unjustified %s from sender %v, error: %s", msg, msg.Sender, err)
 		return nil
 	}
 
@@ -377,77 +377,7 @@ func (i *instance) isValid(msg *GMessage) bool {
 	return true
 }
 
-// Checks whether a message is justified.
-func (i *instance) isJustified(msg *GMessage) bool {
-
-	if msg.Step == QUALITY_PHASE || msg.Step == PREPARE_PHASE {
-		//TODO check that the justification is Zero? necessary?
-		return true
-	}
-
-	if msg.Step == CONVERGE_PHASE {
-
-		//CONVERGE is justified by a strong quorum of COMMIT for bottom from the previous round.
-		// or a strong quorum of PREPARE for the same value from the previous round.
-		prevRound := msg.Round - 1
-		if msg.Justification.Round != prevRound {
-			i.log("dropping CONVERGE %v with evidence from wrong round %d", msg.Round, msg.Justification.Round)
-			return false
-		}
-
-		if msg.Justification.Step == PREPARE_PHASE {
-			
-			if msg.Value.HeadCIDOrZero() != msg.Justification.Value.HeadCIDOrZero() {
-				i.log("dropping CONVERGE for value %v with PREPARE evidence for a different value: %v", msg.Value, msg.Justification.Value)
-				return false
-			}
-			if msg.Value.IsZero() {
-				i.log("dropping CONVERGE with PREPARE evidence for zero value: %v", msg.Justification.Value)
-				return false
-			}
-
-		} else if msg.Justification.Step == COMMIT_PHASE {
-			if !msg.Justification.Value.IsZero() {
-				//TODO this would mean a decision though
-				i.log("dropping CONVERGE with COMMIT evidence for non-zero value: %v", msg.Justification.Value)
-				return false
-			}
-		} else {
-			i.log("dropping CONVERGE with evidence from wrong step %v", msg.Justification.Step)
-			return false
-		}
-
-	} else if msg.Step == COMMIT_PHASE {
-		// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
-		// COMMIT for bottom is always justified.
-		if msg.Value.IsZero() {
-			return true
-		}
-
-		if msg.Round != msg.Justification.Round {
-			i.log("dropping COMMIT %v with evidence from wrong round %d", msg.Round, msg.Justification.Round)
-			return false
-		}
-
-		if msg.Justification.Step != PREPARE_PHASE {
-			i.log("dropping COMMIT %v with evidence from wrong step %v", msg.Round, msg.Justification.Step)
-			return false
-		}
-
-		if msg.Value.Head().CID != msg.Justification.Value.HeadCIDOrZero() {
-			i.log("dropping COMMIT %v with evidence for a different value: %v", msg.Value, msg.Justification.Value)
-			return false
-		}
-
-	} else if msg.Step == DECIDE_PHASE {
-		//TODO Implement actual justification of DECIDES (upcoming PR)
-		return true
-	}
-
-	if msg.Instance != msg.Justification.Instance {
-		i.log("dropping message with instanceID %v with evidence from wrong instanceID: %v", msg.Instance, msg.Justification.Instance)
-		return false
-	}
+func (i *instance) VerifyJustification(msg *GMessage) error {
 
 	power := NewStoragePower(0)
 	_ = msg.Justification.Signers.ForEach(func(bit uint64) error {
@@ -456,8 +386,7 @@ func (i *instance) isJustified(msg *GMessage) bool {
 	})
 
 	if !hasStrongQuorum(power, i.powerTable.Total) {
-		i.log("dropping message as no evidence from a strong quorum: %v", msg.Justification.Signers)
-		return false
+		return fmt.Errorf("dropping message as no evidence from a strong quorum: %v", msg.Justification.Signers)
 	}
 
 	payload := SignaturePayload(msg.Justification.Instance, msg.Justification.Round, msg.Justification.Step, msg.Justification.Value)
@@ -471,11 +400,76 @@ func (i *instance) isJustified(msg *GMessage) bool {
 	})
 
 	if !i.host.VerifyAggregate(payload, msg.Justification.Signature, signers) {
-		i.log("dropping Message %v with invalid evidence signature: %v", msg, msg.Justification)
-		return false
+		return fmt.Errorf("dropping Message %v with invalid evidence signature: %v", msg, msg.Justification)
 	}
 
-	return true
+	return nil
+}
+
+func (i *instance) isJustified(msg *GMessage) error {
+	switch msg.Step {
+	case QUALITY_PHASE, PREPARE_PHASE:
+		return nil
+
+	case CONVERGE_PHASE:
+		//CONVERGE is justified by a strong quorum of COMMIT for bottom from the previous round.
+		// or a strong quorum of PREPARE for the same value from the previous round.
+
+		prevRound := msg.Round - 1
+		if msg.Justification.Round != prevRound {
+			return fmt.Errorf("CONVERGE %v has evidence from wrong round %d", msg.Round, msg.Justification.Round)
+		}
+
+		if msg.Justification.Step == PREPARE_PHASE {
+			if msg.Value.HeadCIDOrZero() != msg.Justification.Value.HeadCIDOrZero() {
+				return fmt.Errorf("CONVERGE for value %v has PREPARE evidence for a different value: %v", msg.Value, msg.Justification.Value)
+			}
+			if msg.Value.IsZero() {
+				return fmt.Errorf("CONVERGE with PREPARE evidence for zero value: %v", msg.Justification.Value)
+			}
+		} else if msg.Justification.Step == COMMIT_PHASE {
+			if !msg.Justification.Value.IsZero() {
+				return fmt.Errorf("CONVERGE with COMMIT evidence for non-zero value: %v", msg.Justification.Value)
+			}
+		} else {
+			return fmt.Errorf("CONVERGE with evidence from wrong step %v", msg.Justification.Step)
+		}
+
+	case COMMIT_PHASE:
+		// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
+		// COMMIT for bottom is always justified.
+
+		if msg.Value.IsZero() {
+			//TODO make sure justification is default zero?
+			return nil
+		}
+
+		if msg.Round != msg.Justification.Round {
+			return fmt.Errorf("COMMIT %v has evidence from wrong round %d", msg.Round, msg.Justification.Round)
+		}
+
+		if msg.Justification.Step != PREPARE_PHASE {
+			return fmt.Errorf("COMMIT %v has evidence from wrong step %v", msg.Round, msg.Justification.Step)
+		}
+
+		if msg.Value.Head().CID != msg.Justification.Value.HeadCIDOrZero() {
+			return fmt.Errorf("COMMIT %v has evidence for a different value: %v", msg.Value, msg.Justification.Value)
+		}
+
+	case DECIDE_PHASE:
+		// Implement actual justification of DECIDES
+		// Example: return fmt.Errorf("DECIDE phase not implemented")
+		return nil
+
+	default:
+		return fmt.Errorf("unknown message step: %v", msg.Step)
+	}
+
+	if msg.Instance != msg.Justification.Instance {
+		return fmt.Errorf("message with instanceID %v has evidence from wrong instanceID: %v", msg.Instance, msg.Justification.Instance)
+	}
+
+	return i.VerifyJustification(msg)
 }
 
 // Sends this node's QUALITY message and begins the QUALITY phase.
