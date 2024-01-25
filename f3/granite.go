@@ -64,6 +64,23 @@ const DOMAIN_SEPARATION_TAG = "GPBFT"
 type GMessage struct {
 	// ID of the sender/signer of this message (a miner actor ID).
 	Sender ActorID
+
+	Current SignedMessage
+	// VRF ticket for CONVERGE messages (otherwise empty byte array).
+	Ticket Ticket
+	// Signature by the sender's public key over Instance || Round || Step || Value.
+	Signature []byte
+	// Justification for this message (some messages must be justified by a strong quorum of messages from some previous step).
+	Justification Justification
+}
+
+type Justification struct {
+	Payload         SignedMessage
+	QuorumSignature QuorumSignature
+}
+
+// Fields of the message that make up the signature payload.
+type SignedMessage struct {
 	// GossiPBFT instance (epoch) number.
 	Instance uint64
 	// GossiPBFT round number.
@@ -73,24 +90,10 @@ type GMessage struct {
 	// Chain of tipsets proposed/voted for finalisation.
 	// Always non-empty; the first entry is the base tipset finalised in the previous instance.
 	Value ECChain
-	// VRF ticket for CONVERGE messages (otherwise empty byte array).
-	Ticket Ticket
-	// Signature by the sender's public key over Instance || Round || Step || Value.
-	Signature []byte
-
-	Justification Justification
 }
 
 // Aggregated list of GossiPBFT messages with the same instance, round and value. Used as evidence for justification of messages
-type Justification struct {
-	Instance uint32
-
-	Round uint32
-
-	Step Phase
-
-	Value ECChain
-
+type QuorumSignature struct {
 	// Indexes in the base power table of the signers (bitset)
 	Signers bitfield.BitField
 	// BLS aggregate signature of signers
@@ -99,7 +102,7 @@ type Justification struct {
 
 func (m GMessage) String() string {
 	// FIXME This needs value receiver to work, for reasons I cannot figure out.
-	return fmt.Sprintf("%s{%d}(%d %s)", m.Step, m.Instance, m.Round, &m.Value)
+	return fmt.Sprintf("%s{%d}(%d %s)", m.Current.Step, m.Current.Instance, m.Current.Round, &m.Current.Value)
 }
 
 // Computes the payload for a GMessage signature.
@@ -275,7 +278,7 @@ func (i *instance) receiveOne(msg *GMessage) error {
 	if i.phase == TERMINATED_PHASE {
 		return nil // No-op
 	}
-	round := i.roundState(msg.Round)
+	round := i.roundState(msg.Current.Round)
 
 	// Drop any messages that can never be valid.
 	if !i.isValid(msg) {
@@ -290,23 +293,23 @@ func (i *instance) receiveOne(msg *GMessage) error {
 		return nil
 	}
 
-	switch msg.Step {
+	switch msg.Current.Step {
 	case QUALITY_PHASE:
 		// Receive each prefix of the proposal independently.
-		for j := range msg.Value.Suffix() {
-			prefix := msg.Value.Prefix(j + 1)
+		for j := range msg.Current.Value.Suffix() {
+			prefix := msg.Current.Value.Prefix(j + 1)
 			i.quality.Receive(msg.Sender, prefix, msg.Signature, msg.Justification)
 		}
 	case CONVERGE_PHASE:
-		if err := round.converged.Receive(msg.Value, msg.Ticket); err != nil {
+		if err := round.converged.Receive(msg.Current.Value, msg.Ticket); err != nil {
 			return fmt.Errorf("failed processing CONVERGE message: %w", err)
 		}
 	case PREPARE_PHASE:
-		round.prepared.Receive(msg.Sender, msg.Value, msg.Signature, msg.Justification)
+		round.prepared.Receive(msg.Sender, msg.Current.Value, msg.Signature, msg.Justification)
 	case COMMIT_PHASE:
-		round.committed.Receive(msg.Sender, msg.Value, msg.Signature, msg.Justification)
+		round.committed.Receive(msg.Sender, msg.Current.Value, msg.Signature, msg.Justification)
 	case DECIDE_PHASE:
-		i.decision.Receive(msg.Sender, msg.Value, msg.Signature, msg.Justification)
+		i.decision.Receive(msg.Sender, msg.Current.Value, msg.Signature, msg.Justification)
 	default:
 		i.log("unexpected message %v", msg)
 	}
@@ -314,8 +317,8 @@ func (i *instance) receiveOne(msg *GMessage) error {
 	// Try to complete the current phase.
 	// Every COMMIT phase stays open to new messages even after the protocol moves on to
 	// a new round. Late-arriving COMMITS can still (must) cause a local decision, *in that round*.
-	if msg.Step == COMMIT_PHASE && i.phase != DECIDE_PHASE {
-		return i.tryCommit(msg.Round)
+	if msg.Current.Step == COMMIT_PHASE && i.phase != DECIDE_PHASE {
+		return i.tryCommit(msg.Current.Round)
 	}
 	return i.tryCompletePhase()
 }
@@ -351,24 +354,24 @@ func (i *instance) isValid(msg *GMessage) bool {
 
 	_, pubKey := i.powerTable.Get(msg.Sender)
 
-	if !(msg.Value.IsZero() || msg.Value.HasBase(i.input.Base())) {
-		i.log("unexpected base %s", &msg.Value)
+	if !(msg.Current.Value.IsZero() || msg.Current.Value.HasBase(i.input.Base())) {
+		i.log("unexpected base %s", &msg.Current.Value)
 		return false
 	}
-	if msg.Step == QUALITY_PHASE {
-		return msg.Round == 0 && !msg.Value.IsZero()
-	} else if msg.Step == CONVERGE_PHASE {
-		if msg.Round == 0 ||
-			msg.Value.IsZero() ||
-			!i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Round, pubKey, msg.Ticket) {
+	if msg.Current.Step == QUALITY_PHASE {
+		return msg.Current.Round == 0 && !msg.Current.Value.IsZero()
+	} else if msg.Current.Step == CONVERGE_PHASE {
+		if msg.Current.Round == 0 ||
+			msg.Current.Value.IsZero() ||
+			!i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Current.Round, pubKey, msg.Ticket) {
 			return false
 		}
-	} else if msg.Step == DECIDE_PHASE {
+	} else if msg.Current.Step == DECIDE_PHASE {
 		// DECIDE needs no justification
-		return !msg.Value.IsZero()
+		return !msg.Current.Value.IsZero()
 	}
 
-	sigPayload := SignaturePayload(msg.Instance, msg.Round, msg.Step, msg.Value)
+	sigPayload := SignaturePayload(msg.Current.Instance, msg.Current.Round, msg.Current.Step, msg.Current.Value)
 	if !i.host.Verify(pubKey, sigPayload, msg.Signature) {
 		i.log("invalid signature on %v", msg)
 		return false
@@ -380,18 +383,18 @@ func (i *instance) isValid(msg *GMessage) bool {
 func (i *instance) VerifyJustification(msg *GMessage) error {
 
 	power := NewStoragePower(0)
-	_ = msg.Justification.Signers.ForEach(func(bit uint64) error {
+	_ = msg.Justification.QuorumSignature.Signers.ForEach(func(bit uint64) error {
 		power.Add(power, i.powerTable.Entries[bit].Power)
 		return nil
 	})
 
 	if !hasStrongQuorum(power, i.powerTable.Total) {
-		return fmt.Errorf("dropping message as no evidence from a strong quorum: %v", msg.Justification.Signers)
+		return fmt.Errorf("dropping message as no evidence from a strong quorum: %v", msg.Justification.QuorumSignature.Signers)
 	}
 
-	payload := SignaturePayload(msg.Justification.Instance, msg.Justification.Round, msg.Justification.Step, msg.Justification.Value)
+	payload := SignaturePayload(msg.Justification.Payload.Instance, msg.Justification.Payload.Round, msg.Justification.Payload.Step, msg.Justification.Payload.Value)
 	signers := make([]PubKey, 0)
-	_ = msg.Justification.Signers.ForEach(func(bit uint64) error {
+	_ = msg.Justification.QuorumSignature.Signers.ForEach(func(bit uint64) error {
 		if int(bit) >= len(i.powerTable.Entries) {
 			return nil //TODO handle error
 		}
@@ -399,7 +402,7 @@ func (i *instance) VerifyJustification(msg *GMessage) error {
 		return nil
 	})
 
-	if !i.host.VerifyAggregate(payload, msg.Justification.Signature, signers) {
+	if !i.host.VerifyAggregate(payload, msg.Justification.QuorumSignature.Signature, signers) {
 		return fmt.Errorf("dropping Message %v with invalid evidence signature: %v", msg, msg.Justification)
 	}
 
@@ -407,7 +410,7 @@ func (i *instance) VerifyJustification(msg *GMessage) error {
 }
 
 func (i *instance) isJustified(msg *GMessage) error {
-	switch msg.Step {
+	switch msg.Current.Step {
 	case QUALITY_PHASE, PREPARE_PHASE:
 		return nil
 
@@ -415,45 +418,45 @@ func (i *instance) isJustified(msg *GMessage) error {
 		//CONVERGE is justified by a strong quorum of COMMIT for bottom from the previous round.
 		// or a strong quorum of PREPARE for the same value from the previous round.
 
-		prevRound := msg.Round - 1
-		if msg.Justification.Round != prevRound {
-			return fmt.Errorf("CONVERGE %v has evidence from wrong round %d", msg.Round, msg.Justification.Round)
+		prevRound := msg.Current.Round - 1
+		if msg.Justification.Payload.Round != prevRound {
+			return fmt.Errorf("CONVERGE %v has evidence from wrong round %d", msg.Current.Round, msg.Justification.Payload.Round)
 		}
 
-		if msg.Justification.Step == PREPARE_PHASE {
-			if msg.Value.HeadCIDOrZero() != msg.Justification.Value.HeadCIDOrZero() {
-				return fmt.Errorf("CONVERGE for value %v has PREPARE evidence for a different value: %v", msg.Value, msg.Justification.Value)
+		if msg.Justification.Payload.Step == PREPARE_PHASE {
+			if msg.Current.Value.HeadCIDOrZero() != msg.Justification.Payload.Value.HeadCIDOrZero() {
+				return fmt.Errorf("CONVERGE for value %v has PREPARE evidence for a different value: %v", msg.Current.Value, msg.Justification.Payload.Value)
 			}
-			if msg.Value.IsZero() {
-				return fmt.Errorf("CONVERGE with PREPARE evidence for zero value: %v", msg.Justification.Value)
+			if msg.Current.Value.IsZero() {
+				return fmt.Errorf("CONVERGE with PREPARE evidence for zero value: %v", msg.Justification.Payload.Value)
 			}
-		} else if msg.Justification.Step == COMMIT_PHASE {
-			if !msg.Justification.Value.IsZero() {
-				return fmt.Errorf("CONVERGE with COMMIT evidence for non-zero value: %v", msg.Justification.Value)
+		} else if msg.Justification.Payload.Step == COMMIT_PHASE {
+			if !msg.Justification.Payload.Value.IsZero() {
+				return fmt.Errorf("CONVERGE with COMMIT evidence for non-zero value: %v", msg.Justification.Payload.Value)
 			}
 		} else {
-			return fmt.Errorf("CONVERGE with evidence from wrong step %v", msg.Justification.Step)
+			return fmt.Errorf("CONVERGE with evidence from wrong step %v", msg.Justification.Payload.Step)
 		}
 
 	case COMMIT_PHASE:
 		// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
 		// COMMIT for bottom is always justified.
 
-		if msg.Value.IsZero() {
+		if msg.Current.Value.IsZero() {
 			//TODO make sure justification is default zero?
 			return nil
 		}
 
-		if msg.Round != msg.Justification.Round {
-			return fmt.Errorf("COMMIT %v has evidence from wrong round %d", msg.Round, msg.Justification.Round)
+		if msg.Current.Round != msg.Justification.Payload.Round {
+			return fmt.Errorf("COMMIT %v has evidence from wrong round %d", msg.Current.Round, msg.Justification.Payload.Round)
 		}
 
-		if msg.Justification.Step != PREPARE_PHASE {
-			return fmt.Errorf("COMMIT %v has evidence from wrong step %v", msg.Round, msg.Justification.Step)
+		if msg.Justification.Payload.Step != PREPARE_PHASE {
+			return fmt.Errorf("COMMIT %v has evidence from wrong step %v", msg.Current.Round, msg.Justification.Payload.Step)
 		}
 
-		if msg.Value.Head().CID != msg.Justification.Value.HeadCIDOrZero() {
-			return fmt.Errorf("COMMIT %v has evidence for a different value: %v", msg.Value, msg.Justification.Value)
+		if msg.Current.Value.Head().CID != msg.Justification.Payload.Value.HeadCIDOrZero() {
+			return fmt.Errorf("COMMIT %v has evidence for a different value: %v", msg.Current.Value, msg.Justification.Payload.Value)
 		}
 
 	case DECIDE_PHASE:
@@ -462,11 +465,11 @@ func (i *instance) isJustified(msg *GMessage) error {
 		return nil
 
 	default:
-		return fmt.Errorf("unknown message step: %v", msg.Step)
+		return fmt.Errorf("unknown message step: %v", msg.Current.Step)
 	}
 
-	if msg.Instance != msg.Justification.Instance {
-		return fmt.Errorf("message with instanceID %v has evidence from wrong instanceID: %v", msg.Instance, msg.Justification.Instance)
+	if msg.Current.Instance != msg.Justification.Payload.Instance {
+		return fmt.Errorf("message with instanceID %v has evidence from wrong instanceID: %v", msg.Current.Instance, msg.Justification.Payload.Instance)
 	}
 
 	return i.VerifyJustification(msg)
@@ -526,13 +529,19 @@ func (i *instance) beginConverge() {
 		for _, sig := range signatures {
 			aggSignature = i.host.Aggregate([][]byte{sig}, aggSignature)
 		}
-		justification = Justification{
-			Instance:  i.instanceID,
-			Round:     i.round - 1,
-			Step:      COMMIT_PHASE,
-			Value:     value,
+		justificationPayload := SignedMessage{
+			Instance: i.instanceID,
+			Round:    i.round - 1,
+			Step:     COMMIT_PHASE,
+			Value:    value,
+		}
+		justificationSignature := QuorumSignature{
 			Signers:   signers,
 			Signature: aggSignature,
+		}
+		justification = Justification{
+			Payload:         justificationPayload,
+			QuorumSignature: justificationSignature,
 		}
 	} else if prevRoundState.prepared.HasStrongQuorumAgreement(i.proposal.Head().CID) {
 		value := i.proposal
@@ -543,16 +552,22 @@ func (i *instance) beginConverge() {
 			aggSignature = i.host.Aggregate([][]byte{sig}, aggSignature)
 		}
 
-		justification = Justification{
-			Instance:  i.instanceID,
-			Round:     i.round - 1,
-			Step:      PREPARE_PHASE,
-			Value:     value,
+		justificationPayload := SignedMessage{
+			Instance: i.instanceID,
+			Round:    i.round - 1,
+			Step:     PREPARE_PHASE,
+			Value:    value,
+		}
+		justificationSignature := QuorumSignature{
 			Signers:   signers,
 			Signature: aggSignature,
 		}
+		justification = Justification{
+			Payload:         justificationPayload,
+			QuorumSignature: justificationSignature,
+		}
 	} else if justification, ok = prevRoundState.committed.justifiedMessages[i.proposal.Head().CID]; ok {
-		//justification already assigned in the if statement
+		//justificationPayload already assigned in the if statement
 	} else {
 		panic("beginConverge called but no evidence found")
 	}
@@ -629,15 +644,17 @@ func (i *instance) beginCommit() {
 	for _, sig := range signatures {
 		aggSignature = i.host.Aggregate([][]byte{sig}, aggSignature)
 	}
-	justification := Justification{
-		Instance:  i.instanceID,
-		Round:     i.round,
-		Step:      PREPARE_PHASE,
-		Value:     i.value,
+	justificationPayload := SignedMessage{
+		Instance: i.instanceID,
+		Round:    i.round,
+		Step:     PREPARE_PHASE,
+		Value:    i.value,
+	}
+	justificationSignature := QuorumSignature{
 		Signers:   signers,
 		Signature: aggSignature,
 	}
-	i.broadcast(i.round, COMMIT_PHASE, i.value, nil, justification)
+	i.broadcast(i.round, COMMIT_PHASE, i.value, nil, Justification{justificationPayload, justificationSignature})
 }
 
 func (i *instance) tryCommit(round uint64) error {
@@ -760,7 +777,13 @@ func (i *instance) broadcast(round uint32, step Phase, value ECChain, ticket Tic
 	payload := SignaturePayload(i.instanceID, round, step, value)
 >>>>>>> ae2e783 (use Phase and not Phase.String() everywhere)
 	signature := i.host.Sign(i.participantID, payload)
-	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature, justification}
+	sm := SignedMessage{
+		Instance: i.instanceID,
+		Round:    round,
+		Step:     step,
+		Value:    value,
+	}
+	gmsg := &GMessage{i.participantID, sm, ticket, signature, justification}
 	i.host.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
 	return gmsg
@@ -866,7 +889,7 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, j
 	candidate.hasStrongQuorum = hasStrongQuorum(candidate.power, q.powerTable.Total)
 	candidate.hasWeakQuorum = hasWeakQuorum(candidate.power, q.powerTable.Total)
 
-	if !value.IsZero() && justification.Step == PREPARE_PHASE { //only committed roundStates need to store justifications
+	if !value.IsZero() && justification.Payload.Step == PREPARE_PHASE { //only committed roundStates need to store justifications
 		q.justifiedMessages[value.Head().CID] = justification
 	}
 	q.chainSupport[head] = candidate
@@ -906,7 +929,7 @@ func (q *quorumState) getSignatures(value ECChain, signers bitfield.BitField) []
 			}
 			signatures = append(signatures, signature)
 		} else {
-			panic("Signature not found")
+			panic("QuorumSignature not found")
 		}
 		return nil
 	}); err != nil {

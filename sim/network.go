@@ -161,7 +161,7 @@ func (n *Network) Aggregate(sigs [][]byte, aggSignature []byte) []byte {
 
 	for i := 0; i < len(sigs); i++ {
 		if !bytes.Equal(msg, sigs[i][pubKeyLen:]) {
-			panic("Payload mismatch")
+			panic("Current mismatch")
 		}
 		pubKeys = append(pubKeys, sigs[i][:pubKeyLen])
 	}
