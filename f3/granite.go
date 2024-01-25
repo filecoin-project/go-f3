@@ -461,6 +461,15 @@ func (i *instance) isJustified(msg *GMessage) error {
 	case DECIDE_PHASE:
 		// Implement actual justification of DECIDES
 		// Example: return fmt.Errorf("DECIDE phase not implemented")
+		if msg.Justification.Payload.Step != COMMIT_PHASE {
+			return fmt.Errorf("dropping DECIDE %v with evidence from wrong step %v", msg.Current.Round, msg.Justification.Payload.Step)
+		}
+		if msg.Current.Value.IsZero() || msg.Justification.Payload.Value.IsZero() {
+			return fmt.Errorf("dropping DECIDE %v with evidence for a zero value: %v", msg.Current.Value, msg.Justification.Payload.Value)
+		}
+		if msg.Current.Value.Head().CID != msg.Justification.Payload.Value.Head().CID {
+			return fmt.Errorf("dropping DECIDE %v with evidence for a different value: %v", msg.Current.Value, msg.Justification.Payload.Value)
+		}
 		return nil
 
 	default:
@@ -472,6 +481,7 @@ func (i *instance) isJustified(msg *GMessage) error {
 	}
 
 	return i.VerifyJustification(msg.Justification)
+
 }
 
 // Sends this node's QUALITY message and begins the QUALITY phase.
@@ -653,7 +663,11 @@ func (i *instance) beginCommit() {
 		Signers:   signers,
 		Signature: aggSignature,
 	}
-	i.broadcast(i.round, COMMIT_PHASE, i.value, nil, Justification{justificationPayload, justificationSignature})
+	justification := Justification{
+		Payload:         justificationPayload,
+		QuorumSignature: justificationSignature,
+	}
+	i.broadcast(i.round, COMMIT_PHASE, i.value, nil, justification)
 }
 
 func (i *instance) tryCommit(round uint64) error {
@@ -668,7 +682,7 @@ func (i *instance) tryCommit(round uint64) error {
 		// A participant may be forced to decide a value that's not its preferred chain.
 		// The participant isn't influencing that decision against their interest, just accepting it.
 		i.value = foundQuorum[0]
-		i.beginDecide()
+		i.beginDecide(round)
 	} else if i.round == round && i.phase == COMMIT_PHASE && timeoutExpired && committed.ReceivedFromStrongQuorum() {
 		// Adopt any non-empty value committed by another participant (there can only be one).
 		// This node has observed the strong quorum of PREPARE messages that justify it,
@@ -692,9 +706,33 @@ func (i *instance) tryCommit(round uint64) error {
 	return nil
 }
 
-func (i *instance) beginDecide() {
+func (i *instance) beginDecide(round uint64) {
 	i.phase = DECIDE_PHASE
-	i.broadcast(0, DECIDE_PHASE, i.value, nil, Justification{})
+	roundState := i.roundState(round)
+	if !roundState.committed.HasStrongQuorumAgreement(i.value.Head().CID) {
+		panic("beginDecide called but no evidence found")
+	}
+	signers := roundState.committed.getSigners(i.value)
+	signatures := roundState.committed.getSignatures(i.value, signers)
+	aggSignature := make([]byte, 0)
+	for _, sig := range signatures {
+		aggSignature = i.host.Aggregate([][]byte{sig}, aggSignature)
+	}
+	justificationPayload := SignedMessage{
+		Instance: i.instanceID,
+		Round:    round,
+		Step:     COMMIT_PHASE,
+		Value:    i.value,
+	}
+	justificationSignature := QuorumSignature{
+		Signers:   signers,
+		Signature: aggSignature,
+	}
+	justification := Justification{
+		Payload:         justificationPayload,
+		QuorumSignature: justificationSignature,
+	}
+	i.broadcast(0, DECIDE_PHASE, i.value, nil, justification)
 }
 
 func (i *instance) tryDecide() error {
@@ -902,7 +940,6 @@ func (q *quorumState) getSignatures(value ECChain, signers bitfield.BitField) []
 		return nil
 	}); err != nil {
 		panic("Error while iterating over signers")
-		//TODO handle error
 	}
 	return signatures
 }

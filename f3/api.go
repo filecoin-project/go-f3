@@ -64,7 +64,6 @@ type Host interface {
 	Clock
 	Signer
 	Verifier
-
 	// Logs a message at the "logic" level
 	Log(format string, args ...interface{})
 }
