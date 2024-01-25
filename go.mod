@@ -6,25 +6,9 @@ require github.com/stretchr/testify v1.8.4
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
 	github.com/filecoin-project/go-bitfield v0.2.4 // indirect
-=======
->>>>>>> f3066c4 (Add AggEvidence type)
-<<<<<<< HEAD
->>>>>>> 7f32a5a (Address comments III)
-=======
-=======
 	github.com/filecoin-project/go-bitfield v0.2.4 // indirect
->>>>>>> bcf86d8 (Add AggEvidence type)
->>>>>>> 095d2c5 (Add AggEvidence type)
-=======
 	github.com/filecoin-project/go-bitfield v0.2.4 // indirect
->>>>>>> 5d427bf (Verify list of public keys when verifying aggregate)
 	github.com/ipfs/go-cid v0.0.5 // indirect
 	github.com/minio/blake2b-simd v0.0.0-20160723061019-3f5f724cb5b1 // indirect
 	github.com/minio/sha256-simd v0.1.1-0.20190913151208-6de447530771 // indirect

@@ -106,15 +106,7 @@ func (m GMessage) String() string {
 }
 
 // Computes the payload for a GMessage signature.
-<<<<<<< HEAD
-<<<<<<< HEAD
 func SignaturePayload(instance uint64, round uint64, step Phase, value ECChain) []byte {
-=======
-func SignaturePayload(instance uint32, round uint32, step string, value ECChain) []byte {
->>>>>>> fa80b7e (Update tests and calls to signer/verifier interfaces)
-=======
-func SignaturePayload(instance uint32, round uint32, step Phase, value ECChain) []byte {
->>>>>>> ae2e783 (use Phase and not Phase.String() everywhere)
 	var buf bytes.Buffer
 	buf.WriteString(DOMAIN_SEPARATION_TAG)
 	_ = binary.Write(&buf, binary.BigEndian, instance)
@@ -740,42 +732,8 @@ func (i *instance) terminated() bool {
 	return i.phase == TERMINATED_PHASE
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Ticket) *GMessage {
-=======
-=======
->>>>>>> 902f1b3 (Address comments)
-<<<<<<< HEAD
-func (i *instance) broadcast(round uint32, step Phase, value ECChain, ticket Ticket) *GMessage {
-=======
-func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ticket, evidence AggEvidence) *GMessage {
->>>>>>> 5f43a87 (Require AggEvidence when broadcasting GMessage)
-<<<<<<< HEAD
->>>>>>> d1d0792 (Require AggEvidence when broadcasting GMessage)
-=======
-=======
-func (i *instance) broadcast(round uint32, step string, value ECChain, ticket Ticket) *GMessage {
->>>>>>> 9a3e132 (Address comments)
->>>>>>> 902f1b3 (Address comments)
-=======
-func (i *instance) broadcast(round uint32, step Phase, value ECChain, ticket Ticket) *GMessage {
->>>>>>> 5d427bf (Verify list of public keys when verifying aggregate)
-=======
-func (i *instance) broadcast(round uint32, step Phase, value ECChain, ticket Ticket, Justification justification) *GMessage {
->>>>>>> efbc3dc (Implement aggregation and verification of COMMIT and CONVERGE)
+func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Ticket, justification Justification) *GMessage {
 	payload := SignaturePayload(i.instanceID, round, step, value)
-=======
-func (i *instance) broadcast(round uint32, step Phase, value ECChain, ticket Ticket, justification Justification) *GMessage {
-<<<<<<< HEAD
-	payload := SignaturePayload(i.instanceID, round, step.String(), value)
->>>>>>> fa80b7e (Update tests and calls to signer/verifier interfaces)
-=======
-	payload := SignaturePayload(i.instanceID, round, step, value)
->>>>>>> ae2e783 (use Phase and not Phase.String() everywhere)
 	signature := i.host.Sign(i.participantID, payload)
 	sm := SignedMessage{
 		Instance: i.instanceID,
