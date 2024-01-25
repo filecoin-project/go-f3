@@ -87,7 +87,7 @@ type Justification struct {
 
 	Round uint32
 
-	Step string
+	Step Phase
 
 	Value ECChain
 
@@ -104,15 +104,19 @@ func (m GMessage) String() string {
 
 // Computes the payload for a GMessage signature.
 <<<<<<< HEAD
+<<<<<<< HEAD
 func SignaturePayload(instance uint64, round uint64, step Phase, value ECChain) []byte {
 =======
 func SignaturePayload(instance uint32, round uint32, step string, value ECChain) []byte {
 >>>>>>> fa80b7e (Update tests and calls to signer/verifier interfaces)
+=======
+func SignaturePayload(instance uint32, round uint32, step Phase, value ECChain) []byte {
+>>>>>>> ae2e783 (use Phase and not Phase.String() everywhere)
 	var buf bytes.Buffer
 	buf.WriteString(DOMAIN_SEPARATION_TAG)
 	_ = binary.Write(&buf, binary.BigEndian, instance)
 	_ = binary.Write(&buf, binary.BigEndian, round)
-	_ = binary.Write(&buf, binary.BigEndian, []byte(step))
+	_ = binary.Write(&buf, binary.BigEndian, []byte(step.String()))
 	for _, t := range value {
 		_ = binary.Write(&buf, binary.BigEndian, t.Epoch)
 		buf.Write(t.CID.Bytes())
@@ -364,7 +368,7 @@ func (i *instance) isValid(msg *GMessage) bool {
 		return !msg.Value.IsZero()
 	}
 
-	sigPayload := SignaturePayload(msg.Instance, msg.Round, msg.Step.String(), msg.Value)
+	sigPayload := SignaturePayload(msg.Instance, msg.Round, msg.Step, msg.Value)
 	if !i.host.Verify(pubKey, sigPayload, msg.Signature) {
 		i.log("invalid signature on %v", msg)
 		return false
@@ -391,15 +395,18 @@ func (i *instance) isJustified(msg *GMessage) bool {
 			return false
 		}
 
-		if msg.Justification.Step == PREPARE_PHASE.String() {
+		if msg.Justification.Step == PREPARE_PHASE {
+			
 			if msg.Value.HeadCIDOrZero() != msg.Justification.Value.HeadCIDOrZero() {
 				i.log("dropping CONVERGE for value %v with PREPARE evidence for a different value: %v", msg.Value, msg.Justification.Value)
 				return false
-			} else if msg.Value.IsZero() {
+			}
+			if msg.Value.IsZero() {
 				i.log("dropping CONVERGE with PREPARE evidence for zero value: %v", msg.Justification.Value)
 				return false
 			}
-		} else if msg.Justification.Step == COMMIT_PHASE.String() {
+
+		} else if msg.Justification.Step == COMMIT_PHASE {
 			if !msg.Justification.Value.IsZero() {
 				//TODO this would mean a decision though
 				i.log("dropping CONVERGE with COMMIT evidence for non-zero value: %v", msg.Justification.Value)
@@ -422,7 +429,7 @@ func (i *instance) isJustified(msg *GMessage) bool {
 			return false
 		}
 
-		if msg.Justification.Step != PREPARE_PHASE.String() {
+		if msg.Justification.Step != PREPARE_PHASE {
 			i.log("dropping COMMIT %v with evidence from wrong step %v", msg.Round, msg.Justification.Step)
 			return false
 		}
@@ -528,7 +535,7 @@ func (i *instance) beginConverge() {
 		justification = Justification{
 			Instance:  i.instanceID,
 			Round:     i.round - 1,
-			Step:      COMMIT_PHASE.String(),
+			Step:      COMMIT_PHASE,
 			Value:     value,
 			Signers:   signers,
 			Signature: aggSignature,
@@ -545,7 +552,7 @@ func (i *instance) beginConverge() {
 		justification = Justification{
 			Instance:  i.instanceID,
 			Round:     i.round - 1,
-			Step:      PREPARE_PHASE.String(),
+			Step:      PREPARE_PHASE,
 			Value:     value,
 			Signers:   signers,
 			Signature: aggSignature,
@@ -631,7 +638,7 @@ func (i *instance) beginCommit() {
 	justification := Justification{
 		Instance:  i.instanceID,
 		Round:     i.round,
-		Step:      PREPARE_PHASE.String(),
+		Step:      PREPARE_PHASE,
 		Value:     i.value,
 		Signers:   signers,
 		Signature: aggSignature,
@@ -752,8 +759,12 @@ func (i *instance) broadcast(round uint32, step Phase, value ECChain, ticket Tic
 	payload := SignaturePayload(i.instanceID, round, step, value)
 =======
 func (i *instance) broadcast(round uint32, step Phase, value ECChain, ticket Ticket, justification Justification) *GMessage {
+<<<<<<< HEAD
 	payload := SignaturePayload(i.instanceID, round, step.String(), value)
 >>>>>>> fa80b7e (Update tests and calls to signer/verifier interfaces)
+=======
+	payload := SignaturePayload(i.instanceID, round, step, value)
+>>>>>>> ae2e783 (use Phase and not Phase.String() everywhere)
 	signature := i.host.Sign(i.participantID, payload)
 	gmsg := &GMessage{i.participantID, i.instanceID, round, step, value, ticket, signature, justification}
 	i.host.Broadcast(gmsg)
@@ -861,7 +872,7 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, j
 	candidate.hasStrongQuorum = hasStrongQuorum(candidate.power, q.powerTable.Total)
 	candidate.hasWeakQuorum = hasWeakQuorum(candidate.power, q.powerTable.Total)
 
-	if !value.IsZero() && justification.Step == "PREPARE" { //only committed roundStates need to store justifications
+	if !value.IsZero() && justification.Step == PREPARE_PHASE { //only committed roundStates need to store justifications
 		q.justifiedMessages[value.Head().CID] = justification
 	}
 	q.chainSupport[head] = candidate

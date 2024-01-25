@@ -61,7 +61,7 @@ func (w *WitholdCommit) Begin() {
 		Round:     0,
 		Step:      f3.QUALITY_PHASE,
 		Value:     w.victimValue,
-		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.QUALITY_PHASE.String(), w.victimValue)),
+		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.QUALITY_PHASE, w.victimValue)),
 	})
 	w.host.BroadcastSynchronous(w.id, f3.GMessage{
 		Sender:    w.id,
@@ -69,7 +69,7 @@ func (w *WitholdCommit) Begin() {
 		Round:     0,
 		Step:      f3.PREPARE_PHASE,
 		Value:     w.victimValue,
-		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.PREPARE_PHASE.String(), w.victimValue)),
+		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.PREPARE_PHASE, w.victimValue)),
 	})
 
 	message := f3.GMessage{
@@ -78,11 +78,11 @@ func (w *WitholdCommit) Begin() {
 		Round:     0,
 		Step:      f3.COMMIT_PHASE,
 		Value:     w.victimValue,
-		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.COMMIT_PHASE.String(), w.victimValue)),
+		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.COMMIT_PHASE, w.victimValue)),
 	}
-	payload := f3.SignaturePayload(0, 0, f3.PREPARE_PHASE.String(), w.victimValue)
+	payload := f3.SignaturePayload(0, 0, f3.PREPARE_PHASE, w.victimValue)
 	justification := f3.Justification{
-		Step:      f3.PREPARE_PHASE.String(),
+		Step:      f3.PREPARE_PHASE,
 		Value:     w.victimValue,
 		Instance:  0,
 		Round:     0,
