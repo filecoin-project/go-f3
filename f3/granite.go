@@ -373,6 +373,7 @@ func (i *instance) isValid(msg *GMessage) bool {
 
 func (i *instance) VerifyJustification(justification Justification) error {
 <<<<<<< HEAD
+<<<<<<< HEAD
 
 	power := NewStoragePower(0)
 	signers := make([]PubKey, 0)
@@ -404,40 +405,41 @@ func (i *instance) VerifyJustification(justification Justification) error {
 	var bit uint64
 	strongQuorum := false
 	for bitIndex, bit = range setBits {
+=======
+	power := NewStoragePower(0)
+	if err := justification.QuorumSignature.Signers.ForEach(func(bit uint64) error {
+>>>>>>> 4fc7489 (Only optimize creation, but do not enforce on verification)
 		if int(bit) >= len(i.powerTable.Entries) {
-			return fmt.Errorf("invalid bit index %d", bit)
+			return fmt.Errorf("invalid signer index: %d", bit)
 		}
-		signers = append(signers, i.powerTable.Entries[bit].PubKey)
-		justificationPower.Add(justificationPower, i.powerTable.Entries[bit].Power)
-		if hasStrongQuorum(justificationPower, i.powerTable.Total) {
-			strongQuorum = true
-			break // no need to keep calculating
-		}
+		power.Add(power, i.powerTable.Entries[bit].Power)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to iterate over signers: %w", err)
 	}
 
-	if !strongQuorum {
-		return fmt.Errorf("No evidence from a strong quorum: %v", justification.QuorumSignature.Signers)
-	}
-
-	// need to retrieve the remaining pubkeys just to verify the aggregate
-	//TODO we could enforce here a tight strong quorum and no extra signatures
-	// to prevent wasting time in verifying too many aggregated signatures
-	// but should be careful with oligopolies (check out issue #49)
-	// A deterministic but drand-sourced permutation could prevent oligopolies
-	// if a random permutation affects performance we could do a weighted random permutation
-	// To favour with more power.
-	for bitIndex++; bitIndex < len(setBits); bitIndex++ {
-		bit = setBits[bitIndex]
-		if int(bit) >= len(i.powerTable.Entries) {
-			return fmt.Errorf("invalid bit index %d", bit)
-		}
-		signers = append(signers, i.powerTable.Entries[bit].PubKey)
+	if !hasStrongQuorum(power, i.powerTable.Total) {
+		return fmt.Errorf("dropping message as no evidence from a strong quorum: %v", justification.QuorumSignature.Signers)
 	}
 
 	payload := SignaturePayload(justification.Payload.Instance, justification.Payload.Round, justification.Payload.Step, justification.Payload.Value)
+<<<<<<< HEAD
 >>>>>>> d7f0dc0 (Optimize justification creation and verification)
+=======
+	signers := make([]PubKey, 0)
+	if err := justification.QuorumSignature.Signers.ForEach(func(bit uint64) error {
+		if int(bit) >= len(i.powerTable.Entries) {
+			return fmt.Errorf("invalid signer index: %d", bit)
+		}
+		signers = append(signers, i.powerTable.Entries[bit].PubKey)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to iterate over signers: %w", err)
+	}
+
+>>>>>>> 4fc7489 (Only optimize creation, but do not enforce on verification)
 	if !i.host.VerifyAggregate(payload, justification.QuorumSignature.Signature, signers) {
-		return fmt.Errorf("Invalid justification signature: %v", justification)
+		return fmt.Errorf("verification of the aggregate failed: %v", justification)
 	}
 
 	return nil
@@ -991,22 +993,33 @@ func (q *quorumState) getStrongQuorumSigners(value ECChain) (bitfield.BitField, 
 	signers := q.getSigners(value)
 	strongQuorumSigners := bitfield.New()
 	justificationPower := NewStoragePower(0)
-	setBits, err := signers.All(uint64(len(q.powerTable.Entries)))
-	if err != nil {
-		return bitfield.New(), fmt.Errorf("Failed to get all set bits")
-	}
-	for _, bit := range setBits {
+	err := signers.ForEach(func(bit uint64) error {
+		if int(bit) >= len(q.powerTable.Entries) {
+			return fmt.Errorf("invalid signer index: %d", bit)
+		}
 		justificationPower.Add(justificationPower, q.powerTable.Entries[bit].Power)
 		strongQuorumSigners.Set(bit)
 		if hasStrongQuorum(justificationPower, q.powerTable.Total) {
-			break // no need to keep calculating
+			return StrongQuorumReachedError{} // No need to iterate anymore
 		}
+		return nil
+	})
+
+	if _, ok := err.(StrongQuorumReachedError); ok {
+		// Strong quorum reached (not an actual error)
+		return strongQuorumSigners, nil
 	}
-	if !hasStrongQuorum(justificationPower, q.powerTable.Total) {
-		// if we didn't find a strong quorum, return an empty bitfield
-		return bitfield.New(), nil
-	}
-	return strongQuorumSigners, nil
+
+	// if we didn't find a strong quorum,
+	// return an empty bitfield, and whatever
+	// error that was returned by ForEach (if any)
+	return bitfield.New(), err
+}
+
+type StrongQuorumReachedError struct{}
+
+func (e StrongQuorumReachedError) Error() string {
+	return "strong quorum of signers reached"
 }
 >>>>>>> 5e1bf5e (Replace introduced new panic by error)
 
