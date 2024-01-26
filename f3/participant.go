@@ -68,12 +68,12 @@ func (p *Participant) ReceiveECChain(chain ECChain) error {
 // Receives a Granite message from some other participant.
 // The message is delivered to the Granite instance if it is for the current instance.
 func (p *Participant) ReceiveMessage(msg *GMessage) error {
-	if p.granite != nil && msg.Current.Instance == p.granite.instanceID {
+	if p.granite != nil && msg.Instance == p.granite.instanceID {
 		if err := p.granite.Receive(msg); err != nil {
 			return fmt.Errorf("error receiving message: %w", err)
 		}
 		p.handleDecision()
-	} else if msg.Current.Instance >= p.nextInstance {
+	} else if msg.Instance >= p.nextInstance {
 		// Queue messages for later instances
 		p.mpool = append(p.mpool, msg)
 	}

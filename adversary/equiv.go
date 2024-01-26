@@ -56,44 +56,36 @@ func (w *WitholdCommit) Begin() {
 	// All victims need to see QUALITY and PREPARE in order to send their COMMIT,
 	// but only the one victim will see our COMMIT.
 	w.host.BroadcastSynchronous(w.id, f3.GMessage{
-		Sender: w.id,
-		Current: f3.SignedMessage{
-			Instance: 0,
-			Round:    0,
-			Step:     f3.QUALITY_PHASE,
-			Value:    w.victimValue,
-		},
+		Sender:    w.id,
+		Instance:  0,
+		Round:     0,
+		Phase:     f3.QUALITY_PHASE,
+		Value:     w.victimValue,
 		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.QUALITY_PHASE, w.victimValue)),
 	})
 	w.host.BroadcastSynchronous(w.id, f3.GMessage{
-		Sender: w.id,
-		Current: f3.SignedMessage{
-			Instance: 0,
-			Round:    0,
-			Step:     f3.PREPARE_PHASE,
-			Value:    w.victimValue,
-		},
+		Sender:    w.id,
+		Instance:  0,
+		Round:     0,
+		Phase:     f3.PREPARE_PHASE,
+		Value:     w.victimValue,
 		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.PREPARE_PHASE, w.victimValue)),
 	})
 
 	message := f3.GMessage{
-		Sender: w.id,
-		Current: f3.SignedMessage{
-			Instance: 0,
-			Round:    0,
-			Step:     f3.COMMIT_PHASE,
-			Value:    w.victimValue,
-		},
+		Sender:    w.id,
+		Instance:  0,
+		Round:     0,
+		Phase:     f3.COMMIT_PHASE,
+		Value:     w.victimValue,
 		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.COMMIT_PHASE, w.victimValue)),
 	}
 	payload := f3.SignaturePayload(0, 0, f3.PREPARE_PHASE, w.victimValue)
 	justification := f3.Justification{
-		Payload: f3.SignedMessage{
-			Step:     f3.PREPARE_PHASE,
-			Value:    w.victimValue,
-			Instance: 0,
-			Round:    0,
-		},
+		Instance: 0,
+		Round:    0,
+		Phase:    f3.PREPARE_PHASE,
+		Value:    w.victimValue,
 		QuorumSignature: f3.QuorumSignature{
 			Signers:   bitfield.New(),
 			Signature: nil,
@@ -121,23 +113,23 @@ func (w *WitholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Message
 				toAnyVictim = true
 			}
 		}
-		if gmsg.Current.Step == f3.QUALITY_PHASE {
+		if gmsg.Phase == f3.QUALITY_PHASE {
 			// Don't allow victims to see dissenting QUALITY.
-			if toAnyVictim && !gmsg.Current.Value.Eq(w.victimValue) {
+			if toAnyVictim && !gmsg.Value.Eq(w.victimValue) {
 				return false
 			}
-		} else if gmsg.Current.Step == f3.PREPARE_PHASE {
+		} else if gmsg.Phase == f3.PREPARE_PHASE {
 			// Don't allow victims to see dissenting PREPARE.
-			if toAnyVictim && !gmsg.Current.Value.Eq(w.victimValue) {
+			if toAnyVictim && !gmsg.Value.Eq(w.victimValue) {
 				return false
 			}
-		} else if gmsg.Current.Step == f3.COMMIT_PHASE {
+		} else if gmsg.Phase == f3.COMMIT_PHASE {
 			// Allow only the main victim to see our COMMIT.
 			if !toMainVictim && gmsg.Sender == w.id {
 				return false
 			}
 			// Don't allow the main victim to see any dissenting COMMIts.
-			if toMainVictim && !gmsg.Current.Value.Eq(w.victimValue) {
+			if toMainVictim && !gmsg.Value.Eq(w.victimValue) {
 				return false
 			}
 		}
