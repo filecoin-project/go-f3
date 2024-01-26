@@ -377,7 +377,7 @@ func (i *instance) VerifyJustification(justification Justification) error {
 	power := NewStoragePower(0)
 	if err := justification.QuorumSignature.Signers.ForEach(func(bit uint64) error {
 		if int(bit) >= len(i.powerTable.Entries) {
-			return fmt.Errorf("invalid signer index: %d", bit)
+			return fmt.Errorf("invalid signer bit: %d", bit)
 		}
 		power.Add(power, i.powerTable.Entries[bit].Power)
 		return nil
@@ -391,15 +391,10 @@ func (i *instance) VerifyJustification(justification Justification) error {
 
 	payload := SignaturePayload(justification.Payload.Instance, justification.Payload.Round, justification.Payload.Step, justification.Payload.Value)
 	signers := make([]PubKey, 0)
-	if err := justification.QuorumSignature.Signers.ForEach(func(bit uint64) error {
-		if int(bit) >= len(i.powerTable.Entries) {
-			return fmt.Errorf("invalid signer index: %d", bit)
-		}
+	_ = justification.QuorumSignature.Signers.ForEach(func(bit uint64) error {
 		signers = append(signers, i.powerTable.Entries[bit].PubKey)
 		return nil
-	}); err != nil {
-		return fmt.Errorf("failed to iterate over signers: %w", err)
-	}
+	})
 
 	if !i.host.VerifyAggregate(payload, justification.QuorumSignature.Signature, signers) {
 		return fmt.Errorf("verification of the aggregate failed: %v", justification)
@@ -939,10 +934,7 @@ func (q *quorumState) getSigners(value ECChain) bitfield.BitField {
 func (q *quorumState) getSignatures(value ECChain, signers bitfield.BitField) ([][]byte, error) {
 	head := value.HeadCIDOrZero()
 	signatures := make([][]byte, 0)
-	if err := signers.ForEach(func(bit uint64) error {
-		if int(bit) >= len(q.powerTable.Entries) {
-			return fmt.Errorf("invalid signer index: %d", bit)
-		}
+	_ = signers.ForEach(func(bit uint64) error {
 		if signature, ok := q.received[q.powerTable.Entries[bit].ID].heads[head]; ok {
 			if len(signature) == 0 {
 				panic("signature is 0")
@@ -952,9 +944,7 @@ func (q *quorumState) getSignatures(value ECChain, signers bitfield.BitField) ([
 			panic("QuorumSignature not found")
 		}
 		return nil
-	}); err != nil {
-		return nil, err
-	}
+	})
 	return signatures, nil
 }
 
