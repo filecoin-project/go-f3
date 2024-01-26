@@ -578,7 +578,7 @@ func (i *instance) beginConverge() error {
 	} else if justification, ok = prevRoundState.committed.justifiedMessages[i.proposal.Head().CID]; ok {
 		//justificationPayload already assigned in the if statement
 	} else {
-		panic("beginConverge called but no evidence found")
+		return fmt.Errorf("beginConverge called but no evidence found")
 	}
 	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, ticket, justification)
 	return nil
@@ -715,7 +715,7 @@ func (i *instance) beginDecide(round uint64) error {
 	i.phase = DECIDE_PHASE
 	roundState := i.roundState(round)
 	if !roundState.committed.HasStrongQuorumAgreement(i.value.Head().CID) {
-		panic("beginDecide called but no evidence found")
+		return fmt.Errorf("beginDecide called but no evidence found")
 	}
 	signers := roundState.committed.getSigners(i.value)
 	signatures, err := roundState.committed.getSignatures(i.value, signers)
@@ -934,17 +934,18 @@ func (q *quorumState) getSigners(value ECChain) bitfield.BitField {
 func (q *quorumState) getSignatures(value ECChain, signers bitfield.BitField) ([][]byte, error) {
 	head := value.HeadCIDOrZero()
 	signatures := make([][]byte, 0)
-	_ = signers.ForEach(func(bit uint64) error {
+	if err := signers.ForEach(func(bit uint64) error {
 		if signature, ok := q.received[q.powerTable.Entries[bit].ID].heads[head]; ok {
-			if len(signature) == 0 {
-				panic("signature is 0")
+			if len(signature) > 0 {
+				signatures = append(signatures, signature)
+				return nil
 			}
-			signatures = append(signatures, signature)
-		} else {
-			panic("QuorumSignature not found")
 		}
-		return nil
-	})
+		// Either len(signature) == 0 or no signature to begin with
+		return fmt.Errorf("no signature found for signer %d", bit)
+	}); err != nil {
+		return nil, err
+	}
 	return signatures, nil
 }
 
