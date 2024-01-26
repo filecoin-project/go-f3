@@ -557,7 +557,7 @@ func (i *instance) tryQuality() error {
 	return nil
 }
 
-func (i *instance) beginConverge() {
+func (i *instance) beginConverge() error {
 	i.phase = CONVERGE_PHASE
 	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE_PHASE.String())
@@ -566,8 +566,15 @@ func (i *instance) beginConverge() {
 	if signers, signatures, ok := prevRoundState.committed.FindStrongQuorumAgreement(ZeroTipSetID()); ok {
 		value := ECChain{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 		signers := prevRoundState.committed.getStrongQuorumSigners(value)
+=======
+		signers, err := prevRoundState.committed.getStrongQuorumSigners(value)
+		if err != nil {
+			return err
+		}
+>>>>>>> 5e1bf5e (Replace introduced new panic by error)
 		signatures := prevRoundState.committed.getSignatures(value, signers)
 >>>>>>> d7f0dc0 (Optimize justification creation and verification)
 		aggSignature := make([]byte, 0)
@@ -591,8 +598,15 @@ func (i *instance) beginConverge() {
 	} else if signers, signatures, ok = prevRoundState.prepared.FindStrongQuorumAgreement(i.proposal.Head().CID); ok {
 		value := i.proposal
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 		signers := prevRoundState.prepared.getStrongQuorumSigners(value)
+=======
+		signers, err := prevRoundState.prepared.getStrongQuorumSigners(value)
+		if err != nil {
+			return err
+		}
+>>>>>>> 5e1bf5e (Replace introduced new panic by error)
 		signatures := prevRoundState.prepared.getSignatures(value, signers)
 >>>>>>> d7f0dc0 (Optimize justification creation and verification)
 		aggSignature := make([]byte, 0)
@@ -621,6 +635,7 @@ func (i *instance) beginConverge() {
 	}
 
 	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, ticket, justification)
+	return nil
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
@@ -740,7 +755,7 @@ func (i *instance) tryCommit(round uint64) error {
 			}
 		}
 
-		i.beginNextRound()
+		return i.beginNextRound()
 	}
 
 	return nil
@@ -798,10 +813,10 @@ func (i *instance) roundState(r uint64) *roundState {
 	return round
 }
 
-func (i *instance) beginNextRound() {
+func (i *instance) beginNextRound() error {
 	i.round += 1
 	i.log("moving to round %d with %s", i.round, i.proposal.String())
-	i.beginConverge()
+	return i.beginConverge()
 }
 
 // Returns whether a chain is acceptable as a proposal for this instance to vote for.
@@ -968,6 +983,32 @@ func (q *quorumState) getSignersAndSignatures(value ECChain) (bitfield.BitField,
 	return signers, signatures
 }
 
+<<<<<<< HEAD
+=======
+// getStrongQuorumSigners retrieves just a strong quorum of signers of the given ECChain.
+// At the moment, this is the signers with the most power until reaching a strong quorum.
+func (q *quorumState) getStrongQuorumSigners(value ECChain) (bitfield.BitField, error) {
+	signers := q.getSigners(value)
+	strongQuorumSigners := bitfield.New()
+	justificationPower := NewStoragePower(0)
+	setBits, err := signers.All(uint64(len(q.powerTable.Entries)))
+	if err != nil {
+		return bitfield.New(), fmt.Errorf("Failed to get all set bits")
+	}
+	for _, bit := range setBits {
+		justificationPower.Add(justificationPower, q.powerTable.Entries[bit].Power)
+		strongQuorumSigners.Set(bit)
+		if hasStrongQuorum(justificationPower, q.powerTable.Total) {
+			break // no need to keep calculating
+		}
+	}
+	if !hasStrongQuorum(justificationPower, q.powerTable.Total) {
+		// if we didn't find a strong quorum, return an empty bitfield
+		return bitfield.New(), nil
+	}
+	return strongQuorumSigners, nil
+}
+>>>>>>> 5e1bf5e (Replace introduced new panic by error)
 
 // Lists all values that have been senders from any sender.
 // The order of returned values is not defined.
