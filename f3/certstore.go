@@ -9,8 +9,6 @@ import (
 
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
-	"github.com/libp2p/go-libp2p/core/event"
-	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 
 	"golang.org/x/xerrors"
 )
@@ -35,32 +33,16 @@ func (c Cert) MarshalBinary() ([]byte, error) {
 var ErrCertAlreadyExists = errors.New("certificate already exists in the CertStore")
 var ErrCertNotFound = errors.New("certificate not found")
 
-type EvtNewCert struct {
-	Cert Cert
-}
-
 // CertStore is responsible for storying and relaying information about new finality certificates
 type CertStore struct {
 	dsLk sync.Mutex
 	ds   datastore.Datastore
-
-	// Bus is used to spread events happening in f3
-	// Events used are:
-	//   - EvtNewCert
-	Bus            event.Bus
-	newCertEmitter event.Emitter
 }
 
 func NewCertStore(ds datastore.Datastore) (*CertStore, error) {
 
 	cs := &CertStore{
-		ds:  namespace.Wrap(ds, datastore.NewKey("/certstore")),
-		Bus: eventbus.NewBus(),
-	}
-	var err error
-	cs.newCertEmitter, err = cs.Bus.Emitter(new(EvtNewCert), eventbus.Stateful)
-	if err != nil {
-		return nil, xerrors.Errorf("creating emitter: %w", err)
+		ds: namespace.Wrap(ds, datastore.NewKey("/certstore")),
 	}
 
 	return cs, nil
@@ -137,7 +119,7 @@ func (cs *CertStore) Put(ctx context.Context, c *Cert) error {
 	if err := cs.putInner(ctx, c.Instance, certBytes); err != nil {
 		return xerrors.Errorf("saving cert at %d: %w", c.Instance, err)
 	}
-	cs.newCertEmitter.Emit(EvtNewCert{Cert: *c})
+	// TODO event emitting
 
 	return nil
 }

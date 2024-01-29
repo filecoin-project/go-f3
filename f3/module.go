@@ -15,13 +15,15 @@ import (
 )
 
 type Module struct {
-	networkName NetworkName
+	NetworkName NetworkName
 	CertStore   *CertStore
 
 	ds     datastore.Datastore
 	host   host.Host
 	pubsub *pubsub.PubSub
-	sigs   SigningBackend
+	verif  Verifier
+	sigs   Signer
+	ec     ECBackend
 
 	topic *pubsub.Topic
 }
@@ -29,7 +31,9 @@ type Module struct {
 // NewModule creates and setups new libp2p f3 module
 // TODO notification about new EC chains
 // TODO FCEX
-func NewModule(nn NetworkName, ds datastore.Datastore, h host.Host, ps *pubsub.PubSub, sigs SigningBackend) (*Module, error) {
+// TODO flesh out EC notifications
+// TODO flesh out signing backend notifications
+func NewModule(nn NetworkName, ds datastore.Datastore, h host.Host, ps *pubsub.PubSub, sigs Signer, verif Verifier, ec ECBackend) (*Module, error) {
 	ds = namespace.Wrap(ds, nn.DatastorePrefix())
 	cs, err := NewCertStore(ds)
 	if err != nil {
@@ -37,13 +41,14 @@ func NewModule(nn NetworkName, ds datastore.Datastore, h host.Host, ps *pubsub.P
 	}
 
 	m := Module{
-		networkName: nn,
+		NetworkName: nn,
 		CertStore:   cs,
 
 		ds:     ds,
 		host:   h,
 		pubsub: ps,
 		sigs:   sigs,
+		ec:     ec,
 	}
 
 	if err := m.setupPubsub(); err != nil {
@@ -54,7 +59,7 @@ func NewModule(nn NetworkName, ds datastore.Datastore, h host.Host, ps *pubsub.P
 }
 func (m *Module) setupPubsub() error {
 	// pubsub will probably move to separate file/struct
-	pubsubTopicName := m.networkName.PubSubTopic()
+	pubsubTopicName := m.NetworkName.PubSubTopic()
 	err := m.pubsub.RegisterTopicValidator(pubsubTopicName, m.pubsubTopicValidator)
 	if err != nil {
 		return xerrors.Errorf("registering topic validator: %w", err)
@@ -70,7 +75,7 @@ func (m *Module) setupPubsub() error {
 
 func (m *Module) teardownPubsub() error {
 	return multierr.Combine(
-		m.pubsub.UnregisterTopicValidator(m.networkName.PubSubTopic()),
+		m.pubsub.UnregisterTopicValidator(m.NetworkName.PubSubTopic()),
 		m.topic.Close(),
 	)
 }
@@ -104,6 +109,21 @@ func (m *Module) pubsubTopicValidator(ctx context.Context, pID peer.ID, msg *pub
 	return pubsub.ValidationAccept
 }
 
-// SigningBackend contains methods f3 will use for signature
-type SigningBackend interface {
+type ECBackend interface{}
+
+type TODOVerifier struct{}
+
+// Verifies a signature for the given sender ID.
+func (v *TODOVerifier) Verify(pubKey PubKey, msg []byte, sig []byte) bool {
+	panic("not implemented") // TODO: Implement
+}
+
+// Aggregates signatures from a participant to an existing signature.
+func (v *TODOVerifier) Aggregate(sig [][]byte, aggSignature []byte) []byte {
+	panic("not implemented") // TODO: Implement
+}
+
+// VerifyAggregate verifies an aggregate signature.
+func (v *TODOVerifier) VerifyAggregate(payload []byte, aggSig []byte, signers []PubKey) bool {
+	panic("not implemented") // TODO: Implement
 }
