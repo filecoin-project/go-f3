@@ -375,24 +375,20 @@ func (i *instance) isValid(msg *GMessage) bool {
 func (i *instance) VerifyJustification(justification Justification) error {
 
 	power := NewStoragePower(0)
+	signers := make([]PubKey, 0)
 	if err := justification.QuorumSignature.Signers.ForEach(func(bit uint64) error {
 		if int(bit) >= len(i.powerTable.Entries) {
-			return fmt.Errorf("invalid signer bit: %d", bit)
+			return fmt.Errorf("invalid signer index: %d", bit)
 		}
 		power.Add(power, i.powerTable.Entries[bit].Power)
+		signers = append(signers, i.powerTable.Entries[bit].PubKey)
 		return nil
 	}); err != nil {
 		return fmt.Errorf("failed to iterate over signers: %w", err)
 	}
-
-	if !hasStrongQuorum(power, i.powerTable.Total) {
-		return fmt.Errorf("dropping message as no evidence from a strong quorum: %v", justification.QuorumSignature.Signers)
-	}
-
+	
 	payload := SignaturePayload(justification.Payload.Instance, justification.Payload.Round, justification.Payload.Step, justification.Payload.Value)
-	signers := make([]PubKey, 0)
 	_ = justification.QuorumSignature.Signers.ForEach(func(bit uint64) error {
-		signers = append(signers, i.powerTable.Entries[bit].PubKey)
 		return nil
 	})
 
