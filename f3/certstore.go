@@ -10,6 +10,7 @@ import (
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
 
+	"github.com/Kubuxu/go-broadcast"
 	"golang.org/x/xerrors"
 )
 
@@ -35,17 +36,46 @@ var ErrCertNotFound = errors.New("certificate not found")
 
 // CertStore is responsible for storying and relaying information about new finality certificates
 type CertStore struct {
-	dsLk sync.Mutex
-	ds   datastore.Datastore
+	dsLk     sync.Mutex
+	ds       datastore.Datastore
+	busCerts broadcast.Channel[Cert]
 }
 
-func NewCertStore(ds datastore.Datastore) (*CertStore, error) {
-
+func NewCertStore(ctx context.Context, ds datastore.Datastore) (*CertStore, error) {
 	cs := &CertStore{
 		ds: namespace.Wrap(ds, datastore.NewKey("/certstore")),
 	}
+	latestCert, err := cs.loadLatest(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("loading latest cert: %w", err)
+	}
+	if latestCert != nil {
+		cs.busCerts.Publish(*latestCert)
+	}
 
 	return cs, nil
+}
+
+var certStoreLatestKey = datastore.NewKey("/latestCert")
+
+func (cs *CertStore) loadLatest(ctx context.Context) (*Cert, error) {
+	cb, err := cs.ds.Get(ctx, certStoreLatestKey)
+	if errors.Is(err, datastore.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, xerrors.Errorf("getting latest cert: %w", err)
+	}
+	var c Cert
+	err = c.UnmarshalBinary(cb)
+	if err != nil {
+		return nil, xerrors.Errorf("unmarshalling latest cert: %w", err)
+	}
+	return &c, err
+}
+
+func (cs *CertStore) Latest() *Cert {
+	return cs.busCerts.Last()
 }
 
 func (cs *CertStore) Get(ctx context.Context, instance uint64) (*Cert, error) {
@@ -106,25 +136,25 @@ func (cs *CertStore) GetRange(ctx context.Context, start uint64, end uint64) ([]
 }
 
 func (_ *CertStore) keyForInstance(i uint64) datastore.Key {
-	return datastore.NewKey(fmt.Sprintf("%X", i))
+	return datastore.NewKey(fmt.Sprintf("/certs/%016X", i))
 }
 
 // Put saves a certificate in a store and notifies listeners.
 // It errors if the certificate is already in the store
-func (cs *CertStore) Put(ctx context.Context, c *Cert) error {
+func (cs *CertStore) Put(ctx context.Context, c Cert) error {
 	certBytes, err := c.MarshalBinary()
 	if err != nil {
 		return xerrors.Errorf("marshalling cert instance %d: %w", c.Instance, err)
 	}
-	if err := cs.putInner(ctx, c.Instance, certBytes); err != nil {
+	if err := cs.putInner(ctx, c, certBytes); err != nil {
 		return xerrors.Errorf("saving cert at %d: %w", c.Instance, err)
 	}
-	// TODO event emitting
 
 	return nil
 }
-func (cs *CertStore) putInner(ctx context.Context, instance uint64, certBytes []byte) error {
-	key := cs.keyForInstance(instance)
+
+func (cs *CertStore) putInner(ctx context.Context, cert Cert, certBytes []byte) error {
+	key := cs.keyForInstance(cert.Instance)
 
 	cs.dsLk.Lock()
 	defer cs.dsLk.Unlock()
@@ -140,5 +170,20 @@ func (cs *CertStore) putInner(ctx context.Context, instance uint64, certBytes []
 	if err := cs.ds.Put(ctx, key, certBytes); err != nil {
 		return xerrors.Errorf("putting the cert: %w", err)
 	}
+	if cert.Instance > cs.Latest().Instance {
+		if err := cs.ds.Put(ctx, certStoreLatestKey, certBytes); err != nil {
+			return xerrors.Errorf("putting the cert: %w", err)
+		}
+		cs.busCerts.Publish(cert) // Publish within the lock to ensure ordering
+	}
+
 	return nil
+}
+
+// SubscribeForNewCerts is used to subscribe to the broadcast channel.
+// If the passed channel is full at any point, it will be dropped from subscription and closed.
+// To stop subscribing, either the closer function can be used or the channel can be abandoned.
+// Passing a channel multiple times to the Subscribe function will result in a panic.
+func (cs *CertStore) SubscribeForNewCerts(ch chan<- Cert) (last *Cert, closer func()) {
+	return cs.busCerts.Subscribe(ch)
 }

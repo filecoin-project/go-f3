@@ -1,6 +1,6 @@
 module github.com/filecoin-project/go-f3
 
-go 1.20
+go 1.21.6
 
 require (
 	github.com/filecoin-project/go-bitfield v0.2.4
@@ -15,6 +15,7 @@ require (
 )
 
 require (
+	github.com/Kubuxu/go-broadcast v0.0.0-20240129200822-3ff470a93467 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect

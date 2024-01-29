@@ -29,13 +29,14 @@ type Module struct {
 }
 
 // NewModule creates and setups new libp2p f3 module
+// context is used for initialization not runtime
 // TODO notification about new EC chains
 // TODO FCEX
 // TODO flesh out EC notifications
 // TODO flesh out signing backend notifications
-func NewModule(nn NetworkName, ds datastore.Datastore, h host.Host, ps *pubsub.PubSub, sigs Signer, verif Verifier, ec ECBackend) (*Module, error) {
+func NewModule(ctx context.Context, nn NetworkName, ds datastore.Datastore, h host.Host, ps *pubsub.PubSub, sigs Signer, verif Verifier, ec ECBackend) (*Module, error) {
 	ds = namespace.Wrap(ds, nn.DatastorePrefix())
-	cs, err := NewCertStore(ds)
+	cs, err := NewCertStore(ctx, ds)
 	if err != nil {
 		return nil, xerrors.Errorf("creating CertStore: %w", err)
 	}
