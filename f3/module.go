@@ -47,6 +47,7 @@ func NewModule(nn NetworkName, ds datastore.Datastore, h host.Host, ps *pubsub.P
 		ds:     ds,
 		host:   h,
 		pubsub: ps,
+		verif:  verif,
 		sigs:   sigs,
 		ec:     ec,
 	}
