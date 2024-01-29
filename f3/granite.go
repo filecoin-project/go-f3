@@ -3,6 +3,7 @@ package f3
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -1000,12 +1001,12 @@ func (q *quorumState) getStrongQuorumSigners(value ECChain) (bitfield.BitField, 
 		justificationPower.Add(justificationPower, q.powerTable.Entries[bit].Power)
 		strongQuorumSigners.Set(bit)
 		if hasStrongQuorum(justificationPower, q.powerTable.Total) {
-			return StrongQuorumReachedError{} // No need to iterate anymore
+			return ErrStrongQuorumReached // No need to iterate anymore
 		}
 		return nil
 	})
 
-	if _, ok := err.(StrongQuorumReachedError); ok {
+	if errors.Is(err, ErrStrongQuorumReached) {
 		// Strong quorum reached (not an actual error)
 		return strongQuorumSigners, nil
 	}
@@ -1016,12 +1017,16 @@ func (q *quorumState) getStrongQuorumSigners(value ECChain) (bitfield.BitField, 
 	return bitfield.New(), err
 }
 
+<<<<<<< HEAD
 type StrongQuorumReachedError struct{}
 
 func (e StrongQuorumReachedError) Error() string {
 	return "strong quorum of signers reached"
 }
 >>>>>>> 5e1bf5e (Replace introduced new panic by error)
+=======
+var ErrStrongQuorumReached = errors.New("strong quorum of signers reached")
+>>>>>>> b048977 (Use errors.New and errors.Is)
 
 // Lists all values that have been senders from any sender.
 // The order of returned values is not defined.
