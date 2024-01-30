@@ -386,7 +386,7 @@ func (i *instance) VerifyJustification(justification Justification) error {
 	}); err != nil {
 		return fmt.Errorf("failed to iterate over signers: %w", err)
 	}
-	
+
 	payload := SignaturePayload(justification.Payload.Instance, justification.Payload.Round, justification.Payload.Step, justification.Payload.Value)
 	_ = justification.QuorumSignature.Signers.ForEach(func(bit uint64) error {
 		return nil
@@ -818,8 +818,8 @@ func (i *instance) log(format string, args ...interface{}) {
 // which values have reached a strong quorum of support.
 // Supports receiving multiple values from each sender, and hence multiple strong quorum values.
 type quorumState struct {
-	// CID of each chain received, by sender. Allows detecting and ignoring duplicates.
-	received map[ActorID]senderSent
+	//// CID of each chain received, by sender. Allows detecting and ignoring duplicates.
+	received map[ActorID]struct{}
 	// The power supporting each chain so far.
 	chainSupport map[TipSetID]chainSupport
 	// Total power of all distinct senders from which some chain has been received so far.
@@ -830,17 +830,11 @@ type quorumState struct {
 	justifiedMessages map[TipSetID]Justification
 }
 
-// The set of chain heads from one sender and associated signature, and that sender's power.
-type senderSent struct {
-	heads map[TipSetID][]byte
-	power *StoragePower
-}
-
 // A chain value and the total power supporting it
 type chainSupport struct {
 	chain           ECChain
 	power           *StoragePower
-	signers         map[ActorID]struct{}
+	signers         map[ActorID][]byte
 	hasStrongQuorum bool
 	hasWeakQuorum   bool
 }
@@ -848,7 +842,7 @@ type chainSupport struct {
 // Creates a new, empty quorum state.
 func newQuorumState(powerTable PowerTable) *quorumState {
 	return &quorumState{
-		received:          map[ActorID]senderSent{},
+		received:          map[ActorID]struct{}{},
 		chainSupport:      map[TipSetID]chainSupport{},
 		sendersTotalPower: NewStoragePower(0),
 		powerTable:        powerTable,
@@ -858,41 +852,38 @@ func newQuorumState(powerTable PowerTable) *quorumState {
 
 // Receives a new chain from a sender.
 func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, justification Justification) {
-	head := value.HeadCIDOrZero()
-	fromSender, ok := q.received[sender]
 	senderPower, _ := q.powerTable.Get(sender)
-	sigCopy := make([]byte, len(signature))
-	copy(sigCopy, signature)
+	
+	// Add sender's power to total the first time a value is received from them.
+	if _, ok := q.received[sender]; !ok {
+		q.received[sender] = struct{}{}
+		q.sendersTotalPower.Add(q.sendersTotalPower, senderPower)
+	}
+
+	head := value.HeadCIDOrZero()
+	candidate, ok := q.chainSupport[head]
 	if ok {
 		// Don't double-count the same chain head for a single participant.
-		if _, ok := fromSender.heads[head]; ok {
+		if _, ok := candidate.signers[sender]; ok {
 			return
 		}
-		fromSender.heads[head] = sigCopy
 	} else {
-		// Add sender's power to total the first time a value is received from them.
-		q.sendersTotalPower.Add(q.sendersTotalPower, senderPower)
-		fromSender = senderSent{
-			heads: map[TipSetID][]byte{
-				head: sigCopy,
-			},
-			power: senderPower,
+		candidate = chainSupport{
+			chain:           value,
+			power:           NewStoragePower(0),
+			signers:         map[ActorID][]byte{},
+			hasStrongQuorum: false,
+			hasWeakQuorum:   false,
 		}
+		q.chainSupport[value.HeadCIDOrZero()] = candidate
 	}
-	q.received[sender] = fromSender
 
-	candidate := chainSupport{
-		chain:           value,
-		power:           senderPower,
-		signers:         make(map[ActorID]struct{}),
-		hasStrongQuorum: false,
-		hasWeakQuorum:   false,
-	}
-	if found, ok := q.chainSupport[head]; ok {
-		candidate.power.Add(candidate.power, found.power)
-		candidate.signers = found.signers
-	}
-	candidate.signers[sender] = struct{}{}
+	sigCopy := make([]byte, len(signature))
+	copy(sigCopy, signature)
+	candidate.signers[sender] = sigCopy
+
+	// Add sender's power to total the first time a value is received from them.
+	candidate.power.Add(candidate.power, senderPower)
 
 	candidate.hasStrongQuorum = hasStrongQuorum(candidate.power, q.powerTable.Total)
 	candidate.hasWeakQuorum = hasWeakQuorum(candidate.power, q.powerTable.Total)
@@ -931,7 +922,7 @@ func (q *quorumState) getSignatures(value ECChain, signers bitfield.BitField) ([
 	head := value.HeadCIDOrZero()
 	signatures := make([][]byte, 0)
 	if err := signers.ForEach(func(bit uint64) error {
-		if signature, ok := q.received[q.powerTable.Entries[bit].ID].heads[head]; ok {
+		if signature, ok := q.chainSupport[head].signers[q.powerTable.Entries[bit].ID]; ok {
 			if len(signature) > 0 {
 				signatures = append(signatures, signature)
 				return nil
