@@ -48,7 +48,7 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 	}
 
 	// Create genesis tipset, which all participants are expected to agree on as a base.
-	genesis := f3.NewTipSet(100, f3.NewTipSetIDFromString("genesis"), 1)
+	genesis := f3.NewTipSet(100, f3.NewTipSetIDFromString("genesis"))
 	baseChain, err := f3.NewChain(genesis)
 	if err != nil {
 		panic(fmt.Errorf("failed creating new chain: %w", err))

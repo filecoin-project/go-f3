@@ -116,7 +116,6 @@ func SignaturePayload(instance uint64, round uint64, step Phase, value ECChain) 
 	for _, t := range value {
 		_ = binary.Write(&buf, binary.BigEndian, t.Epoch)
 		buf.Write(t.CID.Bytes())
-		_ = binary.Write(&buf, binary.BigEndian, t.Weight)
 	}
 	return buf.Bytes()
 }
