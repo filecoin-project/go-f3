@@ -23,12 +23,6 @@ func NewTipSet(epoch int64, cid TipSetID) TipSet {
 	}
 }
 
-// Compares two tipsets by CID.
-// Note that the real weight function compares VRF tickets.
-func (t *TipSet) Compare(other *TipSet) int {
-	return t.CID.Compare(other.CID)
-}
-
 // Compares tipsets for equality.
 func (t *TipSet) Eq(other *TipSet) bool {
 	return t.Epoch == other.Epoch &&

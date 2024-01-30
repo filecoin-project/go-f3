@@ -150,7 +150,7 @@ type instance struct {
 	// Queue of messages to be synchronously processed before returning from top-level call.
 	inbox []*GMessage
 	// Quality phase state (only for round 0)
-	quality *quorumState
+	quality *qualityQuorumState
 	// State for each round of phases.
 	// State from prior rounds must be maintained to provide justification for values in subsequent rounds.
 	rounds map[uint64]*roundState
@@ -185,7 +185,7 @@ func newInstance(
 		phase:         INITIAL_PHASE,
 		proposal:      input,
 		value:         ECChain{},
-		quality:       newQuorumState(powerTable),
+		quality:       newQualityQuorumState(powerTable),
 		rounds: map[uint64]*roundState{
 			0: newRoundState(powerTable),
 		},
@@ -288,7 +288,7 @@ func (i *instance) receiveOne(msg *GMessage) error {
 		// Receive each prefix of the proposal independently.
 		for j := range msg.Current.Value.Suffix() {
 			prefix := msg.Current.Value.Prefix(j + 1)
-			i.quality.Receive(msg.Sender, prefix, msg.Signature, msg.Justification)
+			i.quality.Receive(msg.Sender, prefix, msg.Signature, msg.Justification, msg.Ticket)
 		}
 	case CONVERGE_PHASE:
 		if err := round.converged.Receive(msg.Current.Value, msg.Ticket); err != nil {
@@ -947,8 +947,63 @@ func (q *quorumState) ListStrongQuorumAgreedValues() []ECChain {
 			withQuorum = append(withQuorum, q.chainSupport[cid].chain)
 		}
 	}
-	sortByWeight(withQuorum)
 	return withQuorum
+}
+
+//// QUALITY phase helper /////
+
+type qualityQuorumState struct {
+	quorumState
+	// Map to store the smallest ticket for each chain value.
+	smallestTickets map[TipSetID]Ticket
+}
+
+func newQualityQuorumState(powerTable PowerTable) *qualityQuorumState {
+	return &qualityQuorumState{
+		quorumState:     *newQuorumState(powerTable),
+		smallestTickets: make(map[TipSetID]Ticket),
+	}
+}
+
+// Receive overrides the Receive method of quorumState to handle the smallest ticket per value logic.
+func (q *qualityQuorumState) Receive(sender ActorID, value ECChain, signature []byte, justification Justification, ticket Ticket) {
+	head := value.HeadCIDOrZero()
+
+	q.quorumState.Receive(sender, value, signature, justification)
+
+	// Update the smallest ticket
+	currentTicket, exists := q.smallestTickets[head]
+	if !exists || (ticket != nil && currentTicket.Compare(ticket) > 0) {
+		q.smallestTickets[head] = ticket
+	}
+}
+
+// ListStrongQuorumAgreedValues lists all values sorted by the ascending
+// order of the smallest VRF ticket associated to the value
+func (q *qualityQuorumState) ListStrongQuorumAgreedValues() []ECChain {
+	var withQuorum []ECChain
+	for cid, cp := range q.chainSupport {
+		if cp.hasStrongQuorum {
+			withQuorum = append(withQuorum, q.chainSupport[cid].chain)
+		}
+	}
+	sortByTicket(withQuorum, q.smallestTickets)
+	return withQuorum
+}
+
+// sortByTicket Sorts chains by ascending order of VRF ticket associated to the value
+func sortByTicket(chains []ECChain, tickets map[TipSetID]Ticket) {
+	sort.Slice(chains, func(i, j int) bool {
+		ti, oki := tickets[chains[i].HeadCIDOrZero()]
+		tj, okj := tickets[chains[j].HeadCIDOrZero()]
+		// both oki and okj should be true but that should be handled by the calling function
+		if !oki {
+			return false
+		} else if !okj {
+			return true
+		}
+		return ti.Compare(tj) < 0
+	})
 }
 
 //// CONVERGE phase helper /////
@@ -1005,20 +1060,6 @@ func findFirstPrefixOf(candidates []ECChain, preferred ECChain) ECChain {
 
 	// No candidates are a prefix of preferred.
 	return preferred.BaseChain()
-}
-
-// Sorts chains by weight of their head, descending
-func sortByWeight(chains []ECChain) {
-	sort.Slice(chains, func(i, j int) bool {
-		if chains[i].IsZero() {
-			return false
-		} else if chains[j].IsZero() {
-			return true
-		}
-		hi := chains[i].Head()
-		hj := chains[j].Head()
-		return hi.Compare(hj) > 0
-	})
 }
 
 // Check whether a portion of storage power is a strong quorum of the total
