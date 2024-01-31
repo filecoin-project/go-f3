@@ -13,7 +13,7 @@ type Participant struct {
 
 	mpool map[uint64][]*GMessage
 	// Chain to use as input for the next Granite instance.
-	nextChain ECChain
+	nextInstanceParams *InstanceParams
 	// Instance identifier for the next Granite instance.
 	nextInstance uint64
 	// Current Granite instance.
@@ -22,6 +22,12 @@ type Participant struct {
 	finalised TipSet
 	// The round number at which the last instance was terminated.
 	finalisedRound uint64
+}
+
+type InstanceParams struct {
+	chain  ECChain
+	power  PowerTable
+	beacon []byte
 }
 
 func NewParticipant(id ActorID, config GraniteConfig, host Host, vrf VRFer) *Participant {
@@ -44,11 +50,35 @@ func (p *Participant) Finalised() (TipSet, uint64) {
 
 // Receives a new canonical EC chain for the instance.
 // This becomes the instance's preferred value to finalise.
+// TODO there should also be a pull-base mechanism, where the participant requests the chain from EC after providing it with
+// the newly finalised tipset. Otherwise, the participant needs to store multiple chains and reason about the heaviest of them
+// all when a newly finalized tipset changes the weight of each chain according to the fork choice rule (and also reason
+// for combinations/fractions of chains to make the heaviest s.t. the base is the latest finalized tipset and the head the heaviest tipset).
 func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, beacon []byte) error {
-	p.nextChain = chain
-	if p.granite == nil {
+	if !chain.HasBase(&p.finalised) {
+		return fmt.Errorf("chain does not extend finalised chain")
+	}
+
+	//TODO this can override a less heavy chain that ends up being an extension of the finalized chain
+	// by the running p.granite instance. Store instead all chains that have the current finalised tipset as base
+	//
+	p.nextInstanceParams = &InstanceParams{
+		chain:  chain,
+		power:  power,
+		beacon: beacon,
+	}
+	return p.tryNewInstance()
+}
+
+func (p *Participant) tryNewInstance() error {
+	//TODO according to FIP we should wait also for the drand epoch value for the epoch immediately
+	// following the latest finalized tipset is received before starting the next instance.
+	// Add that condition to the "if" here and functionality for Lotus to push epoch values to the f3 participant
+	// the beacon value stored in nextInstanceParams is then probably not required anymore, but a way to buffer epoch values
+	// while a decision is taking place and then delete to keep the only useful one will be needed.
+	if p.granite == nil && p.nextInstanceParams != nil {
 		var err error
-		p.granite, err = newInstance(p.config, p.host, p.vrf, p.id, p.nextInstance, chain, power, beacon)
+		p.granite, err = newInstance(p.config, p.host, p.vrf, p.id, p.nextInstance, p.nextInstanceParams.chain, p.nextInstanceParams.power, p.nextInstanceParams.beacon)
 		if err != nil {
 			return fmt.Errorf("failed creating new granite instance: %w", err)
 		}
@@ -80,7 +110,7 @@ func (p *Participant) ReceiveMessage(msg *GMessage) error {
 	} else if msg.Vote.Instance >= p.nextInstance {
 		// Queue messages for later instances
 		//TODO make quick verification to avoid spamming? (i.e. signature of the message)
-		p.mpool[msg.Current.Instance] = append(p.mpool[msg.Current.Instance], msg)
+		p.mpool[msg.Vote.Instance] = append(p.mpool[msg.Vote.Instance], msg)
 	}
 
 	return nil
@@ -91,17 +121,24 @@ func (p *Participant) ReceiveAlarm(msg *AlarmMsg) error {
 		if err := p.granite.ReceiveAlarm(msg.Payload.(string)); err != nil {
 			return fmt.Errorf("failed receiving alarm: %w", err)
 		}
-		p.handleDecision()
+		return p.handleDecision()
 	}
 	return nil
 }
 
-func (p *Participant) handleDecision() {
+func (p *Participant) handleDecision() error {
 	if p.terminated() {
-		p.finalised = *p.granite.value.Head()
+		value := p.granite.value
+		p.finalised = *value.Head()
 		p.finalisedRound = p.granite.round
 		p.granite = nil
+		// reset nextInstanceParams if newly finalized head makes it impossible for the chain to be decided
+		if p.nextInstanceParams != nil || !p.nextInstanceParams.chain.HasPrefix(p.granite.value) || p.nextInstanceParams.chain.Eq(p.granite.value) {
+			p.nextInstanceParams = nil
+		}
+		return p.tryNewInstance()
 	}
+	return nil
 }
 
 func (p *Participant) terminated() bool {
