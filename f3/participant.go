@@ -9,7 +9,7 @@ type Participant struct {
 	host   Host
 	vrf    VRFer
 
-	mpool []*GMessage
+	mpool map[uint64][]*GMessage
 	// Chain to use as input for the next Granite instance.
 	nextChain ECChain
 	// Instance identifier for the next Granite instance.
@@ -50,6 +50,8 @@ func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, bea
 		if err != nil {
 			return fmt.Errorf("failed creating new granite instance: %w", err)
 		}
+		p.granite.enqueueInbox(p.mpool[p.nextInstance])
+		delete(p.mpool, p.nextInstance)
 		p.nextInstance += 1
 		return p.granite.Start()
 	}
@@ -75,7 +77,7 @@ func (p *Participant) ReceiveMessage(msg *GMessage) error {
 		p.handleDecision()
 	} else if msg.Vote.Instance >= p.nextInstance {
 		// Queue messages for later instances
-		p.mpool = append(p.mpool, msg)
+		p.mpool[msg.Current.Instance] = append(p.mpool[msg.Current.Instance], msg)
 	}
 
 	return nil

@@ -227,7 +227,7 @@ func (i *instance) Receive(msg *GMessage) error {
 	}
 
 	// Enqueue the message for synchronous processing.
-	i.enqueueInbox(msg)
+	i.enqueueInbox([]*GMessage{msg})
 	return i.drainInbox()
 }
 
@@ -245,8 +245,8 @@ func (i *instance) Describe() string {
 	return fmt.Sprintf("P%d{%d}, round %d, phase %s", i.participantID, i.instanceID, i.round, i.phase)
 }
 
-func (i *instance) enqueueInbox(msg *GMessage) {
-	i.inbox = append(i.inbox, msg)
+func (i *instance) enqueueInbox(msgs []*GMessage) {
+	i.inbox = append(i.inbox, msgs...)
 }
 
 func (i *instance) drainInbox() error {
@@ -761,7 +761,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 		Justification: justification,
 	}
 	i.host.Broadcast(gmsg)
-	i.enqueueInbox(gmsg)
+	i.enqueueInbox([]*GMessage{gmsg})
 	return gmsg
 }
 
