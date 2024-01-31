@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"sort"
-	"strings"
 
 	"github.com/filecoin-project/go-f3/f3"
 )
@@ -98,11 +97,13 @@ func (n *Network) Time() float64 {
 	return n.clock
 }
 
-func (n *Network) SetAlarm(sender f3.ActorID, payload string, at float64) {
+func (n *Network) SetAlarm(sender f3.ActorID, instanceID uint64, payload string, at float64) {
 	n.queue.Insert(messageInFlight{
-		source:    sender,
-		dest:      sender,
-		payload:   "ALARM:" + payload,
+		source: sender,
+		dest:   sender,
+		payload: f3.AlarmMsg{
+			InstanceID: instanceID,
+			Payload:    payload},
 		deliverAt: at,
 	})
 }
@@ -242,10 +243,9 @@ func (n *Network) Tick(adv AdversaryReceiver) (bool, error) {
 
 	msg := n.queue.Remove(i)
 	n.clock = msg.deliverAt
-	payloadStr, ok := msg.payload.(string)
-	if ok && strings.HasPrefix(payloadStr, "ALARM:") {
-		n.log(TraceRecvd, "P%d %s", msg.source, payloadStr)
-		if err := n.participants[msg.dest].ReceiveAlarm(strings.TrimPrefix(payloadStr, "ALARM:")); err != nil {
+	if amsg, ok := msg.payload.(f3.AlarmMsg); ok {
+		n.log(TraceRecvd, "P%d %v", msg.source, amsg)
+		if err := n.participants[msg.dest].ReceiveAlarm(&amsg); err != nil {
 			return false, fmt.Errorf("failed receiving alarm: %w", err)
 		}
 	} else {

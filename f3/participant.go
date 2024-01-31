@@ -1,6 +1,8 @@
 package f3
 
-import "fmt"
+import (
+	"fmt"
+)
 
 // An F3 participant runs repeated instances of Granite to finalise longer chains.
 type Participant struct {
@@ -84,10 +86,9 @@ func (p *Participant) ReceiveMessage(msg *GMessage) error {
 	return nil
 }
 
-func (p *Participant) ReceiveAlarm(payload string) error {
-	// TODO include instance ID in alarm message, and filter here.
-	if p.granite != nil {
-		if err := p.granite.ReceiveAlarm(payload); err != nil {
+func (p *Participant) ReceiveAlarm(msg *AlarmMsg) error {
+	if p.granite != nil && p.granite.instanceID == msg.InstanceID {
+		if err := p.granite.ReceiveAlarm(msg.Payload.(string)); err != nil {
 			return fmt.Errorf("failed receiving alarm: %w", err)
 		}
 		p.handleDecision()
@@ -112,4 +113,9 @@ func (p *Participant) Describe() string {
 		return "nil"
 	}
 	return p.granite.Describe()
+}
+
+type AlarmMsg struct {
+	InstanceID uint64
+	Payload    interface{}
 }

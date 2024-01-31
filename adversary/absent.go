@@ -33,7 +33,7 @@ func (a *Absent) ReceiveMessage(_ *f3.GMessage) error {
 	return nil
 }
 
-func (a *Absent) ReceiveAlarm(_ string) error {
+func (a *Absent) ReceiveAlarm(_ *f3.AlarmMsg) error {
 	return nil
 }
 

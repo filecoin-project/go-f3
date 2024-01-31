@@ -770,7 +770,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 // Returns the absolute time at which the alarm will fire.
 func (i *instance) alarmAfterSynchrony(payload string) float64 {
 	timeout := i.host.Time() + i.config.Delta + (float64(i.round) * i.config.DeltaRate)
-	i.host.SetAlarm(i.participantID, payload, timeout)
+	i.host.SetAlarm(i.participantID, i.instanceID, payload, timeout)
 	return timeout
 }
 

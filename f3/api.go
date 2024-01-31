@@ -20,7 +20,7 @@ type MessageReceiver interface {
 	// Receives a message from another participant.
 	// No validation may be assumed to have been performed on the message.
 	ReceiveMessage(msg *GMessage) error
-	ReceiveAlarm(payload string) error
+	ReceiveAlarm(amsg *AlarmMsg) error
 }
 
 // Interface which network participants must implement.
@@ -41,7 +41,7 @@ type Clock interface {
 	// Returns the current network time.
 	Time() float64
 	// Sets an alarm to fire at the given timestamp.
-	SetAlarm(sender ActorID, payload string, at float64)
+	SetAlarm(sender ActorID, instanceID uint64, payload string, at float64)
 }
 
 type Signer interface {
