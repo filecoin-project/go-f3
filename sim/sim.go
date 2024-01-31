@@ -38,8 +38,11 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 	// Create participants.
 	genesisPower := f3.NewPowerTable(make([]f3.PowerEntry, 0))
 	participants := make([]*f3.Participant, simConfig.HonestCount)
+	// Create genesis tipset, which all participants are expected to agree on as a base.
+	genesis := f3.NewTipSet(100, f3.NewTipSetIDFromString("genesis"), 1)
+
 	for i := 0; i < len(participants); i++ {
-		participants[i] = f3.NewParticipant(f3.ActorID(i), graniteConfig, ntwk, vrf)
+		participants[i] = f3.NewParticipant(f3.ActorID(i), graniteConfig, ntwk, vrf, genesis)
 		pubKey := getFakePubKey(participants[i].ID())
 		ntwk.AddParticipant(participants[i], pubKey)
 		if err := genesisPower.Add(participants[i].ID(), f3.NewStoragePower(1), pubKey); err != nil {
@@ -47,8 +50,6 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 		}
 	}
 
-	// Create genesis tipset, which all participants are expected to agree on as a base.
-	genesis := f3.NewTipSet(100, f3.NewTipSetIDFromString("genesis"), 1)
 	baseChain, err := f3.NewChain(genesis)
 	if err != nil {
 		panic(fmt.Errorf("failed creating new chain: %w", err))

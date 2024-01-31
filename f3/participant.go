@@ -30,8 +30,8 @@ type InstanceParams struct {
 	beacon []byte
 }
 
-func NewParticipant(id ActorID, config GraniteConfig, host Host, vrf VRFer) *Participant {
-	return &Participant{id: id, config: config, host: host, vrf: vrf}
+func NewParticipant(id ActorID, config GraniteConfig, host Host, vrf VRFer, startingBase TipSet) *Participant {
+	return &Participant{id: id, config: config, host: host, vrf: vrf, finalised: startingBase}
 }
 
 func (p *Participant) ID() ActorID {
@@ -56,7 +56,7 @@ func (p *Participant) Finalised() (TipSet, uint64) {
 // for combinations/fractions of chains to make the heaviest s.t. the base is the latest finalized tipset and the head the heaviest tipset).
 func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, beacon []byte) error {
 	if !chain.HasBase(&p.finalised) {
-		return fmt.Errorf("chain does not extend finalised chain")
+		return fmt.Errorf("chain does not extend finalised chain: %v %v", chain, p.finalised)
 	}
 
 	//TODO this can override a less heavy chain that ends up being an extension of the finalized chain
