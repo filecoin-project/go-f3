@@ -77,6 +77,7 @@ func (p *Participant) ReceiveMessage(msg *GMessage) error {
 		p.handleDecision()
 	} else if msg.Vote.Instance >= p.nextInstance {
 		// Queue messages for later instances
+		//TODO make quick verification to avoid spamming? (i.e. signature of the message)
 		p.mpool[msg.Current.Instance] = append(p.mpool[msg.Current.Instance], msg)
 	}
 
