@@ -279,8 +279,6 @@ func (i *instance) receiveOne(msg *GMessage) error {
 	}
 
 	if err := i.isJustified(msg); err != nil {
-		// No implicit justification:
-		// if message not justified explicitly, then it will not be justified
 		i.log("dropping unjustified %s from sender %v, error: %s", msg, msg.Sender, err)
 		return nil
 	}
