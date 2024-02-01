@@ -9,7 +9,7 @@ import (
 // This adversary send its COMMIT message to only a single victim, withholding it from others.
 // Against a naive algorithm, when set up with 30% of power, and a victim set with 40%,
 // it can cause one victim to decide, while others revert to the base.
-type WitholdCommit struct {
+type WithholdCommit struct {
 	id         f3.ActorID
 	host       sim.AdversaryHost
 	powertable f3.PowerTable
@@ -19,40 +19,40 @@ type WitholdCommit struct {
 }
 
 // A participant that never sends anything.
-func NewWitholdCommit(id f3.ActorID, host sim.AdversaryHost, powertable f3.PowerTable) *WitholdCommit {
-	return &WitholdCommit{
+func NewWitholdCommit(id f3.ActorID, host sim.AdversaryHost, powertable f3.PowerTable) *WithholdCommit {
+	return &WithholdCommit{
 		id:         id,
 		host:       host,
 		powertable: powertable,
 	}
 }
 
-func (w *WitholdCommit) SetVictim(victims []f3.ActorID, victimValue f3.ECChain) {
+func (w *WithholdCommit) SetVictim(victims []f3.ActorID, victimValue f3.ECChain) {
 	w.victims = victims
 	w.victimValue = victimValue
 }
 
-func (w *WitholdCommit) ID() f3.ActorID {
+func (w *WithholdCommit) ID() f3.ActorID {
 	return w.id
 }
 
-func (w *WitholdCommit) ReceiveCanonicalChain(_ f3.ECChain, _ f3.PowerTable, _ []byte) error {
+func (w *WithholdCommit) ReceiveCanonicalChain(_ f3.ECChain, _ f3.PowerTable, _ []byte) error {
 	return nil
 }
 
-func (w *WitholdCommit) ReceiveECChain(_ f3.ECChain) error {
+func (w *WithholdCommit) ReceiveECChain(_ f3.ECChain) error {
 	return nil
 }
 
-func (w *WitholdCommit) ReceiveMessage(_ *f3.GMessage) error {
+func (w *WithholdCommit) ReceiveMessage(_ *f3.GMessage) error {
 	return nil
 }
 
-func (w *WitholdCommit) ReceiveAlarm(_ string) error {
+func (w *WithholdCommit) ReceiveAlarm(_ string) error {
 	return nil
 }
 
-func (w *WitholdCommit) Begin() {
+func (w *WithholdCommit) Begin() {
 	// All victims need to see QUALITY and PREPARE in order to send their COMMIT,
 	// but only the one victim will see our COMMIT.
 	w.host.BroadcastSynchronous(w.id, f3.GMessage{
@@ -99,6 +99,9 @@ func (w *WitholdCommit) Begin() {
 			Signature: nil,
 		},
 	}
+	// NOTE: this is a super-unrealistic adversary that can forge messages from other participants!
+	// This power is used to simplify the logic here so it doesn't have to execute the protocol
+	// properly to accumulate the evidence for its COMMIT message.
 	signatures := make([][]byte, 0)
 	for _, actorID := range w.victims {
 		signatures = append(signatures, w.host.Sign(actorID, payload))
@@ -111,7 +114,7 @@ func (w *WitholdCommit) Begin() {
 	w.host.BroadcastSynchronous(w.id, message)
 }
 
-func (w *WitholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Message) bool {
+func (w *WithholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Message) bool {
 	gmsg, ok := msg.(f3.GMessage)
 	if ok {
 		toMainVictim := to == w.victims[0]
