@@ -29,12 +29,9 @@ type Module struct {
 }
 
 // NewModule creates and setups new libp2p f3 module
-// context is used for initialization not runtime
-// TODO notification about new EC chains
-// TODO FCEX
-// TODO flesh out EC notifications
-// TODO flesh out signing backend notifications
-func NewModule(ctx context.Context, nn NetworkName, ds datastore.Datastore, h host.Host, ps *pubsub.PubSub, sigs Signer, verif Verifier, ec ECBackend) (*Module, error) {
+// The context is used for initialization not runtime.
+func NewModule(ctx context.Context, nn NetworkName, ds datastore.Datastore, h host.Host,
+	ps *pubsub.PubSub, sigs Signer, verif Verifier, ec ECBackend) (*Module, error) {
 	ds = namespace.Wrap(ds, nn.DatastorePrefix())
 	cs, err := NewCertStore(ctx, ds)
 	if err != nil {
@@ -82,6 +79,7 @@ func (m *Module) teardownPubsub() error {
 	)
 }
 
+// Run start the module. It will exit when context is cancelled.
 func (m *Module) Run(ctx context.Context) error {
 	sub, err := m.topic.Subscribe()
 	if err != nil {
@@ -117,15 +115,15 @@ type TODOVerifier struct{}
 
 // Verifies a signature for the given sender ID.
 func (v *TODOVerifier) Verify(pubKey PubKey, msg []byte, sig []byte) bool {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }
 
 // Aggregates signatures from a participant to an existing signature.
 func (v *TODOVerifier) Aggregate(sig [][]byte, aggSignature []byte) []byte {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }
 
 // VerifyAggregate verifies an aggregate signature.
 func (v *TODOVerifier) VerifyAggregate(payload []byte, aggSig []byte, signers []PubKey) bool {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }

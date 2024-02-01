@@ -15,7 +15,7 @@ require (
 )
 
 require (
-	github.com/Kubuxu/go-broadcast v0.0.0-20240129200822-3ff470a93467 // indirect
+	github.com/Kubuxu/go-broadcast v0.0.0-20240201155008-9e06742c9ae6 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
