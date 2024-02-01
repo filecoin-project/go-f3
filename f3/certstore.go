@@ -37,7 +37,7 @@ var ErrCertNotFound = errors.New("certificate not found")
 type CertStore struct {
 	dsLk     sync.Mutex
 	ds       datastore.Datastore
-	busCerts broadcast.Channel[Cert]
+	busCerts broadcast.Channel[*Cert]
 }
 
 // NewCertStore creates a certstore
@@ -51,7 +51,7 @@ func NewCertStore(ctx context.Context, ds datastore.Datastore) (*CertStore, erro
 		return nil, xerrors.Errorf("loading latest cert: %w", err)
 	}
 	if latestCert != nil {
-		cs.busCerts.Publish(*latestCert)
+		cs.busCerts.Publish(latestCert)
 	}
 
 	return cs, nil
@@ -139,7 +139,7 @@ func (_ *CertStore) keyForInstance(i uint64) datastore.Key {
 
 // Put saves a certificate in a store and notifies listeners.
 // It errors if the certificate is already in the store
-func (cs *CertStore) Put(ctx context.Context, cert Cert) error {
+func (cs *CertStore) Put(ctx context.Context, cert *Cert) error {
 	key := cs.keyForInstance(cert.Instance)
 
 	exists, err := cs.ds.Has(ctx, key)
@@ -166,7 +166,7 @@ func (cs *CertStore) Put(ctx context.Context, cert Cert) error {
 	return nil
 }
 
-func (cs *CertStore) putInner(ctx context.Context, cert Cert, certBytes []byte) error {
+func (cs *CertStore) putInner(ctx context.Context, cert *Cert, certBytes []byte) error {
 	key := cs.keyForInstance(cert.Instance)
 
 	cs.dsLk.Lock()
@@ -188,6 +188,6 @@ func (cs *CertStore) putInner(ctx context.Context, cert Cert, certBytes []byte) 
 // To stop subscribing, either the closer function can be used or the channel can be abandoned.
 // Passing a channel multiple times to the Subscribe function will result in a panic.
 // The channel will receive new certificates sequentially.
-func (cs *CertStore) SubscribeForNewCerts(ch chan<- Cert) (last *Cert, closer func()) {
+func (cs *CertStore) SubscribeForNewCerts(ch chan<- *Cert) (last *Cert, closer func()) {
 	return cs.busCerts.Subscribe(ch)
 }

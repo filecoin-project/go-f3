@@ -35,7 +35,7 @@ func TestPut(t *testing.T) {
 	cs, err := NewCertStore(ctx, ds)
 	require.NoError(t, err)
 
-	cert := Cert{Instance: 1}
+	cert := &Cert{Instance: 1}
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
@@ -59,7 +59,7 @@ func TestGet(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrCertNotFound)
 
-	cert := Cert{Instance: 1}
+	cert := &Cert{Instance: 1}
 	cs.Put(ctx, cert)
 
 	fetchedCert, err := cs.Get(ctx, 1)
@@ -78,7 +78,7 @@ func TestGetRange(t *testing.T) {
 	require.Error(t, err)
 
 	for i := uint64(1); i <= 5; i++ {
-		cert := Cert{Instance: i}
+		cert := &Cert{Instance: i}
 		err := cs.Put(ctx, cert)
 		require.NoError(t, err)
 	}
@@ -95,11 +95,11 @@ func TestSubscribeForNewCerts(t *testing.T) {
 	cs, err := NewCertStore(ctx, ds)
 	require.NoError(t, err)
 
-	ch := make(chan Cert, 1)
+	ch := make(chan *Cert, 1)
 	_, closer := cs.SubscribeForNewCerts(ch)
 	defer closer()
 
-	cert := Cert{Instance: 1}
+	cert := &Cert{Instance: 1}
 	cs.Put(ctx, cert)
 
 	select {
@@ -118,7 +118,7 @@ func TestLatestAfterPut(t *testing.T) {
 	cs, err := NewCertStore(ctx, ds)
 	require.NoError(t, err)
 
-	cert := Cert{Instance: 1}
+	cert := &Cert{Instance: 1}
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
@@ -126,7 +126,7 @@ func TestLatestAfterPut(t *testing.T) {
 	require.NotNil(t, latest)
 	require.Equal(t, uint64(1), latest.Instance)
 
-	cert = Cert{Instance: 2}
+	cert = &Cert{Instance: 2}
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
@@ -143,12 +143,12 @@ func TestPutSequential(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := uint64(1); i <= 5; i++ {
-		cert := Cert{Instance: i}
+		cert := &Cert{Instance: i}
 		err := cs.Put(ctx, cert)
 		require.NoError(t, err)
 	}
 
-	cert := Cert{Instance: 7}
+	cert := &Cert{Instance: 7}
 	err = cs.Put(ctx, cert)
 	require.Error(t, err)
 }
@@ -161,7 +161,7 @@ func TestPersistency(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := uint64(1); i <= 5; i++ {
-		cert := Cert{Instance: i}
+		cert := &Cert{Instance: i}
 		err := cs1.Put(ctx, cert)
 		require.NoError(t, err)
 	}
