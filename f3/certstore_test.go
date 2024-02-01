@@ -152,3 +152,28 @@ func TestPutSequential(t *testing.T) {
 	err = cs.Put(ctx, cert)
 	require.Error(t, err)
 }
+
+func TestPersistency(t *testing.T) {
+	ctx := context.Background()
+	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
+
+	cs1, err := NewCertStore(ctx, ds)
+	require.NoError(t, err)
+
+	for i := uint64(1); i <= 5; i++ {
+		cert := Cert{Instance: i}
+		err := cs1.Put(ctx, cert)
+		require.NoError(t, err)
+	}
+
+	cs2, err := NewCertStore(ctx, ds)
+	require.NoError(t, err)
+
+	for i := uint64(1); i <= 5; i++ {
+		cert, err := cs2.Get(ctx, i)
+		require.NoError(t, err)
+		require.Equal(t, i, cert.Instance)
+	}
+
+	require.Equal(t, cs1.Latest().Instance, cs2.Latest().Instance)
+}

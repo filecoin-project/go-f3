@@ -24,6 +24,7 @@ type Module struct {
 	verif  Verifier
 	sigs   Signer
 	ec     ECBackend
+	log    Logger
 
 	topic *pubsub.Topic
 }
@@ -31,7 +32,7 @@ type Module struct {
 // NewModule creates and setups new libp2p f3 module
 // The context is used for initialization not runtime.
 func NewModule(ctx context.Context, nn NetworkName, ds datastore.Datastore, h host.Host,
-	ps *pubsub.PubSub, sigs Signer, verif Verifier, ec ECBackend) (*Module, error) {
+	ps *pubsub.PubSub, sigs Signer, verif Verifier, ec ECBackend, log Logger) (*Module, error) {
 	ds = namespace.Wrap(ds, nn.DatastorePrefix())
 	cs, err := NewCertStore(ctx, ds)
 	if err != nil {
@@ -48,6 +49,7 @@ func NewModule(ctx context.Context, nn NetworkName, ds datastore.Datastore, h ho
 		verif:  verif,
 		sigs:   sigs,
 		ec:     ec,
+		log:    log,
 	}
 
 	if err := m.setupPubsub(); err != nil {
@@ -89,7 +91,7 @@ func (m *Module) Run(ctx context.Context) error {
 	for {
 		msg, err := sub.Next(ctx)
 		if err != nil {
-			//TODO log error
+			m.log.Errorf("pubsub subscription.Next() returned an error: %+v", err)
 			break
 		}
 		_ = msg
@@ -126,4 +128,19 @@ func (v *TODOVerifier) Aggregate(sig [][]byte, aggSignature []byte) []byte {
 // VerifyAggregate verifies an aggregate signature.
 func (v *TODOVerifier) VerifyAggregate(payload []byte, aggSig []byte, signers []PubKey) bool {
 	panic("not implemented")
+}
+
+type Logger interface {
+	Debug(args ...interface{})
+	Debugf(format string, args ...interface{})
+	Error(args ...interface{})
+	Errorf(format string, args ...interface{})
+	Fatal(args ...interface{})
+	Fatalf(format string, args ...interface{})
+	Info(args ...interface{})
+	Infof(format string, args ...interface{})
+	Panic(args ...interface{})
+	Panicf(format string, args ...interface{})
+	Warn(args ...interface{})
+	Warnf(format string, args ...interface{})
 }
