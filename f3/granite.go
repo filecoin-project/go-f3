@@ -991,25 +991,26 @@ func (q *quorumState) ListStrongQuorumAgreedPrefix(preferred ECChain) (ECChain, 
 	}
 
 	// Find all the prefixes that meet the strong quorum requirement
-	prefixesWithStrongQuorum := make([]ECChain, 0)
+	// they should all be a prefix of each other, so keep track of the longest of them
+	// and panic if they are not prefixes of each other
+	longestPrefixWithStrongQuorum := ECChain{}
 	for prefixHeadCID, support := range prefixSupport {
 		if hasStrongQuorum(support, q.powerTable.Total) {
-			prefixesWithStrongQuorum = append(prefixesWithStrongQuorum, head2Chain[prefixHeadCID])
+			if head2Chain[prefixHeadCID].HasPrefix(longestPrefixWithStrongQuorum) {
+				longestPrefixWithStrongQuorum = head2Chain[prefixHeadCID]
+			} else if !longestPrefixWithStrongQuorum.HasPrefix(head2Chain[prefixHeadCID]) {
+				panic(fmt.Sprintf("chains %s and %s are not prefixes of each other", longestPrefixWithStrongQuorum, head2Chain[prefixHeadCID]))
+			}
 		}
 	}
 
 	// if no prefix has a strong quorum, return the preferred value
-	if len(prefixesWithStrongQuorum) == 0 {
+	if longestPrefixWithStrongQuorum.IsZero() {
 		return preferred.BaseChain(), nil
 	}
 
-	// Make sure only prefixes of each other reached a strong quorum (otherwise equivocation by >33% QAP)
-	if sortedPrefixesByLen, err := sortPrefixesByLen(prefixesWithStrongQuorum); err != nil {
-		return nil, err
-	} else {
-		// return longest prefix with strong quorum that is a prefix of preferred
-		return findFirstPrefixOf(sortedPrefixesByLen[0], preferred), nil
-	}
+	// return longest prefix with strong quorum that is a prefix of preferred
+	return findFirstPrefixOf(longestPrefixWithStrongQuorum, preferred), nil
 }
 
 // filterImpossiblePrefixes returns the input chains but pruned to the max length that could
@@ -1106,26 +1107,6 @@ func sortChainsByLen(chains []ECChain) []ECChain {
 		return len(chains[i]) > len(chains[j])
 	})
 	return chains
-}
-
-// sortPrefixesByLen is like sortChainsByLen but checks for uniqueness and that all chains are prefixes of each other.
-// It returns an error if either of the conditions is not satisfied
-func sortPrefixesByLen(chains []ECChain) ([]ECChain, error) {
-	chains = sortChainsByLen(chains)
-
-	for i := 0; i < len(chains)-1; i++ {
-		currentChain := chains[i]
-		nextChain := chains[i+1]
-
-		if !currentChain.HasPrefix(nextChain) {
-			return chains, fmt.Errorf("chains %s and %s are not prefixes of each other", currentChain, nextChain)
-		}
-		if len(currentChain) == len(nextChain) {
-			return chains, fmt.Errorf("chains %s and %s have the same length", currentChain, nextChain)
-		}
-	}
-
-	return chains, nil
 }
 
 // Returns the first prefix of the candidate value that is a prefix of the preferred value, or the base of preferred.
