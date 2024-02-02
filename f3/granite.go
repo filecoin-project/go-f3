@@ -222,10 +222,10 @@ func (i *instance) receiveAcceptable(chain ECChain) {
 
 func (i *instance) Receive(msg *GMessage) error {
 	if i.terminated() {
-		return fmt.Errorf("received message after decision")
+		return fmt.Errorf("senders message after decision")
 	}
 	if len(i.inbox) > 0 {
-		return fmt.Errorf("received message while already processing inbox")
+		return fmt.Errorf("senders message while already processing inbox")
 	}
 
 	// Enqueue the message for synchronous processing.
@@ -804,15 +804,15 @@ func (i *instance) log(format string, args ...interface{}) {
 // which values have reached a strong quorum of support.
 // Supports receiving multiple values from each sender, and hence multiple strong quorum values.
 type quorumState struct {
-	//// CID of each chain received, by sender. Allows detecting and ignoring duplicates.
-	received map[ActorID]struct{}
+	// CID of each chain, used to track the first time a message from a sender is received.
+	senders map[ActorID]struct{}
 	// The power supporting each chain so far.
 	chainSupport map[TipSetID]chainSupport
-	// Total power of all distinct senders from which some chain has been received so far.
+	// Total power of all distinct senders from which some chain has been senders so far.
 	sendersTotalPower *StoragePower
 	// Table of senders' power.
 	powerTable PowerTable
-	// justifiedMessages stores the received evidences for each message, indexed by the message's head CID.
+	// justifiedMessages stores the senders evidences for each message, indexed by the message's head CID.
 	justifiedMessages map[TipSetID]Justification
 }
 
@@ -828,7 +828,7 @@ type chainSupport struct {
 // Creates a new, empty quorum state.
 func newQuorumState(powerTable PowerTable) *quorumState {
 	return &quorumState{
-		received:          map[ActorID]struct{}{},
+		senders:           map[ActorID]struct{}{},
 		chainSupport:      map[TipSetID]chainSupport{},
 		sendersTotalPower: NewStoragePower(0),
 		powerTable:        powerTable,
@@ -840,9 +840,9 @@ func newQuorumState(powerTable PowerTable) *quorumState {
 func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, justification Justification) {
 	senderPower, _ := q.powerTable.Get(sender)
 
-	// Add sender's power to total the first time a value is received from them.
-	if _, ok := q.received[sender]; !ok {
-		q.received[sender] = struct{}{}
+	// Add sender's power to total the first time a value is senders from them.
+	if _, ok := q.senders[sender]; !ok {
+		q.senders[sender] = struct{}{}
 		q.sendersTotalPower.Add(q.sendersTotalPower, senderPower)
 	}
 
@@ -868,7 +868,7 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, j
 	copy(sigCopy, signature)
 	candidate.signers[sender] = sigCopy
 
-	// Add sender's power to total the first time a value is received from them.
+	// Add sender's power to the chain's total power.
 	candidate.power.Add(candidate.power, senderPower)
 
 	candidate.hasStrongQuorum = hasStrongQuorum(candidate.power, q.powerTable.Total)
@@ -880,7 +880,7 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, j
 	q.chainSupport[head] = candidate
 }
 
-// Checks whether a value has been received before.
+// Checks whether a value has been senders before.
 func (q *quorumState) HasReceived(value ECChain) bool {
 	_, ok := q.chainSupport[value.HeadCIDOrZero()]
 	return ok
@@ -906,7 +906,7 @@ func (q *quorumState) getSignersAndSignatures(value ECChain) (bitfield.BitField,
 	return signers, signatures
 }
 
-// Lists all values that have been received from any sender.
+// Lists all values that have been senders from any sender.
 // The order of returned values is not defined.
 func (q *quorumState) ListAllValues() []ECChain {
 	var chains []ECChain
@@ -916,12 +916,12 @@ func (q *quorumState) ListAllValues() []ECChain {
 	return chains
 }
 
-// Checks whether at most one distinct value has been received.
+// Checks whether at most one distinct value has been senders.
 func (q *quorumState) HasAgreement() bool {
 	return len(q.chainSupport) <= 1
 }
 
-// Checks whether at least one message has been received from a strong quorum of senders.
+// Checks whether at least one message has been senders from a strong quorum of senders.
 func (q *quorumState) ReceivedFromStrongQuorum() bool {
 	return hasStrongQuorum(q.sendersTotalPower, q.powerTable.Total)
 }
