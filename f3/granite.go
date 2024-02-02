@@ -493,12 +493,10 @@ func (i *instance) tryQuality() error {
 	if foundQuorum {
 		// Keep current proposal.
 	} else if timeoutExpired {
-		strongQuora := i.quality.ListStrongQuorumAgreedValues()
-		strongQuora, err := sortPrefixesByLen(strongQuora)
-		if err != nil {
-			panic(fmt.Sprintf("failed to sort QUALITY prefixes: %w", err))
+		var err error
+		if i.proposal, err = i.quality.ListStrongQuorumAgreedPrefix(i.proposal); err != nil {
+			panic(fmt.Sprintf("failed to select QUALITY prefix: %v", err))
 		}
-		i.proposal = findFirstPrefixOf(strongQuora, i.proposal)
 	}
 
 	if foundQuorum || timeoutExpired {
@@ -957,6 +955,107 @@ func (q *quorumState) ListStrongQuorumAgreedValue() ECChain {
 	return withQuorum
 }
 
+//// QUALITY phase helpers ////
+
+// ListStrongQuorumAgreedPrefix returns the longest prefix that is a prefix or preferred,
+// and that is a prefix of the values of some strong quorum,
+// or the base chain of the preferred value if one or both of these two conditions are not satisfied.
+func (q *quorumState) ListStrongQuorumAgreedPrefix(preferred ECChain) (ECChain, error) {
+	// Optimization: Quickly truncate the list of chains to only consider up to the max length that could reach a strong quorum
+	filteredChains := q.filterImpossiblePrefixes(q.ListAllValues())
+	// if no len has a cumulative strong quorum, return the base
+	if filteredChains == nil {
+		return preferred.BaseChain(), nil
+	}
+
+	// Map to track support for each prefix
+	prefixSupport := make(map[TipSetID]*StoragePower)
+	// Map to track the chain for each head
+	head2Chain := make(map[TipSetID]ECChain)
+
+	// Populate the map with support for each possible prefix
+	for _, chain := range filteredChains {
+		for prefixLength := 1; prefixLength <= len(chain); prefixLength++ {
+			prefix := chain[:prefixLength]
+			prefixHeadCID := prefix.Head().CID
+			head2Chain[prefixHeadCID] = prefix
+
+			if _, ok := prefixSupport[prefixHeadCID]; !ok {
+				prefixSupport[prefixHeadCID] = NewStoragePower(0)
+			}
+
+			if cs, ok := q.chainSupport[prefixHeadCID]; ok {
+				prefixSupport[prefixHeadCID].Add(prefixSupport[prefixHeadCID], cs.power)
+			}
+		}
+	}
+
+	// Find all the prefixes that meet the strong quorum requirement
+	prefixesWithStrongQuorum := make([]ECChain, 0)
+	for prefixHeadCID, support := range prefixSupport {
+		if hasStrongQuorum(support, q.powerTable.Total) {
+			prefixesWithStrongQuorum = append(prefixesWithStrongQuorum, head2Chain[prefixHeadCID])
+		}
+	}
+
+	// if no prefix has a strong quorum, return the preferred value
+	if len(prefixesWithStrongQuorum) == 0 {
+		return preferred.BaseChain(), nil
+	}
+
+	// Make sure only prefixes of each other reached a strong quorum (otherwise equivocation by >33% QAP)
+	if sortedPrefixesByLen, err := sortPrefixesByLen(prefixesWithStrongQuorum); err != nil {
+		return nil, err
+	} else {
+		// return longest prefix with strong quorum that is a prefix of preferred
+		return findFirstPrefixOf(sortedPrefixesByLen[0], preferred), nil
+	}
+}
+
+// filterImpossiblePrefixes returns the input chains but pruned to the max length that could
+// reach a strong quorum, by simply calculating the cumulative power per length of the chain
+// (irrespective of whether same or distinct chains).
+// This prevents computational waste on chains of ridiculously big lengths
+func (q *quorumState) filterImpossiblePrefixes(chains []ECChain) []ECChain {
+	sortedChains := sortChainsByLen(chains)
+	powerByLen := map[int]*StoragePower{}
+	sortedKeys := make([]int, 0)
+	for i := 0; i < len(sortedChains); i++ {
+		sortedKeys = append(sortedKeys, len(sortedChains[i]))
+		if _, ok := powerByLen[len(sortedChains[i])]; !ok {
+			powerByLen[len(sortedChains[i])] = NewStoragePower(0)
+		}
+
+		powerByLen[len(sortedChains[i])].Add(powerByLen[len(sortedChains[i])], q.chainSupport[sortedChains[i].Head().CID].power)
+	}
+
+	var maxLen int
+	power := NewStoragePower(0)
+	for _, chainLen := range sortedKeys {
+		power.Add(powerByLen[chainLen], power)
+		if hasStrongQuorum(power, q.powerTable.Total) {
+			maxLen = chainLen
+			break
+		}
+	}
+	// if no chain has a strong quorum, return nil
+	if maxLen == 0 {
+		return nil
+	}
+
+	// Filter chains to only consider up to maxLen in length
+	filteredChains := make([]ECChain, 0)
+	for _, chain := range sortedChains {
+		if len(chain) <= maxLen {
+			filteredChains = append(filteredChains, chain)
+		} else {
+			filteredChains = append(filteredChains, chain[:maxLen])
+		}
+	}
+
+	return filteredChains
+}
+
 //// CONVERGE phase helper /////
 
 type convergeState struct {
@@ -1001,40 +1100,44 @@ func (c *convergeState) findMinTicketProposal() ECChain {
 
 ///// General helpers /////
 
-// sortPrefixesByLen returns the chains sorted by length,
-// It returns an error if more than one chain has the same number
-// of tipsets, or if any pair of chains are not prefixes of each other.
-// This function modifies the input slice
-func sortPrefixesByLen(chains []ECChain) ([]ECChain, error) {
-	// Sort chains by length in descending order
+// sortChainsByLen returns the chains sorted by length
+func sortChainsByLen(chains []ECChain) []ECChain {
 	sort.Slice(chains, func(i, j int) bool {
 		return len(chains[i]) > len(chains[j])
 	})
+	return chains
+}
+
+// sortPrefixesByLen is like sortChainsByLen but checks for uniqueness and that all chains are prefixes of each other.
+// It returns an error if either of the conditions is not satisfied
+func sortPrefixesByLen(chains []ECChain) ([]ECChain, error) {
+	chains = sortChainsByLen(chains)
 
 	for i := 0; i < len(chains)-1; i++ {
 		currentChain := chains[i]
 		nextChain := chains[i+1]
 
 		if !currentChain.HasPrefix(nextChain) {
-			return nil, fmt.Errorf("chains %s and %s are not prefixes of each other", currentChain, nextChain)
+			return chains, fmt.Errorf("chains %s and %s are not prefixes of each other", currentChain, nextChain)
 		}
 		if len(currentChain) == len(nextChain) {
-			return nil, fmt.Errorf("chains %s and %s have the same length", currentChain, nextChain)
+			return chains, fmt.Errorf("chains %s and %s have the same length", currentChain, nextChain)
 		}
 	}
 
 	return chains, nil
 }
 
-// Returns the first candidate value that is a prefix of the preferred value, or the base of preferred.
-func findFirstPrefixOf(candidates []ECChain, preferred ECChain) ECChain {
-	for _, v := range candidates {
-		if preferred.HasPrefix(v) {
-			return v
+// Returns the first prefix of the candidate value that is a prefix of the preferred value, or the base of preferred.
+func findFirstPrefixOf(candidate ECChain, preferred ECChain) ECChain {
+
+	for i := len(candidate); i > 0; i-- {
+		if preferred.HasPrefix(candidate[:i]) {
+			return candidate[:i]
 		}
 	}
 
-	// No candidates are a prefix of preferred.
+	// No prefix of the candidate is a prefix of preferred.
 	return preferred.BaseChain()
 }
 
