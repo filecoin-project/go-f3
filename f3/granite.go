@@ -150,7 +150,7 @@ type instance struct {
 	// Queue of messages to be synchronously processed before returning from top-level call.
 	inbox []*GMessage
 	// Quality phase state (only for round 0)
-	quality *qualityQuorumState
+	quality *quorumState
 	// State for each round of phases.
 	// State from prior rounds must be maintained to provide justification for values in subsequent rounds.
 	rounds map[uint64]*roundState
@@ -185,7 +185,7 @@ func newInstance(
 		phase:         INITIAL_PHASE,
 		proposal:      input,
 		value:         ECChain{},
-		quality:       newQualityQuorumState(powerTable),
+		quality:       newQuorumState(powerTable),
 		rounds: map[uint64]*roundState{
 			0: newRoundState(powerTable),
 		},
@@ -288,7 +288,7 @@ func (i *instance) receiveOne(msg *GMessage) error {
 		// Receive each prefix of the proposal independently.
 		for j := range msg.Current.Value.Suffix() {
 			prefix := msg.Current.Value.Prefix(j + 1)
-			i.quality.Receive(msg.Sender, prefix, msg.Signature, msg.Justification, msg.Ticket)
+			i.quality.Receive(msg.Sender, prefix, msg.Signature, msg.Justification)
 		}
 	case CONVERGE_PHASE:
 		if err := round.converged.Receive(msg.Current.Value, msg.Ticket); err != nil {
@@ -494,6 +494,10 @@ func (i *instance) tryQuality() error {
 		// Keep current proposal.
 	} else if timeoutExpired {
 		strongQuora := i.quality.ListStrongQuorumAgreedValues()
+		strongQuora, err := sortPrefixesByLen(strongQuora)
+		if err != nil {
+			panic(fmt.Sprintf("failed to sort QUALITY prefixes: %w", err))
+		}
 		i.proposal = findFirstPrefixOf(strongQuora, i.proposal)
 	}
 
@@ -652,13 +656,13 @@ func (i *instance) tryCommit(round uint64) error {
 	// and the algorithm moves on to the next round.
 	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
 	committed := i.roundState(round).committed
-	foundQuorum := committed.ListStrongQuorumAgreedValues()
+	foundQuorum := committed.ListStrongQuorumAgreedValue()
 	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
-	if len(foundQuorum) > 0 && !foundQuorum[0].IsZero() {
+	if foundQuorum != nil && !foundQuorum.IsZero() {
 		// A participant may be forced to decide a value that's not its preferred chain.
 		// The participant isn't influencing that decision against their interest, just accepting it.
-		i.value = foundQuorum[0]
+		i.value = foundQuorum
 		i.beginDecide(round)
 	} else if i.round == round && i.phase == COMMIT_PHASE && timeoutExpired && committed.ReceivedFromStrongQuorum() {
 		// Adopt any non-empty value committed by another participant (there can only be one).
@@ -711,9 +715,9 @@ func (i *instance) beginDecide(round uint64) {
 }
 
 func (i *instance) tryDecide() error {
-	foundQuorum := i.decision.ListStrongQuorumAgreedValues()
-	if len(foundQuorum) > 0 {
-		i.terminate(foundQuorum[0], i.round)
+	foundQuorum := i.decision.ListStrongQuorumAgreedValue()
+	if foundQuorum != nil {
+		i.terminate(foundQuorum, i.round)
 	}
 
 	return nil
@@ -938,72 +942,19 @@ func (q *quorumState) HasWeakQuorumAgreement(cid TipSetID) bool {
 	return ok && cp.hasWeakQuorum
 }
 
-// Returns a list of the chains which have reached an agreeing strong quorum.
-// The order of returned values is not defined.
-func (q *quorumState) ListStrongQuorumAgreedValues() []ECChain {
-	var withQuorum []ECChain
+// Returns the value that has reached a strong quorum.
+// If more than one value fits this description, the function panics.
+func (q *quorumState) ListStrongQuorumAgreedValue() ECChain {
+	var withQuorum ECChain
 	for cid, cp := range q.chainSupport {
 		if cp.hasStrongQuorum {
-			withQuorum = append(withQuorum, q.chainSupport[cid].chain)
+			if withQuorum != nil {
+				panic(fmt.Sprintf("Found more than one value with a strong quorum: %v", withQuorum))
+			}
+			withQuorum = q.chainSupport[cid].chain
 		}
 	}
 	return withQuorum
-}
-
-//// QUALITY phase helper /////
-
-type qualityQuorumState struct {
-	quorumState
-	// Map to store the smallest ticket for each chain value.
-	smallestTickets map[TipSetID]Ticket
-}
-
-func newQualityQuorumState(powerTable PowerTable) *qualityQuorumState {
-	return &qualityQuorumState{
-		quorumState:     *newQuorumState(powerTable),
-		smallestTickets: make(map[TipSetID]Ticket),
-	}
-}
-
-// Receive overrides the Receive method of quorumState to handle the smallest ticket per value logic.
-func (q *qualityQuorumState) Receive(sender ActorID, value ECChain, signature []byte, justification Justification, ticket Ticket) {
-	head := value.HeadCIDOrZero()
-
-	q.quorumState.Receive(sender, value, signature, justification)
-
-	// Update the smallest ticket
-	currentTicket, exists := q.smallestTickets[head]
-	if !exists || (ticket != nil && currentTicket.Compare(ticket) > 0) {
-		q.smallestTickets[head] = ticket
-	}
-}
-
-// ListStrongQuorumAgreedValues lists all values sorted by the ascending
-// order of the smallest VRF ticket associated to the value
-func (q *qualityQuorumState) ListStrongQuorumAgreedValues() []ECChain {
-	var withQuorum []ECChain
-	for cid, cp := range q.chainSupport {
-		if cp.hasStrongQuorum {
-			withQuorum = append(withQuorum, q.chainSupport[cid].chain)
-		}
-	}
-	sortByTicket(withQuorum, q.smallestTickets)
-	return withQuorum
-}
-
-// sortByTicket Sorts chains by ascending order of VRF ticket associated to the value
-func sortByTicket(chains []ECChain, tickets map[TipSetID]Ticket) {
-	sort.Slice(chains, func(i, j int) bool {
-		ti, oki := tickets[chains[i].HeadCIDOrZero()]
-		tj, okj := tickets[chains[j].HeadCIDOrZero()]
-		// both oki and okj should be true but that should be handled by the calling function
-		if !oki {
-			return false
-		} else if !okj {
-			return true
-		}
-		return ti.Compare(tj) < 0
-	})
 }
 
 //// CONVERGE phase helper /////
@@ -1049,6 +1000,31 @@ func (c *convergeState) findMinTicketProposal() ECChain {
 }
 
 ///// General helpers /////
+
+// sortPrefixesByLen returns the chains sorted by length,
+// It returns an error if more than one chain has the same number
+// of tipsets, or if any pair of chains are not prefixes of each other.
+// This function modifies the input slice
+func sortPrefixesByLen(chains []ECChain) ([]ECChain, error) {
+	// Sort chains by length in descending order
+	sort.Slice(chains, func(i, j int) bool {
+		return len(chains[i]) > len(chains[j])
+	})
+
+	for i := 0; i < len(chains)-1; i++ {
+		currentChain := chains[i]
+		nextChain := chains[i+1]
+
+		if !currentChain.HasPrefix(nextChain) {
+			return nil, fmt.Errorf("chains %s and %s are not prefixes of each other", currentChain, nextChain)
+		}
+		if len(currentChain) == len(nextChain) {
+			return nil, fmt.Errorf("chains %s and %s have the same length", currentChain, nextChain)
+		}
+	}
+
+	return chains, nil
+}
 
 // Returns the first candidate value that is a prefix of the preferred value, or the base of preferred.
 func findFirstPrefixOf(candidates []ECChain, preferred ECChain) ECChain {
