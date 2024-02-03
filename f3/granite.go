@@ -7,6 +7,8 @@ import (
 	"sort"
 
 	"github.com/filecoin-project/go-bitfield"
+
+	xerrors "golang.org/x/xerrors"
 )
 
 type GraniteConfig struct {
@@ -66,22 +68,27 @@ type GMessage struct {
 	// ID of the sender/signer of this message (a miner actor ID).
 	Sender ActorID
 
-	Current SignedMessage
-	// VRF ticket for CONVERGE messages (otherwise empty byte array).
-	Ticket Ticket
+	// Current is the payload that is signed by the signature
+	Current Payload
 	// Signature by the sender's public key over Instance || Round || Step || Value.
 	Signature []byte
+	// VRF ticket for CONVERGE messages (otherwise empty byte array).
+	Ticket Ticket
 	// Justification for this message (some messages must be justified by a strong quorum of messages from some previous step).
 	Justification Justification
 }
 
 type Justification struct {
-	Payload         SignedMessage
-	QuorumSignature QuorumSignature
+	// Payload is the payload that is signed by the signature
+	Payload Payload
+	// Indexes in the base power table of the signers (bitset)
+	Signers bitfield.BitField
+	// BLS aggregate signature of signers
+	Signature []byte
 }
 
 // Fields of the message that make up the signature payload.
-type SignedMessage struct {
+type Payload struct {
 	// GossiPBFT instance (epoch) number.
 	Instance uint64
 	// GossiPBFT round number.
@@ -93,12 +100,19 @@ type SignedMessage struct {
 	Value ECChain
 }
 
-// Aggregated list of GossiPBFT messages with the same instance, round and value. Used as evidence for justification of messages
-type QuorumSignature struct {
-	// Indexes in the base power table of the signers (bitset)
-	Signers bitfield.BitField
-	// BLS aggregate signature of signers
-	Signature []byte
+func (p Payload) MarshalForSigning(nn NetworkName) ([]byte, error) {
+	var buf bytes.Buffer
+	buf.WriteString(DOMAIN_SEPARATION_TAG)
+	buf.WriteString(nn.SignatureSeparationTag())
+	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
+	_ = binary.Write(&buf, binary.BigEndian, p.Round)
+	_ = binary.Write(&buf, binary.BigEndian, []byte(p.Step.String()))
+	for _, t := range p.Value {
+		_ = binary.Write(&buf, binary.BigEndian, t.Epoch)
+		buf.Write(t.CID.Bytes())
+		_ = binary.Write(&buf, binary.BigEndian, t.Weight)
+	}
+	return buf.Bytes(), nil
 }
 
 func (m GMessage) String() string {
@@ -107,19 +121,9 @@ func (m GMessage) String() string {
 }
 
 // Computes the payload for a GMessage signature.
-func SignaturePayload(instance uint64, round uint64, step Phase, value ECChain) []byte {
-	var buf bytes.Buffer
-	buf.WriteString(DOMAIN_SEPARATION_TAG)
-	_ = binary.Write(&buf, binary.BigEndian, instance)
-	_ = binary.Write(&buf, binary.BigEndian, round)
-	_ = binary.Write(&buf, binary.BigEndian, []byte(step.String()))
-	for _, t := range value {
-		_ = binary.Write(&buf, binary.BigEndian, t.Epoch)
-		buf.Write(t.CID.Bytes())
-		_ = binary.Write(&buf, binary.BigEndian, t.Weight)
-	}
-	return buf.Bytes()
-}
+//func SignaturePayload(instance uint64, round uint64, step Phase, value ECChain) []byte {
+//return nil
+//}
 
 // A single Granite consensus instance.
 type instance struct {
@@ -362,7 +366,11 @@ func (i *instance) isValid(msg *GMessage) bool {
 		return !msg.Current.Value.IsZero()
 	}
 
-	sigPayload := SignaturePayload(msg.Current.Instance, msg.Current.Round, msg.Current.Step, msg.Current.Value)
+	sigPayload, err := msg.Current.MarshalForSigning(TODONetworkName)
+	if err != nil {
+		i.log("could not encode payload %v", err)
+		return false
+	}
 	if !i.host.Verify(pubKey, sigPayload, msg.Signature) {
 		i.log("invalid signature on %v", msg)
 		return false
@@ -374,7 +382,7 @@ func (i *instance) isValid(msg *GMessage) bool {
 func (i *instance) VerifyJustification(justification Justification) error {
 	power := NewStoragePower(0)
 	signers := make([]PubKey, 0)
-	if err := justification.QuorumSignature.Signers.ForEach(func(bit uint64) error {
+	if err := justification.Signers.ForEach(func(bit uint64) error {
 		if int(bit) >= len(i.powerTable.Entries) {
 			return fmt.Errorf("invalid signer index: %d", bit)
 		}
@@ -385,8 +393,12 @@ func (i *instance) VerifyJustification(justification Justification) error {
 		return fmt.Errorf("failed to iterate over signers: %w", err)
 	}
 
-	payload := SignaturePayload(justification.Payload.Instance, justification.Payload.Round, justification.Payload.Step, justification.Payload.Value)
-	if !i.host.VerifyAggregate(payload, justification.QuorumSignature.Signature, signers) {
+	payload, err := justification.Payload.MarshalForSigning(TODONetworkName)
+	if err != nil {
+		return xerrors.Errorf("failed to marshal payload: %w", err)
+	}
+
+	if !i.host.VerifyAggregate(payload, justification.Signature, signers) {
 		return fmt.Errorf("verification of the aggregate failed: %v", justification)
 	}
 
@@ -477,8 +489,8 @@ func (i *instance) beginQuality() error {
 	// Broadcast input value and wait up to Δ to receive from others.
 	i.phase = QUALITY_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony(QUALITY_PHASE.String())
-	i.broadcast(i.round, QUALITY_PHASE, i.input, nil, Justification{})
-	return nil
+	_, err := i.broadcast(i.round, QUALITY_PHASE, i.input, nil, Justification{})
+	return err
 }
 
 // Attempts to end the QUALITY phase and begin PREPARE based on current state.
@@ -501,13 +513,15 @@ func (i *instance) tryQuality() error {
 	if foundQuorum || timeoutExpired {
 		i.value = i.proposal
 		i.log("adopting proposal/value %s", &i.proposal)
-		i.beginPrepare()
+		if err := i.beginPrepare(); err != nil {
+			return xerrors.Errorf("begin prepare: %w", err)
+		}
 	}
 
 	return nil
 }
 
-func (i *instance) beginConverge() {
+func (i *instance) beginConverge() error {
 	i.phase = CONVERGE_PHASE
 	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE_PHASE.String())
@@ -517,36 +531,30 @@ func (i *instance) beginConverge() {
 	if signers, signatures, ok := prevRoundState.committed.FindStrongQuorumAgreement(ZeroTipSetID()); ok {
 		value := ECChain{}
 		aggSignature := i.host.Aggregate(signatures, nil)
-		justificationPayload := SignedMessage{
+		justificationPayload := Payload{
 			Instance: i.instanceID,
 			Round:    i.round - 1,
 			Step:     COMMIT_PHASE,
 			Value:    value,
 		}
-		justificationSignature := QuorumSignature{
+		justification = Justification{
+			Payload:   justificationPayload,
 			Signers:   signers,
 			Signature: aggSignature,
-		}
-		justification = Justification{
-			Payload:         justificationPayload,
-			QuorumSignature: justificationSignature,
 		}
 	} else if signers, signatures, ok = prevRoundState.prepared.FindStrongQuorumAgreement(i.proposal.Head().CID); ok {
 		value := i.proposal
 		aggSignature := i.host.Aggregate(signatures, nil)
-		justificationPayload := SignedMessage{
+		justificationPayload := Payload{
 			Instance: i.instanceID,
 			Round:    i.round - 1,
 			Step:     PREPARE_PHASE,
 			Value:    value,
 		}
-		justificationSignature := QuorumSignature{
+		justification = Justification{
+			Payload:   justificationPayload,
 			Signers:   signers,
 			Signature: aggSignature,
-		}
-		justification = Justification{
-			Payload:         justificationPayload,
-			QuorumSignature: justificationSignature,
 		}
 	} else if justification, ok = prevRoundState.committed.justifiedMessages[i.proposal.Head().CID]; ok {
 		//justificationPayload already assigned in the if statement
@@ -554,7 +562,8 @@ func (i *instance) beginConverge() {
 		panic("beginConverge called but no evidence found")
 	}
 
-	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, ticket, justification)
+	_, err := i.broadcast(i.round, CONVERGE_PHASE, i.proposal, ticket, justification)
+	return err
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
@@ -581,17 +590,20 @@ func (i *instance) tryConverge() error {
 		// Vote for not deciding in this round
 		i.value = ECChain{}
 	}
-	i.beginPrepare()
+	if err := i.beginPrepare(); err != nil {
+		return xerrors.Errorf("begin prepare: %w", err)
+	}
 
 	return nil
 }
 
 // Sends this node's PREPARE message and begins the PREPARE phase.
-func (i *instance) beginPrepare() {
+func (i *instance) beginPrepare() error {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE_PHASE.String())
-	i.broadcast(i.round, PREPARE_PHASE, i.value, nil, Justification{})
+	_, err := i.broadcast(i.round, PREPARE_PHASE, i.value, nil, Justification{})
+	return err
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -627,16 +639,14 @@ func (i *instance) beginCommit() {
 		// Strong quorum found, aggregate the evidence for it.
 		aggSignature := i.host.Aggregate(signatures, nil)
 		justification = Justification{
-			Payload: SignedMessage{
+			Payload: Payload{
 				Instance: i.instanceID,
 				Round:    i.round,
 				Step:     PREPARE_PHASE,
 				Value:    i.value,
 			},
-			QuorumSignature: QuorumSignature{
-				Signers:   signers,
-				Signature: aggSignature,
-			},
+			Signers:   signers,
+			Signature: aggSignature,
 		}
 	} else {
 		// No strong quorum of PREPARE found, which is ok iff the value to commit is zero.
@@ -661,7 +671,8 @@ func (i *instance) tryCommit(round uint64) error {
 		// The participant isn't influencing that decision against their interest, just accepting it.
 		i.value = foundQuorum[0]
 		i.beginDecide(round)
-	} else if i.round == round && i.phase == COMMIT_PHASE && timeoutExpired && committed.ReceivedFromStrongQuorum() {
+	} else if i.round == round && i.phase == COMMIT_PHASE &&
+		timeoutExpired && committed.ReceivedFromStrongQuorum() {
 		// Adopt any non-empty value committed by another participant (there can only be one).
 		// This node has observed the strong quorum of PREPARE messages that justify it,
 		// and mean that some other nodes may decide that value (if they observe more COMMITs).
@@ -691,17 +702,16 @@ func (i *instance) beginDecide(round uint64) {
 	// Value cannot be empty here.
 	if signers, signatures, ok := roundState.committed.FindStrongQuorumAgreement(i.value.Head().CID); ok {
 		aggSignature := i.host.Aggregate(signatures, nil)
+		justificationPayload := Payload{
+			Instance: i.instanceID,
+			Round:    round,
+			Step:     COMMIT_PHASE,
+			Value:    i.value,
+		}
 		justification = Justification{
-			Payload: SignedMessage{
-				Instance: i.instanceID,
-				Round:    round,
-				Step:     COMMIT_PHASE,
-				Value:    i.value,
-			},
-			QuorumSignature: QuorumSignature{
-				Signers:   signers,
-				Signature: aggSignature,
-			},
+			Payload:   justificationPayload,
+			Signers:   signers,
+			Signature: aggSignature,
 		}
 
 	} else {
@@ -729,10 +739,10 @@ func (i *instance) roundState(r uint64) *roundState {
 	return round
 }
 
-func (i *instance) beginNextRound() {
+func (i *instance) beginNextRound() error {
 	i.round += 1
 	i.log("moving to round %d with %s", i.round, i.proposal.String())
-	i.beginConverge()
+	return i.beginConverge()
 }
 
 // Returns whether a chain is acceptable as a proposal for this instance to vote for.
@@ -753,19 +763,31 @@ func (i *instance) terminated() bool {
 	return i.phase == TERMINATED_PHASE
 }
 
-func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Ticket, justification Justification) *GMessage {
-	payload := SignaturePayload(i.instanceID, round, step, value)
-	signature := i.host.Sign(i.participantID, payload)
-	sm := SignedMessage{
+func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Ticket, justification Justification) (*GMessage, error) {
+	p := Payload{
 		Instance: i.instanceID,
 		Round:    round,
 		Step:     step,
 		Value:    value,
 	}
-	gmsg := &GMessage{i.participantID, sm, ticket, signature, justification}
-	i.host.Broadcast(gmsg)
+	sp, err := p.MarshalForSigning(TODONetworkName)
+	if err != nil {
+		return nil, xerrors.Errorf("marshalling payload for signing: %w", err)
+	}
+
+	sig := i.host.Sign(i.participantID, sp)
+	gmsg := &GMessage{
+		Sender:        i.participantID,
+		Current:       p,
+		Signature:     sig,
+		Ticket:        ticket,
+		Justification: justification,
+	}
+	if err := i.host.Broadcast(gmsg); err != nil {
+		return nil, xerrors.Errorf("during broadcast: %w", err)
+	}
 	i.enqueueInbox(gmsg)
-	return gmsg
+	return gmsg, nil
 }
 
 // Sets an alarm to be delivered after a synchrony delay.

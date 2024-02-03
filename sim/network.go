@@ -3,10 +3,11 @@ package sim
 import (
 	"bytes"
 	"fmt"
-	"github.com/filecoin-project/go-f3/f3"
 	"io"
 	"sort"
 	"strings"
+
+	"github.com/filecoin-project/go-f3/f3"
 )
 
 type AdversaryReceiver interface {
@@ -75,7 +76,7 @@ func (n *Network) AddParticipant(p f3.Receiver, pubKey f3.PubKey) {
 
 ////// Network interface
 
-func (n *Network) Broadcast(msg *f3.GMessage) {
+func (n *Network) Broadcast(msg *f3.GMessage) error {
 	n.log(TraceSent, "P%d ↗ %v", msg.Sender, msg)
 	for _, k := range n.participantIDs {
 		if k != msg.Sender {
@@ -89,6 +90,7 @@ func (n *Network) Broadcast(msg *f3.GMessage) {
 				})
 		}
 	}
+	return nil
 }
 
 ///// Clock interface
