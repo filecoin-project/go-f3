@@ -60,7 +60,8 @@ func TestGet(t *testing.T) {
 	require.ErrorIs(t, err, ErrCertNotFound)
 
 	cert := &Cert{Instance: 1}
-	cs.Put(ctx, cert)
+	err = cs.Put(ctx, cert)
+	require.NoError(t, err)
 
 	fetchedCert, err := cs.Get(ctx, 1)
 	require.NoError(t, err)
@@ -100,7 +101,8 @@ func TestSubscribeForNewCerts(t *testing.T) {
 	defer closer()
 
 	cert := &Cert{Instance: 1}
-	cs.Put(ctx, cert)
+	err = cs.Put(ctx, cert)
+	require.NoError(t, err)
 
 	select {
 	case received, ok := <-ch:
