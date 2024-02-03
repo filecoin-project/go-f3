@@ -1,8 +1,12 @@
 package f3
 
 import (
+	"io"
 	"math/big"
 	"strings"
+
+	cbg "github.com/whyrusleeping/cbor-gen"
+	"golang.org/x/xerrors"
 )
 
 type ActorID uint64
@@ -33,6 +37,22 @@ func NewStoragePower(value int64) *StoragePower {
 type TipSetID struct {
 	// The inner value is a string so that this type can be used as a map key (like the go-cid package).
 	value string
+}
+
+var _ cbg.CBORMarshaler = TipSetID{}
+var _ cbg.CBORUnmarshaler = (*TipSetID)(nil)
+
+func (t TipSetID) MarshalCBOR(w io.Writer) error {
+	return cbg.WriteByteArray(w, []byte(t.value))
+}
+
+func (t *TipSetID) UnmarshalCBOR(r io.Reader) error {
+	b, err := cbg.ReadByteArray(r, cbg.ByteArrayMaxLen)
+	if err != nil {
+		return xerrors.Errorf("decoding TipSetID from CBOR: %w", err)
+	}
+	t.value = string(b)
+	return nil
 }
 
 // Creates a new TipSetID from a byte array.
