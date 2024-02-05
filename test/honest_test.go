@@ -140,6 +140,27 @@ func TestRequireStrongQuorumToProgress(t *testing.T) {
 	}
 }
 
+func TestLongestCommonPrefix(t *testing.T) {
+	// This test uses a synchronous configuration to ensure timely message delivery.
+	// If async, it is possible to decide the base chain if QUALITY messages are delayed.
+	sm := sim.NewSimulation(newSyncConfig(4), GraniteConfig(), sim.TraceAll)
+	ab := sm.Base.Extend(sm.CIDGen.Sample())
+	abc := ab.Extend(sm.CIDGen.Sample())
+	abd := ab.Extend(sm.CIDGen.Sample())
+	abe := ab.Extend(sm.CIDGen.Sample())
+	abf := ab.Extend(sm.CIDGen.Sample())
+	sm.ReceiveChains(
+		sim.ChainCount{Count: 1, Chain: abc},
+		sim.ChainCount{Count: 1, Chain: abd},
+		sim.ChainCount{Count: 1, Chain: abe},
+		sim.ChainCount{Count: 1, Chain: abf},
+	)
+
+	require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
+	// Must decide ab, the longest common prefix.
+	expectRoundDecision(t, sm, 0, ab.Head())
+}
+
 func newSyncConfig(honestCount int) sim.Config {
 	return sim.Config{
 		HonestCount: honestCount,
