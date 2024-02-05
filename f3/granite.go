@@ -957,7 +957,7 @@ func (q *quorumState) ListStrongQuorumAgreedValue() ECChain {
 
 //// QUALITY phase helpers ////
 
-// ListStrongQuorumAgreedPrefix returns the longest prefix that is a prefix or preferred,
+// ListStrongQuorumAgreedPrefix returns the longest prefix that is a prefix of preferred,
 // and that is a prefix of the values of some strong quorum,
 // or the base chain of the preferred value if one or both of these two conditions are not satisfied.
 func (q *quorumState) ListStrongQuorumAgreedPrefix(preferred ECChain) (ECChain, error) {
