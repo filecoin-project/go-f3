@@ -36,10 +36,7 @@ func NewPowerTable(entries []PowerEntry) *PowerTable {
 		lookup[entry.ID] = i
 		total.Add(total, entry.Power)
 	}
-
-	if len(entries) != len(lookup) {
-		panic("duplicate power entries")
-	}
+	
 	return &PowerTable{
 		Entries: entries,
 		Lookup:  lookup,
