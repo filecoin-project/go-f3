@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/filecoin-project/go-bitfield"
 	"sort"
+
+	"github.com/filecoin-project/go-bitfield"
 )
 
 type GraniteConfig struct {
@@ -899,6 +900,14 @@ func (q *quorumState) getSignersAndSignatures(value ECChain) (bitfield.BitField,
 	for key, signature := range chainSupport.signers {
 		signers.Set(uint64(q.powerTable.Lookup[key]))
 		signatures = append(signatures, signature)
+	}
+	runs, err := signers.RunIterator()
+	if err != nil {
+		panic("new bitfield, with just sets, impossible")
+	}
+	signers, err = bitfield.NewFromIter(runs) // compact the bitfield for performance
+	if err != nil {
+		panic("new bitfield from runs from RunIterator, impossible")
 	}
 
 	return signers, signatures
