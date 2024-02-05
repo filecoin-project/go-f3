@@ -120,11 +120,6 @@ func (m GMessage) String() string {
 	return fmt.Sprintf("%s{%d}(%d %s)", m.Current.Step, m.Current.Instance, m.Current.Round, &m.Current.Value)
 }
 
-// Computes the payload for a GMessage signature.
-//func SignaturePayload(instance uint64, round uint64, step Phase, value ECChain) []byte {
-//return nil
-//}
-
 // A single Granite consensus instance.
 type instance struct {
 	config        GraniteConfig
