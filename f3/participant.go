@@ -72,7 +72,6 @@ func (p *Participant) Finalised() (TipSet, uint64) {
 
 // Receives a new canonical EC chain for the instance.
 // This becomes the instance's preferred value to finalise.
-// the newly finalised tipset.
 // The participant also receives all the beacon values for the epochs between the last finalized tipset and the new head.
 func (p *Participant) ReceiveCanonicalChain(chain ECChain, beacons [][]byte) error {
 	if !chain.HasBase(&p.finalised) {
@@ -96,7 +95,7 @@ func (p *Participant) ReceiveCanonicalChain(chain ECChain, beacons [][]byte) err
 // Receives a new EC chain, and notifies the current instance if it extends its current acceptable chain.
 // This modifies the set of valid values for the current instance.
 // Any new chain received by lotus is by definition heavier, and the check for it being a prefix is done here
-// This call is internal, unlike receiveCanonicalChain
+// This call is internal, unlike ReceiveCanonicalChain.
 func (p *Participant) receiveECChain(chain ECChain) error {
 	if p.granite != nil && chain.HasPrefix(p.granite.acceptable) {
 		p.granite.receiveAcceptable(chain)
@@ -115,7 +114,7 @@ func (p *Participant) ReceivePowerTable(power PowerTable, headTipsetID TipSetID)
 	return p.tryNewInstance()
 }
 
-// Tries to start a new instance of Granite if the next chain, the next power table, and the correspoinding beacon is available.
+// Tries to start a new instance of Granite if the next chain, the next power table, and the corresponding beacon are all available.
 func (p *Participant) tryNewInstance() error {
 	if p.granite == nil && p.nextChain != nil && p.beacons.epoch2beacon[p.finalised.Epoch+1] != nil && !p.nextPower.IsZero() {
 		var err error
@@ -166,22 +165,22 @@ func (p *Participant) handleDecision() error {
 		p.finalised = *value.Head() //This is at least the previous head, never empty
 		p.finalisedRound = p.granite.round
 		p.granite = nil
-		// If we decided on baseChain then run again if ready (no changes to nextInstanceParams as a result of decision)
+		// If we decided on baseChain then run again if ready (no changes to beacon or power table as a result of decision)
 		if prevFinalised.Eq(&p.finalised) {
 			//TODO probably introduce artificial delay (drand beacon clock tick perhaps)
 			// or 3 seconds or something
 			return p.tryNewInstance()
 		}
 
-		// reset nextChain to nil if newly finalized head makes it impossible for the next chain to be decided
+		// reset nextChain to nil if newly finalized head makes it impossible for nextChain to be decided
 		// In this case we are guaranteed to receive a new chain by Lotus (as the latest Lotus head will change due to the
-		// update to the fork choice rule derived from the newly finalised tipset)
+		// update to the fork choice rule derived from the newly finalised head)
 		if !p.nextChain.HasPrefix(value) {
 			p.nextChain = ECChain{}
 		} else if p.nextChain.HasPrefix(value) {
-			// update nextInstanceParams to have as base the latest finalised head
+			// update the chain to have the latest finalised head as base
 			// the power table remains the same as the head remains the same
-			// Start from the first Tipset and iterate removing tipsets until reaching the latest decision's head
+			// Start from the first tipset and iterate removing tipsets until reaching the latest decision's head
 			for !p.nextChain.Base().Eq(value.Head()) {
 				p.nextChain = p.nextChain.Suffix()
 			}
