@@ -22,6 +22,10 @@ type PowerTable struct {
 	Total   *StoragePower
 }
 
+func (p PowerTable) IsZero() bool {
+	return len(p.Entries) == 0 && p.Lookup == nil && p.Total == nil
+}
+
 // NewPowerTable creates a new PowerTable from a slice of PowerEntry .
 // It is more efficient than Add, as it only needs to sort the entries once.
 // Note that the function takes ownership of the slice - it must not be modified afterwards.

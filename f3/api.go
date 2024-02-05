@@ -1,14 +1,19 @@
 package f3
 
-// Receives EC chain values.
-type ChainReceiver interface {
+// Receives EC chain values, notifies Lotus of newly finalised chains, and receives power tables
+type Finaliser interface {
 	// Receives a chain appropriate for use as initial proposals for a Granite instance.
 	// The chain's base is assumed to be an appropriate base for the instance.
-	ReceiveCanonicalChain(chain ECChain, power PowerTable, beacon []byte) error
+	// The beacons are the beacon values for the chain.
+	ReceiveCanonicalChain(chain ECChain, beacons [][]byte) error
 
-	// Receives a new EC chain, and notifies the current instance if it extends its current acceptable chain.
-	// This modifies the set of valid values for the current instance.
-	ReceiveECChain(chain ECChain) error
+	// Sends a new finalised chain to the host.
+	// This call acts a request for Lotus to send an updated power table
+	// Lotus will always send a new chain if the head changes so no need to make this call a request for that
+	SendNewFinalisedChain() error
+
+	// Receives a power table from the given participant.
+	ReceivePowerTable(pt PowerTable, baseID TipSetID) error
 }
 
 // A consensus message.
@@ -26,7 +31,7 @@ type MessageReceiver interface {
 // Interface which network participants must implement.
 type Receiver interface {
 	ID() ActorID
-	ChainReceiver
+	Finaliser
 	MessageReceiver
 }
 

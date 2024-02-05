@@ -21,13 +21,15 @@ func (a *Absent) ID() f3.ActorID {
 	return a.id
 }
 
-func (a *Absent) ReceiveCanonicalChain(_ f3.ECChain, _ f3.PowerTable, _ []byte) error {
+func (a *Absent) ReceiveCanonicalChain(_ f3.ECChain, _ [][]byte) error {
 	return nil
 }
 
-func (a *Absent) ReceiveECChain(_ f3.ECChain) error {
+func (a *Absent) ReceivePowerTable(_ f3.PowerTable, _ f3.TipSetID) error {
 	return nil
 }
+
+func (a *Absent) SendNewFinalisedChain() error { return nil }
 
 func (a *Absent) ReceiveMessage(_ *f3.GMessage) error {
 	return nil

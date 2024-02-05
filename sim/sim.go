@@ -84,8 +84,17 @@ type ChainCount struct {
 func (s *Simulation) ReceiveChains(chains ...ChainCount) {
 	pidx := 0
 	for _, chain := range chains {
+		// Create a slice of [][]byte with the same length as chain and filled with copies of s.Beacon
+		beacons := make([][]byte, len(chain.Chain))
+		for i := range beacons {
+			beacons[i] = make([]byte, len(s.Beacon))
+			copy(beacons[i], s.Beacon)
+		}
 		for i := 0; i < chain.Count; i++ {
-			if err := s.Participants[pidx].ReceiveCanonicalChain(chain.Chain, s.PowerTable, s.Beacon); err != nil {
+			if err := s.Participants[pidx].ReceivePowerTable(s.PowerTable, chain.Chain.Base().CID); err != nil {
+				panic(fmt.Errorf("participant %d failed receiving power table: %w", pidx, err))
+			}
+			if err := s.Participants[pidx].ReceiveCanonicalChain(chain.Chain, beacons); err != nil {
 				panic(fmt.Errorf("participant %d failed receiving canonical chain %d: %w", pidx, i, err))
 			}
 			pidx += 1
@@ -100,8 +109,14 @@ func (s *Simulation) ReceiveChains(chains ...ChainCount) {
 func (s *Simulation) ReceiveECChains(chains ...ChainCount) {
 	pidx := 0
 	for _, chain := range chains {
+		// Create a slice of [][]byte with the same length as chain and filled with copies of s.Beacon
+		beacons := make([][]byte, len(chain.Chain))
+		for i := range beacons {
+			beacons[i] = make([]byte, len(s.Beacon))
+			copy(beacons[i], s.Beacon)
+		}
 		for i := 0; i < chain.Count; i++ {
-			if err := s.Participants[pidx].ReceiveECChain(chain.Chain); err != nil {
+			if err := s.Participants[pidx].ReceiveCanonicalChain(chain.Chain, beacons); err != nil {
 				panic(err)
 			}
 			pidx += 1
