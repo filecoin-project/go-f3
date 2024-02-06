@@ -65,7 +65,7 @@ func (t *GMessage) UnmarshalCBOR(r io.Reader) (err error) {
 
 	{
 
-		if err := t.Current.UnmarshalCBOR(cr); err != nil {
+		if err := t.Vote.UnmarshalCBOR(cr); err != nil {
 			return xerrors.Errorf("unmarshaling t.Current: %w", err)
 		}
 
@@ -291,7 +291,7 @@ func (t *Justification) MarshalCBOR(w io.Writer) error {
 	}
 
 	// t.Payload (f3.SignedMessage) (struct)
-	if err := t.Payload.MarshalCBOR(cw); err != nil {
+	if err := t.Vote.MarshalCBOR(cw); err != nil {
 		return err
 	}
 
@@ -326,7 +326,7 @@ func (t *Justification) UnmarshalCBOR(r io.Reader) (err error) {
 
 	{
 
-		if err := t.Payload.UnmarshalCBOR(cr); err != nil {
+		if err := t.Vote.UnmarshalCBOR(cr); err != nil {
 			return xerrors.Errorf("unmarshaling t.Payload: %w", err)
 		}
 

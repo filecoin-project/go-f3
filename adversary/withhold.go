@@ -78,7 +78,7 @@ func (w *WithholdCommit) Begin() {
 	}
 
 	justification := f3.Justification{
-		Payload:   preparePayload,
+		Vote:      preparePayload,
 		Signers:   bitfield.New(),
 		Signature: nil,
 	}
@@ -107,23 +107,23 @@ func (w *WithholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Messag
 				toAnyVictim = true
 			}
 		}
-		if gmsg.Current.Step == f3.QUALITY_PHASE {
+		if gmsg.Vote.Step == f3.QUALITY_PHASE {
 			// Don't allow victims to see dissenting QUALITY.
-			if toAnyVictim && !gmsg.Current.Value.Eq(w.victimValue) {
+			if toAnyVictim && !gmsg.Vote.Value.Eq(w.victimValue) {
 				return false
 			}
-		} else if gmsg.Current.Step == f3.PREPARE_PHASE {
+		} else if gmsg.Vote.Step == f3.PREPARE_PHASE {
 			// Don't allow victims to see dissenting PREPARE.
-			if toAnyVictim && !gmsg.Current.Value.Eq(w.victimValue) {
+			if toAnyVictim && !gmsg.Vote.Value.Eq(w.victimValue) {
 				return false
 			}
-		} else if gmsg.Current.Step == f3.COMMIT_PHASE {
+		} else if gmsg.Vote.Step == f3.COMMIT_PHASE {
 			// Allow only the main victim to see our COMMIT.
 			if !toMainVictim && gmsg.Sender == w.id {
 				return false
 			}
 			// Don't allow the main victim to see any dissenting COMMIts.
-			if toMainVictim && !gmsg.Current.Value.Eq(w.victimValue) {
+			if toMainVictim && !gmsg.Vote.Value.Eq(w.victimValue) {
 				return false
 			}
 		}
@@ -143,7 +143,7 @@ func broadcastHelper(host sim.AdversaryHost, sender f3.ActorID) func(f3.Payload,
 
 		host.BroadcastSynchronous(sender, f3.GMessage{
 			Sender:        sender,
-			Current:       payload,
+			Vote:          payload,
 			Signature:     sig,
 			Justification: just,
 		})
