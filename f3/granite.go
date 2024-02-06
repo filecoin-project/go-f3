@@ -3,8 +3,8 @@ package f3
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/filecoin-project/go-bitfield"
@@ -514,19 +514,10 @@ func (i *instance) beginConverge() {
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE_PHASE.String())
 	prevRoundState := i.roundState(i.round - 1)
 
-	var (
-		justification Justification
-		signers       bitfield.BitField
-		signatures    [][]byte
-		ok            bool
-	)
-
-	if signers, signatures, ok = prevRoundState.committed.getStrongQuorumSignersAndSignatures(nil); ok {
+	var justification Justification
+	if signers, signatures, ok := prevRoundState.committed.FindStrongQuorumAgreement(ZeroTipSetID()); ok {
 		value := ECChain{}
-		aggSignature := make([]byte, 0)
-		for _, sig := range signatures {
-			aggSignature = i.host.Aggregate([][]byte{sig}, aggSignature)
-		}
+		aggSignature := i.host.Aggregate(signatures, nil)
 		justificationPayload := SignedMessage{
 			Instance: i.instanceID,
 			Round:    i.round - 1,
@@ -541,13 +532,9 @@ func (i *instance) beginConverge() {
 			Payload:         justificationPayload,
 			QuorumSignature: justificationSignature,
 		}
-	} else if signers, signatures, ok = prevRoundState.prepared.getStrongQuorumSignersAndSignatures(i.proposal); ok {
+	} else if signers, signatures, ok = prevRoundState.prepared.FindStrongQuorumAgreement(i.proposal.Head().CID); ok {
 		value := i.proposal
-		aggSignature := make([]byte, 0)
-		for _, sig := range signatures {
-			aggSignature = i.host.Aggregate([][]byte{sig}, aggSignature)
-		}
-
+		aggSignature := i.host.Aggregate(signatures, nil)
 		justificationPayload := SignedMessage{
 			Instance: i.instanceID,
 			Round:    i.round - 1,
@@ -567,7 +554,7 @@ func (i *instance) beginConverge() {
 	} else {
 		panic("beginConverge called but no evidence found")
 	}
-	
+
 	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, ticket, justification)
 }
 
@@ -635,37 +622,30 @@ func (i *instance) tryPrepare() error {
 func (i *instance) beginCommit() {
 	i.phase = COMMIT_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE_PHASE.String())
-	var (
-		signers    bitfield.BitField
-		signatures [][]byte
-		ok         bool
-	)
 
-	if !i.value.IsZero() {
-		signers, signatures, ok = i.roundState(i.round).prepared.getStrongQuorumSignersAndSignatures(i.value)
-		if !ok {
-			panic("beginCommit called but no evidence found")
+	var justification Justification
+	if signers, signatures, ok := i.roundState(i.round).prepared.FindStrongQuorumAgreement(i.value.HeadCIDOrZero()); ok {
+		// Strong quorum found, aggregate the evidence for it.
+		aggSignature := i.host.Aggregate(signatures, nil)
+		justification = Justification{
+			Payload: SignedMessage{
+				Instance: i.instanceID,
+				Round:    i.round,
+				Step:     PREPARE_PHASE,
+				Value:    i.value,
+			},
+			QuorumSignature: QuorumSignature{
+				Signers:   signers,
+				Signature: aggSignature,
+			},
+		}
+	} else {
+		// No strong quorum of PREPARE found, which is ok iff the value to commit is zero.
+		if !i.value.IsZero() {
+			panic("beginCommit with no strong quorum for non-bottom value")
 		}
 	}
 
-	aggSignature := make([]byte, 0)
-	for _, sig := range signatures {
-		aggSignature = i.host.Aggregate([][]byte{sig}, aggSignature)
-	}
-	justificationPayload := SignedMessage{
-		Instance: i.instanceID,
-		Round:    i.round,
-		Step:     PREPARE_PHASE,
-		Value:    i.value,
-	}
-	justificationSignature := QuorumSignature{
-		Signers:   signers,
-		Signature: aggSignature,
-	}
-	justification := Justification{
-		Payload:         justificationPayload,
-		QuorumSignature: justificationSignature,
-	}
 	i.broadcast(i.round, COMMIT_PHASE, i.value, nil, justification)
 }
 
@@ -707,34 +687,28 @@ func (i *instance) tryCommit(round uint64) error {
 func (i *instance) beginDecide(round uint64) {
 	i.phase = DECIDE_PHASE
 	roundState := i.roundState(round)
-	var (
-		signers    bitfield.BitField
-		signatures [][]byte
-		ok         bool
-	)
 
-	if signers, signatures, ok = roundState.committed.getStrongQuorumSignersAndSignatures(i.value); !ok {
-		panic("beginDecide called but no evidence found: %v")
+	var justification Justification
+	// Value cannot be empty here.
+	if signers, signatures, ok := roundState.committed.FindStrongQuorumAgreement(i.value.Head().CID); ok {
+		aggSignature := i.host.Aggregate(signatures, nil)
+		justification = Justification{
+			Payload: SignedMessage{
+				Instance: i.instanceID,
+				Round:    round,
+				Step:     COMMIT_PHASE,
+				Value:    i.value,
+			},
+			QuorumSignature: QuorumSignature{
+				Signers:   signers,
+				Signature: aggSignature,
+			},
+		}
+
+	} else {
+		panic("beginDecide with no strong quorum for value")
 	}
 
-	aggSignature := make([]byte, 0)
-	for _, sig := range signatures {
-		aggSignature = i.host.Aggregate([][]byte{sig}, aggSignature)
-	}
-	justificationPayload := SignedMessage{
-		Instance: i.instanceID,
-		Round:    round,
-		Step:     COMMIT_PHASE,
-		Value:    i.value,
-	}
-	justificationSignature := QuorumSignature{
-		Signers:   signers,
-		Signature: aggSignature,
-	}
-	justification := Justification{
-		Payload:         justificationPayload,
-		QuorumSignature: justificationSignature,
-	}
 	i.broadcast(0, DECIDE_PHASE, i.value, nil, justification)
 }
 
@@ -898,52 +872,6 @@ func (q *quorumState) HasReceived(value ECChain) bool {
 	return ok
 }
 
-// getStrongQuorumSignersAndSignatures retrieves the smallest set of signers and signatures of the given ECChain that forms a strong quorum.
-func (q *quorumState) getStrongQuorumSignersAndSignatures(value ECChain) (bitfield.BitField, [][]byte, bool) {
-	head := value.HeadCIDOrZero()
-	chainSupport, ok := q.chainSupport[head]
-	if !ok || !chainSupport.hasStrongQuorum {
-		return bitfield.New(), nil, false
-	}
-
-	signers := bitfield.New()
-	// Copy each element from the original map
-	for key := range chainSupport.signers {
-		signers.Set(uint64(q.powerTable.Lookup[key]))
-	}
-	runs, err := signers.RunIterator()
-	if err != nil {
-		panic("new bitfield, with just sets, impossible")
-	}
-	signers, err = bitfield.NewFromIter(runs) // compact the bitfield for performance
-	if err != nil {
-		panic("new bitfield from runs from RunIterator, impossible")
-	}
-
-	strongQuorumSigners := bitfield.New()
-	signatures := make([][]byte, 0)
-	justificationPower := NewStoragePower(0)
-	if err := signers.ForEach(func(bit uint64) error {
-		if int(bit) >= len(q.powerTable.Entries) {
-			panic(fmt.Sprintf("invalid signer index: %d", bit))
-		}
-		justificationPower.Add(justificationPower, q.powerTable.Entries[bit].Power)
-		strongQuorumSigners.Set(bit)
-		signatures = append(signatures, chainSupport.signers[q.powerTable.Entries[bit].ID])
-		if hasStrongQuorum(justificationPower, q.powerTable.Total) {
-			return ErrStrongQuorumReached // No need to iterate anymore
-		}
-		return nil
-	}); !errors.Is(err, ErrStrongQuorumReached) {
-		// no strong quorum reached
-		return bitfield.New(), nil, false
-	}
-
-	return strongQuorumSigners, signatures, true
-}
-
-var ErrStrongQuorumReached = errors.New("strong quorum of signers reached")
-
 // Lists all values that have been senders from any sender.
 // The order of returned values is not defined.
 func (q *quorumState) ListAllValues() []ECChain {
@@ -968,6 +896,42 @@ func (q *quorumState) ReceivedFromStrongQuorum() bool {
 func (q *quorumState) HasStrongQuorumAgreement(cid TipSetID) bool {
 	cp, ok := q.chainSupport[cid]
 	return ok && cp.hasStrongQuorum
+}
+
+// Checks whether a chain (head) has reached a strong quorum.
+// If so returns a set of signers and signatures for the value that form a strong quorum.
+func (q *quorumState) FindStrongQuorumAgreement(value TipSetID) (bitfield.BitField, [][]byte, bool) {
+	chainSupport, ok := q.chainSupport[value]
+	if !ok || !chainSupport.hasStrongQuorum {
+		return bitfield.New(), nil, false
+	}
+
+	// Build an array of indices of signers in the power table.
+	signers := make([]int, 0, len(chainSupport.signers))
+	for key := range chainSupport.signers {
+		signers = append(signers, q.powerTable.Lookup[key])
+	}
+	// Sort power table indices.
+	// If the power table entries are ordered by decreasing power,
+	// then the first strong quorum found will be the smallest.
+	slices.Sort(signers)
+
+	// Accumulate signers and signatures until they reach a strong quorum.
+	strongQuorumSigners := bitfield.New()
+	signatures := make([][]byte, 0, len(chainSupport.signers))
+	justificationPower := NewStoragePower(0)
+	for _, idx := range signers {
+		if idx >= len(q.powerTable.Entries) {
+			panic(fmt.Sprintf("invalid signer index: %d for %d entries", idx, len(q.powerTable.Entries)))
+		}
+		justificationPower.Add(justificationPower, q.powerTable.Entries[idx].Power)
+		strongQuorumSigners.Set(uint64(idx))
+		signatures = append(signatures, chainSupport.signers[q.powerTable.Entries[idx].ID])
+		if hasStrongQuorum(justificationPower, q.powerTable.Total) {
+			return strongQuorumSigners, signatures, true
+		}
+	}
+	return bitfield.New(), nil, false
 }
 
 // Checks whether a chain (head) has reached weak quorum.
