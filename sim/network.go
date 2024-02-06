@@ -3,10 +3,11 @@ package sim
 import (
 	"bytes"
 	"fmt"
-	"github.com/filecoin-project/go-f3/f3"
 	"io"
 	"sort"
 	"strings"
+
+	"github.com/filecoin-project/go-f3/f3"
 )
 
 type AdversaryReceiver interface {
