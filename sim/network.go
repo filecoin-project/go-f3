@@ -76,7 +76,7 @@ func (n *Network) AddParticipant(p f3.Receiver, pubKey f3.PubKey) {
 
 ////// Network interface
 
-func (n *Network) Broadcast(msg *f3.GMessage) error {
+func (n *Network) Broadcast(msg *f3.GMessage) {
 	n.log(TraceSent, "P%d ↗ %v", msg.Sender, msg)
 	for _, k := range n.participantIDs {
 		if k != msg.Sender {
@@ -90,7 +90,6 @@ func (n *Network) Broadcast(msg *f3.GMessage) error {
 				})
 		}
 	}
-	return nil
 }
 
 ///// Clock interface

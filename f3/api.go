@@ -34,7 +34,7 @@ type Receiver interface {
 type Network interface {
 	// Sends a message to all other participants.
 	// The message's sender must be one that the network interface can sign on behalf of.
-	Broadcast(msg *GMessage) error
+	Broadcast(msg *GMessage)
 }
 
 type Clock interface {

@@ -86,7 +86,7 @@ func (w *WithholdCommit) Begin() {
 	// This power is used to simplify the logic here so it doesn't have to execute the protocol
 	// properly to accumulate the evidence for its COMMIT message.
 	signatures := make([][]byte, 0)
-	prepareMarshalled, _ := preparePayload.MarshalForSigning(f3.TODONetworkName)
+	prepareMarshalled := preparePayload.MarshalForSigning(f3.TODONetworkName)
 	for _, actorID := range w.victims {
 		signatures = append(signatures, w.host.Sign(actorID, prepareMarshalled))
 		justification.Signers.Set(uint64(w.powertable.Lookup[actorID]))
@@ -133,10 +133,7 @@ func (w *WithholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Messag
 
 func broadcastHelper(host sim.AdversaryHost, sender f3.ActorID) func(f3.Payload, *f3.Justification) {
 	return func(payload f3.Payload, justification *f3.Justification) {
-		pS, err := payload.MarshalForSigning(f3.TODONetworkName)
-		if err != nil {
-			host.Log("error while marshalling for signing: %v", err)
-		}
+		pS := payload.MarshalForSigning(f3.TODONetworkName)
 		sig := host.Sign(sender, pS)
 
 		var just f3.Justification

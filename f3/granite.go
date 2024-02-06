@@ -7,8 +7,6 @@ import (
 	"sort"
 
 	"github.com/filecoin-project/go-bitfield"
-
-	xerrors "golang.org/x/xerrors"
 )
 
 type GraniteConfig struct {
@@ -100,7 +98,7 @@ type Payload struct {
 	Value ECChain
 }
 
-func (p Payload) MarshalForSigning(nn NetworkName) ([]byte, error) {
+func (p Payload) MarshalForSigning(nn NetworkName) []byte {
 	var buf bytes.Buffer
 	buf.WriteString(DOMAIN_SEPARATION_TAG)
 	buf.WriteString(nn.SignatureSeparationTag())
@@ -112,7 +110,7 @@ func (p Payload) MarshalForSigning(nn NetworkName) ([]byte, error) {
 		buf.Write(t.CID.Bytes())
 		_ = binary.Write(&buf, binary.BigEndian, t.Weight)
 	}
-	return buf.Bytes(), nil
+	return buf.Bytes()
 }
 
 func (m GMessage) String() string {
@@ -361,11 +359,7 @@ func (i *instance) isValid(msg *GMessage) bool {
 		return !msg.Current.Value.IsZero()
 	}
 
-	sigPayload, err := msg.Current.MarshalForSigning(TODONetworkName)
-	if err != nil {
-		i.log("could not encode payload %v", err)
-		return false
-	}
+	sigPayload := msg.Current.MarshalForSigning(TODONetworkName)
 	if !i.host.Verify(pubKey, sigPayload, msg.Signature) {
 		i.log("invalid signature on %v", msg)
 		return false
@@ -388,10 +382,7 @@ func (i *instance) VerifyJustification(justification Justification) error {
 		return fmt.Errorf("failed to iterate over signers: %w", err)
 	}
 
-	payload, err := justification.Payload.MarshalForSigning(TODONetworkName)
-	if err != nil {
-		return xerrors.Errorf("failed to marshal payload: %w", err)
-	}
+	payload := justification.Payload.MarshalForSigning(TODONetworkName)
 
 	if !i.host.VerifyAggregate(payload, justification.Signature, signers) {
 		return fmt.Errorf("verification of the aggregate failed: %v", justification)
@@ -484,8 +475,8 @@ func (i *instance) beginQuality() error {
 	// Broadcast input value and wait up to Δ to receive from others.
 	i.phase = QUALITY_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony(QUALITY_PHASE.String())
-	_, err := i.broadcast(i.round, QUALITY_PHASE, i.input, nil, Justification{})
-	return err
+	i.broadcast(i.round, QUALITY_PHASE, i.input, nil, Justification{})
+	return nil
 }
 
 // Attempts to end the QUALITY phase and begin PREPARE based on current state.
@@ -508,15 +499,13 @@ func (i *instance) tryQuality() error {
 	if foundQuorum || timeoutExpired {
 		i.value = i.proposal
 		i.log("adopting proposal/value %s", &i.proposal)
-		if err := i.beginPrepare(); err != nil {
-			return xerrors.Errorf("begin prepare: %w", err)
-		}
+		i.beginPrepare()
 	}
 
 	return nil
 }
 
-func (i *instance) beginConverge() error {
+func (i *instance) beginConverge() {
 	i.phase = CONVERGE_PHASE
 	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE_PHASE.String())
@@ -557,8 +546,7 @@ func (i *instance) beginConverge() error {
 		panic("beginConverge called but no evidence found")
 	}
 
-	_, err := i.broadcast(i.round, CONVERGE_PHASE, i.proposal, ticket, justification)
-	return err
+	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, ticket, justification)
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
@@ -585,20 +573,17 @@ func (i *instance) tryConverge() error {
 		// Vote for not deciding in this round
 		i.value = ECChain{}
 	}
-	if err := i.beginPrepare(); err != nil {
-		return xerrors.Errorf("begin prepare: %w", err)
-	}
+	i.beginPrepare()
 
 	return nil
 }
 
 // Sends this node's PREPARE message and begins the PREPARE phase.
-func (i *instance) beginPrepare() error {
+func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE_PHASE.String())
-	_, err := i.broadcast(i.round, PREPARE_PHASE, i.value, nil, Justification{})
-	return err
+	i.broadcast(i.round, PREPARE_PHASE, i.value, nil, Justification{})
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -734,10 +719,10 @@ func (i *instance) roundState(r uint64) *roundState {
 	return round
 }
 
-func (i *instance) beginNextRound() error {
+func (i *instance) beginNextRound() {
 	i.round += 1
 	i.log("moving to round %d with %s", i.round, i.proposal.String())
-	return i.beginConverge()
+	i.beginConverge()
 }
 
 // Returns whether a chain is acceptable as a proposal for this instance to vote for.
@@ -758,17 +743,14 @@ func (i *instance) terminated() bool {
 	return i.phase == TERMINATED_PHASE
 }
 
-func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Ticket, justification Justification) (*GMessage, error) {
+func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Ticket, justification Justification) *GMessage {
 	p := Payload{
 		Instance: i.instanceID,
 		Round:    round,
 		Step:     step,
 		Value:    value,
 	}
-	sp, err := p.MarshalForSigning(TODONetworkName)
-	if err != nil {
-		return nil, xerrors.Errorf("marshalling payload for signing: %w", err)
-	}
+	sp := p.MarshalForSigning(TODONetworkName)
 
 	sig := i.host.Sign(i.participantID, sp)
 	gmsg := &GMessage{
@@ -778,11 +760,9 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 		Ticket:        ticket,
 		Justification: justification,
 	}
-	if err := i.host.Broadcast(gmsg); err != nil {
-		return nil, xerrors.Errorf("during broadcast: %w", err)
-	}
+	i.host.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
-	return gmsg, nil
+	return gmsg
 }
 
 // Sets an alarm to be delivered after a synchrony delay.
