@@ -70,7 +70,7 @@ func (w *WithholdCommit) Begin() {
 	}
 	broadcast(preparePayload, nil)
 
-	payload := f3.Payload{
+	commitPayload := f3.Payload{
 		Instance: 0,
 		Round:    0,
 		Step:     f3.COMMIT_PHASE,
@@ -94,7 +94,7 @@ func (w *WithholdCommit) Begin() {
 	signatures = append(signatures, w.host.Sign(w.id, prepareMarshalled))
 	justification.Signers.Set(uint64(w.powertable.Lookup[w.id]))
 	justification.Signature = w.host.Aggregate(signatures, justification.Signature)
-	broadcast(payload, &justification)
+	broadcast(commitPayload, &justification)
 }
 
 func (w *WithholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Message) bool {
