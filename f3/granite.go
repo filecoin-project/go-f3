@@ -286,10 +286,7 @@ func (i *instance) receiveOne(msg *GMessage) error {
 	switch msg.Current.Step {
 	case QUALITY_PHASE:
 		// Receive each prefix of the proposal independently.
-		for j := range msg.Current.Value.Suffix() {
-			prefix := msg.Current.Value.Prefix(j + 1)
-			i.quality.Receive(msg.Sender, prefix, msg.Signature, msg.Justification)
-		}
+		i.quality.Receive(msg.Sender, msg.Current.Value, msg.Signature, msg.Justification)
 	case CONVERGE_PHASE:
 		if err := round.converged.Receive(msg.Current.Value, msg.Ticket); err != nil {
 			return fmt.Errorf("failed processing CONVERGE message: %w", err)
@@ -654,13 +651,13 @@ func (i *instance) tryCommit(round uint64) error {
 	// and the algorithm moves on to the next round.
 	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
 	committed := i.roundState(round).committed
-	foundQuorum := committed.ListStrongQuorumAgreedValue()
+	foundQuorum, quorumValue := committed.ListStrongQuorumAgreedValue()
 	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
-	if foundQuorum != nil && !foundQuorum.IsZero() {
+	if foundQuorum && !quorumValue.IsZero() {
 		// A participant may be forced to decide a value that's not its preferred chain.
 		// The participant isn't influencing that decision against their interest, just accepting it.
-		i.value = foundQuorum
+		i.value = quorumValue
 		i.beginDecide(round)
 	} else if i.round == round && i.phase == COMMIT_PHASE && timeoutExpired && committed.ReceivedFromStrongQuorum() {
 		// Adopt any non-empty value committed by another participant (there can only be one).
@@ -713,9 +710,9 @@ func (i *instance) beginDecide(round uint64) {
 }
 
 func (i *instance) tryDecide() error {
-	foundQuorum := i.decision.ListStrongQuorumAgreedValue()
-	if foundQuorum != nil {
-		i.terminate(foundQuorum, i.round)
+	foundQuorum, quorumValue := i.decision.ListStrongQuorumAgreedValue()
+	if foundQuorum {
+		i.terminate(quorumValue, i.round)
 	}
 
 	return nil
@@ -942,17 +939,20 @@ func (q *quorumState) HasWeakQuorumAgreement(cid TipSetID) bool {
 
 // Returns the value that has reached a strong quorum.
 // If more than one value fits this description, the function panics.
-func (q *quorumState) ListStrongQuorumAgreedValue() ECChain {
+func (q *quorumState) ListStrongQuorumAgreedValue() (bool, ECChain) {
 	var withQuorum ECChain
 	for cid, cp := range q.chainSupport {
 		if cp.hasStrongQuorum {
 			if withQuorum != nil {
 				panic(fmt.Sprintf("Found more than one value with a strong quorum: %v", withQuorum))
 			}
+			// Deliberately continuing iteration after finding a first strong quorum to ensure more
+			// than one strong quorum triggers a panic for safety reasons, rather than returning early.
 			withQuorum = q.chainSupport[cid].chain
 		}
 	}
-	return withQuorum
+
+	return withQuorum != nil, withQuorum
 }
 
 //// QUALITY phase helpers ////
@@ -984,7 +984,7 @@ func (q *quorumState) ListStrongQuorumAgreedPrefix(preferred ECChain) (ECChain, 
 				prefixSupport[prefixHeadCID] = NewStoragePower(0)
 			}
 
-			if cs, ok := q.chainSupport[prefixHeadCID]; ok {
+			if cs, ok := q.chainSupport[chain.HeadCIDOrZero()]; ok {
 				prefixSupport[prefixHeadCID].Add(prefixSupport[prefixHeadCID], cs.power)
 			}
 		}
