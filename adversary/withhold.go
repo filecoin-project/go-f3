@@ -52,28 +52,6 @@ func (w *WithholdCommit) ReceiveAlarm(_ string) error {
 	return nil
 }
 
-func broadcastHelper(host sim.AdversaryHost, sender f3.ActorID) func(f3.Payload, *f3.Justification) {
-	return func(p f3.Payload, just *f3.Justification) {
-		pS, err := p.MarshalForSigning(f3.TODONetworkName)
-		if err != nil {
-			host.Log("error while marshalling for signing: %v", err)
-		}
-
-		sig := host.Sign(sender, pS)
-		var j f3.Justification
-		if just != nil {
-			j = *just
-		}
-
-		host.BroadcastSynchronous(sender, f3.GMessage{
-			Sender:        sender,
-			Current:       p,
-			Signature:     sig,
-			Justification: j,
-		})
-	}
-}
-
 func (w *WithholdCommit) Begin() {
 	broadcast := broadcastHelper(w.host, w.id)
 	// All victims need to see QUALITY and PREPARE in order to send their COMMIT,
@@ -151,4 +129,26 @@ func (w *WithholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Messag
 		}
 	}
 	return true
+}
+
+func broadcastHelper(host sim.AdversaryHost, sender f3.ActorID) func(f3.Payload, *f3.Justification) {
+	return func(payload f3.Payload, justification *f3.Justification) {
+		pS, err := payload.MarshalForSigning(f3.TODONetworkName)
+		if err != nil {
+			host.Log("error while marshalling for signing: %v", err)
+		}
+		sig := host.Sign(sender, pS)
+
+		var just f3.Justification
+		if justification != nil {
+			just = *justification
+		}
+
+		host.BroadcastSynchronous(sender, f3.GMessage{
+			Sender:        sender,
+			Current:       payload,
+			Signature:     sig,
+			Justification: just,
+		})
+	}
 }
