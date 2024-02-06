@@ -36,7 +36,7 @@ func NewPowerTable(entries []PowerEntry) *PowerTable {
 		lookup[entry.ID] = i
 		total.Add(total, entry.Power)
 	}
-	
+
 	return &PowerTable{
 		Entries: entries,
 		Lookup:  lookup,

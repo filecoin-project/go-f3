@@ -4,6 +4,8 @@ go 1.21
 
 require (
 	github.com/Kubuxu/go-broadcast v0.0.0-20240201170020-473af1b0846b
+	github.com/drand/kyber v1.2.1-0.20230619134958-080efbe893bb
+	github.com/drand/kyber-bls12381 v0.2.5
 	github.com/filecoin-project/go-bitfield v0.2.4
 	github.com/ipfs/go-cid v0.4.1
 	github.com/ipfs/go-datastore v0.6.0
@@ -23,6 +25,7 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.5 // indirect
 	github.com/ipfs/go-log/v2 v2.5.1 // indirect
 	github.com/jbenet/goprocess v0.1.4 // indirect
+	github.com/kilic/bls12-381 v0.1.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.5 // indirect
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
 	github.com/libp2p/go-msgio v0.3.0 // indirect

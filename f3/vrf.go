@@ -41,7 +41,7 @@ func (f *VRF) MakeTicket(beacon []byte, instance uint64, round uint64, signer Ac
 }
 
 func (f *VRF) VerifyTicket(beacon []byte, instance uint64, round uint64, signer PubKey, ticket Ticket) bool {
-	return f.verifier.Verify(signer, f.serializeSigInput(beacon, instance, round), ticket)
+	return f.verifier.Verify(signer, f.serializeSigInput(beacon, instance, round), ticket) == nil
 }
 
 // Serializes the input to the VRF signature for the CONVERGE step of GossiPBFT.

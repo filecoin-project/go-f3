@@ -3,11 +3,11 @@ package sim
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"sort"
 	"strings"
 
 	"github.com/filecoin-project/go-f3/f3"
+	"golang.org/x/xerrors"
 )
 
 type AdversaryReceiver interface {
@@ -116,16 +116,19 @@ func (n *Network) Sign(sender f3.ActorID, msg []byte) []byte {
 	return append(aux, msg...)
 }
 
-func (n *Network) Verify(pubKey f3.PubKey, msg, sig []byte) bool {
+func (n *Network) Verify(pubKey f3.PubKey, msg, sig []byte) error {
 	// Fake implementation.
 	// Just checks that first bytes of the signature match sender ID,
 	// and remaining bytes match message.
 	aux := append([]byte{}, pubKey...)
 	aux = append(aux, msg...)
-	return bytes.Equal(aux, sig)
+	if bytes.Equal(aux, sig) {
+		return xerrors.Errorf("signature miss-match: %x != %x", aux, sig)
+	}
+	return nil
 }
 
-func (n *Network) Aggregate(sigs [][]byte, aggSignature []byte) []byte {
+func (n *Network) Aggregate(pubKeys []f3.PubKey, sigs [][]byte) ([]byte, error) {
 	// Fake implementation.
 	// Just appends signature to aggregate signature.
 	// This fake aggregation is not commutative (order matters)
@@ -141,31 +144,6 @@ func (n *Network) Aggregate(sigs [][]byte, aggSignature []byte) []byte {
 	}
 
 	msg := sigs[0][pubKeyLen:]
-	msgLen := len(msg)
-
-	// Extract existing pubKeys along with their actorIDs
-	pubKeys := [][]byte{}
-	if len(aggSignature) > 0 {
-		buf := bytes.NewReader(aggSignature[msgLen:])
-		for {
-			existingPubKey := make([]byte, pubKeyLen)
-			if _, err := io.ReadFull(buf, existingPubKey); err != nil {
-				if err == io.EOF {
-					break // End of the aggregate signature.
-				} else if err != nil {
-					panic(err) // Error in reading the signature.
-				}
-			}
-			pubKeys = append(pubKeys, existingPubKey)
-		}
-	}
-
-	for i := 0; i < len(sigs); i++ {
-		if !bytes.Equal(msg, sigs[i][pubKeyLen:]) {
-			panic("Current mismatch")
-		}
-		pubKeys = append(pubKeys, sigs[i][:pubKeyLen])
-	}
 
 	sort.Slice(pubKeys, func(i, j int) bool {
 		return bytes.Compare(pubKeys[i], pubKeys[j]) > 0
@@ -183,10 +161,10 @@ func (n *Network) Aggregate(sigs [][]byte, aggSignature []byte) []byte {
 		updatedAggSignature = append(updatedAggSignature, s...)
 	}
 
-	return updatedAggSignature
+	return updatedAggSignature, nil
 }
 
-func (n *Network) VerifyAggregate(payload, aggSig []byte, signers []f3.PubKey) bool {
+func (n *Network) VerifyAggregate(payload, aggSig []byte, signers []f3.PubKey) error {
 	sort.Slice(signers, func(i, j int) bool {
 		return bytes.Compare(signers[i], signers[j]) > 0
 	})
@@ -198,7 +176,10 @@ func (n *Network) VerifyAggregate(payload, aggSig []byte, signers []f3.PubKey) b
 
 	aux := append([]byte{}, payload...)
 	aux = append(aux, signersConcat...)
-	return bytes.Equal(aux, aggSig)
+	if !bytes.Equal(aux, aggSig) {
+		return xerrors.Errorf("aggregate signature miss-match")
+	}
+	return nil
 }
 
 func (n *Network) Log(format string, args ...interface{}) {
