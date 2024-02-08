@@ -26,6 +26,7 @@ type Module struct {
 	ec     ECBackend
 	log    Logger
 
+	// topic is populated after Run is called
 	topic *pubsub.Topic
 }
 
@@ -50,10 +51,6 @@ func NewModule(ctx context.Context, nn NetworkName, ds datastore.Datastore, h ho
 		sigs:   sigs,
 		ec:     ec,
 		log:    log,
-	}
-
-	if err := m.setupPubsub(); err != nil {
-		return nil, xerrors.Errorf("setting up pubsub on %s: %w", nn.PubSubTopic(), err)
 	}
 
 	return &m, nil
@@ -83,6 +80,10 @@ func (m *Module) teardownPubsub() error {
 
 // Run start the module. It will exit when context is cancelled.
 func (m *Module) Run(ctx context.Context) error {
+	if err := m.setupPubsub(); err != nil {
+		return xerrors.Errorf("setting up pubsub: %w", err)
+	}
+
 	sub, err := m.topic.Subscribe()
 	if err != nil {
 		return xerrors.Errorf("subscribing to topic: %w", err)
@@ -95,6 +96,7 @@ func (m *Module) Run(ctx context.Context) error {
 			break
 		}
 		_ = msg
+		// TODO: pubsub integration
 	}
 
 	sub.Cancel()

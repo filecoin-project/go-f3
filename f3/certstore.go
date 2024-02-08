@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 
 	"github.com/ipfs/go-datastore"
@@ -35,7 +36,7 @@ var ErrCertNotFound = errors.New("certificate not found")
 
 // CertStore is responsible for storing and relaying information about new finality certificates
 type CertStore struct {
-	dsLk     sync.Mutex
+	writeLk  sync.Mutex
 	ds       datastore.Datastore
 	busCerts broadcast.Channel[*Cert]
 }
@@ -104,10 +105,13 @@ func (cs *CertStore) GetRange(ctx context.Context, start uint64, end uint64) ([]
 	if start > end {
 		return nil, xerrors.Errorf("start is larger then end: %d > %d", start, end)
 	}
-	bCerts := make([][]byte, 0, end-start+1)
-	i := start
+	if end-start > uint64(math.MaxInt)-1 {
+		return nil, xerrors.Errorf("range %d to %d is too large", start, end)
+	}
 
-	for ; i <= end; i++ {
+	bCerts := make([][]byte, 0, end-start+1)
+
+	for i := start; i <= end; i++ {
 		b, err := cs.ds.Get(ctx, cs.keyForInstance(i))
 		if errors.Is(err, datastore.ErrNotFound) {
 			break
@@ -123,12 +127,12 @@ func (cs *CertStore) GetRange(ctx context.Context, start uint64, end uint64) ([]
 	for j, bCert := range bCerts {
 		err := certs[j].UnmarshalBinary(bCert)
 		if err != nil {
-			return nil, xerrors.Errorf("unmarshalling a cert at i=%d, instance %d: %w", i, start+uint64(i), err)
+			return nil, xerrors.Errorf("unmarshalling a cert at j=%d, instance %d: %w", j, start+uint64(j), err)
 		}
 	}
 
 	if len(certs) < cap(bCerts) {
-		return certs, xerrors.Errorf("cert at %d: %w", i, ErrCertNotFound)
+		return certs, xerrors.Errorf("cert at %d: %w", start+uint64(len(bCerts)), ErrCertNotFound)
 	}
 	return certs, nil
 }
@@ -159,18 +163,8 @@ func (cs *CertStore) Put(ctx context.Context, cert *Cert) error {
 	if err != nil {
 		return xerrors.Errorf("marshalling cert instance %d: %w", cert.Instance, err)
 	}
-	if err := cs.putInner(ctx, cert, certBytes); err != nil {
-		return xerrors.Errorf("saving cert at %d: %w", cert.Instance, err)
-	}
-
-	return nil
-}
-
-func (cs *CertStore) putInner(ctx context.Context, cert *Cert, certBytes []byte) error {
-	key := cs.keyForInstance(cert.Instance)
-
-	cs.dsLk.Lock()
-	defer cs.dsLk.Unlock()
+	cs.writeLk.Lock()
+	defer cs.writeLk.Unlock()
 
 	if err := cs.ds.Put(ctx, key, certBytes); err != nil {
 		return xerrors.Errorf("putting the cert: %w", err)
