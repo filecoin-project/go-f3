@@ -46,7 +46,7 @@ type Clock interface {
 
 type Signer interface {
 	// Signs a message for the given sender ID.
-	Sign(sender ActorID, msg []byte) []byte
+	Sign(sender PubKey, msg []byte) ([]byte, error)
 }
 
 type Verifier interface {

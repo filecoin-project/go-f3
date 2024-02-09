@@ -33,14 +33,14 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 	// Create a network to deliver messages.
 	lat := NewLogNormal(simConfig.LatencySeed, simConfig.LatencyMean)
 	ntwk := NewNetwork(lat, traceLevel)
-	vrf := f3.NewVRF(ntwk, ntwk)
 
 	// Create participants.
 	genesisPower := f3.NewPowerTable(make([]f3.PowerEntry, 0))
 	participants := make([]*f3.Participant, simConfig.HonestCount)
 	for i := 0; i < len(participants); i++ {
+		pubKey := getFakePubKey(f3.ActorID(i))
+		vrf := f3.NewVRF(pubKey, ntwk, ntwk)
 		participants[i] = f3.NewParticipant(f3.ActorID(i), graniteConfig, ntwk, vrf)
-		pubKey := getFakePubKey(participants[i].ID())
 		ntwk.AddParticipant(participants[i], pubKey)
 		if err := genesisPower.Add(participants[i].ID(), f3.NewStoragePower(1), pubKey); err != nil {
 			panic(fmt.Errorf("failed adding participant to power table: %w", err))

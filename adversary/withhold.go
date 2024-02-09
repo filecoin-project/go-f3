@@ -12,14 +12,14 @@ import (
 type WithholdCommit struct {
 	id         f3.ActorID
 	host       sim.AdversaryHost
-	powertable f3.PowerTable
+	powertable *f3.PowerTable
 	// The first victim is the target, others are those who need to confirm.
 	victims     []f3.ActorID
 	victimValue f3.ECChain
 }
 
 // A participant that never sends anything.
-func NewWitholdCommit(id f3.ActorID, host sim.AdversaryHost, powertable f3.PowerTable) *WithholdCommit {
+func NewWitholdCommit(id f3.ActorID, host sim.AdversaryHost, powertable *f3.PowerTable) *WithholdCommit {
 	return &WithholdCommit{
 		id:         id,
 		host:       host,
@@ -53,7 +53,7 @@ func (w *WithholdCommit) ReceiveAlarm(_ string) error {
 }
 
 func (w *WithholdCommit) Begin() {
-	broadcast := broadcastHelper(w.host, w.id)
+	broadcast := w.broadcastHelper(w.id)
 	// All victims need to see QUALITY and PREPARE in order to send their COMMIT,
 	// but only the one victim will see our COMMIT.
 	broadcast(f3.Payload{
@@ -86,14 +86,25 @@ func (w *WithholdCommit) Begin() {
 	// This power is used to simplify the logic here so it doesn't have to execute the protocol
 	// properly to accumulate the evidence for its COMMIT message.
 	signatures := make([][]byte, 0)
+	pubKeys := make([]f3.PubKey, 0)
 	prepareMarshalled := preparePayload.MarshalForSigning(f3.TODONetworkName)
 	for _, actorID := range w.victims {
-		signatures = append(signatures, w.host.Sign(actorID, prepareMarshalled))
+		sig, pubkey := w.sign(actorID, prepareMarshalled)
+		signatures = append(signatures, sig)
+		pubKeys = append(pubKeys, pubkey)
 		justification.Signers.Set(uint64(w.powertable.Lookup[actorID]))
 	}
-	signatures = append(signatures, w.host.Sign(w.id, prepareMarshalled))
+	sig, pubkey := w.sign(w.id, prepareMarshalled)
+	signatures = append(signatures, sig)
+	pubKeys = append(pubKeys, pubkey)
+
 	justification.Signers.Set(uint64(w.powertable.Lookup[w.id]))
-	justification.Signature = w.host.Aggregate(signatures, justification.Signature)
+	var err error
+	justification.Signature, err = w.host.Aggregate(pubKeys, signatures)
+	if err != nil {
+		panic(err)
+	}
+
 	broadcast(commitPayload, &justification)
 }
 
@@ -131,17 +142,26 @@ func (w *WithholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Messag
 	return true
 }
 
-func broadcastHelper(host sim.AdversaryHost, sender f3.ActorID) func(f3.Payload, *f3.Justification) {
+func (w *WithholdCommit) sign(sender f3.ActorID, msg []byte) ([]byte, f3.PubKey) {
+	_, pubKey := w.powertable.Get(sender)
+	sig, err := w.host.Sign(pubKey, msg)
+	if err != nil {
+		panic(err)
+	}
+	return sig, pubKey
+}
+
+func (w *WithholdCommit) broadcastHelper(sender f3.ActorID) func(f3.Payload, *f3.Justification) {
 	return func(payload f3.Payload, justification *f3.Justification) {
 		pS := payload.MarshalForSigning(f3.TODONetworkName)
-		sig := host.Sign(sender, pS)
+		sig, _ := w.sign(sender, pS)
 
 		var just f3.Justification
 		if justification != nil {
 			just = *justification
 		}
 
-		host.BroadcastSynchronous(sender, f3.GMessage{
+		w.host.BroadcastSynchronous(sender, f3.GMessage{
 			Sender:        sender,
 			Vote:          payload,
 			Signature:     sig,

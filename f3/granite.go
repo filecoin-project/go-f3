@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/filecoin-project/go-bitfield"
+	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
 	"golang.org/x/xerrors"
 )
 
@@ -101,6 +102,7 @@ type Payload struct {
 
 func (p Payload) MarshalForSigning(nn NetworkName) []byte {
 	var buf bytes.Buffer
+
 	buf.WriteString(DOMAIN_SEPARATION_TAG)
 	buf.WriteString(nn.SignatureSeparationTag())
 	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
@@ -335,12 +337,12 @@ func (i *instance) tryCompletePhase() error {
 // Checks whether a message is valid.
 // An invalid message can never become valid, so may be dropped.
 func (i *instance) isValid(msg *GMessage) bool {
-	if !i.powerTable.Has(msg.Sender) {
+
+	power, pubKey := i.powerTable.Get(msg.Sender)
+	if power == nil || power.Sign() == 0 {
 		i.log("sender with zero power or not in power table")
 		return false
 	}
-
-	_, pubKey := i.powerTable.Get(msg.Sender)
 
 	if !(msg.Vote.Value.IsZero() || msg.Vote.Value.HasBase(i.input.Base())) {
 		i.log("unexpected base %s", &msg.Vote.Value)
@@ -507,7 +509,12 @@ func (i *instance) tryQuality() error {
 
 func (i *instance) beginConverge() {
 	i.phase = CONVERGE_PHASE
-	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
+	ticket, err := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round)
+	if err != nil {
+		// maybe something different than panic?
+		panic(err)
+	}
+
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE_PHASE.String())
 	prevRoundState := i.roundState(i.round - 1)
 
@@ -766,7 +773,12 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 	}
 	sp := p.MarshalForSigning(TODONetworkName)
 
-	sig := i.host.Sign(i.participantID, sp)
+	sig, err := i.sign(sp)
+	if err != nil {
+		// maybe something different than panic?
+		panic(err)
+	}
+
 	gmsg := &GMessage{
 		Sender:        i.participantID,
 		Vote:          p,
@@ -794,6 +806,11 @@ func (i *instance) log(format string, args ...interface{}) {
 		i.round, i.phase, &i.proposal, &i.value)
 }
 
+func (i *instance) sign(msg []byte) ([]byte, error) {
+	_, pubKey := i.powerTable.Get(i.participantID)
+	return i.host.Sign(pubKey, msg)
+}
+
 ///// Incremental quorum-calculation helper /////
 
 // Accumulates values from a collection of senders and incrementally calculates
@@ -816,7 +833,7 @@ type quorumState struct {
 type chainSupport struct {
 	chain           ECChain
 	power           *StoragePower
-	signers         map[ActorID][]byte
+	signatures      map[ActorID][]byte
 	hasStrongQuorum bool
 	hasWeakQuorum   bool
 }
@@ -846,14 +863,14 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, j
 	candidate, ok := q.chainSupport[head]
 	if ok {
 		// Don't double-count the same chain head for a single participant.
-		if _, ok := candidate.signers[sender]; ok {
+		if _, ok := candidate.signatures[sender]; ok {
 			return
 		}
 	} else {
 		candidate = chainSupport{
 			chain:           value,
 			power:           NewStoragePower(0),
-			signers:         map[ActorID][]byte{},
+			signatures:      map[ActorID][]byte{},
 			hasStrongQuorum: false,
 			hasWeakQuorum:   false,
 		}
@@ -862,7 +879,7 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, j
 
 	sigCopy := make([]byte, len(signature))
 	copy(sigCopy, signature)
-	candidate.signers[sender] = sigCopy
+	candidate.signatures[sender] = sigCopy
 
 	// Add sender's power to the chain's total power.
 	candidate.power.Add(candidate.power, senderPower)
@@ -911,7 +928,9 @@ func (q QuorumResult) SignersBitfield() bitfield.BitField {
 	for _, s := range q.Signers {
 		signers = append(signers, uint64(s))
 	}
-	return bitfield.NewFromSet(signers)
+	ri, _ := rlepluslazy.RunsFromSlice(signers)
+	bf, _ := bitfield.NewFromIter(ri)
+	return bf
 }
 
 // Checks whether a chain (head) has reached a strong quorum.
@@ -923,8 +942,8 @@ func (q *quorumState) FindStrongQuorumFor(value TipSetID) (QuorumResult, bool) {
 	}
 
 	// Build an array of indices of signers in the power table.
-	signers := make([]int, 0, len(chainSupport.signers))
-	for key := range chainSupport.signers {
+	signers := make([]int, 0, len(chainSupport.signatures))
+	for key, _ := range chainSupport.signatures {
 		signers = append(signers, q.powerTable.Lookup[key])
 	}
 	// Sort power table indices.
@@ -933,7 +952,7 @@ func (q *quorumState) FindStrongQuorumFor(value TipSetID) (QuorumResult, bool) {
 	sort.Ints(signers)
 
 	// Accumulate signers and signatures until they reach a strong quorum.
-	signatures := make([][]byte, 0, len(chainSupport.signers))
+	signatures := make([][]byte, 0, len(chainSupport.signatures))
 	pubkeys := make([]PubKey, 0, len(signatures))
 	justificationPower := NewStoragePower(0)
 	found := false
@@ -942,7 +961,7 @@ func (q *quorumState) FindStrongQuorumFor(value TipSetID) (QuorumResult, bool) {
 			panic(fmt.Sprintf("invalid signer index: %d for %d entries", idx, len(q.powerTable.Entries)))
 		}
 		justificationPower.Add(justificationPower, q.powerTable.Entries[idx].Power)
-		signatures = append(signatures, chainSupport.signers[q.powerTable.Entries[idx].ID])
+		signatures = append(signatures, chainSupport.signatures[q.powerTable.Entries[idx].ID])
 		pubkeys = append(pubkeys, q.powerTable.Entries[idx].PubKey)
 		if hasStrongQuorum(justificationPower, q.powerTable.Total) {
 			found = true

@@ -16,7 +16,7 @@ func (t Ticket) Compare(other Ticket) int {
 // A VRF ticket is produced by signing a payload which digests a beacon randomness value and
 // the instance and round numbers.
 type VRFTicketSource interface {
-	MakeTicket(beacon []byte, instance uint64, round uint64, signer ActorID) Ticket
+	MakeTicket(beacon []byte, instance uint64, round uint64) (Ticket, error)
 }
 
 type VRFTicketVerifier interface {
@@ -25,19 +25,21 @@ type VRFTicketVerifier interface {
 
 // VRF used for the CONVERGE step of GossiPBFT.
 type VRF struct {
+	source   PubKey
 	signer   Signer
 	verifier Verifier
 }
 
-func NewVRF(signer Signer, verifier Verifier) *VRF {
+func NewVRF(source PubKey, signer Signer, verifier Verifier) *VRF {
 	return &VRF{
+		source:   source,
 		signer:   signer,
 		verifier: verifier,
 	}
 }
 
-func (f *VRF) MakeTicket(beacon []byte, instance uint64, round uint64, signer ActorID) Ticket {
-	return f.signer.Sign(signer, f.serializeSigInput(beacon, instance, round))
+func (f *VRF) MakeTicket(beacon []byte, instance uint64, round uint64) (Ticket, error) {
+	return f.signer.Sign(f.source, f.serializeSigInput(beacon, instance, round))
 }
 
 func (f *VRF) VerifyTicket(beacon []byte, instance uint64, round uint64, signer PubKey, ticket Ticket) bool {
