@@ -137,7 +137,7 @@ func (p *Participant) ReceiveMessage(msg *GMessage) error {
 		if err := p.granite.Receive(msg); err != nil {
 			return fmt.Errorf("error receiving message: %w", err)
 		}
-		p.handleDecision()
+		return p.handleDecision()
 	} else if msg.Vote.Instance >= p.nextInstance {
 		// Queue messages for later instances
 		//TODO make quick verification to avoid spamming? (i.e. signature of the message)
