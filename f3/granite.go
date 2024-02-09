@@ -283,10 +283,7 @@ func (i *instance) receiveOne(msg *GMessage) error {
 	switch msg.Vote.Step {
 	case QUALITY_PHASE:
 		// Receive each prefix of the proposal independently.
-		for j := range msg.Vote.Value.Suffix() {
-			prefix := msg.Vote.Value.Prefix(j + 1)
-			i.quality.Receive(msg.Sender, prefix, msg.Signature, msg.Justification)
-		}
+		i.quality.Receive(msg.Sender, msg.Vote.Value, msg.Signature, msg.Justification)
 	case CONVERGE_PHASE:
 		if err := round.converged.Receive(msg.Vote.Value, msg.Ticket); err != nil {
 			return fmt.Errorf("failed processing CONVERGE message: %w", err)
