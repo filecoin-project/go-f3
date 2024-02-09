@@ -31,7 +31,6 @@ func (c Cert) MarshalBinary() ([]byte, error) {
 	return binary.LittleEndian.AppendUint64(nil, c.Instance), nil
 }
 
-var ErrCertAlreadyExists = errors.New("certificate already exists in the CertStore")
 var ErrCertNotFound = errors.New("certificate not found")
 
 // CertStore is responsible for storing and relaying information about new finality certificates
@@ -142,7 +141,7 @@ func (_ *CertStore) keyForInstance(i uint64) datastore.Key {
 }
 
 // Put saves a certificate in a store and notifies listeners.
-// It errors if the certificate is already in the store
+// It errors if adding a cert would create a gap
 func (cs *CertStore) Put(ctx context.Context, cert *Cert) error {
 	key := cs.keyForInstance(cert.Instance)
 
@@ -151,20 +150,22 @@ func (cs *CertStore) Put(ctx context.Context, cert *Cert) error {
 		return xerrors.Errorf("checking existence of cert: %w", err)
 	}
 	if exists {
-		return ErrCertAlreadyExists
-	}
-
-	if cs.Latest() != nil && cs.Latest().Instance+1 != cert.Instance {
-		return xerrors.Errorf("attempted to add cert at %d but the previous one is %d",
-			cert.Instance, cs.Latest().Instance)
+		return nil
 	}
 
 	certBytes, err := cert.MarshalBinary()
 	if err != nil {
 		return xerrors.Errorf("marshalling cert instance %d: %w", cert.Instance, err)
 	}
+
 	cs.writeLk.Lock()
 	defer cs.writeLk.Unlock()
+
+	if cs.Latest() != nil && cert.Instance > cs.Latest().Instance &&
+		cert.Instance != cs.Latest().Instance+1 {
+		return xerrors.Errorf("attempted to add cert at %d but the previous one is %d",
+			cert.Instance, cs.Latest().Instance)
+	}
 
 	if err := cs.ds.Put(ctx, key, certBytes); err != nil {
 		return xerrors.Errorf("putting the cert: %w", err)

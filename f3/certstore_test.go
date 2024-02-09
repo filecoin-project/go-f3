@@ -44,8 +44,11 @@ func TestPut(t *testing.T) {
 	require.Equal(t, uint64(1), latest.Instance)
 
 	err = cs.Put(ctx, cert)
+	require.NoError(t, err)
+
+	cert = &Cert{Instance: 3}
+	err = cs.Put(ctx, cert)
 	require.Error(t, err)
-	require.ErrorIs(t, ErrCertAlreadyExists, err)
 }
 
 func TestGet(t *testing.T) {
