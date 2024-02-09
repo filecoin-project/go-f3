@@ -53,65 +53,48 @@ func (w *WithholdCommit) ReceiveAlarm(_ string) error {
 }
 
 func (w *WithholdCommit) Begin() {
+	broadcast := broadcastHelper(w.host, w.id)
 	// All victims need to see QUALITY and PREPARE in order to send their COMMIT,
 	// but only the one victim will see our COMMIT.
-	w.host.BroadcastSynchronous(w.id, f3.GMessage{
-		Sender: w.id,
-		Current: f3.SignedMessage{
-			Instance: 0,
-			Round:    0,
-			Step:     f3.QUALITY_PHASE,
-			Value:    w.victimValue,
-		},
-		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.QUALITY_PHASE, w.victimValue)),
-	})
-	w.host.BroadcastSynchronous(w.id, f3.GMessage{
-		Sender: w.id,
-		Current: f3.SignedMessage{
-			Instance: 0,
-			Round:    0,
-			Step:     f3.PREPARE_PHASE,
-			Value:    w.victimValue,
-		},
-		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.PREPARE_PHASE, w.victimValue)),
-	})
-
-	message := f3.GMessage{
-		Sender: w.id,
-		Current: f3.SignedMessage{
-			Instance: 0,
-			Round:    0,
-			Step:     f3.COMMIT_PHASE,
-			Value:    w.victimValue,
-		},
-		Signature: w.host.Sign(w.id, f3.SignaturePayload(0, 0, f3.COMMIT_PHASE, w.victimValue)),
+	broadcast(f3.Payload{
+		Instance: 0,
+		Round:    0,
+		Step:     f3.QUALITY_PHASE,
+		Value:    w.victimValue,
+	}, nil)
+	preparePayload := f3.Payload{
+		Instance: 0,
+		Round:    0,
+		Step:     f3.PREPARE_PHASE,
+		Value:    w.victimValue,
 	}
-	payload := f3.SignaturePayload(0, 0, f3.PREPARE_PHASE, w.victimValue)
+	broadcast(preparePayload, nil)
+
+	commitPayload := f3.Payload{
+		Instance: 0,
+		Round:    0,
+		Step:     f3.COMMIT_PHASE,
+		Value:    w.victimValue,
+	}
+
 	justification := f3.Justification{
-		Payload: f3.SignedMessage{
-			Step:     f3.PREPARE_PHASE,
-			Value:    w.victimValue,
-			Instance: 0,
-			Round:    0,
-		},
-		QuorumSignature: f3.QuorumSignature{
-			Signers:   bitfield.New(),
-			Signature: nil,
-		},
+		Vote:      preparePayload,
+		Signers:   bitfield.New(),
+		Signature: nil,
 	}
 	// NOTE: this is a super-unrealistic adversary that can forge messages from other participants!
 	// This power is used to simplify the logic here so it doesn't have to execute the protocol
 	// properly to accumulate the evidence for its COMMIT message.
 	signatures := make([][]byte, 0)
+	prepareMarshalled := preparePayload.MarshalForSigning(f3.TODONetworkName)
 	for _, actorID := range w.victims {
-		signatures = append(signatures, w.host.Sign(actorID, payload))
-		justification.QuorumSignature.Signers.Set(uint64(w.powertable.Lookup[actorID]))
+		signatures = append(signatures, w.host.Sign(actorID, prepareMarshalled))
+		justification.Signers.Set(uint64(w.powertable.Lookup[actorID]))
 	}
-	signatures = append(signatures, w.host.Sign(w.id, payload))
-	justification.QuorumSignature.Signers.Set(uint64(w.powertable.Lookup[w.id]))
-	justification.QuorumSignature.Signature = w.host.Aggregate(signatures, justification.QuorumSignature.Signature)
-	message.Justification = justification
-	w.host.BroadcastSynchronous(w.id, message)
+	signatures = append(signatures, w.host.Sign(w.id, prepareMarshalled))
+	justification.Signers.Set(uint64(w.powertable.Lookup[w.id]))
+	justification.Signature = w.host.Aggregate(signatures, justification.Signature)
+	broadcast(commitPayload, &justification)
 }
 
 func (w *WithholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Message) bool {
@@ -124,26 +107,45 @@ func (w *WithholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Messag
 				toAnyVictim = true
 			}
 		}
-		if gmsg.Current.Step == f3.QUALITY_PHASE {
+		if gmsg.Vote.Step == f3.QUALITY_PHASE {
 			// Don't allow victims to see dissenting QUALITY.
-			if toAnyVictim && !gmsg.Current.Value.Eq(w.victimValue) {
+			if toAnyVictim && !gmsg.Vote.Value.Eq(w.victimValue) {
 				return false
 			}
-		} else if gmsg.Current.Step == f3.PREPARE_PHASE {
+		} else if gmsg.Vote.Step == f3.PREPARE_PHASE {
 			// Don't allow victims to see dissenting PREPARE.
-			if toAnyVictim && !gmsg.Current.Value.Eq(w.victimValue) {
+			if toAnyVictim && !gmsg.Vote.Value.Eq(w.victimValue) {
 				return false
 			}
-		} else if gmsg.Current.Step == f3.COMMIT_PHASE {
+		} else if gmsg.Vote.Step == f3.COMMIT_PHASE {
 			// Allow only the main victim to see our COMMIT.
 			if !toMainVictim && gmsg.Sender == w.id {
 				return false
 			}
 			// Don't allow the main victim to see any dissenting COMMIts.
-			if toMainVictim && !gmsg.Current.Value.Eq(w.victimValue) {
+			if toMainVictim && !gmsg.Vote.Value.Eq(w.victimValue) {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+func broadcastHelper(host sim.AdversaryHost, sender f3.ActorID) func(f3.Payload, *f3.Justification) {
+	return func(payload f3.Payload, justification *f3.Justification) {
+		pS := payload.MarshalForSigning(f3.TODONetworkName)
+		sig := host.Sign(sender, pS)
+
+		var just f3.Justification
+		if justification != nil {
+			just = *justification
+		}
+
+		host.BroadcastSynchronous(sender, f3.GMessage{
+			Sender:        sender,
+			Vote:          payload,
+			Signature:     sig,
+			Justification: just,
+		})
+	}
 }
