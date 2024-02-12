@@ -1,7 +1,7 @@
 package adversary
 
 import (
-	"slices"
+	"sort"
 
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-f3/f3"
@@ -92,7 +92,7 @@ func (w *WithholdCommit) Begin() {
 		signers = append(signers, w.powertable.Lookup[actorID])
 	}
 	signers = append(signers, w.powertable.Lookup[w.id])
-	slices.Sort(signers)
+	sort.Ints(signers)
 
 	signatures := make([][]byte, 0)
 	pubKeys := make([]f3.PubKey, 0)

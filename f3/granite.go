@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"slices"
 	"sort"
 
 	"github.com/filecoin-project/go-bitfield"
@@ -951,7 +950,7 @@ func (q *quorumState) FindStrongQuorumFor(value TipSetID) (QuorumResult, bool) {
 	// Sort power table indices.
 	// If the power table entries are ordered by decreasing power,
 	// then the first strong quorum found will be the smallest.
-	slices.Sort(signers)
+	sort.Ints(signers)
 
 	// Accumulate signers and signatures until they reach a strong quorum.
 	signatures := make([][]byte, 0, len(chainSupport.signatures))
