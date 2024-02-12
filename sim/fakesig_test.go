@@ -7,7 +7,7 @@ import (
 	"github.com/filecoin-project/go-f3/test"
 )
 
-func TestBLSSigning(t *testing.T) {
+func TestFakeSigning(t *testing.T) {
 	fakeSig := &sim.FakeSigner{}
 	test.NewSigningSuite(fakeSig, fakeSig).Run(t)
 }

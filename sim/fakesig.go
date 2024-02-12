@@ -29,7 +29,7 @@ func (_ *FakeSigner) Sign(signer f3.PubKey, msg []byte) ([]byte, error) {
 	return hash.Sum(nil), nil
 }
 
-func (s *FakeSigner) Verify(signer f3.PubKey, msg, sig []byte) error {
+func (_ *FakeSigner) Verify(signer f3.PubKey, msg, sig []byte) error {
 	hash, _ := blake2b.New256(nil)
 	hash.Write(signer)
 	hash.Write(msg)
