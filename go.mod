@@ -1,9 +1,9 @@
 module github.com/filecoin-project/go-f3
 
-go 1.21
+go 1.20
 
 require (
-	github.com/Kubuxu/go-broadcast v0.0.0-20240201170020-473af1b0846b
+	github.com/Kubuxu/go-broadcast v0.0.0-20240212204713-7007a1e29a19
 	github.com/drand/kyber v1.2.1-0.20230619134958-080efbe893bb
 	github.com/drand/kyber-bls12381 v0.3.1
 	github.com/filecoin-project/go-bitfield v0.2.4
