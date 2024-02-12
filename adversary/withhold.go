@@ -1,6 +1,8 @@
 package adversary
 
 import (
+	"slices"
+
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-f3/f3"
 	"github.com/filecoin-project/go-f3/sim"
@@ -85,20 +87,21 @@ func (w *WithholdCommit) Begin() {
 	// NOTE: this is a super-unrealistic adversary that can forge messages from other participants!
 	// This power is used to simplify the logic here so it doesn't have to execute the protocol
 	// properly to accumulate the evidence for its COMMIT message.
+	signers := make([]int, 0)
+	for _, actorID := range w.victims {
+		signers = append(signers, w.powertable.Lookup[actorID])
+	}
+	signers = append(signers, w.powertable.Lookup[w.id])
+	slices.Sort(signers)
 	signatures := make([][]byte, 0)
 	pubKeys := make([]f3.PubKey, 0)
 	prepareMarshalled := preparePayload.MarshalForSigning(f3.TODONetworkName)
-	for _, actorID := range w.victims {
-		sig, pubkey := w.sign(actorID, prepareMarshalled)
-		signatures = append(signatures, sig)
-		pubKeys = append(pubKeys, pubkey)
-		justification.Signers.Set(uint64(w.powertable.Lookup[actorID]))
+	for _, signerIndex := range signers {
+		entry := w.powertable.Entries[signerIndex]
+		signatures = append(signatures, w.sign(entry.PubKey, prepareMarshalled))
+		pubKeys = append(pubKeys, entry.PubKey)
+		justification.Signers.Set(uint64(signerIndex))
 	}
-	sig, pubkey := w.sign(w.id, prepareMarshalled)
-	signatures = append(signatures, sig)
-	pubKeys = append(pubKeys, pubkey)
-
-	justification.Signers.Set(uint64(w.powertable.Lookup[w.id]))
 	var err error
 	justification.Signature, err = w.host.Aggregate(pubKeys, signatures)
 	if err != nil {
@@ -142,19 +145,23 @@ func (w *WithholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Messag
 	return true
 }
 
-func (w *WithholdCommit) sign(sender f3.ActorID, msg []byte) ([]byte, f3.PubKey) {
-	_, pubKey := w.powertable.Get(sender)
-	sig, err := w.host.Sign(pubKey, msg)
+func (w *WithholdCommit) sign(pubkey f3.PubKey, msg []byte) []byte {
+
+	sig, err := w.host.Sign(pubkey, msg)
 	if err != nil {
 		panic(err)
 	}
-	return sig, pubKey
+	return sig
 }
 
 func (w *WithholdCommit) broadcastHelper(sender f3.ActorID) func(f3.Payload, *f3.Justification) {
 	return func(payload f3.Payload, justification *f3.Justification) {
 		pS := payload.MarshalForSigning(f3.TODONetworkName)
-		sig, _ := w.sign(sender, pS)
+		_, pubkey := w.powertable.Get(sender)
+		sig, err := w.host.Sign(pubkey, pS)
+		if err != nil {
+			panic(err)
+		}
 
 		var just f3.Justification
 		if justification != nil {

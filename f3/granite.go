@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/filecoin-project/go-bitfield"
@@ -354,6 +355,7 @@ func (i *instance) isValid(msg *GMessage) bool {
 		if msg.Vote.Round == 0 ||
 			msg.Vote.Value.IsZero() ||
 			!i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Vote.Round, pubKey, msg.Ticket) {
+			i.log("failed to verify ticket from %v", msg.Sender)
 			return false
 		}
 	} else if msg.Vote.Step == DECIDE_PHASE {
@@ -387,7 +389,7 @@ func (i *instance) VerifyJustification(justification Justification) error {
 	payload := justification.Vote.MarshalForSigning(TODONetworkName)
 
 	if err := i.host.VerifyAggregate(payload, justification.Signature, signers); err != nil {
-		return xerrors.Errorf("verification of the aggregate failed: %v: %w", justification, err)
+		return xerrors.Errorf("verification of the aggregate failed: %+v: %w", justification, err)
 	}
 
 	return nil
@@ -943,13 +945,13 @@ func (q *quorumState) FindStrongQuorumFor(value TipSetID) (QuorumResult, bool) {
 
 	// Build an array of indices of signers in the power table.
 	signers := make([]int, 0, len(chainSupport.signatures))
-	for key, _ := range chainSupport.signatures {
-		signers = append(signers, q.powerTable.Lookup[key])
+	for id, _ := range chainSupport.signatures {
+		signers = append(signers, q.powerTable.Lookup[id])
 	}
 	// Sort power table indices.
 	// If the power table entries are ordered by decreasing power,
 	// then the first strong quorum found will be the smallest.
-	sort.Ints(signers)
+	slices.Sort(signers)
 
 	// Accumulate signers and signatures until they reach a strong quorum.
 	signatures := make([][]byte, 0, len(chainSupport.signatures))
@@ -960,12 +962,13 @@ func (q *quorumState) FindStrongQuorumFor(value TipSetID) (QuorumResult, bool) {
 		if idx >= len(q.powerTable.Entries) {
 			panic(fmt.Sprintf("invalid signer index: %d for %d entries", idx, len(q.powerTable.Entries)))
 		}
-		justificationPower.Add(justificationPower, q.powerTable.Entries[idx].Power)
-		signatures = append(signatures, chainSupport.signatures[q.powerTable.Entries[idx].ID])
-		pubkeys = append(pubkeys, q.powerTable.Entries[idx].PubKey)
+		entry := q.powerTable.Entries[idx]
+		justificationPower.Add(justificationPower, entry.Power)
+		signatures = append(signatures, chainSupport.signatures[entry.ID])
+		pubkeys = append(pubkeys, entry.PubKey)
 		if hasStrongQuorum(justificationPower, q.powerTable.Total) {
 			found = true
-			signers = signers[:i]
+			signers = signers[:i+1]
 			break
 		}
 	}

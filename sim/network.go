@@ -1,14 +1,11 @@
 package sim
 
 import (
-	"bytes"
 	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/filecoin-project/go-f3/f3"
-	"golang.org/x/crypto/blake2b"
-	"golang.org/x/xerrors"
 )
 
 type AdversaryReceiver interface {
@@ -35,7 +32,13 @@ const (
 
 const _ = TraceAll // Suppress unused constant warning.
 
+type signingBackend interface {
+}
+
 type Network struct {
+	f3.Signer
+	f3.Verifier
+
 	// Participants by ID.
 	participants map[f3.ActorID]f3.Receiver
 	// Participant IDs for deterministic iteration
@@ -54,7 +57,11 @@ type Network struct {
 }
 
 func NewNetwork(latency LatencyModel, traceLevel int) *Network {
+	fakeSigner := &FakeSigner{}
 	return &Network{
+		Signer:   fakeSigner,
+		Verifier: fakeSigner,
+
 		participants:               map[f3.ActorID]f3.Receiver{},
 		participantIDs:             []f3.ActorID{},
 		queue:                      messageQueue{},
@@ -106,54 +113,6 @@ func (n *Network) SetAlarm(sender f3.ActorID, payload string, at float64) {
 		payload:   "ALARM:" + payload,
 		deliverAt: at,
 	})
-}
-
-///// Signer interface
-
-func (n *Network) Sign(signer f3.PubKey, msg []byte) ([]byte, error) {
-	hash, _ := blake2b.New256(nil)
-	hash.Write(signer)
-	hash.Write(msg)
-
-	return hash.Sum(nil), nil
-}
-
-func (n *Network) Verify(pubKey f3.PubKey, msg, sig []byte) error {
-
-	aux, _ := n.Sign(pubKey, msg)
-	if !bytes.Equal(aux, sig) {
-		return xerrors.Errorf("signature miss-match: %x != %x", aux, sig)
-	}
-	return nil
-}
-
-func (n *Network) Aggregate(pubKeys []f3.PubKey, sigs [][]byte) ([]byte, error) {
-
-	// Fake implementation.
-	hash, _ := blake2b.New256(nil)
-	for _, s := range sigs {
-		hash.Write(s)
-	}
-
-	return hash.Sum(nil), nil
-}
-
-func (n *Network) VerifyAggregate(payload, aggSig []byte, signers []f3.PubKey) error {
-	return nil
-	aggHash, _ := blake2b.New256(nil)
-	sigHash, _ := blake2b.New256(nil)
-	for _, signer := range signers {
-		sigHash.Reset()
-		sigHash.Write(signer)
-
-		sig := sigHash.Sum(payload)
-		aggHash.Write(sig)
-	}
-	if !bytes.Equal(aggSig, aggHash.Sum(nil)) {
-		return xerrors.Errorf("aggregate signature")
-	}
-
-	return nil
 }
 
 func (n *Network) Log(format string, args ...interface{}) {

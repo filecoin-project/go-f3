@@ -45,6 +45,8 @@ type Clock interface {
 }
 
 type Signer interface {
+	// GenerateKey is used for testing
+	GenerateKey() PubKey
 	// Signs a message for the given sender ID.
 	Sign(sender PubKey, msg []byte) ([]byte, error)
 }

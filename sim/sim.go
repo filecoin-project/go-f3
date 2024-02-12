@@ -1,11 +1,11 @@
 package sim
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
+	"os"
 	"strings"
 
+	"github.com/filecoin-project/go-f3/blssig"
 	"github.com/filecoin-project/go-f3/f3"
 )
 
@@ -33,13 +33,17 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 	// Create a network to deliver messages.
 	lat := NewLogNormal(simConfig.LatencySeed, simConfig.LatencyMean)
 	ntwk := NewNetwork(lat, traceLevel)
+	if os.Getenv("F3_TEST_USE_BLS") == "1" {
+		ntwk.Signer = blssig.SignerWithKeyOnG2()
+		ntwk.Verifier = blssig.VerifierWithKeyOnG2()
+	}
 
 	// Create participants.
 	genesisPower := f3.NewPowerTable(make([]f3.PowerEntry, 0))
 	participants := make([]*f3.Participant, simConfig.HonestCount)
 	for i := 0; i < len(participants); i++ {
-		pubKey := getFakePubKey(f3.ActorID(i))
-		vrf := f3.NewVRF(pubKey, ntwk, ntwk)
+		pubKey := ntwk.GenerateKey()
+		vrf := f3.NewVRF(pubKey, ntwk.Signer, ntwk.Verifier)
 		participants[i] = f3.NewParticipant(f3.ActorID(i), graniteConfig, ntwk, vrf)
 		ntwk.AddParticipant(participants[i], pubKey)
 		if err := genesisPower.Add(participants[i].ID(), f3.NewStoragePower(1), pubKey); err != nil {
@@ -67,7 +71,7 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 
 func (s *Simulation) SetAdversary(adv AdversaryReceiver, power uint) {
 	s.Adversary = adv
-	pubKey := getFakePubKey(adv.ID())
+	pubKey := s.Network.GenerateKey()
 	s.Network.AddParticipant(adv, pubKey)
 	if err := s.PowerTable.Add(adv.ID(), f3.NewStoragePower(int64(power)), pubKey); err != nil {
 		panic(err)
@@ -201,10 +205,3 @@ func (c *CIDGen) next() uint64 {
 }
 
 var alphanum = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-
-func getFakePubKey(id f3.ActorID) f3.PubKey {
-	var buf bytes.Buffer
-	buf.WriteString("PUBKEY:")
-	_ = binary.Write(&buf, binary.BigEndian, id)
-	return buf.Bytes()
-}
