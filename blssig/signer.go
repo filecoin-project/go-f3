@@ -5,7 +5,9 @@ import (
 	bls12381 "github.com/drand/kyber-bls12381"
 	"github.com/drand/kyber/pairing"
 	"github.com/drand/kyber/sign"
-	"github.com/drand/kyber/sign/bls"
+
+	// we use it only for signing, verification is rogue key safe
+	"github.com/drand/kyber/sign/bls" //nolint:staticcheck
 	"github.com/filecoin-project/go-f3/f3"
 	"golang.org/x/xerrors"
 )

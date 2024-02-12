@@ -945,7 +945,7 @@ func (q *quorumState) FindStrongQuorumFor(value TipSetID) (QuorumResult, bool) {
 
 	// Build an array of indices of signers in the power table.
 	signers := make([]int, 0, len(chainSupport.signatures))
-	for id, _ := range chainSupport.signatures {
+	for id := range chainSupport.signatures {
 		signers = append(signers, q.powerTable.Lookup[id])
 	}
 	// Sort power table indices.

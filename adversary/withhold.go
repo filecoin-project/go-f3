@@ -93,6 +93,7 @@ func (w *WithholdCommit) Begin() {
 	}
 	signers = append(signers, w.powertable.Lookup[w.id])
 	slices.Sort(signers)
+
 	signatures := make([][]byte, 0)
 	pubKeys := make([]f3.PubKey, 0)
 	prepareMarshalled := preparePayload.MarshalForSigning(f3.TODONetworkName)
