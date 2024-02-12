@@ -36,11 +36,13 @@ func (w *WithholdCommit) ID() f3.ActorID {
 	return w.id
 }
 
-func (w *WithholdCommit) ReceiveCanonicalChain(_ f3.ECChain, _ f3.PowerTable, _ []byte) error {
+func (w *WithholdCommit) ReceiveCanonicalChain(_ f3.ECChain, _ [][]byte) error {
 	return nil
 }
 
-func (w *WithholdCommit) ReceiveECChain(_ f3.ECChain) error {
+func (w *WithholdCommit) SendNewFinalisedChain() error { return nil }
+
+func (w *WithholdCommit) ReceivePowerTable(_ f3.PowerTable, _ f3.TipSetID) error {
 	return nil
 }
 
@@ -48,7 +50,7 @@ func (w *WithholdCommit) ReceiveMessage(_ *f3.GMessage) error {
 	return nil
 }
 
-func (w *WithholdCommit) ReceiveAlarm(_ string) error {
+func (w *WithholdCommit) ReceiveAlarm(_ *f3.AlarmMsg) error {
 	return nil
 }
 

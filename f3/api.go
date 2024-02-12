@@ -1,14 +1,19 @@
 package f3
 
-// Receives EC chain values.
-type ChainReceiver interface {
+// Receives EC chain values, notifies Lotus of newly finalised chains, and receives power tables
+type Finaliser interface {
 	// Receives a chain appropriate for use as initial proposals for a Granite instance.
 	// The chain's base is assumed to be an appropriate base for the instance.
-	ReceiveCanonicalChain(chain ECChain, power PowerTable, beacon []byte) error
+	// The beacons are the beacon values for the chain.
+	ReceiveCanonicalChain(chain ECChain, beacons [][]byte) error
 
-	// Receives a new EC chain, and notifies the current instance if it extends its current acceptable chain.
-	// This modifies the set of valid values for the current instance.
-	ReceiveECChain(chain ECChain) error
+	// Sends a new finalised chain to the host.
+	// This call acts a request for Lotus to send an updated power table
+	// Lotus will always send a new chain if the head changes so no need to make this call a request for that
+	SendNewFinalisedChain() error
+
+	// Receives a power table from the given participant.
+	ReceivePowerTable(pt PowerTable, baseID TipSetID) error
 }
 
 // A consensus message.
@@ -20,13 +25,13 @@ type MessageReceiver interface {
 	// Receives a message from another participant.
 	// No validation may be assumed to have been performed on the message.
 	ReceiveMessage(msg *GMessage) error
-	ReceiveAlarm(payload string) error
+	ReceiveAlarm(amsg *AlarmMsg) error
 }
 
 // Interface which network participants must implement.
 type Receiver interface {
 	ID() ActorID
-	ChainReceiver
+	Finaliser
 	MessageReceiver
 }
 
@@ -41,7 +46,7 @@ type Clock interface {
 	// Returns the current network time.
 	Time() float64
 	// Sets an alarm to fire at the given timestamp.
-	SetAlarm(sender ActorID, payload string, at float64)
+	SetAlarm(sender ActorID, instanceID uint64, payload string, at float64)
 }
 
 type Signer interface {

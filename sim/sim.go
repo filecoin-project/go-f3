@@ -38,8 +38,11 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 	// Create participants.
 	genesisPower := f3.NewPowerTable(make([]f3.PowerEntry, 0))
 	participants := make([]*f3.Participant, simConfig.HonestCount)
+	// Create genesis tipset, which all participants are expected to agree on as a base.
+	genesis := f3.NewTipSet(100, f3.NewTipSetIDFromString("genesis"), 1)
+
 	for i := 0; i < len(participants); i++ {
-		participants[i] = f3.NewParticipant(f3.ActorID(i), graniteConfig, ntwk, vrf)
+		participants[i] = f3.NewParticipant(f3.ActorID(i), graniteConfig, ntwk, vrf, genesis)
 		pubKey := getFakePubKey(participants[i].ID())
 		ntwk.AddParticipant(participants[i], pubKey)
 		if err := genesisPower.Add(participants[i].ID(), f3.NewStoragePower(1), pubKey); err != nil {
@@ -47,8 +50,6 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 		}
 	}
 
-	// Create genesis tipset, which all participants are expected to agree on as a base.
-	genesis := f3.NewTipSet(100, f3.NewTipSetIDFromString("genesis"), 1)
 	baseChain, err := f3.NewChain(genesis)
 	if err != nil {
 		panic(fmt.Errorf("failed creating new chain: %w", err))
@@ -83,8 +84,17 @@ type ChainCount struct {
 func (s *Simulation) ReceiveChains(chains ...ChainCount) {
 	pidx := 0
 	for _, chain := range chains {
+		// Create a slice of [][]byte with the same length as chain and filled with copies of s.Beacon
+		beacons := make([][]byte, len(chain.Chain))
+		for i := range beacons {
+			beacons[i] = make([]byte, len(s.Beacon))
+			copy(beacons[i], s.Beacon)
+		}
 		for i := 0; i < chain.Count; i++ {
-			if err := s.Participants[pidx].ReceiveCanonicalChain(chain.Chain, s.PowerTable, s.Beacon); err != nil {
+			if err := s.Participants[pidx].ReceivePowerTable(s.PowerTable, chain.Chain.Base().CID); err != nil {
+				panic(fmt.Errorf("participant %d failed receiving power table: %w", pidx, err))
+			}
+			if err := s.Participants[pidx].ReceiveCanonicalChain(chain.Chain, beacons); err != nil {
 				panic(fmt.Errorf("participant %d failed receiving canonical chain %d: %w", pidx, i, err))
 			}
 			pidx += 1
@@ -99,8 +109,14 @@ func (s *Simulation) ReceiveChains(chains ...ChainCount) {
 func (s *Simulation) ReceiveECChains(chains ...ChainCount) {
 	pidx := 0
 	for _, chain := range chains {
+		// Create a slice of [][]byte with the same length as chain and filled with copies of s.Beacon
+		beacons := make([][]byte, len(chain.Chain))
+		for i := range beacons {
+			beacons[i] = make([]byte, len(s.Beacon))
+			copy(beacons[i], s.Beacon)
+		}
 		for i := 0; i < chain.Count; i++ {
-			if err := s.Participants[pidx].ReceiveECChain(chain.Chain); err != nil {
+			if err := s.Participants[pidx].ReceiveCanonicalChain(chain.Chain, beacons); err != nil {
 				panic(err)
 			}
 			pidx += 1
