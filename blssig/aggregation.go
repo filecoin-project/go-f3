@@ -11,34 +11,6 @@ import (
 	"golang.org/x/xerrors"
 )
 
-func (v Verifier) pubkeysToMask(pubkeys []f3.PubKey) (*sign.Mask, error) {
-	kPubkeys := make([]kyber.Point, 0, len(pubkeys))
-	for i, p := range pubkeys {
-		point := v.keyGroup.Point()
-		err := point.UnmarshalBinary(p)
-		if err != nil {
-			return nil, xerrors.Errorf("unarshalling pubkey at index %d: %w", i, err)
-		}
-		if point.Equal(v.keyGroup.Point().Null()) {
-			return nil, xerrors.Errorf("the public key at %d is a null point", i)
-		}
-
-		kPubkeys = append(kPubkeys, point)
-	}
-
-	mask, err := sign.NewMask(v.suite, kPubkeys, nil)
-	if err != nil {
-		return nil, xerrors.Errorf("creating key mask: %w", err)
-	}
-	for i := range kPubkeys {
-		err := mask.SetBit(i, true)
-		if err != nil {
-			return nil, xerrors.Errorf("setting mask bit %d: %w", i, err)
-		}
-	}
-	return mask, nil
-}
-
 func (v Verifier) Aggregate(pubkeys []f3.PubKey, signatures [][]byte) ([]byte, error) {
 	if len(pubkeys) != len(signatures) {
 		return nil, xerrors.Errorf("lengths of pubkeys and sigs does not match %d != %d",
@@ -74,4 +46,32 @@ func (v Verifier) VerifyAggregate(msg []byte, signature []byte, pubkeys []f3.Pub
 	}
 
 	return bdn.Verify(v.suite, aggPubKey, msg, signature)
+}
+
+func (v Verifier) pubkeysToMask(pubkeys []f3.PubKey) (*sign.Mask, error) {
+	kPubkeys := make([]kyber.Point, 0, len(pubkeys))
+	for i, p := range pubkeys {
+		point := v.keyGroup.Point()
+		err := point.UnmarshalBinary(p)
+		if err != nil {
+			return nil, xerrors.Errorf("unarshalling pubkey at index %d: %w", i, err)
+		}
+		if point.Equal(v.keyGroup.Point().Null()) {
+			return nil, xerrors.Errorf("the public key at %d is a null point", i)
+		}
+
+		kPubkeys = append(kPubkeys, point)
+	}
+
+	mask, err := sign.NewMask(v.suite, kPubkeys, nil)
+	if err != nil {
+		return nil, xerrors.Errorf("creating key mask: %w", err)
+	}
+	for i := range kPubkeys {
+		err := mask.SetBit(i, true)
+		if err != nil {
+			return nil, xerrors.Errorf("setting mask bit %d: %w", i, err)
+		}
+	}
+	return mask, nil
 }

@@ -23,7 +23,6 @@ func VerifierWithKeyOnG2() Verifier {
 }
 
 func (v Verifier) Verify(pubKey f3.PubKey, msg, sig []byte) error {
-	// rejecting zero point pubkeys?
 	pubKeyPoint := v.keyGroup.Point()
 	err := pubKeyPoint.UnmarshalBinary(pubKey)
 	if err != nil {

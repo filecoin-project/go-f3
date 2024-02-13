@@ -337,7 +337,6 @@ func (i *instance) tryCompletePhase() error {
 // Checks whether a message is valid.
 // An invalid message can never become valid, so may be dropped.
 func (i *instance) isValid(msg *GMessage) bool {
-
 	power, pubKey := i.powerTable.Get(msg.Sender)
 	if power == nil || power.Sign() == 0 {
 		i.log("sender with zero power or not in power table")
@@ -557,7 +556,7 @@ func (i *instance) beginConverge() {
 	}
 	ticket, err := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round)
 	if err != nil {
-		i.log("creating VRF ticket: %v", err)
+		i.log("error while creating VRF ticket: %v", err)
 		return
 	}
 
@@ -776,7 +775,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 
 	sig, err := i.sign(sp)
 	if err != nil {
-		i.log("failed to sign message: %v", err)
+		i.log("error while signing message: %v", err)
 		return
 	}
 
@@ -877,9 +876,7 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, j
 		q.chainSupport[value.HeadCIDOrZero()] = candidate
 	}
 
-	sigCopy := make([]byte, len(signature))
-	copy(sigCopy, signature)
-	candidate.signatures[sender] = sigCopy
+	candidate.signatures[sender] = signature
 
 	// Add sender's power to the chain's total power.
 	candidate.power.Add(candidate.power, senderPower)
