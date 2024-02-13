@@ -50,7 +50,7 @@ func (w *WithholdCommit) ReceiveMessage(_ *f3.GMessage) error {
 	return nil
 }
 
-func (w *WithholdCommit) ReceiveAlarm(_ string) error {
+func (w *WithholdCommit) ReceiveAlarm() error {
 	return nil
 }
 

@@ -99,11 +99,11 @@ func (n *Network) Time() float64 {
 	return n.clock
 }
 
-func (n *Network) SetAlarm(sender f3.ActorID, payload string, at float64) {
+func (n *Network) SetAlarm(sender f3.ActorID, at float64) {
 	n.queue.Insert(messageInFlight{
 		source:    sender,
 		dest:      sender,
-		payload:   "ALARM:" + payload,
+		payload:   "ALARM",
 		deliverAt: at,
 	})
 }
@@ -150,9 +150,9 @@ func (n *Network) Tick(adv AdversaryReceiver) (bool, error) {
 	msg := n.queue.Remove(i)
 	n.clock = msg.deliverAt
 	payloadStr, ok := msg.payload.(string)
-	if ok && strings.HasPrefix(payloadStr, "ALARM:") {
+	if ok && strings.HasPrefix(payloadStr, "ALARM") {
 		n.log(TraceRecvd, "P%d %s", msg.source, payloadStr)
-		if err := n.participants[msg.dest].ReceiveAlarm(strings.TrimPrefix(payloadStr, "ALARM:")); err != nil {
+		if err := n.participants[msg.dest].ReceiveAlarm(); err != nil {
 			return false, fmt.Errorf("failed receiving alarm: %w", err)
 		}
 	} else {

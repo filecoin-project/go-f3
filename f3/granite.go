@@ -233,7 +233,7 @@ func (i *instance) Receive(msg *GMessage) error {
 	return i.drainInbox()
 }
 
-func (i *instance) ReceiveAlarm(_ string) error {
+func (i *instance) ReceiveAlarm() error {
 	if err := i.tryCompletePhase(); err != nil {
 		return fmt.Errorf("failed completing protocol phase: %w", err)
 	}
@@ -476,7 +476,7 @@ func (i *instance) beginQuality() error {
 	}
 	// Broadcast input value and wait up to Δ to receive from others.
 	i.phase = QUALITY_PHASE
-	i.phaseTimeout = i.alarmAfterSynchrony(QUALITY_PHASE.String())
+	i.phaseTimeout = i.alarmAfterSynchrony()
 	i.broadcast(i.round, QUALITY_PHASE, i.input, nil, Justification{})
 	return nil
 }
@@ -510,7 +510,7 @@ func (i *instance) tryQuality() error {
 func (i *instance) beginConverge() {
 	i.phase = CONVERGE_PHASE
 
-	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE_PHASE.String())
+	i.phaseTimeout = i.alarmAfterSynchrony()
 	prevRoundState := i.roundState(i.round - 1)
 
 	var justification Justification
@@ -596,7 +596,7 @@ func (i *instance) tryConverge() error {
 func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE_PHASE
-	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE_PHASE.String())
+	i.phaseTimeout = i.alarmAfterSynchrony()
 	i.broadcast(i.round, PREPARE_PHASE, i.value, nil, Justification{})
 }
 
@@ -626,7 +626,7 @@ func (i *instance) tryPrepare() error {
 
 func (i *instance) beginCommit() {
 	i.phase = COMMIT_PHASE
-	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE_PHASE.String())
+	i.phaseTimeout = i.alarmAfterSynchrony()
 
 	var justification Justification
 	if quorum, ok := i.roundState(i.round).prepared.FindStrongQuorumFor(i.value.HeadCIDOrZero()); ok {
@@ -793,9 +793,9 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 // Sets an alarm to be delivered after a synchrony delay.
 // The delay duration increases with each round.
 // Returns the absolute time at which the alarm will fire.
-func (i *instance) alarmAfterSynchrony(payload string) float64 {
+func (i *instance) alarmAfterSynchrony() float64 {
 	timeout := i.host.Time() + i.config.Delta + (float64(i.round) * i.config.DeltaRate)
-	i.host.SetAlarm(i.participantID, payload, timeout)
+	i.host.SetAlarm(i.participantID, timeout)
 	return timeout
 }
 

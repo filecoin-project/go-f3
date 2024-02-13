@@ -81,10 +81,10 @@ func (p *Participant) ReceiveMessage(msg *GMessage) error {
 	return nil
 }
 
-func (p *Participant) ReceiveAlarm(payload string) error {
+func (p *Participant) ReceiveAlarm() error {
 	// TODO include instance ID in alarm message, and filter here.
 	if p.granite != nil {
-		if err := p.granite.ReceiveAlarm(payload); err != nil {
+		if err := p.granite.ReceiveAlarm(); err != nil {
 			return fmt.Errorf("failed receiving alarm: %w", err)
 		}
 		p.handleDecision()
