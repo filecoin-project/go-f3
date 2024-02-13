@@ -13,7 +13,8 @@ type FakeSigner struct {
 	i int
 }
 
-var _ signingBackend = (*FakeSigner)(nil)
+var _ f3.Signer = (*FakeSigner)(nil)
+var _ f3.Verifier = (*FakeSigner)(nil)
 
 func (s *FakeSigner) GenerateKey() f3.PubKey {
 	pubKey := f3.PubKey(fmt.Sprintf("pubkey:%08x", s.i))

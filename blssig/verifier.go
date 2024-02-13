@@ -29,6 +29,9 @@ func (v Verifier) Verify(pubKey f3.PubKey, msg, sig []byte) error {
 	if err != nil {
 		return xerrors.Errorf("unarshalling public key: %w", err)
 	}
+	if pubKeyPoint.Equal(v.keyGroup.Point().Null()) {
+		return xerrors.Errorf("the public key is a null point")
+	}
 
 	return bdn.Verify(v.suite, pubKeyPoint, msg, sig)
 }

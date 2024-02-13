@@ -19,6 +19,9 @@ func (v Verifier) pubkeysToMask(pubkeys []f3.PubKey) (*sign.Mask, error) {
 		if err != nil {
 			return nil, xerrors.Errorf("unarshalling pubkey at index %d: %w", i, err)
 		}
+		if point.Equal(v.keyGroup.Point().Null()) {
+			return nil, xerrors.Errorf("the public key at %d is a null point", i)
+		}
 
 		kPubkeys = append(kPubkeys, point)
 	}

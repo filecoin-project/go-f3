@@ -32,9 +32,6 @@ const (
 
 const _ = TraceAll // Suppress unused constant warning.
 
-type signingBackend interface {
-}
-
 type Network struct {
 	f3.Signer
 	f3.Verifier

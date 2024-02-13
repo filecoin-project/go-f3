@@ -510,11 +510,6 @@ func (i *instance) tryQuality() error {
 
 func (i *instance) beginConverge() {
 	i.phase = CONVERGE_PHASE
-	ticket, err := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round)
-	if err != nil {
-		// maybe something different than panic?
-		panic(err)
-	}
 
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE_PHASE.String())
 	prevRoundState := i.roundState(i.round - 1)
@@ -524,7 +519,7 @@ func (i *instance) beginConverge() {
 		value := ECChain{}
 		aggSignature, err := quorum.Aggregate(i.host)
 		if err != nil {
-			panic(fmt.Sprintf("aggregating for convergage: %v", err))
+			panic(xerrors.Errorf("aggregating for convergage: %v", err))
 		}
 
 		justificationPayload := Payload{
@@ -542,7 +537,7 @@ func (i *instance) beginConverge() {
 		value := i.proposal
 		aggSignature, err := quorum.Aggregate(i.host)
 		if err != nil {
-			panic(fmt.Sprintf("aggregating for convergage: %v", err))
+			panic(xerrors.Errorf("aggregating for convergage: %v", err))
 		}
 		justificationPayload := Payload{
 			Instance: i.instanceID,
@@ -559,6 +554,11 @@ func (i *instance) beginConverge() {
 		//justificationPayload already assigned in the if statement
 	} else {
 		panic("beginConverge called but no evidence found")
+	}
+	ticket, err := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round)
+	if err != nil {
+		i.log("creating VRF ticket: %v", err)
+		return
 	}
 
 	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, ticket, justification)
@@ -634,7 +634,7 @@ func (i *instance) beginCommit() {
 		// Strong quorum found, aggregate the evidence for it.
 		aggSignature, err := quorum.Aggregate(i.host)
 		if err != nil {
-			panic(fmt.Sprintf("aggregating for convergage: %v", err))
+			panic(xerrors.Errorf("aggregating for commit: %v", err))
 		}
 
 		justification = Justification{
@@ -702,7 +702,7 @@ func (i *instance) beginDecide(round uint64) {
 	if quorum, ok := roundState.committed.FindStrongQuorumFor(i.value.Head().CID); ok {
 		aggSignature, err := quorum.Aggregate(i.host)
 		if err != nil {
-			panic(fmt.Sprintf("aggregating for convergage: %v", err))
+			panic(xerrors.Errorf("aggregating for decide: %v", err))
 		}
 		justificationPayload := Payload{
 			Instance: i.instanceID,
@@ -765,7 +765,7 @@ func (i *instance) terminated() bool {
 	return i.phase == TERMINATED_PHASE
 }
 
-func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Ticket, justification Justification) *GMessage {
+func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Ticket, justification Justification) {
 	p := Payload{
 		Instance: i.instanceID,
 		Round:    round,
@@ -777,7 +777,8 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 	sig, err := i.sign(sp)
 	if err != nil {
 		// maybe something different than panic?
-		panic(err)
+		i.log("failed to sign message: %v", err)
+		return
 	}
 
 	gmsg := &GMessage{
@@ -789,7 +790,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 	}
 	i.host.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
-	return gmsg
+	return
 }
 
 // Sets an alarm to be delivered after a synchrony delay.
@@ -916,6 +917,7 @@ func (q *quorumState) HasStrongQuorumFor(cid TipSetID) bool {
 }
 
 type QuorumResult struct {
+	// Signers is an array of indexes into the powertable, sorted in increasing order
 	Signers    []int
 	PubKeys    []PubKey
 	Signatures [][]byte
@@ -956,7 +958,6 @@ func (q *quorumState) FindStrongQuorumFor(value TipSetID) (QuorumResult, bool) {
 	signatures := make([][]byte, 0, len(chainSupport.signatures))
 	pubkeys := make([]PubKey, 0, len(signatures))
 	justificationPower := NewStoragePower(0)
-	found := false
 	for i, idx := range signers {
 		if idx >= len(q.powerTable.Entries) {
 			panic(fmt.Sprintf("invalid signer index: %d for %d entries", idx, len(q.powerTable.Entries)))
@@ -966,21 +967,15 @@ func (q *quorumState) FindStrongQuorumFor(value TipSetID) (QuorumResult, bool) {
 		signatures = append(signatures, chainSupport.signatures[entry.ID])
 		pubkeys = append(pubkeys, entry.PubKey)
 		if hasStrongQuorum(justificationPower, q.powerTable.Total) {
-			found = true
-			signers = signers[:i+1]
-			break
+			return QuorumResult{
+				Signers:    signers[:i+1],
+				PubKeys:    pubkeys,
+				Signatures: signatures,
+			}, true
 		}
 	}
 
-	if !found {
-		return QuorumResult{}, false
-	}
-
-	return QuorumResult{
-		Signers:    signers,
-		PubKeys:    pubkeys,
-		Signatures: signatures,
-	}, true
+	return QuorumResult{}, false
 }
 
 // Checks whether a chain (head) has reached weak quorum.

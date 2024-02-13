@@ -54,7 +54,7 @@ type Signer interface {
 type Verifier interface {
 	// Verifies a signature for the given public key
 	Verify(pubKey PubKey, msg, sig []byte) error
-	// Aggregates signatures from a participant to an existing signature.
+	// Aggregates signatures from a participants
 	Aggregate(pubKeys []PubKey, sigs [][]byte) ([]byte, error)
 	// VerifyAggregate verifies an aggregate signature.
 	VerifyAggregate(payload, aggSig []byte, signers []PubKey) error
