@@ -790,7 +790,6 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 	}
 	i.host.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
-	return
 }
 
 // Sets an alarm to be delivered after a synchrony delay.
