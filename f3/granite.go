@@ -485,7 +485,7 @@ func (i *instance) tryQuality() error {
 	}
 	// Wait either for a strong quorum that agree on our proposal,
 	// or for the timeout to expire.
-	foundQuorum := i.quality.HasStrongQuorumAgreement(i.proposal.Head().CID)
+	foundQuorum := i.quality.HasStrongQuorumFor(i.proposal.Head().CID)
 	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
 	if foundQuorum {
@@ -511,7 +511,7 @@ func (i *instance) beginConverge() {
 	prevRoundState := i.roundState(i.round - 1)
 
 	var justification Justification
-	if signers, signatures, ok := prevRoundState.committed.FindStrongQuorumAgreement(ZeroTipSetID()); ok {
+	if signers, signatures, ok := prevRoundState.committed.FindStrongQuorumFor(ZeroTipSetID()); ok {
 		value := ECChain{}
 		aggSignature := i.host.Aggregate(signatures, nil)
 		justificationPayload := Payload{
@@ -525,7 +525,7 @@ func (i *instance) beginConverge() {
 			Signers:   signers,
 			Signature: aggSignature,
 		}
-	} else if signers, signatures, ok = prevRoundState.prepared.FindStrongQuorumAgreement(i.proposal.Head().CID); ok {
+	} else if signers, signatures, ok = prevRoundState.prepared.FindStrongQuorumFor(i.proposal.Head().CID); ok {
 		value := i.proposal
 		aggSignature := i.host.Aggregate(signatures, nil)
 		justificationPayload := Payload{
@@ -593,7 +593,7 @@ func (i *instance) tryPrepare() error {
 
 	prepared := i.roundState(i.round).prepared
 	// Optimisation: we could advance phase once a strong quorum on our proposal is not possible.
-	foundQuorum := prepared.HasStrongQuorumAgreement(i.proposal.Head().CID)
+	foundQuorum := prepared.HasStrongQuorumFor(i.proposal.Head().CID)
 	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
 	if foundQuorum {
@@ -614,7 +614,7 @@ func (i *instance) beginCommit() {
 	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE_PHASE.String())
 
 	var justification Justification
-	if signers, signatures, ok := i.roundState(i.round).prepared.FindStrongQuorumAgreement(i.value.HeadCIDOrZero()); ok {
+	if signers, signatures, ok := i.roundState(i.round).prepared.FindStrongQuorumFor(i.value.HeadCIDOrZero()); ok {
 		// Strong quorum found, aggregate the evidence for it.
 		aggSignature := i.host.Aggregate(signatures, nil)
 		justification = Justification{
@@ -679,7 +679,7 @@ func (i *instance) beginDecide(round uint64) {
 
 	var justification Justification
 	// Value cannot be empty here.
-	if signers, signatures, ok := roundState.committed.FindStrongQuorumAgreement(i.value.Head().CID); ok {
+	if signers, signatures, ok := roundState.committed.FindStrongQuorumFor(i.value.Head().CID); ok {
 		aggSignature := i.host.Aggregate(signatures, nil)
 		justificationPayload := Payload{
 			Instance: i.instanceID,
@@ -861,12 +861,6 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, j
 	q.chainSupport[head] = candidate
 }
 
-// Checks whether a value has been senders before.
-func (q *quorumState) HasReceived(value ECChain) bool {
-	_, ok := q.chainSupport[value.HeadCIDOrZero()]
-	return ok
-}
-
 // Lists all values that have been senders from any sender.
 // The order of returned values is not defined.
 func (q *quorumState) ListAllValues() []ECChain {
@@ -877,25 +871,20 @@ func (q *quorumState) ListAllValues() []ECChain {
 	return chains
 }
 
-// Checks whether at most one distinct value has been senders.
-func (q *quorumState) HasAgreement() bool {
-	return len(q.chainSupport) <= 1
-}
-
 // Checks whether at least one message has been senders from a strong quorum of senders.
 func (q *quorumState) ReceivedFromStrongQuorum() bool {
 	return hasStrongQuorum(q.sendersTotalPower, q.powerTable.Total)
 }
 
 // Checks whether a chain (head) has reached a strong quorum.
-func (q *quorumState) HasStrongQuorumAgreement(cid TipSetID) bool {
+func (q *quorumState) HasStrongQuorumFor(cid TipSetID) bool {
 	cp, ok := q.chainSupport[cid]
 	return ok && cp.hasStrongQuorum
 }
 
 // Checks whether a chain (head) has reached a strong quorum.
 // If so returns a set of signers and signatures for the value that form a strong quorum.
-func (q *quorumState) FindStrongQuorumAgreement(value TipSetID) (bitfield.BitField, [][]byte, bool) {
+func (q *quorumState) FindStrongQuorumFor(value TipSetID) (bitfield.BitField, [][]byte, bool) {
 	chainSupport, ok := q.chainSupport[value]
 	if !ok || !chainSupport.hasStrongQuorum {
 		return bitfield.New(), nil, false
@@ -930,7 +919,7 @@ func (q *quorumState) FindStrongQuorumAgreement(value TipSetID) (bitfield.BitFie
 }
 
 // Checks whether a chain (head) has reached weak quorum.
-func (q *quorumState) HasWeakQuorumAgreement(cid TipSetID) bool {
+func (q *quorumState) HasWeakQuorumFor(cid TipSetID) bool {
 	cp, ok := q.chainSupport[cid]
 	return ok && cp.hasWeakQuorum
 }
