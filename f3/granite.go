@@ -108,7 +108,6 @@ func (p Payload) MarshalForSigning(nn NetworkName) []byte {
 	for _, t := range p.Value {
 		_ = binary.Write(&buf, binary.BigEndian, t.Epoch)
 		buf.Write(t.CID.Bytes())
-		_ = binary.Write(&buf, binary.BigEndian, t.Weight)
 	}
 	return buf.Bytes()
 }
@@ -492,7 +491,7 @@ func (i *instance) tryQuality() error {
 	if foundQuorum {
 		// Keep current proposal.
 	} else if timeoutExpired {
-		strongQuora := i.quality.ListStrongQuorumAgreedValues()
+		strongQuora := i.quality.ListStrongQuorumValues()
 		i.proposal = findFirstPrefixOf(strongQuora, i.proposal)
 	}
 
@@ -643,13 +642,13 @@ func (i *instance) tryCommit(round uint64) error {
 	// and the algorithm moves on to the next round.
 	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
 	committed := i.roundState(round).committed
-	foundQuorum := committed.ListStrongQuorumAgreedValues()
+	quorumValue, ok := committed.FindStrongQuorumValue()
 	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
-	if len(foundQuorum) > 0 && !foundQuorum[0].IsZero() {
+	if ok && !quorumValue.IsZero() {
 		// A participant may be forced to decide a value that's not its preferred chain.
 		// The participant isn't influencing that decision against their interest, just accepting it.
-		i.value = foundQuorum[0]
+		i.value = quorumValue
 		i.beginDecide(round)
 	} else if i.round == round && i.phase == COMMIT_PHASE &&
 		timeoutExpired && committed.ReceivedFromStrongQuorum() {
@@ -702,9 +701,9 @@ func (i *instance) beginDecide(round uint64) {
 }
 
 func (i *instance) tryDecide() error {
-	foundQuorum := i.decision.ListStrongQuorumAgreedValues()
-	if len(foundQuorum) > 0 {
-		i.terminate(foundQuorum[0], i.round)
+	quorumValue, ok := i.decision.FindStrongQuorumValue()
+	if ok {
+		i.terminate(quorumValue, i.round)
 	}
 
 	return nil
@@ -937,16 +936,47 @@ func (q *quorumState) HasWeakQuorumAgreement(cid TipSetID) bool {
 }
 
 // Returns a list of the chains which have reached an agreeing strong quorum.
-// The order of returned values is not defined.
-func (q *quorumState) ListStrongQuorumAgreedValues() []ECChain {
+// Chains are returned in descending length order.
+// This is appropriate for use in the QUALITY phase, where each participant
+// votes for every prefix of their preferred chain.
+// Panics if there are multiple chains of the same length with strong quorum
+// (signalling a violation of assumptions about the adversary).
+func (q *quorumState) ListStrongQuorumValues() []ECChain {
 	var withQuorum []ECChain
 	for cid, cp := range q.chainSupport {
 		if cp.hasStrongQuorum {
 			withQuorum = append(withQuorum, q.chainSupport[cid].chain)
 		}
 	}
-	sortByWeight(withQuorum)
+	sort.Slice(withQuorum, func(i, j int) bool {
+		return len(withQuorum[i]) > len(withQuorum[j])
+	})
+	prevLength := 0
+	for _, v := range withQuorum {
+		if len(v) == prevLength {
+			panic(fmt.Sprintf("multiple chains of length %d with strong quorum", prevLength))
+		}
+		prevLength = len(v)
+	}
 	return withQuorum
+}
+
+// Returns the chain with a strong quorum of support, if there is one.
+// This is appropriate for use in PREPARE/COMMIT/DECIDE phases, where each participant
+// casts a single vote.
+// Panics if there are multiple chains with strong quorum
+// (signalling a violation of assumptions about the adversary).
+func (q *quorumState) FindStrongQuorumValue() (quorumValue ECChain, foundQuorum bool) {
+	for cid, cp := range q.chainSupport {
+		if cp.hasStrongQuorum {
+			if foundQuorum {
+				panic("multiple chains with strong quorum")
+			}
+			foundQuorum = true
+			quorumValue = q.chainSupport[cid].chain
+		}
+	}
+	return
 }
 
 //// CONVERGE phase helper /////
@@ -1003,20 +1033,6 @@ func findFirstPrefixOf(candidates []ECChain, preferred ECChain) ECChain {
 
 	// No candidates are a prefix of preferred.
 	return preferred.BaseChain()
-}
-
-// Sorts chains by weight of their head, descending
-func sortByWeight(chains []ECChain) {
-	sort.Slice(chains, func(i, j int) bool {
-		if chains[i].IsZero() {
-			return false
-		} else if chains[j].IsZero() {
-			return true
-		}
-		hi := chains[i].Head()
-		hj := chains[j].Head()
-		return hi.Compare(hj) > 0
-	})
 }
 
 // Check whether a portion of storage power is a strong quorum of the total

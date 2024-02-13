@@ -21,6 +21,58 @@ var _ = sort.Sort
 var lengthBufGMessage = []byte{133}
 
 func (t *GMessage) MarshalCBOR(w io.Writer) error {
+	if t == nil {
+		_, err := w.Write(cbg.CborNull)
+		return err
+	}
+
+	cw := cbg.NewCborWriter(w)
+
+	if _, err := cw.Write(lengthBufGMessage); err != nil {
+		return err
+	}
+
+	// t.Sender (f3.ActorID) (uint64)
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.Sender)); err != nil {
+		return err
+	}
+
+	// t.Vote (f3.Payload) (struct)
+	if err := t.Vote.MarshalCBOR(cw); err != nil {
+		return err
+	}
+
+	// t.Signature ([]uint8) (slice)
+	if uint64(len(t.Signature)) > cbg.ByteArrayMaxLen {
+		return xerrors.Errorf("Byte array in field t.Signature was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.Signature))); err != nil {
+		return err
+	}
+
+	if _, err := cw.Write(t.Signature); err != nil {
+		return err
+	}
+
+	// t.Ticket (f3.Ticket) (slice)
+	if uint64(len(t.Ticket)) > cbg.ByteArrayMaxLen {
+		return xerrors.Errorf("Byte array in field t.Ticket was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.Ticket))); err != nil {
+		return err
+	}
+
+	if _, err := cw.Write(t.Ticket); err != nil {
+		return err
+	}
+
+	// t.Justification (f3.Justification) (struct)
+	if err := t.Justification.MarshalCBOR(cw); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -61,37 +113,15 @@ func (t *GMessage) UnmarshalCBOR(r io.Reader) (err error) {
 		t.Sender = ActorID(extra)
 
 	}
-	// t.Current (f3.SignedMessage) (struct)
+	// t.Vote (f3.Payload) (struct)
 
 	{
 
 		if err := t.Vote.UnmarshalCBOR(cr); err != nil {
-			return xerrors.Errorf("unmarshaling t.Current: %w", err)
+			return xerrors.Errorf("unmarshaling t.Vote: %w", err)
 		}
 
 	}
-	// t.Ticket (f3.Ticket) (slice)
-
-	maj, extra, err = cr.ReadHeader()
-	if err != nil {
-		return err
-	}
-
-	if extra > cbg.ByteArrayMaxLen {
-		return fmt.Errorf("t.Ticket: byte array too large (%d)", extra)
-	}
-	if maj != cbg.MajByteString {
-		return fmt.Errorf("expected byte array")
-	}
-
-	if extra > 0 {
-		t.Ticket = make([]uint8, extra)
-	}
-
-	if _, err := io.ReadFull(cr, t.Ticket); err != nil {
-		return err
-	}
-
 	// t.Signature ([]uint8) (slice)
 
 	maj, extra, err = cr.ReadHeader()
@@ -114,6 +144,28 @@ func (t *GMessage) UnmarshalCBOR(r io.Reader) (err error) {
 		return err
 	}
 
+	// t.Ticket (f3.Ticket) (slice)
+
+	maj, extra, err = cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+
+	if extra > cbg.ByteArrayMaxLen {
+		return fmt.Errorf("t.Ticket: byte array too large (%d)", extra)
+	}
+	if maj != cbg.MajByteString {
+		return fmt.Errorf("expected byte array")
+	}
+
+	if extra > 0 {
+		t.Ticket = make([]uint8, extra)
+	}
+
+	if _, err := io.ReadFull(cr, t.Ticket); err != nil {
+		return err
+	}
+
 	// t.Justification (f3.Justification) (struct)
 
 	{
@@ -126,7 +178,7 @@ func (t *GMessage) UnmarshalCBOR(r io.Reader) (err error) {
 	return nil
 }
 
-var lengthBufSignedMessage = []byte{132}
+var lengthBufPayload = []byte{132}
 
 func (t *Payload) MarshalCBOR(w io.Writer) error {
 	if t == nil {
@@ -136,7 +188,7 @@ func (t *Payload) MarshalCBOR(w io.Writer) error {
 
 	cw := cbg.NewCborWriter(w)
 
-	if _, err := cw.Write(lengthBufSignedMessage); err != nil {
+	if _, err := cw.Write(lengthBufPayload); err != nil {
 		return err
 	}
 
@@ -158,6 +210,9 @@ func (t *Payload) MarshalCBOR(w io.Writer) error {
 	}
 
 	// t.Value (f3.ECChain) (slice)
+	if uint64(len(t.Value)) > cbg.MaxLength {
+		return xerrors.Errorf("Slice value in field t.Value was too long")
+	}
 
 	if err := cw.WriteMajorTypeHeader(cbg.MajArray, uint64(len(t.Value))); err != nil {
 		return err
@@ -276,7 +331,7 @@ func (t *Payload) UnmarshalCBOR(r io.Reader) (err error) {
 	return nil
 }
 
-var lengthBufJustification = []byte{130}
+var lengthBufJustification = []byte{131}
 
 func (t *Justification) MarshalCBOR(w io.Writer) error {
 	if t == nil {
@@ -290,12 +345,29 @@ func (t *Justification) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.Payload (f3.SignedMessage) (struct)
+	// t.Vote (f3.Payload) (struct)
 	if err := t.Vote.MarshalCBOR(cw); err != nil {
 		return err
 	}
 
-	// t.QuorumSignature (f3.QuorumSignature) (struct)
+	// t.Signers (bitfield.BitField) (struct)
+	if err := t.Signers.MarshalCBOR(cw); err != nil {
+		return err
+	}
+
+	// t.Signature ([]uint8) (slice)
+	if uint64(len(t.Signature)) > cbg.ByteArrayMaxLen {
+		return xerrors.Errorf("Byte array in field t.Signature was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.Signature))); err != nil {
+		return err
+	}
+
+	if _, err := cw.Write(t.Signature); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -318,30 +390,54 @@ func (t *Justification) UnmarshalCBOR(r io.Reader) (err error) {
 		return fmt.Errorf("cbor input should be of type array")
 	}
 
-	if extra != 2 {
+	if extra != 3 {
 		return fmt.Errorf("cbor input had wrong number of fields")
 	}
 
-	// t.Payload (f3.SignedMessage) (struct)
+	// t.Vote (f3.Payload) (struct)
 
 	{
 
 		if err := t.Vote.UnmarshalCBOR(cr); err != nil {
-			return xerrors.Errorf("unmarshaling t.Payload: %w", err)
+			return xerrors.Errorf("unmarshaling t.Vote: %w", err)
 		}
 
 	}
-	// t.QuorumSignature (f3.QuorumSignature) (struct)
+	// t.Signers (bitfield.BitField) (struct)
 
 	{
 
+		if err := t.Signers.UnmarshalCBOR(cr); err != nil {
+			return xerrors.Errorf("unmarshaling t.Signers: %w", err)
+		}
+
 	}
+	// t.Signature ([]uint8) (slice)
+
+	maj, extra, err = cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+
+	if extra > cbg.ByteArrayMaxLen {
+		return fmt.Errorf("t.Signature: byte array too large (%d)", extra)
+	}
+	if maj != cbg.MajByteString {
+		return fmt.Errorf("expected byte array")
+	}
+
+	if extra > 0 {
+		t.Signature = make([]uint8, extra)
+	}
+
+	if _, err := io.ReadFull(cr, t.Signature); err != nil {
+		return err
+	}
+
 	return nil
 }
 
-var lengthBufQuorumSignature = []byte{130}
-
-var lengthBufTipSet = []byte{131}
+var lengthBufTipSet = []byte{130}
 
 func (t *TipSet) MarshalCBOR(w io.Writer) error {
 	if t == nil {
@@ -370,13 +466,6 @@ func (t *TipSet) MarshalCBOR(w io.Writer) error {
 	if err := t.CID.MarshalCBOR(cw); err != nil {
 		return err
 	}
-
-	// t.Weight (uint64) (uint64)
-
-	if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.Weight)); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -399,7 +488,7 @@ func (t *TipSet) UnmarshalCBOR(r io.Reader) (err error) {
 		return fmt.Errorf("cbor input should be of type array")
 	}
 
-	if extra != 3 {
+	if extra != 2 {
 		return fmt.Errorf("cbor input had wrong number of fields")
 	}
 
@@ -435,20 +524,6 @@ func (t *TipSet) UnmarshalCBOR(r io.Reader) (err error) {
 		if err := t.CID.UnmarshalCBOR(cr); err != nil {
 			return xerrors.Errorf("unmarshaling t.CID: %w", err)
 		}
-
-	}
-	// t.Weight (uint64) (uint64)
-
-	{
-
-		maj, extra, err = cr.ReadHeader()
-		if err != nil {
-			return err
-		}
-		if maj != cbg.MajUnsignedInt {
-			return fmt.Errorf("wrong type for uint64 field")
-		}
-		t.Weight = uint64(extra)
 
 	}
 	return nil

@@ -13,35 +13,19 @@ type TipSet struct {
 	Epoch int64
 	// The CID of the tipset.
 	CID TipSetID
-	// The EC consensus weight of the tipset.
-	Weight uint64
 }
 
 // Creates a new tipset.
-func NewTipSet(epoch int64, cid TipSetID, weight uint64) TipSet {
+func NewTipSet(epoch int64, cid TipSetID) TipSet {
 	return TipSet{
-		Epoch:  epoch,
-		CID:    cid,
-		Weight: weight,
+		Epoch: epoch,
+		CID:   cid,
 	}
-}
-
-// Compares two tipsets by weight, breaking ties with CID.
-// Note that the real weight function breaks ties with VRF tickets.
-func (t *TipSet) Compare(other *TipSet) int {
-	if t.Weight == other.Weight {
-		return t.CID.Compare(other.CID)
-	} else if t.Weight < other.Weight {
-		return -1
-	}
-	return 1
 }
 
 // Compares tipsets for equality.
 func (t *TipSet) Eq(other *TipSet) bool {
-	return t.Epoch == other.Epoch &&
-		t.CID == other.CID &&
-		t.Weight == other.Weight
+	return t.Epoch == other.Epoch && t.CID == other.CID
 }
 
 func (t *TipSet) String() string {
@@ -113,9 +97,8 @@ func (c ECChain) BaseChain() ECChain {
 // The new tipset is given an epoch and weight one greater than the previous head.
 func (c ECChain) Extend(cid TipSetID) ECChain {
 	return append(c, TipSet{
-		Epoch:  c[0].Epoch + 1,
-		CID:    cid,
-		Weight: c[0].Weight + 1,
+		Epoch: c[0].Epoch + 1,
+		CID:   cid,
 	})
 }
 
