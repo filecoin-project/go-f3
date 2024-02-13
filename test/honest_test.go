@@ -210,22 +210,22 @@ func newAsyncConfig(honestCount int, latencySeed int) sim.Config {
 	}
 }
 
-func expectRoundDecision(t *testing.T, sm *sim.Simulation, expectedRound uint64, expected ...*f3.TipSet) {
+func expectRoundDecision(t *testing.T, sm *sim.Simulation, expectedRound uint64, expected ...f3.TipSet) {
 	decision, round := sm.Participants[0].Finalised()
 	require.Equal(t, expectedRound, round)
 
 	for _, e := range expected {
-		if decision.CID == e.CID {
+		if decision == e {
 			return
 		}
 	}
 	require.Fail(t, fmt.Sprintf("decided %s, expected one of %s", &decision, expected))
 }
 
-func expectEventualDecision(t *testing.T, sm *sim.Simulation, expected ...*f3.TipSet) {
+func expectEventualDecision(t *testing.T, sm *sim.Simulation, expected ...f3.TipSet) {
 	decision, _ := sm.Participants[0].Finalised()
 	for _, e := range expected {
-		if decision.CID == e.CID {
+		if decision == e {
 			return
 		}
 	}

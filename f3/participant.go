@@ -94,7 +94,7 @@ func (p *Participant) ReceiveAlarm() error {
 
 func (p *Participant) handleDecision() {
 	if p.terminated() {
-		p.finalised = *p.granite.value.Head()
+		p.finalised = p.granite.value.Head()
 		p.finalisedRound = p.granite.round
 		p.granite = nil
 	}
