@@ -1,11 +1,11 @@
 package sim
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
+	"os"
 	"strings"
 
+	"github.com/filecoin-project/go-f3/blssig"
 	"github.com/filecoin-project/go-f3/f3"
 )
 
@@ -15,6 +15,33 @@ type Config struct {
 	HonestCount int
 	LatencySeed int64
 	LatencyMean float64
+	// If nil then FakeSigner is used unless overriden by F3_TEST_USE_BLS
+	SigningBacked *SigningBacked
+}
+
+func (c Config) UseBLS() Config {
+	c.SigningBacked = BLSSigningBacked()
+	return c
+}
+
+type SigningBacked struct {
+	f3.Signer
+	f3.Verifier
+}
+
+func FakeSigningBacked() *SigningBacked {
+	fakeSigner := &FakeSigner{}
+	return &SigningBacked{
+		Signer:   fakeSigner,
+		Verifier: fakeSigner,
+	}
+}
+
+func BLSSigningBacked() *SigningBacked {
+	return &SigningBacked{
+		Signer:   blssig.SignerWithKeyOnG2(),
+		Verifier: blssig.VerifierWithKeyOnG2(),
+	}
 }
 
 type Simulation struct {
@@ -32,15 +59,25 @@ type AdversaryFactory func(id string, ntwk f3.Network) f3.Receiver
 func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel int) *Simulation {
 	// Create a network to deliver messages.
 	lat := NewLogNormal(simConfig.LatencySeed, simConfig.LatencyMean)
-	ntwk := NewNetwork(lat, traceLevel)
-	vrf := f3.NewVRF(ntwk, ntwk)
+	sb := simConfig.SigningBacked
+
+	if sb == nil {
+		if os.Getenv("F3_TEST_USE_BLS") != "1" {
+			sb = FakeSigningBacked()
+		} else {
+			sb = BLSSigningBacked()
+		}
+	}
+
+	ntwk := NewNetwork(lat, traceLevel, *sb)
 
 	// Create participants.
 	genesisPower := f3.NewPowerTable(make([]f3.PowerEntry, 0))
 	participants := make([]*f3.Participant, simConfig.HonestCount)
 	for i := 0; i < len(participants); i++ {
+		pubKey := ntwk.GenerateKey()
+		vrf := f3.NewVRF(pubKey, ntwk.Signer, ntwk.Verifier)
 		participants[i] = f3.NewParticipant(f3.ActorID(i), graniteConfig, ntwk, vrf)
-		pubKey := getFakePubKey(participants[i].ID())
 		ntwk.AddParticipant(participants[i], pubKey)
 		if err := genesisPower.Add(participants[i].ID(), f3.NewStoragePower(1), pubKey); err != nil {
 			panic(fmt.Errorf("failed adding participant to power table: %w", err))
@@ -67,7 +104,7 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 
 func (s *Simulation) SetAdversary(adv AdversaryReceiver, power uint) {
 	s.Adversary = adv
-	pubKey := getFakePubKey(adv.ID())
+	pubKey := s.Network.GenerateKey()
 	s.Network.AddParticipant(adv, pubKey)
 	if err := s.PowerTable.Add(adv.ID(), f3.NewStoragePower(int64(power)), pubKey); err != nil {
 		panic(err)
@@ -201,10 +238,3 @@ func (c *CIDGen) next() uint64 {
 }
 
 var alphanum = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-
-func getFakePubKey(id f3.ActorID) f3.PubKey {
-	var buf bytes.Buffer
-	buf.WriteString("PUBKEY:")
-	_ = binary.Write(&buf, binary.BigEndian, id)
-	return buf.Bytes()
-}

@@ -36,7 +36,7 @@ func NewPowerTable(entries []PowerEntry) *PowerTable {
 		lookup[entry.ID] = i
 		total.Add(total, entry.Power)
 	}
-	
+
 	return &PowerTable{
 		Entries: entries,
 		Lookup:  lookup,
@@ -68,11 +68,13 @@ func (p *PowerTable) Add(id ActorID, power *StoragePower, pubKey []byte) error {
 	return nil
 }
 
-func (p *PowerTable) Get(id ActorID) (*StoragePower, []byte) {
+func (p *PowerTable) Get(id ActorID) (*StoragePower, PubKey) {
 	if index, ok := p.Lookup[id]; ok {
+		entry := p.Entries[index]
+
 		powerCopy := new(big.Int)
-		powerCopy.Set(p.Entries[index].Power)
-		return powerCopy, p.Entries[index].PubKey
+		powerCopy.Set(entry.Power)
+		return powerCopy, entry.PubKey
 	}
 	return nil, nil
 }

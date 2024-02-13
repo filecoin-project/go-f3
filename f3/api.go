@@ -45,17 +45,19 @@ type Clock interface {
 }
 
 type Signer interface {
+	// GenerateKey is used for testing
+	GenerateKey() PubKey
 	// Signs a message for the given sender ID.
-	Sign(sender ActorID, msg []byte) []byte
+	Sign(sender PubKey, msg []byte) ([]byte, error)
 }
 
 type Verifier interface {
-	// Verifies a signature for the given sender ID.
-	Verify(pubKey PubKey, msg, sig []byte) bool
-	// Aggregates signatures from a participant to an existing signature (or nil).
-	Aggregate(sig [][]byte, aggSignature []byte) []byte
+	// Verifies a signature for the given public key
+	Verify(pubKey PubKey, msg, sig []byte) error
+	// Aggregates signatures from a participants
+	Aggregate(pubKeys []PubKey, sigs [][]byte) ([]byte, error)
 	// VerifyAggregate verifies an aggregate signature.
-	VerifyAggregate(payload, aggSig []byte, signers []PubKey) bool
+	VerifyAggregate(payload, aggSig []byte, signers []PubKey) error
 }
 
 // Participant interface to the host system resources.
