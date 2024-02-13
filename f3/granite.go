@@ -776,7 +776,6 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 
 	sig, err := i.sign(sp)
 	if err != nil {
-		// maybe something different than panic?
 		i.log("failed to sign message: %v", err)
 		return
 	}
