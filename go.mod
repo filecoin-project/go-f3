@@ -10,7 +10,7 @@ require (
 	github.com/libp2p/go-libp2p v0.31.1
 	github.com/libp2p/go-libp2p-pubsub v0.9.3
 	github.com/stretchr/testify v1.8.4
-	github.com/whyrusleeping/cbor-gen v0.0.0-20240202185644-fcdaca49d05c
+	github.com/whyrusleeping/cbor-gen v0.1.0
 	go.uber.org/multierr v1.11.0
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028
 )

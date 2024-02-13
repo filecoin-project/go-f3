@@ -44,7 +44,7 @@ func (t *GMessage) MarshalCBOR(w io.Writer) error {
 	}
 
 	// t.Signature ([]uint8) (slice)
-	if uint64(len(t.Signature)) > cbg.ByteArrayMaxLen {
+	if len(t.Signature) > 2097152 {
 		return xerrors.Errorf("Byte array in field t.Signature was too long")
 	}
 
@@ -57,7 +57,7 @@ func (t *GMessage) MarshalCBOR(w io.Writer) error {
 	}
 
 	// t.Ticket (f3.Ticket) (slice)
-	if uint64(len(t.Ticket)) > cbg.ByteArrayMaxLen {
+	if len(t.Ticket) > 2097152 {
 		return xerrors.Errorf("Byte array in field t.Ticket was too long")
 	}
 
@@ -129,7 +129,7 @@ func (t *GMessage) UnmarshalCBOR(r io.Reader) (err error) {
 		return err
 	}
 
-	if extra > cbg.ByteArrayMaxLen {
+	if extra > 2097152 {
 		return fmt.Errorf("t.Signature: byte array too large (%d)", extra)
 	}
 	if maj != cbg.MajByteString {
@@ -151,7 +151,7 @@ func (t *GMessage) UnmarshalCBOR(r io.Reader) (err error) {
 		return err
 	}
 
-	if extra > cbg.ByteArrayMaxLen {
+	if extra > 2097152 {
 		return fmt.Errorf("t.Ticket: byte array too large (%d)", extra)
 	}
 	if maj != cbg.MajByteString {
@@ -210,7 +210,7 @@ func (t *Payload) MarshalCBOR(w io.Writer) error {
 	}
 
 	// t.Value (f3.ECChain) (slice)
-	if uint64(len(t.Value)) > cbg.MaxLength {
+	if len(t.Value) > 8192 {
 		return xerrors.Errorf("Slice value in field t.Value was too long")
 	}
 
@@ -297,7 +297,7 @@ func (t *Payload) UnmarshalCBOR(r io.Reader) (err error) {
 		return err
 	}
 
-	if extra > cbg.MaxLength {
+	if extra > 8192 {
 		return fmt.Errorf("t.Value: array too large (%d)", extra)
 	}
 
@@ -356,7 +356,7 @@ func (t *Justification) MarshalCBOR(w io.Writer) error {
 	}
 
 	// t.Signature ([]uint8) (slice)
-	if uint64(len(t.Signature)) > cbg.ByteArrayMaxLen {
+	if len(t.Signature) > 2097152 {
 		return xerrors.Errorf("Byte array in field t.Signature was too long")
 	}
 
@@ -419,7 +419,7 @@ func (t *Justification) UnmarshalCBOR(r io.Reader) (err error) {
 		return err
 	}
 
-	if extra > cbg.ByteArrayMaxLen {
+	if extra > 2097152 {
 		return fmt.Errorf("t.Signature: byte array too large (%d)", extra)
 	}
 	if maj != cbg.MajByteString {
@@ -495,10 +495,10 @@ func (t *TipSet) UnmarshalCBOR(r io.Reader) (err error) {
 	// t.Epoch (int64) (int64)
 	{
 		maj, extra, err := cr.ReadHeader()
-		var extraI int64
 		if err != nil {
 			return err
 		}
+		var extraI int64
 		switch maj {
 		case cbg.MajUnsignedInt:
 			extraI = int64(extra)
