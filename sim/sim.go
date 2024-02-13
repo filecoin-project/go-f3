@@ -15,6 +15,33 @@ type Config struct {
 	HonestCount int
 	LatencySeed int64
 	LatencyMean float64
+	// If nil then FakeSigner is used unless overriden by F3_TEST_USE_BLS
+	SigningBacked *SigningBacked
+}
+
+func (c Config) UseBLS() Config {
+	c.SigningBacked = BLSSigningBacked()
+	return c
+}
+
+type SigningBacked struct {
+	f3.Signer
+	f3.Verifier
+}
+
+func FakeSigningBacked() *SigningBacked {
+	fakeSigner := &FakeSigner{}
+	return &SigningBacked{
+		Signer:   fakeSigner,
+		Verifier: fakeSigner,
+	}
+}
+
+func BLSSigningBacked() *SigningBacked {
+	return &SigningBacked{
+		Signer:   blssig.SignerWithKeyOnG2(),
+		Verifier: blssig.VerifierWithKeyOnG2(),
+	}
 }
 
 type Simulation struct {
@@ -32,11 +59,17 @@ type AdversaryFactory func(id string, ntwk f3.Network) f3.Receiver
 func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel int) *Simulation {
 	// Create a network to deliver messages.
 	lat := NewLogNormal(simConfig.LatencySeed, simConfig.LatencyMean)
-	ntwk := NewNetwork(lat, traceLevel)
-	if os.Getenv("F3_TEST_USE_BLS") == "1" {
-		ntwk.Signer = blssig.SignerWithKeyOnG2()
-		ntwk.Verifier = blssig.VerifierWithKeyOnG2()
+	sb := simConfig.SigningBacked
+
+	if sb == nil {
+		if os.Getenv("F3_TEST_USE_BLS") != "1" {
+			sb = FakeSigningBacked()
+		} else {
+			sb = BLSSigningBacked()
+		}
 	}
+
+	ntwk := NewNetwork(lat, traceLevel, *sb)
 
 	// Create participants.
 	genesisPower := f3.NewPowerTable(make([]f3.PowerEntry, 0))

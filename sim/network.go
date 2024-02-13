@@ -33,8 +33,7 @@ const (
 const _ = TraceAll // Suppress unused constant warning.
 
 type Network struct {
-	f3.Signer
-	f3.Verifier
+	SigningBacked
 
 	// Participants by ID.
 	participants map[f3.ActorID]f3.Receiver
@@ -53,12 +52,9 @@ type Network struct {
 	actor2PubKey map[f3.ActorID]f3.PubKey
 }
 
-func NewNetwork(latency LatencyModel, traceLevel int) *Network {
-	fakeSigner := &FakeSigner{}
+func NewNetwork(latency LatencyModel, traceLevel int, sb SigningBacked) *Network {
 	return &Network{
-		Signer:   fakeSigner,
-		Verifier: fakeSigner,
-
+		SigningBacked:              sb,
 		participants:               map[f3.ActorID]f3.Receiver{},
 		participantIDs:             []f3.ActorID{},
 		queue:                      messageQueue{},
