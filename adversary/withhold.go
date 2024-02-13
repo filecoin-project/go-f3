@@ -96,7 +96,7 @@ func (w *WithholdCommit) Begin() {
 
 	signatures := make([][]byte, 0)
 	pubKeys := make([]f3.PubKey, 0)
-	prepareMarshalled := preparePayload.MarshalForSigning(f3.TODONetworkName)
+	prepareMarshalled := preparePayload.MarshalForSigning(w.host.NetworkName())
 	for _, signerIndex := range signers {
 		entry := w.powertable.Entries[signerIndex]
 		signatures = append(signatures, w.sign(entry.PubKey, prepareMarshalled))
@@ -157,7 +157,7 @@ func (w *WithholdCommit) sign(pubkey f3.PubKey, msg []byte) []byte {
 
 func (w *WithholdCommit) broadcastHelper(sender f3.ActorID) func(f3.Payload, *f3.Justification) {
 	return func(payload f3.Payload, justification *f3.Justification) {
-		pS := payload.MarshalForSigning(f3.TODONetworkName)
+		pS := payload.MarshalForSigning(w.host.NetworkName())
 		_, pubkey := w.powertable.Get(sender)
 		sig, err := w.host.Sign(pubkey, pS)
 		if err != nil {
