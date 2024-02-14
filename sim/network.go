@@ -44,9 +44,8 @@ type Network struct {
 	queue   messageQueue
 	latency LatencyModel
 	// Timestamp of last event.
-	clock time.Time
-	// Incremental counter to clock time in nanoseconds
-	counter int
+	clock     time.Time
+	startTime time.Time
 	// Whether global stabilisation time has passed, so adversary can't control network.
 	globalStabilisationElapsed bool
 	// Trace level.
@@ -58,12 +57,14 @@ type Network struct {
 }
 
 func NewNetwork(latency LatencyModel, traceLevel int, sb SigningBacked, nn f3.NetworkName) *Network {
+	currentTime := time.Now()
 	return &Network{
 		SigningBacked:              sb,
 		participants:               map[f3.ActorID]f3.Receiver{},
 		participantIDs:             []f3.ActorID{},
 		queue:                      messageQueue{},
-		clock:                      time.Now(),
+		clock:                      currentTime,
+		startTime:                  currentTime,
 		latency:                    latency,
 		globalStabilisationElapsed: false,
 		traceLevel:                 traceLevel,
@@ -106,9 +107,7 @@ func (n *Network) Broadcast(msg *f3.GMessage) {
 ///// Clock interface
 
 func (n *Network) Time() time.Time {
-	counterDuration := time.Duration(n.counter * int(time.Nanosecond))
-	n.counter++
-	return n.clock.Add(counterDuration) // To ensure not exactly equal time in simulation
+	return n.clock // To ensure not exactly equal time in simulation
 }
 
 func (n *Network) SetAlarm(sender f3.ActorID, at time.Time) {
@@ -179,7 +178,8 @@ func (n *Network) Tick(adv AdversaryReceiver) (bool, error) {
 
 func (n *Network) log(level int, format string, args ...interface{}) {
 	if level <= n.traceLevel {
-		fmt.Printf("net [%s]: ", n.clock.Format("2006-01-02 15:04:05.000"))
+		simulationTime := n.clock.Sub(n.startTime).Seconds()
+		fmt.Printf("net [%.3f]: ", simulationTime)
 		fmt.Printf(format, args...)
 		fmt.Printf("\n")
 	}

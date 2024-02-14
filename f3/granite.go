@@ -491,9 +491,8 @@ func (i *instance) tryQuality() error {
 	}
 	// Wait either for a strong quorum that agree on our proposal,
 	// or for the timeout to expire.
-
 	foundQuorum := i.quality.HasStrongQuorumFor(i.proposal.Head())
-	timeoutExpired := i.host.Time().Equal(i.phaseTimeout) || i.host.Time().After(i.phaseTimeout)
+	timeoutExpired := atOrAfter(i.host.Time(), i.phaseTimeout)
 
 	if foundQuorum {
 		// Keep current proposal.
@@ -545,7 +544,7 @@ func (i *instance) tryConverge() error {
 	if i.phase != CONVERGE_PHASE {
 		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, CONVERGE_PHASE)
 	}
-	timeoutExpired := i.host.Time().After(i.phaseTimeout)
+	timeoutExpired := atOrAfter(i.host.Time(), i.phaseTimeout)
 
 	if !timeoutExpired {
 		return nil
@@ -587,7 +586,7 @@ func (i *instance) tryPrepare() error {
 	prepared := i.roundState(i.round).prepared
 	// Optimisation: we could advance phase once a strong quorum on our proposal is not possible.
 	foundQuorum := prepared.HasStrongQuorumFor(i.proposal.Head())
-	timeoutExpired := i.host.Time().After(i.phaseTimeout) || i.host.Time().Equal(i.phaseTimeout)
+	timeoutExpired := atOrAfter(i.host.Time(), i.phaseTimeout)
 
 	if foundQuorum {
 		i.value = i.proposal
@@ -628,7 +627,7 @@ func (i *instance) tryCommit(round uint64) error {
 	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
 	committed := i.roundState(round).committed
 	quorumValue, ok := committed.FindStrongQuorumValue()
-	timeoutExpired := i.host.Time().After(i.phaseTimeout) || i.host.Time().Equal(i.phaseTimeout)
+	timeoutExpired := atOrAfter(i.host.Time(), i.phaseTimeout)
 
 	if ok && !quorumValue.IsZero() {
 		// A participant may be forced to decide a value that's not its preferred chain.
@@ -670,7 +669,7 @@ func (i *instance) beginDecide(round uint64) {
 		panic("beginDecide with no strong quorum for value")
 	}
 
-	i.broadcast(0, DECIDE_PHASE, i.value, nil, &justification)
+	i.broadcast(0, DECIDE_PHASE, i.value, nil, justification)
 }
 
 func (i *instance) tryDecide() error {
@@ -1069,4 +1068,8 @@ func hasWeakQuorum(part, total *StoragePower) bool {
 
 	weakThreshold := new(StoragePower).Div(total, three)
 	return part.Cmp(weakThreshold) > 0
+}
+
+func atOrAfter(hostTime time.Time, t time.Time) bool {
+	return hostTime.After(t) || hostTime.Equal(t)
 }
