@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"sort"
-
 	"github.com/filecoin-project/go-bitfield"
+	"math"
+	"sort"
 )
 
 type GraniteConfig struct {
@@ -14,6 +14,12 @@ type GraniteConfig struct {
 	Delta float64
 	// Change to delta in each round after the first.
 	DeltaRate float64
+	// Absolut extra value to add to delta after the first few unsuccessful rounds.
+	DeltaExtra float64
+	// Time to next clock tick (according to local clock)
+	// Used in timeouts in order to synchronize participants
+	// (by not carrying significant delays from previous/starting rounds)
+	ClockTickDelta float64
 }
 
 type VRFer interface {
@@ -156,6 +162,8 @@ type instance struct {
 	acceptable ECChain
 	// Decision state. Collects DECIDE messages until a decision can be made, independently of protocol phases/rounds.
 	decision *quorumState
+	// The latest multiplier applied to the timeout
+	deltaRate float64
 }
 
 func newInstance(
@@ -189,6 +197,7 @@ func newInstance(
 		},
 		acceptable: input,
 		decision:   newQuorumState(powerTable),
+		deltaRate:  config.DeltaRate,
 	}, nil
 }
 
@@ -769,7 +778,23 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 // The delay duration increases with each round.
 // Returns the absolute time at which the alarm will fire.
 func (i *instance) alarmAfterSynchrony(payload string) float64 {
-	timeout := i.host.Time() + i.config.Delta + (float64(i.round) * i.config.DeltaRate)
+	timeout := i.host.Time() + i.config.Delta
+
+	if i.round >= 2 {
+		timeout += i.config.DeltaExtra
+	}
+
+	if i.round >= 5 {
+		timeout *= i.deltaRate
+		i.deltaRate *= i.config.DeltaRate
+	}
+
+	if i.round > 0 && i.round%5 == 0 && payload == CONVERGE_PHASE.String() {
+		// Wait for clock tick assuming synchronized clocks
+		timeToNextClockTick := i.config.ClockTickDelta - math.Mod(timeout, i.config.ClockTickDelta)
+		timeout += timeToNextClockTick
+	}
+
 	i.host.SetAlarm(i.participantID, payload, timeout)
 	return timeout
 }
