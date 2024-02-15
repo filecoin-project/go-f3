@@ -778,17 +778,18 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 // The delay duration increases with each round.
 // Returns the absolute time at which the alarm will fire.
 func (i *instance) alarmAfterSynchrony(payload string) float64 {
-	timeout := i.host.Time() + i.config.Delta
+	delta := i.config.Delta
 
 	if i.round >= 2 {
-		timeout += i.config.DeltaExtra
+		delta += i.config.DeltaExtra
 	}
 
 	if i.round >= 5 {
-		timeout *= i.deltaRate
+		delta *= i.deltaRate
 		i.deltaRate *= i.config.DeltaRate
 	}
 
+	timeout := i.host.Time() + delta
 	if i.round > 0 && i.round%5 == 0 && payload == CONVERGE_PHASE.String() {
 		// Wait for clock tick assuming synchronized clocks
 		timeToNextClockTick := i.config.ClockTickDelta - math.Mod(timeout, i.config.ClockTickDelta)
