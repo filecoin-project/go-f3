@@ -32,8 +32,6 @@ type Receiver interface {
 
 // Endpoint to which participants can send messages.
 type Network interface {
-	// Returns the network's name (for signature separation)
-	NetworkName() NetworkName
 	// Sends a message to all other participants.
 	// The message's sender must be one that the network interface can sign on behalf of.
 	Broadcast(msg *GMessage)
