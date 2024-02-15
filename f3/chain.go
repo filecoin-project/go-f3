@@ -1,13 +1,18 @@
 package f3
 
 import (
+	"encoding/binary"
 	"fmt"
+	"io"
 	"reflect"
 	"strconv"
 	"strings"
 )
 
 // Information about a tipset that is relevant to the F3 protocol.
+// This is a lightweight value type comprising 3 machine words.
+// Fields are exported for CBOR generation, but are opqaue and should not be accessed
+// within the protocol implementation.
 type TipSet struct {
 	// The epoch of the blocks in the tipset.
 	Epoch int64
@@ -23,17 +28,27 @@ func NewTipSet(epoch int64, cid TipSetID) TipSet {
 	}
 }
 
-// Compares tipsets for equality.
-func (t *TipSet) Eq(other *TipSet) bool {
-	return t.Epoch == other.Epoch && t.CID == other.CID
+// Returns a zero value tipset.
+// The zero value is not a meaningful tipset and may be used to represent bottom.
+func ZeroTipSet() TipSet {
+	return TipSet{}
 }
 
-func (t *TipSet) String() string {
+func (t TipSet) IsZero() bool {
+	return t.Epoch == 0 && t.CID.IsZero()
+}
+
+func (t TipSet) String() string {
 	var b strings.Builder
 	b.Write(t.CID.Bytes())
 	b.WriteString("@")
 	b.WriteString(strconv.FormatInt(t.Epoch, 10))
 	return b.String()
+}
+
+func (t TipSet) MarshalForSigning(w io.Writer) {
+	_ = binary.Write(w, binary.BigEndian, t.Epoch)
+	_, _ = w.Write(t.CID.Bytes())
 }
 
 // A chain of tipsets comprising a base (the last finalised tipset from which the chain extends).
@@ -58,9 +73,9 @@ func (c ECChain) IsZero() bool {
 	return len(c) == 0
 }
 
-// Returns a pointer to the base tipset.
-func (c ECChain) Base() *TipSet {
-	return &c[0]
+// Returns the base tipset.
+func (c ECChain) Base() TipSet {
+	return c[0]
 }
 
 // Returns the suffix of the chain after the base.
@@ -72,19 +87,19 @@ func (c ECChain) Suffix() []TipSet {
 	return c[1:]
 }
 
-// Returns a pointer to the last tipset in the chain.
+// Returns the last tipset in the chain.
 // This could be the base tipset if there is no suffix.
 // This will panic on a zero value.
-func (c ECChain) Head() *TipSet {
-	return &c[len(c)-1]
+func (c ECChain) Head() TipSet {
+	return c[len(c)-1]
 }
 
 // Returns the CID of the head tipset, or empty string for a zero value
-func (c ECChain) HeadCIDOrZero() TipSetID {
+func (c ECChain) HeadOrZero() TipSet {
 	if c.IsZero() {
-		return ZeroTipSetID()
+		return ZeroTipSet()
 	}
-	return c.Head().CID
+	return c.Head()
 }
 
 // Returns a new chain with the same base and no suffix.
@@ -120,16 +135,16 @@ func (c ECChain) SameBase(other ECChain) bool {
 	if c.IsZero() {
 		return false
 	}
-	return c[0].Eq(&other[0])
+	return c[0] == other[0]
 }
 
 // Check whether a chain has a specific base tipset.
 // Always false for a zero value.
-func (c ECChain) HasBase(t *TipSet) bool {
+func (c ECChain) HasBase(t TipSet) bool {
 	if c.IsZero() {
 		return false
 	}
-	return c[0].Eq(t)
+	return c[0] == t
 }
 
 // Checks whether a chain has some prefix (including the base).
@@ -142,7 +157,7 @@ func (c ECChain) HasPrefix(other ECChain) bool {
 		return false
 	}
 	for i := range other {
-		if !c[i].Eq(&other[i]) {
+		if c[i] != other[i] {
 			return false
 		}
 	}
@@ -150,9 +165,9 @@ func (c ECChain) HasPrefix(other ECChain) bool {
 }
 
 // Checks whether a chain has some tipset (including as its base).
-func (c ECChain) HasTipset(t *TipSet) bool {
+func (c ECChain) HasTipset(t TipSet) bool {
 	for _, t2 := range c {
-		if t2.Eq(t) {
+		if t2 == t {
 			return true
 		}
 	}

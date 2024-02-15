@@ -164,10 +164,10 @@ func (s *Simulation) Run(maxRounds uint64) error {
 	first, _ := s.Participants[0].Finalised()
 	for i, p := range s.Participants {
 		f, _ := p.Finalised()
-		if f.Eq(&f3.TipSet{}) {
+		if f.IsZero() {
 			return fmt.Errorf("participant %d finalized empty tipset", i)
 		}
-		if !f.Eq(&first) {
+		if f != first {
 			return fmt.Errorf("finalized tipset mismatch between first participant and participant %d", i)
 		}
 	}
@@ -178,12 +178,12 @@ func (s *Simulation) PrintResults() {
 	var firstFin f3.TipSet
 	for _, p := range s.Participants {
 		thisFin, _ := p.Finalised()
-		if firstFin.Eq(&f3.TipSet{}) {
+		if firstFin.IsZero() {
 			firstFin = thisFin
 		}
-		if thisFin.Eq(&f3.TipSet{}) {
+		if thisFin.IsZero() {
 			fmt.Printf("‼️ Participant %d did not decide\n", p.ID())
-		} else if !thisFin.Eq(&firstFin) {
+		} else if thisFin != firstFin {
 			fmt.Printf("‼️ Participant %d decided %v, but %d decided %v\n", p.ID(), thisFin, s.Participants[0].ID(), firstFin)
 		}
 	}
