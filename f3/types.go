@@ -20,12 +20,6 @@ type PubKey []byte
 // it is implicitly included in all signatures and VRFs
 type NetworkName string
 
-var TODONetworkName NetworkName = "TOOD"
-
-func (nn NetworkName) SignatureSeparationTag() string {
-	return string(nn) + ":"
-}
-
 func (nn NetworkName) DatastorePrefix() datastore.Key {
 	return datastore.NewKey("/f3/" + string(nn))
 }

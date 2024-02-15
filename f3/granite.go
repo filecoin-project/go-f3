@@ -102,9 +102,10 @@ type Payload struct {
 
 func (p Payload) MarshalForSigning(nn NetworkName) []byte {
 	var buf bytes.Buffer
-
 	buf.WriteString(DOMAIN_SEPARATION_TAG)
-	buf.WriteString(nn.SignatureSeparationTag())
+	buf.WriteString(":")
+	buf.WriteString(string(nn))
+	buf.WriteString(":")
 	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
 	_ = binary.Write(&buf, binary.BigEndian, p.Round)
 	_ = binary.Write(&buf, binary.BigEndian, []byte(p.Step.String()))
@@ -365,7 +366,7 @@ func (i *instance) isValid(msg *GMessage) bool {
 		return !msg.Vote.Value.IsZero()
 	}
 
-	sigPayload := msg.Vote.MarshalForSigning(TODONetworkName)
+	sigPayload := msg.Vote.MarshalForSigning(i.host.NetworkName())
 	if err := i.host.Verify(pubKey, sigPayload, msg.Signature); err != nil {
 		i.log("invalid signature on %v, %v", msg, err)
 		return false
@@ -464,7 +465,7 @@ func (i *instance) verifyJustification(justification *Justification) error {
 		return fmt.Errorf("failed to iterate over signers: %w", err)
 	}
 
-	payload := justification.Vote.MarshalForSigning(TODONetworkName)
+	payload := justification.Vote.MarshalForSigning(i.host.NetworkName())
 	if err := i.host.VerifyAggregate(payload, justification.Signature, signers); err != nil {
 		return xerrors.Errorf("verification of the aggregate failed: %+v: %w", justification, err)
 	}
@@ -758,7 +759,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 		Step:     step,
 		Value:    value,
 	}
-	sp := p.MarshalForSigning(TODONetworkName)
+	sp := p.MarshalForSigning(i.host.NetworkName())
 
 	sig, err := i.sign(sp)
 	if err != nil {
