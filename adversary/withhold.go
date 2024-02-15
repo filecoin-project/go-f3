@@ -164,16 +164,11 @@ func (w *WithholdCommit) broadcastHelper(sender f3.ActorID) func(f3.Payload, *f3
 			panic(err)
 		}
 
-		var just f3.Justification
-		if justification != nil {
-			just = *justification
-		}
-
 		w.host.BroadcastSynchronous(sender, f3.GMessage{
 			Sender:        sender,
 			Vote:          payload,
 			Signature:     sig,
-			Justification: just,
+			Justification: justification,
 		})
 	}
 }
