@@ -147,7 +147,6 @@ func (w *WithholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Messag
 }
 
 func (w *WithholdCommit) sign(pubkey f3.PubKey, msg []byte) []byte {
-
 	sig, err := w.host.Sign(pubkey, msg)
 	if err != nil {
 		panic(err)

@@ -32,7 +32,7 @@ func main() {
 			LatencyMean: *latencyMean,
 		}
 		graniteConfig := f3.GraniteConfig{
-			Delta:                *graniteDelta,
+			Delta:                time.Duration(*graniteDelta),
 			DeltaBackOffExponent: *deltaBackOffExponent,
 		}
 		sm := sim.NewSimulation(simConfig, graniteConfig, *traceLevel)
