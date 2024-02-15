@@ -14,14 +14,14 @@ import (
 type GraniteConfig struct {
 	// Initial delay for partial synchrony.
 	Delta float64
-	// Change to delta in each round after the first.
-	DeltaRate float64
 	// Absolute extra value to add to delta after the first few unsuccessful rounds.
 	DeltaExtra float64
-	// Time to next clock tick (according to local clock)
+	// Time in between clock ticks
 	// Used in timeouts in order to synchronize participants
-	// (by not carrying significant delays from previous/starting rounds)
-	ClockTickDelta float64
+	// (by attempting to not carry significant delays from previous/starting rounds)
+	ExternalClockResyncPeriod float64
+	// Delta back-off exponent for the round, if applicable.
+	DeltaBackOffExponent float64
 }
 
 type VRFer interface {
@@ -164,8 +164,6 @@ type instance struct {
 	acceptable ECChain
 	// Decision state. Collects DECIDE messages until a decision can be made, independently of protocol phases/rounds.
 	decision *quorumState
-	// The latest multiplier applied to the timeout
-	deltaRate float64
 }
 
 func newInstance(
@@ -199,7 +197,6 @@ func newInstance(
 		},
 		acceptable: input,
 		decision:   newQuorumState(powerTable),
-		deltaRate:  config.DeltaRate,
 	}, nil
 }
 
@@ -759,14 +756,14 @@ func (i *instance) alarmAfterSynchrony() float64 {
 	}
 
 	if i.round >= 5 {
-		delta *= i.deltaRate
-		i.deltaRate *= i.config.DeltaRate
+		delta = delta * math.Pow(i.config.DeltaBackOffExponent, float64(i.round-4))
 	}
 
 	timeout := i.host.Time() + delta
+
 	if i.round > 0 && i.round%5 == 0 && i.phase == CONVERGE_PHASE {
-		// Wait for clock tick assuming synchronized clocks
-		timeToNextClockTick := i.config.ClockTickDelta - math.Mod(timeout, i.config.ClockTickDelta)
+		// Wait for clock tick
+		timeToNextClockTick := i.config.ExternalClockResyncPeriod - math.Mod(timeout, i.config.ExternalClockResyncPeriod)
 		timeout += timeToNextClockTick
 	}
 
