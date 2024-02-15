@@ -87,7 +87,7 @@ func (c ECChain) Suffix() []TipSet {
 	return c[1:]
 }
 
-// Returns a pointer to the last tipset in the chain.
+// Returns the last tipset in the chain.
 // This could be the base tipset if there is no suffix.
 // This will panic on a zero value.
 func (c ECChain) Head() TipSet {
