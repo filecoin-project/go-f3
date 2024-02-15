@@ -73,7 +73,7 @@ func (c ECChain) IsZero() bool {
 	return len(c) == 0
 }
 
-// Returns a pointer to the base tipset.
+// Returns the base tipset.
 func (c ECChain) Base() TipSet {
 	return c[0]
 }
