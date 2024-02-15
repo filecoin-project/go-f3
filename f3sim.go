@@ -17,9 +17,10 @@ func main() {
 	maxRounds := flag.Uint64("max-rounds", 10, "max rounds to allow before failing")
 	traceLevel := flag.Int("trace", sim.TraceNone, "trace verbosity level")
 
-	graniteDelta := flag.Float64("granite-delta", 6.000, "granite delta parameter")
-	graniteDeltaRate := flag.Float64("granite-delta-rate", 2.000, "change in delta for each round")
-
+	graniteDelta := flag.Float64("granite-delta", 2.000, "granite delta parameter")
+	graniteDeltaRate := flag.Float64("granite-delta-rate", 1.300, "change in delta for each round")
+	graniteDeltaExtra := flag.Float64("granite-delta-extra", 1.000, "extra delta for each round")
+	clockTickDelta := flag.Float64("clock-tick-delta", 30.000, "clock tick delta in seconds")
 	flag.Parse()
 
 	for i := 0; i < *iterations; i++ {
@@ -33,8 +34,10 @@ func main() {
 			LatencyMean: *latencyMean,
 		}
 		graniteConfig := f3.GraniteConfig{
-			Delta:     *graniteDelta,
-			DeltaRate: *graniteDeltaRate,
+			Delta:          *graniteDelta,
+			DeltaRate:      *graniteDeltaRate,
+			DeltaExtra:     *graniteDeltaExtra,
+			ClockTickDelta: *clockTickDelta,
 		}
 		sm := sim.NewSimulation(simConfig, graniteConfig, *traceLevel)
 
