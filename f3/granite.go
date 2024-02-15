@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"math"
-	"sort"
+	"github.com/filecoin-project/go-bitfield"
 	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
 	"golang.org/x/xerrors"
+	"math"
+	"sort"
 )
 
 type GraniteConfig struct {
@@ -789,7 +790,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 // Sets an alarm to be delivered after a synchrony delay.
 // The delay duration increases with each round.
 // Returns the absolute time at which the alarm will fire.
-func (i *instance) alarmAfterSynchrony(payload string) float64 {
+func (i *instance) alarmAfterSynchrony() float64 {
 	delta := i.config.Delta
 
 	if i.round >= 2 {
@@ -802,13 +803,13 @@ func (i *instance) alarmAfterSynchrony(payload string) float64 {
 	}
 
 	timeout := i.host.Time() + delta
-	if i.round > 0 && i.round%5 == 0 && payload == CONVERGE_PHASE.String() {
+	if i.round > 0 && i.round%5 == 0 && i.phase == CONVERGE_PHASE {
 		// Wait for clock tick assuming synchronized clocks
 		timeToNextClockTick := i.config.ClockTickDelta - math.Mod(timeout, i.config.ClockTickDelta)
 		timeout += timeToNextClockTick
 	}
 
-	i.host.SetAlarm(i.participantID, payload, timeout)
+	i.host.SetAlarm(i.participantID, timeout)
 	return timeout
 }
 
