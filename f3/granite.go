@@ -14,7 +14,7 @@ type GraniteConfig struct {
 	Delta float64
 	// Change to delta in each round after the first.
 	DeltaRate float64
-	// Absolut extra value to add to delta after the first few unsuccessful rounds.
+	// Absolute extra value to add to delta after the first few unsuccessful rounds.
 	DeltaExtra float64
 	// Time to next clock tick (according to local clock)
 	// Used in timeouts in order to synchronize participants
