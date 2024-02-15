@@ -29,6 +29,15 @@ func TestSyncPair(t *testing.T) {
 	expectRoundDecision(t, sm, 0, a.Head())
 }
 
+func TestSyncPairBLS(t *testing.T) {
+	sm := sim.NewSimulation(newSyncConfig(2).UseBLS(), GraniteConfig(), sim.TraceNone)
+	a := sm.Base.Extend(sm.CIDGen.Sample())
+	sm.ReceiveChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
+
+	require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
+	expectRoundDecision(t, sm, 0, a.Head())
+}
+
 func TestASyncPair(t *testing.T) {
 	for i := 0; i < ASYNC_ITERS; i++ {
 		//fmt.Println("i =", i)
@@ -44,6 +53,17 @@ func TestASyncPair(t *testing.T) {
 
 func TestSyncPairDisagree(t *testing.T) {
 	sm := sim.NewSimulation(newSyncConfig(2), GraniteConfig(), sim.TraceNone)
+	a := sm.Base.Extend(sm.CIDGen.Sample())
+	b := sm.Base.Extend(sm.CIDGen.Sample())
+	sm.ReceiveChains(sim.ChainCount{Count: 1, Chain: a}, sim.ChainCount{Count: 1, Chain: b})
+
+	require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
+	// Decide base chain as the only common value.
+	expectRoundDecision(t, sm, 0, sm.Base.Head())
+}
+
+func TestSyncPairDisagreeBLS(t *testing.T) {
+	sm := sim.NewSimulation(newSyncConfig(2).UseBLS(), GraniteConfig(), sim.TraceNone)
 	a := sm.Base.Extend(sm.CIDGen.Sample())
 	b := sm.Base.Extend(sm.CIDGen.Sample())
 	sm.ReceiveChains(sim.ChainCount{Count: 1, Chain: a}, sim.ChainCount{Count: 1, Chain: b})
@@ -99,6 +119,19 @@ func TestAsyncAgreement(t *testing.T) {
 func TestSyncHalves(t *testing.T) {
 	for n := 4; n <= 50; n += 2 {
 		sm := sim.NewSimulation(newSyncConfig(n), GraniteConfig(), sim.TraceNone)
+		a := sm.Base.Extend(sm.CIDGen.Sample())
+		b := sm.Base.Extend(sm.CIDGen.Sample())
+		sm.ReceiveChains(sim.ChainCount{Count: n / 2, Chain: a}, sim.ChainCount{Count: n / 2, Chain: b})
+
+		require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
+		// Groups split 50/50 always decide the base.
+		expectRoundDecision(t, sm, 0, sm.Base.Head())
+	}
+}
+
+func TestSyncHalvesBLS(t *testing.T) {
+	for n := 4; n <= 10; n += 2 {
+		sm := sim.NewSimulation(newSyncConfig(n).UseBLS(), GraniteConfig(), sim.TraceNone)
 		a := sm.Base.Extend(sm.CIDGen.Sample())
 		b := sm.Base.Extend(sm.CIDGen.Sample())
 		sm.ReceiveChains(sim.ChainCount{Count: n / 2, Chain: a}, sim.ChainCount{Count: n / 2, Chain: b})
@@ -177,22 +210,22 @@ func newAsyncConfig(honestCount int, latencySeed int) sim.Config {
 	}
 }
 
-func expectRoundDecision(t *testing.T, sm *sim.Simulation, expectedRound uint64, expected ...*f3.TipSet) {
+func expectRoundDecision(t *testing.T, sm *sim.Simulation, expectedRound uint64, expected ...f3.TipSet) {
 	decision, round := sm.Participants[0].Finalised()
 	require.Equal(t, expectedRound, round)
 
 	for _, e := range expected {
-		if decision.CID == e.CID {
+		if decision == e {
 			return
 		}
 	}
 	require.Fail(t, fmt.Sprintf("decided %s, expected one of %s", &decision, expected))
 }
 
-func expectEventualDecision(t *testing.T, sm *sim.Simulation, expected ...*f3.TipSet) {
+func expectEventualDecision(t *testing.T, sm *sim.Simulation, expected ...f3.TipSet) {
 	decision, _ := sm.Participants[0].Finalised()
 	for _, e := range expected {
-		if decision.CID == e.CID {
+		if decision == e {
 			return
 		}
 	}

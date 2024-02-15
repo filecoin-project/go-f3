@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/filecoin-project/go-bitfield"
 	"math"
 	"sort"
+	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
+	"golang.org/x/xerrors"
 )
 
 type GraniteConfig struct {
@@ -79,7 +80,7 @@ type GMessage struct {
 	// VRF ticket for CONVERGE messages (otherwise empty byte array).
 	Ticket Ticket
 	// Justification for this message (some messages must be justified by a strong quorum of messages from some previous step).
-	Justification Justification
+	Justification *Justification
 }
 
 type Justification struct {
@@ -107,14 +108,14 @@ type Payload struct {
 func (p Payload) MarshalForSigning(nn NetworkName) []byte {
 	var buf bytes.Buffer
 	buf.WriteString(DOMAIN_SEPARATION_TAG)
-	buf.WriteString(nn.SignatureSeparationTag())
+	buf.WriteString(":")
+	buf.WriteString(string(nn))
+	buf.WriteString(":")
 	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
 	_ = binary.Write(&buf, binary.BigEndian, p.Round)
 	_ = binary.Write(&buf, binary.BigEndian, []byte(p.Step.String()))
 	for _, t := range p.Value {
-		_ = binary.Write(&buf, binary.BigEndian, t.Epoch)
-		buf.Write(t.CID.Bytes())
-		_ = binary.Write(&buf, binary.BigEndian, t.Weight)
+		t.MarshalForSigning(&buf)
 	}
 	return buf.Bytes()
 }
@@ -145,10 +146,10 @@ type instance struct {
 	// For QUALITY, PREPARE, and COMMIT, this is the latest time (the phase can end sooner).
 	// For CONVERGE, this is the exact time (the timeout solely defines the phase end).
 	phaseTimeout float64
-	// This instance's proposal for the current round.
+	// This instance's proposal for the current round. Never bottom.
 	// This is set after the QUALITY phase, and changes only at the end of a full round.
 	proposal ECChain
-	// The value to be transmitted at the next phase.
+	// The value to be transmitted at the next phase, which may be bottom.
 	// This value may change away from the proposal between phases.
 	value ECChain
 	// Queue of messages to be synchronously processed before returning from top-level call.
@@ -240,7 +241,7 @@ func (i *instance) Receive(msg *GMessage) error {
 	return i.drainInbox()
 }
 
-func (i *instance) ReceiveAlarm(_ string) error {
+func (i *instance) ReceiveAlarm() error {
 	if err := i.tryCompletePhase(); err != nil {
 		return fmt.Errorf("failed completing protocol phase: %w", err)
 	}
@@ -295,18 +296,24 @@ func (i *instance) receiveOne(msg *GMessage) error {
 		// Receive each prefix of the proposal independently.
 		for j := range msg.Vote.Value.Suffix() {
 			prefix := msg.Vote.Value.Prefix(j + 1)
-			i.quality.Receive(msg.Sender, prefix, msg.Signature, msg.Justification)
+			i.quality.Receive(msg.Sender, prefix, msg.Signature)
 		}
 	case CONVERGE_PHASE:
 		if err := round.converged.Receive(msg.Vote.Value, msg.Ticket); err != nil {
 			return fmt.Errorf("failed processing CONVERGE message: %w", err)
 		}
 	case PREPARE_PHASE:
-		round.prepared.Receive(msg.Sender, msg.Vote.Value, msg.Signature, msg.Justification)
+		round.prepared.Receive(msg.Sender, msg.Vote.Value, msg.Signature)
 	case COMMIT_PHASE:
-		round.committed.Receive(msg.Sender, msg.Vote.Value, msg.Signature, msg.Justification)
+		round.committed.Receive(msg.Sender, msg.Vote.Value, msg.Signature)
+		// The only justifications that need to be stored for future propagation are for COMMITs
+		// to non-bottom values.
+		// This evidence can be brought forward to justify a CONVERGE message in the next round.
+		if !msg.Vote.Value.IsZero() {
+			round.committed.ReceiveJustification(msg.Vote.Value, msg.Justification)
+		}
 	case DECIDE_PHASE:
-		i.decision.Receive(msg.Sender, msg.Vote.Value, msg.Signature, msg.Justification)
+		i.decision.Receive(msg.Sender, msg.Vote.Value, msg.Signature)
 	default:
 		i.log("unexpected message %v", msg)
 	}
@@ -344,12 +351,11 @@ func (i *instance) tryCompletePhase() error {
 // Checks whether a message is valid.
 // An invalid message can never become valid, so may be dropped.
 func (i *instance) isValid(msg *GMessage) bool {
-	if !i.powerTable.Has(msg.Sender) {
+	power, pubKey := i.powerTable.Get(msg.Sender)
+	if power == nil || power.Sign() == 0 {
 		i.log("sender with zero power or not in power table")
 		return false
 	}
-
-	_, pubKey := i.powerTable.Get(msg.Sender)
 
 	if !(msg.Vote.Value.IsZero() || msg.Vote.Value.HasBase(i.input.Base())) {
 		i.log("unexpected base %s", &msg.Vote.Value)
@@ -361,23 +367,99 @@ func (i *instance) isValid(msg *GMessage) bool {
 		if msg.Vote.Round == 0 ||
 			msg.Vote.Value.IsZero() ||
 			!i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Vote.Round, pubKey, msg.Ticket) {
+			i.log("failed to verify ticket from %v", msg.Sender)
 			return false
 		}
 	} else if msg.Vote.Step == DECIDE_PHASE {
-		// DECIDE needs no justification
 		return !msg.Vote.Value.IsZero()
 	}
 
-	sigPayload := msg.Vote.MarshalForSigning(TODONetworkName)
-	if !i.host.Verify(pubKey, sigPayload, msg.Signature) {
-		i.log("invalid signature on %v", msg)
+	sigPayload := msg.Vote.MarshalForSigning(i.host.NetworkName())
+	if err := i.host.Verify(pubKey, sigPayload, msg.Signature); err != nil {
+		i.log("invalid signature on %v, %v", msg, err)
 		return false
 	}
 
 	return true
 }
 
-func (i *instance) VerifyJustification(justification Justification) error {
+// Checks whether a message is justified by evidence of prior messages, if necessary.
+// An unjustified message can never become justified, so may be dropped.
+func (i *instance) isJustified(msg *GMessage) error {
+	// Dispense with messages that should carry no justification.
+	if msg.Vote.Step == QUALITY_PHASE || msg.Vote.Step == PREPARE_PHASE || (msg.Vote.Step == COMMIT_PHASE && msg.Vote.Value.IsZero()) {
+		if msg.Justification != nil {
+			return fmt.Errorf("message %v has unexpected justification", msg)
+		}
+		return nil
+	}
+
+	if msg.Justification == nil {
+		return fmt.Errorf("message for phase %v round %v has no justification", msg.Vote.Step, msg.Vote.Round)
+	}
+	if msg.Vote.Instance != msg.Justification.Vote.Instance {
+		return fmt.Errorf("message with instanceID %v has evidence from instanceID: %v", msg.Vote.Instance, msg.Justification.Vote.Instance)
+	}
+
+	switch msg.Vote.Step {
+	case CONVERGE_PHASE:
+		//CONVERGE is justified by a strong quorum of COMMIT for bottom from the previous round.
+		// or a strong quorum of PREPARE for the same value from the previous round.
+		prevRound := msg.Vote.Round - 1
+		if msg.Justification.Vote.Round != prevRound {
+			return fmt.Errorf("CONVERGE %v has evidence from wrong round %d", msg.Vote.Round, msg.Justification.Vote.Round)
+		}
+
+		if msg.Justification.Vote.Step == PREPARE_PHASE {
+			if msg.Vote.Value.HeadOrZero() != msg.Justification.Vote.Value.HeadOrZero() {
+				return fmt.Errorf("CONVERGE for value %v has PREPARE evidence for a different value: %v", msg.Vote.Value, msg.Justification.Vote.Value)
+			}
+			if msg.Vote.Value.IsZero() {
+				return fmt.Errorf("CONVERGE with PREPARE evidence for zero value: %v", msg.Justification.Vote.Value)
+			}
+		} else if msg.Justification.Vote.Step == COMMIT_PHASE {
+			if !msg.Justification.Vote.Value.IsZero() {
+				return fmt.Errorf("CONVERGE with COMMIT evidence for non-zero value: %v", msg.Justification.Vote.Value)
+			}
+		} else {
+			return fmt.Errorf("CONVERGE with evidence from wrong step %v", msg.Justification.Vote.Step)
+		}
+	case COMMIT_PHASE:
+		// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
+		// COMMIT for bottom is always justified.
+		if msg.Vote.Round != msg.Justification.Vote.Round {
+			return fmt.Errorf("COMMIT %v has evidence from wrong round %d", msg.Vote.Round, msg.Justification.Vote.Round)
+		}
+
+		if msg.Justification.Vote.Step != PREPARE_PHASE {
+			return fmt.Errorf("COMMIT %v has evidence from wrong step %v", msg.Vote.Round, msg.Justification.Vote.Step)
+		}
+
+		if msg.Vote.Value.Head() != msg.Justification.Vote.Value.HeadOrZero() {
+			return fmt.Errorf("COMMIT %v has evidence for a different value: %v", msg.Vote.Value, msg.Justification.Vote.Value)
+		}
+	case DECIDE_PHASE:
+		// Implement actual justification of DECIDES
+		// Example: return fmt.Errorf("DECIDE phase not implemented")
+		if msg.Justification.Vote.Step != COMMIT_PHASE {
+			return fmt.Errorf("dropping DECIDE %v with evidence from wrong step %v", msg.Vote.Round, msg.Justification.Vote.Step)
+		}
+		if msg.Vote.Value.IsZero() || msg.Justification.Vote.Value.IsZero() {
+			return fmt.Errorf("dropping DECIDE %v with evidence for a zero value: %v", msg.Vote.Value, msg.Justification.Vote.Value)
+		}
+		if msg.Vote.Value.Head() != msg.Justification.Vote.Value.Head() {
+			return fmt.Errorf("dropping DECIDE %v with evidence for a different value: %v", msg.Vote.Value, msg.Justification.Vote.Value)
+		}
+	case QUALITY_PHASE, PREPARE_PHASE:
+		break
+	default:
+		return fmt.Errorf("unknown message step: %v", msg.Vote.Step)
+	}
+
+	return i.verifyJustification(msg.Justification)
+}
+
+func (i *instance) verifyJustification(justification *Justification) error {
 	power := NewStoragePower(0)
 	signers := make([]PubKey, 0)
 	if err := justification.Signers.ForEach(func(bit uint64) error {
@@ -391,89 +473,11 @@ func (i *instance) VerifyJustification(justification Justification) error {
 		return fmt.Errorf("failed to iterate over signers: %w", err)
 	}
 
-	payload := justification.Vote.MarshalForSigning(TODONetworkName)
-
-	if !i.host.VerifyAggregate(payload, justification.Signature, signers) {
-		return fmt.Errorf("verification of the aggregate failed: %v", justification)
+	payload := justification.Vote.MarshalForSigning(i.host.NetworkName())
+	if err := i.host.VerifyAggregate(payload, justification.Signature, signers); err != nil {
+		return xerrors.Errorf("verification of the aggregate failed: %+v: %w", justification, err)
 	}
-
 	return nil
-}
-
-func (i *instance) isJustified(msg *GMessage) error {
-	switch msg.Vote.Step {
-	case QUALITY_PHASE, PREPARE_PHASE:
-		return nil
-
-	case CONVERGE_PHASE:
-		//CONVERGE is justified by a strong quorum of COMMIT for bottom from the previous round.
-		// or a strong quorum of PREPARE for the same value from the previous round.
-
-		prevRound := msg.Vote.Round - 1
-		if msg.Justification.Vote.Round != prevRound {
-			return fmt.Errorf("CONVERGE %v has evidence from wrong round %d", msg.Vote.Round, msg.Justification.Vote.Round)
-		}
-
-		if msg.Justification.Vote.Step == PREPARE_PHASE {
-			if msg.Vote.Value.HeadCIDOrZero() != msg.Justification.Vote.Value.HeadCIDOrZero() {
-				return fmt.Errorf("CONVERGE for value %v has PREPARE evidence for a different value: %v", msg.Vote.Value, msg.Justification.Vote.Value)
-			}
-			if msg.Vote.Value.IsZero() {
-				return fmt.Errorf("CONVERGE with PREPARE evidence for zero value: %v", msg.Justification.Vote.Value)
-			}
-		} else if msg.Justification.Vote.Step == COMMIT_PHASE {
-			if !msg.Justification.Vote.Value.IsZero() {
-				return fmt.Errorf("CONVERGE with COMMIT evidence for non-zero value: %v", msg.Justification.Vote.Value)
-			}
-		} else {
-			return fmt.Errorf("CONVERGE with evidence from wrong step %v", msg.Justification.Vote.Step)
-		}
-
-	case COMMIT_PHASE:
-		// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
-		// COMMIT for bottom is always justified.
-
-		if msg.Vote.Value.IsZero() {
-			//TODO make sure justification is default zero?
-			return nil
-		}
-
-		if msg.Vote.Round != msg.Justification.Vote.Round {
-			return fmt.Errorf("COMMIT %v has evidence from wrong round %d", msg.Vote.Round, msg.Justification.Vote.Round)
-		}
-
-		if msg.Justification.Vote.Step != PREPARE_PHASE {
-			return fmt.Errorf("COMMIT %v has evidence from wrong step %v", msg.Vote.Round, msg.Justification.Vote.Step)
-		}
-
-		if msg.Vote.Value.Head().CID != msg.Justification.Vote.Value.HeadCIDOrZero() {
-			return fmt.Errorf("COMMIT %v has evidence for a different value: %v", msg.Vote.Value, msg.Justification.Vote.Value)
-		}
-
-	case DECIDE_PHASE:
-		// Implement actual justification of DECIDES
-		// Example: return fmt.Errorf("DECIDE phase not implemented")
-		if msg.Justification.Vote.Step != COMMIT_PHASE {
-			return fmt.Errorf("dropping DECIDE %v with evidence from wrong step %v", msg.Vote.Round, msg.Justification.Vote.Step)
-		}
-		if msg.Vote.Value.IsZero() || msg.Justification.Vote.Value.IsZero() {
-			return fmt.Errorf("dropping DECIDE %v with evidence for a zero value: %v", msg.Vote.Value, msg.Justification.Vote.Value)
-		}
-		if msg.Vote.Value.Head().CID != msg.Justification.Vote.Value.Head().CID {
-			return fmt.Errorf("dropping DECIDE %v with evidence for a different value: %v", msg.Vote.Value, msg.Justification.Vote.Value)
-		}
-		return nil
-
-	default:
-		return fmt.Errorf("unknown message step: %v", msg.Vote.Step)
-	}
-
-	if msg.Vote.Instance != msg.Justification.Vote.Instance {
-		return fmt.Errorf("message with instanceID %v has evidence from wrong instanceID: %v", msg.Vote.Instance, msg.Justification.Vote.Instance)
-	}
-
-	return i.VerifyJustification(msg.Justification)
-
 }
 
 // Sends this node's QUALITY message and begins the QUALITY phase.
@@ -483,8 +487,8 @@ func (i *instance) beginQuality() error {
 	}
 	// Broadcast input value and wait up to Δ to receive from others.
 	i.phase = QUALITY_PHASE
-	i.phaseTimeout = i.alarmAfterSynchrony(QUALITY_PHASE.String())
-	i.broadcast(i.round, QUALITY_PHASE, i.input, nil, Justification{})
+	i.phaseTimeout = i.alarmAfterSynchrony()
+	i.broadcast(i.round, QUALITY_PHASE, i.input, nil, nil)
 	return nil
 }
 
@@ -495,13 +499,13 @@ func (i *instance) tryQuality() error {
 	}
 	// Wait either for a strong quorum that agree on our proposal,
 	// or for the timeout to expire.
-	foundQuorum := i.quality.HasStrongQuorumAgreement(i.proposal.Head().CID)
+	foundQuorum := i.quality.HasStrongQuorumFor(i.proposal.Head())
 	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
 	if foundQuorum {
 		// Keep current proposal.
 	} else if timeoutExpired {
-		strongQuora := i.quality.ListStrongQuorumAgreedValues()
+		strongQuora := i.quality.ListStrongQuorumValues()
 		i.proposal = findFirstPrefixOf(strongQuora, i.proposal)
 	}
 
@@ -516,43 +520,41 @@ func (i *instance) tryQuality() error {
 
 func (i *instance) beginConverge() {
 	i.phase = CONVERGE_PHASE
-	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
-	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE_PHASE.String())
+
+	i.phaseTimeout = i.alarmAfterSynchrony()
 	prevRoundState := i.roundState(i.round - 1)
 
-	var justification Justification
-	if signers, signatures, ok := prevRoundState.committed.FindStrongQuorumAgreement(ZeroTipSetID()); ok {
-		value := ECChain{}
-		aggSignature := i.host.Aggregate(signatures, nil)
-		justificationPayload := Payload{
-			Instance: i.instanceID,
-			Round:    i.round - 1,
-			Step:     COMMIT_PHASE,
-			Value:    value,
+	// Proposal was updated at the end of COMMIT phase to be some value for which
+	// this node received a COMMIT message (bearing justification), if there were any.
+	// If there were none, there must have been a strong quorum for bottom instead.
+	var justification *Justification
+	if quorum, ok := prevRoundState.committed.FindStrongQuorumFor(ZeroTipSet()); ok {
+		// Build justification for strong quorum of COMMITs for bottom in the previous round.
+		aggSignature, err := quorum.Aggregate(i.host)
+		if err != nil {
+			panic(xerrors.Errorf("aggregating for convergage: %v", err))
 		}
-		justification = Justification{
-			Vote:      justificationPayload,
-			Signers:   signers,
+		justification = &Justification{
+			Vote: Payload{
+				Instance: i.instanceID,
+				Round:    i.round - 1,
+				Step:     COMMIT_PHASE,
+				Value:    ECChain{},
+			},
+			Signers:   quorum.SignersBitfield(),
 			Signature: aggSignature,
 		}
-	} else if signers, signatures, ok = prevRoundState.prepared.FindStrongQuorumAgreement(i.proposal.Head().CID); ok {
-		value := i.proposal
-		aggSignature := i.host.Aggregate(signatures, nil)
-		justificationPayload := Payload{
-			Instance: i.instanceID,
-			Round:    i.round - 1,
-			Step:     PREPARE_PHASE,
-			Value:    value,
-		}
-		justification = Justification{
-			Vote:      justificationPayload,
-			Signers:   signers,
-			Signature: aggSignature,
-		}
-	} else if justification, ok = prevRoundState.committed.justifiedMessages[i.proposal.Head().CID]; ok {
-		//justificationPayload already assigned in the if statement
 	} else {
-		panic("beginConverge called but no evidence found")
+		// Extract the justification received from some participant (possibly this node itself).
+		justification, ok = prevRoundState.committed.receivedJustification[i.proposal.Head()]
+		if !ok {
+			panic("beginConverge called but no justification for proposal")
+		}
+	}
+	ticket, err := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round)
+	if err != nil {
+		i.log("error while creating VRF ticket: %v", err)
+		return
 	}
 
 	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, ticket, justification)
@@ -591,8 +593,8 @@ func (i *instance) tryConverge() error {
 func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE_PHASE
-	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE_PHASE.String())
-	i.broadcast(i.round, PREPARE_PHASE, i.value, nil, Justification{})
+	i.phaseTimeout = i.alarmAfterSynchrony()
+	i.broadcast(i.round, PREPARE_PHASE, i.value, nil, nil)
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -603,7 +605,7 @@ func (i *instance) tryPrepare() error {
 
 	prepared := i.roundState(i.round).prepared
 	// Optimisation: we could advance phase once a strong quorum on our proposal is not possible.
-	foundQuorum := prepared.HasStrongQuorumAgreement(i.proposal.Head().CID)
+	foundQuorum := prepared.HasStrongQuorumFor(i.proposal.Head())
 	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
 	if foundQuorum {
@@ -621,25 +623,30 @@ func (i *instance) tryPrepare() error {
 
 func (i *instance) beginCommit() {
 	i.phase = COMMIT_PHASE
-	i.phaseTimeout = i.alarmAfterSynchrony(PREPARE_PHASE.String())
+	i.phaseTimeout = i.alarmAfterSynchrony()
 
-	var justification Justification
-	if signers, signatures, ok := i.roundState(i.round).prepared.FindStrongQuorumAgreement(i.value.HeadCIDOrZero()); ok {
-		// Strong quorum found, aggregate the evidence for it.
-		aggSignature := i.host.Aggregate(signatures, nil)
-		justification = Justification{
-			Vote: Payload{
-				Instance: i.instanceID,
-				Round:    i.round,
-				Step:     PREPARE_PHASE,
-				Value:    i.value,
-			},
-			Signers:   signers,
-			Signature: aggSignature,
-		}
-	} else {
-		// No strong quorum of PREPARE found, which is ok iff the value to commit is zero.
-		if !i.value.IsZero() {
+	// The PREPARE phase exited either with i.value == i.proposal having a strong quorum agreement,
+	// or with i.value == bottom otherwise.
+	// No justification is required for committing bottom.
+	var justification *Justification
+	if !i.value.IsZero() {
+		if quorum, ok := i.roundState(i.round).prepared.FindStrongQuorumFor(i.value.Head()); ok {
+			// Strong quorum found, aggregate the justification for it.
+			aggSignature, err := quorum.Aggregate(i.host)
+			if err != nil {
+				panic(xerrors.Errorf("aggregating for commit: %v", err))
+			}
+			justification = &Justification{
+				Vote: Payload{
+					Instance: i.instanceID,
+					Round:    i.round,
+					Step:     PREPARE_PHASE,
+					Value:    i.value,
+				},
+				Signers:   quorum.SignersBitfield(),
+				Signature: aggSignature,
+			}
+		} else {
 			panic("beginCommit with no strong quorum for non-bottom value")
 		}
 	}
@@ -652,19 +659,19 @@ func (i *instance) tryCommit(round uint64) error {
 	// and the algorithm moves on to the next round.
 	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
 	committed := i.roundState(round).committed
-	foundQuorum := committed.ListStrongQuorumAgreedValues()
+	quorumValue, ok := committed.FindStrongQuorumValue()
 	timeoutExpired := i.host.Time() >= i.phaseTimeout
 
-	if len(foundQuorum) > 0 && !foundQuorum[0].IsZero() {
+	if ok && !quorumValue.IsZero() {
 		// A participant may be forced to decide a value that's not its preferred chain.
 		// The participant isn't influencing that decision against their interest, just accepting it.
-		i.value = foundQuorum[0]
+		i.value = quorumValue
 		i.beginDecide(round)
 	} else if i.round == round && i.phase == COMMIT_PHASE &&
 		timeoutExpired && committed.ReceivedFromStrongQuorum() {
 		// Adopt any non-empty value committed by another participant (there can only be one).
-		// This node has observed the strong quorum of PREPARE messages that justify it,
-		// and mean that some other nodes may decide that value (if they observe more COMMITs).
+		// The received COMMIT carried justification of a strong quorum of PREPARE messages,
+		// and means that some other nodes may decide that value (if they observe more COMMITs).
 		for _, v := range committed.ListAllValues() {
 			if !v.IsZero() {
 				if !i.isAcceptable(v) {
@@ -689,31 +696,32 @@ func (i *instance) beginDecide(round uint64) {
 
 	var justification Justification
 	// Value cannot be empty here.
-	if signers, signatures, ok := roundState.committed.FindStrongQuorumAgreement(i.value.Head().CID); ok {
-		aggSignature := i.host.Aggregate(signatures, nil)
-		justificationPayload := Payload{
-			Instance: i.instanceID,
-			Round:    round,
-			Step:     COMMIT_PHASE,
-			Value:    i.value,
+	if quorum, ok := roundState.committed.FindStrongQuorumFor(i.value.Head()); ok {
+		aggSignature, err := quorum.Aggregate(i.host)
+		if err != nil {
+			panic(xerrors.Errorf("aggregating for decide: %v", err))
 		}
 		justification = Justification{
-			Vote:      justificationPayload,
-			Signers:   signers,
+			Vote: Payload{
+				Instance: i.instanceID,
+				Round:    round,
+				Step:     COMMIT_PHASE,
+				Value:    i.value,
+			},
+			Signers:   quorum.SignersBitfield(),
 			Signature: aggSignature,
 		}
-
 	} else {
 		panic("beginDecide with no strong quorum for value")
 	}
 
-	i.broadcast(0, DECIDE_PHASE, i.value, nil, justification)
+	i.broadcast(0, DECIDE_PHASE, i.value, nil, &justification)
 }
 
 func (i *instance) tryDecide() error {
-	foundQuorum := i.decision.ListStrongQuorumAgreedValues()
-	if len(foundQuorum) > 0 {
-		i.terminate(foundQuorum[0], i.round)
+	quorumValue, ok := i.decision.FindStrongQuorumValue()
+	if ok {
+		i.terminate(quorumValue, i.round)
 	}
 
 	return nil
@@ -752,16 +760,21 @@ func (i *instance) terminated() bool {
 	return i.phase == TERMINATED_PHASE
 }
 
-func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Ticket, justification Justification) *GMessage {
+func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Ticket, justification *Justification) {
 	p := Payload{
 		Instance: i.instanceID,
 		Round:    round,
 		Step:     step,
 		Value:    value,
 	}
-	sp := p.MarshalForSigning(TODONetworkName)
+	sp := p.MarshalForSigning(i.host.NetworkName())
 
-	sig := i.host.Sign(i.participantID, sp)
+	sig, err := i.sign(sp)
+	if err != nil {
+		i.log("error while signing message: %v", err)
+		return
+	}
+
 	gmsg := &GMessage{
 		Sender:        i.participantID,
 		Vote:          p,
@@ -771,7 +784,6 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 	}
 	i.host.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
-	return gmsg
 }
 
 // Sets an alarm to be delivered after a synchrony delay.
@@ -806,6 +818,11 @@ func (i *instance) log(format string, args ...interface{}) {
 		i.round, i.phase, &i.proposal, &i.value)
 }
 
+func (i *instance) sign(msg []byte) ([]byte, error) {
+	_, pubKey := i.powerTable.Get(i.participantID)
+	return i.host.Sign(pubKey, msg)
+}
+
 ///// Incremental quorum-calculation helper /////
 
 // Accumulates values from a collection of senders and incrementally calculates
@@ -815,20 +832,20 @@ type quorumState struct {
 	// CID of each chain, used to track the first time a message from a sender is received.
 	senders map[ActorID]struct{}
 	// The power supporting each chain so far.
-	chainSupport map[TipSetID]chainSupport
+	chainSupport map[TipSet]chainSupport
 	// Total power of all distinct senders from which some chain has been senders so far.
 	sendersTotalPower *StoragePower
 	// Table of senders' power.
 	powerTable PowerTable
-	// justifiedMessages stores the senders evidences for each message, indexed by the message's head CID.
-	justifiedMessages map[TipSetID]Justification
+	// Stores justifications received for some value.
+	receivedJustification map[TipSet]*Justification
 }
 
 // A chain value and the total power supporting it
 type chainSupport struct {
 	chain           ECChain
 	power           *StoragePower
-	signers         map[ActorID][]byte
+	signatures      map[ActorID][]byte
 	hasStrongQuorum bool
 	hasWeakQuorum   bool
 }
@@ -836,16 +853,16 @@ type chainSupport struct {
 // Creates a new, empty quorum state.
 func newQuorumState(powerTable PowerTable) *quorumState {
 	return &quorumState{
-		senders:           map[ActorID]struct{}{},
-		chainSupport:      map[TipSetID]chainSupport{},
-		sendersTotalPower: NewStoragePower(0),
-		powerTable:        powerTable,
-		justifiedMessages: map[TipSetID]Justification{},
+		senders:               map[ActorID]struct{}{},
+		chainSupport:          map[TipSet]chainSupport{},
+		sendersTotalPower:     NewStoragePower(0),
+		powerTable:            powerTable,
+		receivedJustification: map[TipSet]*Justification{},
 	}
 }
 
 // Receives a new chain from a sender.
-func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, justification Justification) {
+func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte) {
 	senderPower, _ := q.powerTable.Get(sender)
 
 	// Add sender's power to total the first time a value is senders from them.
@@ -854,44 +871,40 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte, j
 		q.sendersTotalPower.Add(q.sendersTotalPower, senderPower)
 	}
 
-	head := value.HeadCIDOrZero()
+	head := value.HeadOrZero()
 	candidate, ok := q.chainSupport[head]
 	if ok {
 		// Don't double-count the same chain head for a single participant.
-		if _, ok := candidate.signers[sender]; ok {
+		if _, ok := candidate.signatures[sender]; ok {
 			return
 		}
 	} else {
 		candidate = chainSupport{
 			chain:           value,
 			power:           NewStoragePower(0),
-			signers:         map[ActorID][]byte{},
+			signatures:      map[ActorID][]byte{},
 			hasStrongQuorum: false,
 			hasWeakQuorum:   false,
 		}
-		q.chainSupport[value.HeadCIDOrZero()] = candidate
+		q.chainSupport[value.HeadOrZero()] = candidate
 	}
 
-	sigCopy := make([]byte, len(signature))
-	copy(sigCopy, signature)
-	candidate.signers[sender] = sigCopy
+	candidate.signatures[sender] = signature
 
 	// Add sender's power to the chain's total power.
 	candidate.power.Add(candidate.power, senderPower)
 
 	candidate.hasStrongQuorum = hasStrongQuorum(candidate.power, q.powerTable.Total)
 	candidate.hasWeakQuorum = hasWeakQuorum(candidate.power, q.powerTable.Total)
-
-	if !value.IsZero() && justification.Vote.Step == PREPARE_PHASE { //only committed roundStates need to store justifications
-		q.justifiedMessages[value.Head().CID] = justification
-	}
 	q.chainSupport[head] = candidate
 }
 
-// Checks whether a value has been senders before.
-func (q *quorumState) HasReceived(value ECChain) bool {
-	_, ok := q.chainSupport[value.HeadCIDOrZero()]
-	return ok
+// Receives and stores justification for a value from another participant.
+func (q *quorumState) ReceiveJustification(value ECChain, justification *Justification) {
+	if justification == nil {
+		panic("nil justification")
+	}
+	q.receivedJustification[value.HeadOrZero()] = justification
 }
 
 // Lists all values that have been senders from any sender.
@@ -904,34 +917,49 @@ func (q *quorumState) ListAllValues() []ECChain {
 	return chains
 }
 
-// Checks whether at most one distinct value has been senders.
-func (q *quorumState) HasAgreement() bool {
-	return len(q.chainSupport) <= 1
-}
-
 // Checks whether at least one message has been senders from a strong quorum of senders.
 func (q *quorumState) ReceivedFromStrongQuorum() bool {
 	return hasStrongQuorum(q.sendersTotalPower, q.powerTable.Total)
 }
 
 // Checks whether a chain (head) has reached a strong quorum.
-func (q *quorumState) HasStrongQuorumAgreement(cid TipSetID) bool {
+func (q *quorumState) HasStrongQuorumFor(cid TipSet) bool {
 	cp, ok := q.chainSupport[cid]
 	return ok && cp.hasStrongQuorum
 }
 
+type QuorumResult struct {
+	// Signers is an array of indexes into the powertable, sorted in increasing order
+	Signers    []int
+	PubKeys    []PubKey
+	Signatures [][]byte
+}
+
+func (q QuorumResult) Aggregate(v Verifier) ([]byte, error) {
+	return v.Aggregate(q.PubKeys, q.Signatures)
+}
+func (q QuorumResult) SignersBitfield() bitfield.BitField {
+	signers := make([]uint64, 0, len(q.Signers))
+	for _, s := range q.Signers {
+		signers = append(signers, uint64(s))
+	}
+	ri, _ := rlepluslazy.RunsFromSlice(signers)
+	bf, _ := bitfield.NewFromIter(ri)
+	return bf
+}
+
 // Checks whether a chain (head) has reached a strong quorum.
 // If so returns a set of signers and signatures for the value that form a strong quorum.
-func (q *quorumState) FindStrongQuorumAgreement(value TipSetID) (bitfield.BitField, [][]byte, bool) {
+func (q *quorumState) FindStrongQuorumFor(value TipSet) (QuorumResult, bool) {
 	chainSupport, ok := q.chainSupport[value]
 	if !ok || !chainSupport.hasStrongQuorum {
-		return bitfield.New(), nil, false
+		return QuorumResult{}, false
 	}
 
 	// Build an array of indices of signers in the power table.
-	signers := make([]int, 0, len(chainSupport.signers))
-	for key := range chainSupport.signers {
-		signers = append(signers, q.powerTable.Lookup[key])
+	signers := make([]int, 0, len(chainSupport.signatures))
+	for id := range chainSupport.signatures {
+		signers = append(signers, q.powerTable.Lookup[id])
 	}
 	// Sort power table indices.
 	// If the power table entries are ordered by decreasing power,
@@ -939,55 +967,92 @@ func (q *quorumState) FindStrongQuorumAgreement(value TipSetID) (bitfield.BitFie
 	sort.Ints(signers)
 
 	// Accumulate signers and signatures until they reach a strong quorum.
-	strongQuorumSigners := bitfield.New()
-	signatures := make([][]byte, 0, len(chainSupport.signers))
+	signatures := make([][]byte, 0, len(chainSupport.signatures))
+	pubkeys := make([]PubKey, 0, len(signatures))
 	justificationPower := NewStoragePower(0)
-	for _, idx := range signers {
+	for i, idx := range signers {
 		if idx >= len(q.powerTable.Entries) {
 			panic(fmt.Sprintf("invalid signer index: %d for %d entries", idx, len(q.powerTable.Entries)))
 		}
-		justificationPower.Add(justificationPower, q.powerTable.Entries[idx].Power)
-		strongQuorumSigners.Set(uint64(idx))
-		signatures = append(signatures, chainSupport.signers[q.powerTable.Entries[idx].ID])
+		entry := q.powerTable.Entries[idx]
+		justificationPower.Add(justificationPower, entry.Power)
+		signatures = append(signatures, chainSupport.signatures[entry.ID])
+		pubkeys = append(pubkeys, entry.PubKey)
 		if hasStrongQuorum(justificationPower, q.powerTable.Total) {
-			return strongQuorumSigners, signatures, true
+			return QuorumResult{
+				Signers:    signers[:i+1],
+				PubKeys:    pubkeys,
+				Signatures: signatures,
+			}, true
 		}
 	}
-	return bitfield.New(), nil, false
+
+	return QuorumResult{}, false
 }
 
 // Checks whether a chain (head) has reached weak quorum.
-func (q *quorumState) HasWeakQuorumAgreement(cid TipSetID) bool {
+func (q *quorumState) HasWeakQuorumFor(cid TipSet) bool {
 	cp, ok := q.chainSupport[cid]
 	return ok && cp.hasWeakQuorum
 }
 
 // Returns a list of the chains which have reached an agreeing strong quorum.
-// The order of returned values is not defined.
-func (q *quorumState) ListStrongQuorumAgreedValues() []ECChain {
+// Chains are returned in descending length order.
+// This is appropriate for use in the QUALITY phase, where each participant
+// votes for every prefix of their preferred chain.
+// Panics if there are multiple chains of the same length with strong quorum
+// (signalling a violation of assumptions about the adversary).
+func (q *quorumState) ListStrongQuorumValues() []ECChain {
 	var withQuorum []ECChain
 	for cid, cp := range q.chainSupport {
 		if cp.hasStrongQuorum {
 			withQuorum = append(withQuorum, q.chainSupport[cid].chain)
 		}
 	}
-	sortByWeight(withQuorum)
+	sort.Slice(withQuorum, func(i, j int) bool {
+		return len(withQuorum[i]) > len(withQuorum[j])
+	})
+	prevLength := 0
+	for _, v := range withQuorum {
+		if len(v) == prevLength {
+			panic(fmt.Sprintf("multiple chains of length %d with strong quorum", prevLength))
+		}
+		prevLength = len(v)
+	}
 	return withQuorum
+}
+
+// Returns the chain with a strong quorum of support, if there is one.
+// This is appropriate for use in PREPARE/COMMIT/DECIDE phases, where each participant
+// casts a single vote.
+// Panics if there are multiple chains with strong quorum
+// (signalling a violation of assumptions about the adversary).
+func (q *quorumState) FindStrongQuorumValue() (quorumValue ECChain, foundQuorum bool) {
+	for cid, cp := range q.chainSupport {
+		if cp.hasStrongQuorum {
+			if foundQuorum {
+				panic("multiple chains with strong quorum")
+			}
+			foundQuorum = true
+			quorumValue = q.chainSupport[cid].chain
+		}
+	}
+	return
 }
 
 //// CONVERGE phase helper /////
 
 type convergeState struct {
 	// Chains indexed by head CID
-	values map[TipSetID]ECChain
+	values map[TipSet]ECChain
 	// Tickets provided by proposers of each chain.
-	tickets map[TipSetID][]Ticket
+	tickets map[TipSet][]Ticket
 }
 
 func newConvergeState() *convergeState {
 	return &convergeState{
-		values:  map[TipSetID]ECChain{},
-		tickets: map[TipSetID][]Ticket{},
+		values:  map[TipSet]ECChain{},
+		tickets: map[TipSet][]Ticket{},
 	}
 }
 
@@ -996,7 +1061,7 @@ func (c *convergeState) Receive(value ECChain, ticket Ticket) error {
 	if value.IsZero() {
 		return fmt.Errorf("bottom cannot be justified for CONVERGE")
 	}
-	key := value.Head().CID
+	key := value.Head()
 	c.values[key] = value
 	c.tickets[key] = append(c.tickets[key], ticket)
 
@@ -1029,20 +1094,6 @@ func findFirstPrefixOf(candidates []ECChain, preferred ECChain) ECChain {
 
 	// No candidates are a prefix of preferred.
 	return preferred.BaseChain()
-}
-
-// Sorts chains by weight of their head, descending
-func sortByWeight(chains []ECChain) {
-	sort.Slice(chains, func(i, j int) bool {
-		if chains[i].IsZero() {
-			return false
-		} else if chains[j].IsZero() {
-			return true
-		}
-		hi := chains[i].Head()
-		hj := chains[j].Head()
-		return hi.Compare(hj) > 0
-	})
 }
 
 // Check whether a portion of storage power is a strong quorum of the total

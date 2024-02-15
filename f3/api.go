@@ -20,7 +20,7 @@ type MessageReceiver interface {
 	// Receives a message from another participant.
 	// No validation may be assumed to have been performed on the message.
 	ReceiveMessage(msg *GMessage) error
-	ReceiveAlarm(payload string) error
+	ReceiveAlarm() error
 }
 
 // Interface which network participants must implement.
@@ -32,6 +32,8 @@ type Receiver interface {
 
 // Endpoint to which participants can send messages.
 type Network interface {
+	// Returns the network's name (for signature separation)
+	NetworkName() NetworkName
 	// Sends a message to all other participants.
 	// The message's sender must be one that the network interface can sign on behalf of.
 	Broadcast(msg *GMessage)
@@ -41,21 +43,23 @@ type Clock interface {
 	// Returns the current network time.
 	Time() float64
 	// Sets an alarm to fire at the given timestamp.
-	SetAlarm(sender ActorID, payload string, at float64)
+	SetAlarm(sender ActorID, at float64)
 }
 
 type Signer interface {
+	// GenerateKey is used for testing
+	GenerateKey() PubKey
 	// Signs a message for the given sender ID.
-	Sign(sender ActorID, msg []byte) []byte
+	Sign(sender PubKey, msg []byte) ([]byte, error)
 }
 
 type Verifier interface {
-	// Verifies a signature for the given sender ID.
-	Verify(pubKey PubKey, msg, sig []byte) bool
-	// Aggregates signatures from a participant to an existing signature (or nil).
-	Aggregate(sig [][]byte, aggSignature []byte) []byte
+	// Verifies a signature for the given public key
+	Verify(pubKey PubKey, msg, sig []byte) error
+	// Aggregates signatures from a participants
+	Aggregate(pubKeys []PubKey, sigs [][]byte) ([]byte, error)
 	// VerifyAggregate verifies an aggregate signature.
-	VerifyAggregate(payload, aggSig []byte, signers []PubKey) bool
+	VerifyAggregate(payload, aggSig []byte, signers []PubKey) error
 }
 
 // Participant interface to the host system resources.

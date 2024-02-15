@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/ipfs/go-datastore"
 	cbg "github.com/whyrusleeping/cbor-gen"
 	"golang.org/x/xerrors"
 )
@@ -19,10 +20,11 @@ type PubKey []byte
 // it is implicitly included in all signatures and VRFs
 type NetworkName string
 
-var TODONetworkName NetworkName = "TOOD"
-
-func (nn NetworkName) SignatureSeparationTag() string {
-	return string(nn) + ":"
+func (nn NetworkName) DatastorePrefix() datastore.Key {
+	return datastore.NewKey("/f3/" + string(nn))
+}
+func (nn NetworkName) PubSubTopic() string {
+	return "/f3/granite/0.0.1/" + string(nn)
 }
 
 // Creates a new StoragePower struct with a specific value and returns the result
