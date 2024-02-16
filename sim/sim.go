@@ -69,7 +69,7 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 		}
 	}
 
-	ntwk := NewNetwork(lat, traceLevel, *sb)
+	ntwk := NewNetwork(lat, traceLevel, *sb, "sim")
 
 	// Create participants.
 	genesisPower := f3.NewPowerTable(make([]f3.PowerEntry, 0))
