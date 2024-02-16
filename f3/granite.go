@@ -485,7 +485,7 @@ func (i *instance) beginQuality() error {
 	}
 	// Broadcast input value and wait up to Δ to receive from others.
 	i.phase = QUALITY_PHASE
-	i.phaseTimeout = i.alarmAfterSynchrony()
+	i.phaseTimeout = i.alarmAfterSynchrony(false)
 	i.broadcast(i.round, QUALITY_PHASE, i.input, nil, nil)
 	return nil
 }
@@ -519,7 +519,7 @@ func (i *instance) tryQuality() error {
 func (i *instance) beginConverge() {
 	i.phase = CONVERGE_PHASE
 
-	i.phaseTimeout = i.alarmAfterSynchrony()
+	i.phaseTimeout = i.alarmAfterSynchrony(true)
 	prevRoundState := i.roundState(i.round - 1)
 
 	// Proposal was updated at the end of COMMIT phase to be some value for which
@@ -578,7 +578,7 @@ func (i *instance) tryConverge() error {
 func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE_PHASE
-	i.phaseTimeout = i.alarmAfterSynchrony()
+	i.phaseTimeout = i.alarmAfterSynchrony(false)
 	i.broadcast(i.round, PREPARE_PHASE, i.value, nil, nil)
 }
 
@@ -608,7 +608,7 @@ func (i *instance) tryPrepare() error {
 
 func (i *instance) beginCommit() {
 	i.phase = COMMIT_PHASE
-	i.phaseTimeout = i.alarmAfterSynchrony()
+	i.phaseTimeout = i.alarmAfterSynchrony(false)
 
 	// The PREPARE phase exited either with i.value == i.proposal having a strong quorum agreement,
 	// or with i.value == bottom otherwise.
@@ -748,7 +748,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 // Sets an alarm to be delivered after a synchrony delay.
 // The delay duration increases with each round.
 // Returns the absolute time at which the alarm will fire.
-func (i *instance) alarmAfterSynchrony() float64 {
+func (i *instance) alarmAfterSynchrony(waitForNextClockBoundary bool) float64 {
 	delta := i.config.Delta
 
 	if i.round >= 2 {
@@ -761,7 +761,7 @@ func (i *instance) alarmAfterSynchrony() float64 {
 
 	timeout := i.host.Time() + delta
 
-	if i.round > 0 && i.round%5 == 0 && i.phase == CONVERGE_PHASE {
+	if i.round > 0 && i.round%5 == 0 && waitForNextClockBoundary {
 		// Wait for clock tick
 		timeToNextClockTick := i.config.ExternalClockResyncPeriod - math.Mod(timeout, i.config.ExternalClockResyncPeriod)
 		timeout += timeToNextClockTick
