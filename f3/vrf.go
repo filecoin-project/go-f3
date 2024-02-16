@@ -16,11 +16,11 @@ func (t Ticket) Compare(other Ticket) int {
 // A VRF ticket is produced by signing a payload which digests a beacon randomness value and
 // the instance and round numbers.
 type VRFTicketSource interface {
-	MakeTicket(beacon []byte, instance uint64, round uint64) (Ticket, error)
+	MakeTicket(beacon []byte, instance uint64, round uint64, networkName NetworkName) (Ticket, error)
 }
 
 type VRFTicketVerifier interface {
-	VerifyTicket(beacon []byte, instance uint64, round uint64, signer PubKey, ticket Ticket) bool
+	VerifyTicket(beacon []byte, instance uint64, round uint64, signer PubKey, networkName NetworkName, ticket Ticket) bool
 }
 
 // VRF used for the CONVERGE step of GossiPBFT.
@@ -38,22 +38,29 @@ func NewVRF(source PubKey, signer Signer, verifier Verifier) *VRF {
 	}
 }
 
-func (f *VRF) MakeTicket(beacon []byte, instance uint64, round uint64) (Ticket, error) {
-	return f.signer.Sign(f.source, f.serializeSigInput(beacon, instance, round))
+func (f *VRF) MakeTicket(beacon []byte, instance uint64, round uint64, networkName NetworkName) (Ticket, error) {
+	return f.signer.Sign(f.source, f.serializeSigInput(beacon, instance, round, networkName))
 }
 
-func (f *VRF) VerifyTicket(beacon []byte, instance uint64, round uint64, signer PubKey, ticket Ticket) bool {
-	return f.verifier.Verify(signer, f.serializeSigInput(beacon, instance, round), ticket) == nil
+func (f *VRF) VerifyTicket(beacon []byte, instance uint64, round uint64, signer PubKey, networkName NetworkName, ticket Ticket) bool {
+	return f.verifier.Verify(signer, f.serializeSigInput(beacon, instance, round, networkName), ticket) == nil
 }
+
+const DOMAIN_SEPARATION_TAG_VRF = "VRF"
 
 // Serializes the input to the VRF signature for the CONVERGE step of GossiPBFT.
 // Only used for VRF ticket creation and/or verification.
-func (f *VRF) serializeSigInput(beacon []byte, instance uint64, round uint64) []byte {
-	// TODO: DST
-	buf := make([]byte, 0, len(beacon)+8+8)
-	buf = append(buf, beacon...)
-	buf = binary.BigEndian.AppendUint64(buf, instance)
-	buf = binary.BigEndian.AppendUint64(buf, round)
+func (f *VRF) serializeSigInput(beacon []byte, instance uint64, round uint64, networkName NetworkName) []byte {
+	var buf bytes.Buffer
 
-	return buf
+	buf.WriteString(DOMAIN_SEPARATION_TAG_VRF)
+	buf.WriteString(":")
+	buf.WriteString(string(networkName))
+	buf.WriteString(":")
+	buf.Write(beacon)
+	buf.WriteString(":")
+	_ = binary.Write(&buf, binary.BigEndian, instance)
+	_ = binary.Write(&buf, binary.BigEndian, round)
+
+	return buf.Bytes()
 }
