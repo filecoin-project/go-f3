@@ -367,7 +367,7 @@ func (i *instance) isValid(msg *GMessage) bool {
 	} else if msg.Vote.Step == CONVERGE_PHASE {
 		if msg.Vote.Round == 0 ||
 			msg.Vote.Value.IsZero() ||
-			!i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Vote.Round, pubKey, msg.Ticket) {
+			!i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Vote.Round, pubKey, i.host.NetworkName(), msg.Ticket) {
 			i.log("failed to verify ticket from %v", msg.Sender)
 			return false
 		}
@@ -539,7 +539,7 @@ func (i *instance) beginConverge() {
 			panic("beginConverge called but no justification for proposal")
 		}
 	}
-	ticket, err := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round)
+	ticket, err := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.host.NetworkName())
 	if err != nil {
 		i.log("error while creating VRF ticket: %v", err)
 		return
