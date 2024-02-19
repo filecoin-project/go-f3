@@ -19,8 +19,6 @@ func main() {
 
 	graniteDelta := flag.Float64("granite-delta", 2.000, "granite delta parameter")
 	deltaBackOffExponent := flag.Float64("delta-back-off-exponent", 1.300, "Exponential factor adjusting the delta value per round")
-	graniteDeltaExtra := flag.Float64("granite-delta-extra", 1.000, "extra delta for each round")
-	externalClockResyncPeriod := flag.Float64("external-clock-resync-period", 30.000, "period for external clock resync (seconds)")
 	flag.Parse()
 
 	for i := 0; i < *iterations; i++ {
@@ -34,10 +32,8 @@ func main() {
 			LatencyMean: *latencyMean,
 		}
 		graniteConfig := f3.GraniteConfig{
-			Delta:                     *graniteDelta,
-			DeltaBackOffExponent:      *deltaBackOffExponent,
-			DeltaExtra:                *graniteDeltaExtra,
-			ExternalClockResyncPeriod: *externalClockResyncPeriod,
+			Delta:                *graniteDelta,
+			DeltaBackOffExponent: *deltaBackOffExponent,
 		}
 		sm := sim.NewSimulation(simConfig, graniteConfig, *traceLevel)
 

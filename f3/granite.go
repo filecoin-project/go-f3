@@ -14,13 +14,7 @@ import (
 type GraniteConfig struct {
 	// Initial delay for partial synchrony.
 	Delta float64
-	// Absolute extra value to add to delta after the first few unsuccessful rounds.
-	DeltaExtra float64
-	// Time in between clock ticks
-	// Used in timeouts in order to synchronize participants
-	// (by attempting to not carry significant delays from previous/starting rounds)
-	ExternalClockResyncPeriod float64
-	// Delta back-off exponent for the round, if applicable.
+	// Delta back-off exponent for the round.
 	DeltaBackOffExponent float64
 }
 
@@ -485,7 +479,7 @@ func (i *instance) beginQuality() error {
 	}
 	// Broadcast input value and wait up to Δ to receive from others.
 	i.phase = QUALITY_PHASE
-	i.phaseTimeout = i.alarmAfterSynchrony(false)
+	i.phaseTimeout = i.alarmAfterSynchrony()
 	i.broadcast(i.round, QUALITY_PHASE, i.input, nil, nil)
 	return nil
 }
@@ -519,7 +513,7 @@ func (i *instance) tryQuality() error {
 func (i *instance) beginConverge() {
 	i.phase = CONVERGE_PHASE
 
-	i.phaseTimeout = i.alarmAfterSynchrony(true)
+	i.phaseTimeout = i.alarmAfterSynchrony()
 	prevRoundState := i.roundState(i.round - 1)
 
 	// Proposal was updated at the end of COMMIT phase to be some value for which
@@ -578,7 +572,7 @@ func (i *instance) tryConverge() error {
 func (i *instance) beginPrepare() {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE_PHASE
-	i.phaseTimeout = i.alarmAfterSynchrony(false)
+	i.phaseTimeout = i.alarmAfterSynchrony()
 	i.broadcast(i.round, PREPARE_PHASE, i.value, nil, nil)
 }
 
@@ -608,7 +602,7 @@ func (i *instance) tryPrepare() error {
 
 func (i *instance) beginCommit() {
 	i.phase = COMMIT_PHASE
-	i.phaseTimeout = i.alarmAfterSynchrony(false)
+	i.phaseTimeout = i.alarmAfterSynchrony()
 
 	// The PREPARE phase exited either with i.value == i.proposal having a strong quorum agreement,
 	// or with i.value == bottom otherwise.
@@ -748,25 +742,9 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 // Sets an alarm to be delivered after a synchrony delay.
 // The delay duration increases with each round.
 // Returns the absolute time at which the alarm will fire.
-func (i *instance) alarmAfterSynchrony(waitForNextClockBoundary bool) float64 {
-	delta := i.config.Delta
-
-	if i.round >= 2 {
-		delta += i.config.DeltaExtra
-	}
-
-	if i.round >= 5 {
-		delta = delta * math.Pow(i.config.DeltaBackOffExponent, float64(i.round-4))
-	}
-
+func (i *instance) alarmAfterSynchrony() float64 {
+	delta := i.config.Delta * math.Pow(i.config.DeltaBackOffExponent, float64(i.round))
 	timeout := i.host.Time() + delta
-
-	if i.round > 0 && i.round%5 == 0 && waitForNextClockBoundary {
-		// Wait for clock tick
-		timeToNextClockTick := i.config.ExternalClockResyncPeriod - math.Mod(timeout, i.config.ExternalClockResyncPeriod)
-		timeout += timeToNextClockTick
-	}
-
 	i.host.SetAlarm(i.participantID, timeout)
 	return timeout
 }
