@@ -50,9 +50,11 @@ type Network struct {
 	traceLevel int
 
 	actor2PubKey map[f3.ActorID]f3.PubKey
+
+	networkName f3.NetworkName
 }
 
-func NewNetwork(latency LatencyModel, traceLevel int, sb SigningBacked) *Network {
+func NewNetwork(latency LatencyModel, traceLevel int, sb SigningBacked, nn f3.NetworkName) *Network {
 	return &Network{
 		SigningBacked:              sb,
 		participants:               map[f3.ActorID]f3.Receiver{},
@@ -63,6 +65,7 @@ func NewNetwork(latency LatencyModel, traceLevel int, sb SigningBacked) *Network
 		globalStabilisationElapsed: false,
 		traceLevel:                 traceLevel,
 		actor2PubKey:               map[f3.ActorID]f3.PubKey{},
+		networkName:                nn,
 	}
 }
 
@@ -78,7 +81,7 @@ func (n *Network) AddParticipant(p f3.Receiver, pubKey f3.PubKey) {
 ////// Network interface
 
 func (n *Network) NetworkName() f3.NetworkName {
-	return "sim"
+	return n.networkName
 }
 
 func (n *Network) Broadcast(msg *f3.GMessage) {
