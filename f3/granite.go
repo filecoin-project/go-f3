@@ -531,20 +531,7 @@ func (i *instance) beginConverge() {
 	var justification *Justification
 	if quorum, ok := prevRoundState.committed.FindStrongQuorumFor(ZeroTipSet()); ok {
 		// Build justification for strong quorum of COMMITs for bottom in the previous round.
-		aggSignature, err := quorum.Aggregate(i.host)
-		if err != nil {
-			panic(xerrors.Errorf("aggregating for convergage: %v", err))
-		}
-		justification = &Justification{
-			Vote: Payload{
-				Instance: i.instanceID,
-				Round:    i.round - 1,
-				Step:     COMMIT_PHASE,
-				Value:    ECChain{},
-			},
-			Signers:   quorum.SignersBitfield(),
-			Signature: aggSignature,
-		}
+		justification = i.buildJustification(quorum, i.round-1, COMMIT_PHASE, ECChain{})
 	} else {
 		// Extract the justification received from some participant (possibly this node itself).
 		justification, ok = prevRoundState.committed.receivedJustification[i.proposal.Head()]
@@ -632,21 +619,8 @@ func (i *instance) beginCommit() {
 	var justification *Justification
 	if !i.value.IsZero() {
 		if quorum, ok := i.roundState(i.round).prepared.FindStrongQuorumFor(i.value.Head()); ok {
-			// Strong quorum found, aggregate the justification for it.
-			aggSignature, err := quorum.Aggregate(i.host)
-			if err != nil {
-				panic(xerrors.Errorf("aggregating for commit: %v", err))
-			}
-			justification = &Justification{
-				Vote: Payload{
-					Instance: i.instanceID,
-					Round:    i.round,
-					Step:     PREPARE_PHASE,
-					Value:    i.value,
-				},
-				Signers:   quorum.SignersBitfield(),
-				Signature: aggSignature,
-			}
+			// Found a strong quorum of PREPARE, build the justification for it.
+			justification = i.buildJustification(quorum, i.round, PREPARE_PHASE, i.value)
 		} else {
 			panic("beginCommit with no strong quorum for non-bottom value")
 		}
@@ -687,7 +661,6 @@ func (i *instance) tryCommit(round uint64) error {
 		}
 		i.beginNextRound()
 	}
-
 	return nil
 }
 
@@ -695,28 +668,16 @@ func (i *instance) beginDecide(round uint64) {
 	i.phase = DECIDE_PHASE
 	roundState := i.roundState(round)
 
-	var justification Justification
+	var justification *Justification
 	// Value cannot be empty here.
 	if quorum, ok := roundState.committed.FindStrongQuorumFor(i.value.Head()); ok {
-		aggSignature, err := quorum.Aggregate(i.host)
-		if err != nil {
-			panic(xerrors.Errorf("aggregating for decide: %v", err))
-		}
-		justification = Justification{
-			Vote: Payload{
-				Instance: i.instanceID,
-				Round:    round,
-				Step:     COMMIT_PHASE,
-				Value:    i.value,
-			},
-			Signers:   quorum.SignersBitfield(),
-			Signature: aggSignature,
-		}
+		// Build justification for strong quorum of COMMITs for the value.
+		justification = i.buildJustification(quorum, round, COMMIT_PHASE, i.value)
 	} else {
 		panic("beginDecide with no strong quorum for value")
 	}
 
-	i.broadcast(0, DECIDE_PHASE, i.value, nil, &justification)
+	i.broadcast(0, DECIDE_PHASE, i.value, nil, justification)
 }
 
 func (i *instance) tryDecide() error {
@@ -811,6 +772,24 @@ func (i *instance) alarmAfterSynchrony() float64 {
 
 	i.host.SetAlarm(i.participantID, timeout)
 	return timeout
+}
+
+// Builds a justification for a value from a quorum result.
+func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase Phase, value ECChain) *Justification {
+	aggSignature, err := quorum.Aggregate(i.host)
+	if err != nil {
+		panic(xerrors.Errorf("aggregating for phase %v: %v", phase, err))
+	}
+	return &Justification{
+		Vote: Payload{
+			Instance: i.instanceID,
+			Round:    round,
+			Step:     phase,
+			Value:    value,
+		},
+		Signers:   quorum.SignersBitfield(),
+		Signature: aggSignature,
+	}
 }
 
 func (i *instance) log(format string, args ...interface{}) {
