@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/filecoin-project/go-f3/f3"
+	"github.com/filecoin-project/go-f3/gpbft"
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/xerrors"
 )
@@ -13,16 +13,16 @@ type FakeSigner struct {
 	i int
 }
 
-var _ f3.Signer = (*FakeSigner)(nil)
-var _ f3.Verifier = (*FakeSigner)(nil)
+var _ gpbft.Signer = (*FakeSigner)(nil)
+var _ gpbft.Verifier = (*FakeSigner)(nil)
 
-func (s *FakeSigner) GenerateKey() f3.PubKey {
-	pubKey := f3.PubKey(fmt.Sprintf("pubkey:%08x", s.i))
+func (s *FakeSigner) GenerateKey() gpbft.PubKey {
+	pubKey := gpbft.PubKey(fmt.Sprintf("pubkey:%08x", s.i))
 	s.i++
 	return pubKey
 }
 
-func (_ *FakeSigner) Sign(signer f3.PubKey, msg []byte) ([]byte, error) {
+func (_ *FakeSigner) Sign(signer gpbft.PubKey, msg []byte) ([]byte, error) {
 	hash, _ := blake2b.New256(nil)
 	hash.Write(signer)
 	hash.Write(msg)
@@ -30,7 +30,7 @@ func (_ *FakeSigner) Sign(signer f3.PubKey, msg []byte) ([]byte, error) {
 	return hash.Sum(nil), nil
 }
 
-func (_ *FakeSigner) Verify(signer f3.PubKey, msg, sig []byte) error {
+func (_ *FakeSigner) Verify(signer gpbft.PubKey, msg, sig []byte) error {
 	hash, _ := blake2b.New256(nil)
 	hash.Write(signer)
 	hash.Write(msg)
@@ -41,7 +41,7 @@ func (_ *FakeSigner) Verify(signer f3.PubKey, msg, sig []byte) error {
 	return nil
 }
 
-func (_ *FakeSigner) Aggregate(pubKeys []f3.PubKey, sigs [][]byte) ([]byte, error) {
+func (_ *FakeSigner) Aggregate(pubKeys []gpbft.PubKey, sigs [][]byte) ([]byte, error) {
 
 	// Fake implementation.
 	hash, _ := blake2b.New256(nil)
@@ -53,7 +53,7 @@ func (_ *FakeSigner) Aggregate(pubKeys []f3.PubKey, sigs [][]byte) ([]byte, erro
 	return hash.Sum(nil), nil
 }
 
-func (_ *FakeSigner) VerifyAggregate(payload, aggSig []byte, signers []f3.PubKey) error {
+func (_ *FakeSigner) VerifyAggregate(payload, aggSig []byte, signers []gpbft.PubKey) error {
 	aggHash, _ := blake2b.New256(nil)
 	sigHash, _ := blake2b.New256(nil)
 	sumBuf := make([]byte, 0, blake2b.Size256)

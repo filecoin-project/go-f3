@@ -8,7 +8,7 @@ import (
 
 	// we use it only for signing, verification is rogue key safe
 	"github.com/drand/kyber/sign/bls" //nolint:staticcheck
-	"github.com/filecoin-project/go-f3/f3"
+	"github.com/filecoin-project/go-f3/gpbft"
 	"golang.org/x/xerrors"
 )
 
@@ -30,7 +30,7 @@ func SignerWithKeyOnG2() *Signer {
 	}
 }
 
-func (s *Signer) GenerateKey() f3.PubKey {
+func (s *Signer) GenerateKey() gpbft.PubKey {
 	priv, pub := s.scheme.NewKeyPair(s.suite.RandomStream())
 	pubKeyB, err := pub.MarshalBinary()
 	if err != nil {
@@ -38,12 +38,12 @@ func (s *Signer) GenerateKey() f3.PubKey {
 	}
 	s.keys[string(pubKeyB)] = priv
 
-	return f3.PubKey(pubKeyB)
+	return gpbft.PubKey(pubKeyB)
 }
 
-var _ f3.Signer = (*Signer)(nil)
+var _ gpbft.Signer = (*Signer)(nil)
 
-func (s *Signer) Sign(sender f3.PubKey, msg []byte) ([]byte, error) {
+func (s *Signer) Sign(sender gpbft.PubKey, msg []byte) ([]byte, error) {
 	priv, ok := s.keys[string(sender)]
 	if !ok {
 		return nil, xerrors.Errorf("could not find key for %X", string(sender))

@@ -3,16 +3,16 @@ package test
 import (
 	"testing"
 
-	"github.com/filecoin-project/go-f3/f3"
+	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/stretchr/testify/require"
 )
 
 type SigningSuite struct {
-	signer   f3.Signer
-	verifier f3.Verifier
+	signer   gpbft.Signer
+	verifier gpbft.Verifier
 }
 
-func NewSigningSuite(signer f3.Signer, verifier f3.Verifier) *SigningSuite {
+func NewSigningSuite(signer gpbft.Signer, verifier gpbft.Verifier) *SigningSuite {
 	return &SigningSuite{
 		signer:   signer,
 		verifier: verifier,
@@ -47,7 +47,7 @@ func (s *SigningSuite) TestSignAndVerify(t *testing.T) {
 
 func (s *SigningSuite) TestAggregateAndVerify(t *testing.T) {
 	msg := []byte("test message")
-	pubKeys := []f3.PubKey{s.signer.GenerateKey(), s.signer.GenerateKey()}
+	pubKeys := []gpbft.PubKey{s.signer.GenerateKey(), s.signer.GenerateKey()}
 	sigs := make([][]byte, len(pubKeys))
 	for i, pubKey := range pubKeys {
 		sig, err := s.signer.Sign(pubKey, msg)

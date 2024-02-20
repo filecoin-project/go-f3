@@ -1,7 +1,7 @@
 package test
 
 import (
-	"github.com/filecoin-project/go-f3/f3"
+	"github.com/filecoin-project/go-f3/gpbft"
 	"time"
 )
 
@@ -18,8 +18,8 @@ const MAX_ROUNDS = 10
 const ASYNC_ITERS = 5000
 
 // Returns a default Granite configuration.
-func GraniteConfig() f3.GraniteConfig {
-	return f3.GraniteConfig{
+func GraniteConfig() gpbft.GraniteConfig {
+	return gpbft.GraniteConfig{
 		Delta:                DELTA,
 		DeltaBackOffExponent: DELTA_BACK_OFF_EXPONENT,
 	}

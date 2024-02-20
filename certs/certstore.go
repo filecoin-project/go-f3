@@ -1,4 +1,4 @@
-package f3
+package certs
 
 import (
 	"context"
@@ -33,17 +33,17 @@ func (c Cert) MarshalBinary() ([]byte, error) {
 
 var ErrCertNotFound = errors.New("certificate not found")
 
-// CertStore is responsible for storing and relaying information about new finality certificates
-type CertStore struct {
+// Store is responsible for storing and relaying information about new finality certificates
+type Store struct {
 	writeLk  sync.Mutex
 	ds       datastore.Datastore
 	busCerts broadcast.Channel[*Cert]
 }
 
-// NewCertStore creates a certstore
+// NewStore creates a certstore
 // The passed Datastore has to be thread safe.
-func NewCertStore(ctx context.Context, ds datastore.Datastore) (*CertStore, error) {
-	cs := &CertStore{
+func NewStore(ctx context.Context, ds datastore.Datastore) (*Store, error) {
+	cs := &Store{
 		ds: namespace.Wrap(ds, datastore.NewKey("/certstore")),
 	}
 	latestCert, err := cs.loadLatest(ctx)
@@ -59,7 +59,7 @@ func NewCertStore(ctx context.Context, ds datastore.Datastore) (*CertStore, erro
 
 var certStoreLatestKey = datastore.NewKey("/latestCert")
 
-func (cs *CertStore) loadLatest(ctx context.Context) (*Cert, error) {
+func (cs *Store) loadLatest(ctx context.Context) (*Cert, error) {
 	cb, err := cs.ds.Get(ctx, certStoreLatestKey)
 	if errors.Is(err, datastore.ErrNotFound) {
 		return nil, nil
@@ -76,11 +76,11 @@ func (cs *CertStore) loadLatest(ctx context.Context) (*Cert, error) {
 }
 
 // Latest returns the newest available certificate
-func (cs *CertStore) Latest() *Cert {
+func (cs *Store) Latest() *Cert {
 	return cs.busCerts.Last()
 }
 
-func (cs *CertStore) Get(ctx context.Context, instance uint64) (*Cert, error) {
+func (cs *Store) Get(ctx context.Context, instance uint64) (*Cert, error) {
 	b, err := cs.ds.Get(ctx, cs.keyForInstance(instance))
 
 	if errors.Is(err, datastore.ErrNotFound) {
@@ -100,7 +100,7 @@ func (cs *CertStore) Get(ctx context.Context, instance uint64) (*Cert, error) {
 // GetRange returns a range of certs from start to end inclusive by instance numbers in the
 // increasing order. Only this order of traversal is supported.
 // If it encounters missing cert, it returns a wrapped ErrCertNotFound and the available certs
-func (cs *CertStore) GetRange(ctx context.Context, start uint64, end uint64) ([]Cert, error) {
+func (cs *Store) GetRange(ctx context.Context, start uint64, end uint64) ([]Cert, error) {
 	if start > end {
 		return nil, xerrors.Errorf("start is larger then end: %d > %d", start, end)
 	}
@@ -136,13 +136,13 @@ func (cs *CertStore) GetRange(ctx context.Context, start uint64, end uint64) ([]
 	return certs, nil
 }
 
-func (_ *CertStore) keyForInstance(i uint64) datastore.Key {
+func (_ *Store) keyForInstance(i uint64) datastore.Key {
 	return datastore.NewKey(fmt.Sprintf("/certs/%016X", i))
 }
 
 // Put saves a certificate in a store and notifies listeners.
 // It errors if adding a cert would create a gap
-func (cs *CertStore) Put(ctx context.Context, cert *Cert) error {
+func (cs *Store) Put(ctx context.Context, cert *Cert) error {
 	key := cs.keyForInstance(cert.Instance)
 
 	exists, err := cs.ds.Has(ctx, key)
@@ -183,6 +183,6 @@ func (cs *CertStore) Put(ctx context.Context, cert *Cert) error {
 // To stop subscribing, either the closer function can be used or the channel can be abandoned.
 // Passing a channel multiple times to the Subscribe function will result in a panic.
 // The channel will receive new certificates sequentially.
-func (cs *CertStore) SubscribeForNewCerts(ch chan<- *Cert) (last *Cert, closer func()) {
+func (cs *Store) SubscribeForNewCerts(ch chan<- *Cert) (last *Cert, closer func()) {
 	return cs.busCerts.Subscribe(ch)
 }

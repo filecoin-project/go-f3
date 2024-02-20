@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3/adversary"
-	"github.com/filecoin-project/go-f3/f3"
+	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +28,7 @@ func TestWitholdCommit1(t *testing.T) {
 	// After the victim decides in round 0, the adversary stops participating.
 	// Now there are 3 nodes on each side (and one decided), with total power 6/10, less than quorum.
 	// The B side must be swayed to the A side by observing that some nodes on the A side reached a COMMIT.
-	victims := []f3.ActorID{0, 1, 2, 3}
+	victims := []gpbft.ActorID{0, 1, 2, 3}
 	adv.SetVictim(victims, a)
 
 	adv.Begin()

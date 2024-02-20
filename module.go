@@ -3,6 +3,8 @@ package f3
 import (
 	"context"
 
+	"github.com/filecoin-project/go-f3/certs"
+	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
 
@@ -15,14 +17,14 @@ import (
 )
 
 type Module struct {
-	NetworkName NetworkName
-	CertStore   *CertStore
+	NetworkName gpbft.NetworkName
+	CertStore   *certs.Store
 
 	ds     datastore.Datastore
 	host   host.Host
 	pubsub *pubsub.PubSub
-	verif  Verifier
-	sigs   Signer
+	verif  gpbft.Verifier
+	sigs   gpbft.Signer
 	ec     ECBackend
 	log    Logger
 
@@ -32,10 +34,10 @@ type Module struct {
 
 // NewModule creates and setups new libp2p f3 module
 // The context is used for initialization not runtime.
-func NewModule(ctx context.Context, nn NetworkName, ds datastore.Datastore, h host.Host,
-	ps *pubsub.PubSub, sigs Signer, verif Verifier, ec ECBackend, log Logger) (*Module, error) {
+func NewModule(ctx context.Context, nn gpbft.NetworkName, ds datastore.Datastore, h host.Host,
+	ps *pubsub.PubSub, sigs gpbft.Signer, verif gpbft.Verifier, ec ECBackend, log Logger) (*Module, error) {
 	ds = namespace.Wrap(ds, nn.DatastorePrefix())
-	cs, err := NewCertStore(ctx, ds)
+	cs, err := certs.NewStore(ctx, ds)
 	if err != nil {
 		return nil, xerrors.Errorf("creating CertStore: %w", err)
 	}
@@ -118,7 +120,7 @@ type ECBackend interface{}
 type TODOVerifier struct{}
 
 // Verifies a signature for the given sender ID.
-func (v *TODOVerifier) Verify(pubKey PubKey, msg []byte, sig []byte) bool {
+func (v *TODOVerifier) Verify(pubKey gpbft.PubKey, msg []byte, sig []byte) bool {
 	panic("not implemented")
 }
 
@@ -128,7 +130,7 @@ func (v *TODOVerifier) Aggregate(sig [][]byte, aggSignature []byte) []byte {
 }
 
 // VerifyAggregate verifies an aggregate signature.
-func (v *TODOVerifier) VerifyAggregate(payload []byte, aggSig []byte, signers []PubKey) bool {
+func (v *TODOVerifier) VerifyAggregate(payload []byte, aggSig []byte, signers []gpbft.PubKey) bool {
 	panic("not implemented")
 }
 

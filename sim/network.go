@@ -6,21 +6,21 @@ import (
 	"strings"
 	"time"
 
-	"github.com/filecoin-project/go-f3/f3"
+	"github.com/filecoin-project/go-f3/gpbft"
 )
 
 type AdversaryReceiver interface {
-	f3.Receiver
-	AllowMessage(from f3.ActorID, to f3.ActorID, msg f3.Message) bool
+	gpbft.Receiver
+	AllowMessage(from gpbft.ActorID, to gpbft.ActorID, msg gpbft.Message) bool
 }
 
 // Endpoint with which the adversary can control the network
 type AdversaryHost interface {
-	f3.Host
+	gpbft.Host
 	// Sends a message to all other participants, immediately.
 	// Note that the adversary can subsequently delay delivery to some participants,
 	// before messages are actually received.
-	BroadcastSynchronous(sender f3.ActorID, msg f3.Message)
+	BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.Message)
 }
 
 const (
@@ -37,9 +37,9 @@ type Network struct {
 	SigningBacked
 
 	// Participants by ID.
-	participants map[f3.ActorID]f3.Receiver
+	participants map[gpbft.ActorID]gpbft.Receiver
 	// Participant IDs for deterministic iteration
-	participantIDs []f3.ActorID
+	participantIDs []gpbft.ActorID
 	// Messages received by the network but not yet delivered to all participants.
 	queue   messageQueue
 	latency LatencyModel
@@ -50,27 +50,27 @@ type Network struct {
 	// Trace level.
 	traceLevel int
 
-	actor2PubKey map[f3.ActorID]f3.PubKey
+	actor2PubKey map[gpbft.ActorID]gpbft.PubKey
 
-	networkName f3.NetworkName
+	networkName gpbft.NetworkName
 }
 
-func NewNetwork(latency LatencyModel, traceLevel int, sb SigningBacked, nn f3.NetworkName) *Network {
+func NewNetwork(latency LatencyModel, traceLevel int, sb SigningBacked, nn gpbft.NetworkName) *Network {
 	return &Network{
 		SigningBacked:              sb,
-		participants:               map[f3.ActorID]f3.Receiver{},
-		participantIDs:             []f3.ActorID{},
+		participants:               map[gpbft.ActorID]gpbft.Receiver{},
+		participantIDs:             []gpbft.ActorID{},
 		queue:                      messageQueue{},
 		clock:                      time.Time{},
 		latency:                    latency,
 		globalStabilisationElapsed: false,
 		traceLevel:                 traceLevel,
-		actor2PubKey:               map[f3.ActorID]f3.PubKey{},
+		actor2PubKey:               map[gpbft.ActorID]gpbft.PubKey{},
 		networkName:                nn,
 	}
 }
 
-func (n *Network) AddParticipant(p f3.Receiver, pubKey f3.PubKey) {
+func (n *Network) AddParticipant(p gpbft.Receiver, pubKey gpbft.PubKey) {
 	if n.participants[p.ID()] != nil {
 		panic("duplicate participant ID")
 	}
@@ -81,11 +81,11 @@ func (n *Network) AddParticipant(p f3.Receiver, pubKey f3.PubKey) {
 
 ////// Network interface
 
-func (n *Network) NetworkName() f3.NetworkName {
+func (n *Network) NetworkName() gpbft.NetworkName {
 	return n.networkName
 }
 
-func (n *Network) Broadcast(msg *f3.GMessage) {
+func (n *Network) Broadcast(msg *gpbft.GMessage) {
 	n.log(TraceSent, "P%d ↗ %v", msg.Sender, msg)
 	for _, k := range n.participantIDs {
 		if k != msg.Sender {
@@ -107,7 +107,7 @@ func (n *Network) Time() time.Time {
 	return n.clock
 }
 
-func (n *Network) SetAlarm(sender f3.ActorID, at time.Time) {
+func (n *Network) SetAlarm(sender gpbft.ActorID, at time.Time) {
 	n.queue.Insert(messageInFlight{
 		source:    sender,
 		dest:      sender,
@@ -122,7 +122,7 @@ func (n *Network) Log(format string, args ...interface{}) {
 
 ///// Adversary network interface
 
-func (n *Network) BroadcastSynchronous(sender f3.ActorID, msg f3.Message) {
+func (n *Network) BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.Message) {
 	n.log(TraceSent, "P%d ↗ %v", sender, msg)
 	for _, k := range n.participantIDs {
 		if k != sender {
@@ -165,7 +165,7 @@ func (n *Network) Tick(adv AdversaryReceiver) (bool, error) {
 		}
 	} else {
 		n.log(TraceRecvd, "P%d ← P%d: %v", msg.dest, msg.source, msg.payload)
-		gmsg := msg.payload.(f3.GMessage)
+		gmsg := msg.payload.(gpbft.GMessage)
 		if err := n.participants[msg.dest].ReceiveMessage(&gmsg); err != nil {
 			return false, fmt.Errorf("error receiving message: %w", err)
 		}
@@ -182,8 +182,8 @@ func (n *Network) log(level int, format string, args ...interface{}) {
 }
 
 type messageInFlight struct {
-	source    f3.ActorID  // ID of the sender
-	dest      f3.ActorID  // ID of the receiver
+	source    gpbft.ActorID  // ID of the sender
+	dest      gpbft.ActorID  // ID of the receiver
 	payload   interface{} // Message body
 	deliverAt time.Time   // Timestamp at which to deliver the message
 }
