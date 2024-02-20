@@ -170,8 +170,18 @@ func (t *GMessage) UnmarshalCBOR(r io.Reader) (err error) {
 
 	{
 
-		if err := t.Justification.UnmarshalCBOR(cr); err != nil {
-			return xerrors.Errorf("unmarshaling t.Justification: %w", err)
+		b, err := cr.ReadByte()
+		if err != nil {
+			return err
+		}
+		if b != cbg.CborNull[0] {
+			if err := cr.UnreadByte(); err != nil {
+				return err
+			}
+			t.Justification = new(Justification)
+			if err := t.Justification.UnmarshalCBOR(cr); err != nil {
+				return xerrors.Errorf("unmarshaling t.Justification pointer: %w", err)
+			}
 		}
 
 	}

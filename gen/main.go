@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	err := gen.WriteTupleEncodersToFile("./f3/gen.go", "f3",
+	err := gen.WriteTupleEncodersToFile("./gpbft/gen.go", "gpbft",
 		gpbft.GMessage{},
 		gpbft.Payload{},
 		gpbft.Justification{},
