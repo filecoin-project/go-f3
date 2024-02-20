@@ -1,6 +1,9 @@
 package gpbft
 
-import "fmt"
+import (
+	"fmt"
+	"golang.org/x/xerrors"
+)
 
 // An F3 participant runs repeated instances of Granite to finalise longer chains.
 type Participant struct {
@@ -9,7 +12,6 @@ type Participant struct {
 	host   Host
 	vrf    VRFer
 
-	mpool []*GMessage
 	// Chain to use as input for the next Granite instance.
 	nextChain ECChain
 	// Instance identifier for the next Granite instance.
@@ -56,29 +58,48 @@ func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, bea
 	return nil
 }
 
-// Receives a new EC chain, and notifies the current instance if it extends its current acceptable chain.
-// This modifies the set of valid values for the current instance.
+// Receives a new EC chain, and notifies the current instance.
+// This may modify the set of valid values for the current instance.
 func (p *Participant) ReceiveECChain(chain ECChain) error {
-	if p.granite != nil && chain.HasPrefix(p.granite.acceptable) {
-		p.granite.receiveAcceptable(chain)
+	if p.granite != nil {
+		p.granite.ReceiveAcceptable(chain)
 	}
 	return nil
 }
 
+// Validates a message received from another participant, if possible.
+// An invalid message can never become valid, so may be dropped.
+// A message can only be validated if it is for the currently-executing protocol instance.
+// Returns whether the message could be validated, and an error if it was invalid.
+func (p *Participant) ValidateMessage(msg *GMessage) (bool, error) {
+	if p.granite != nil && msg.Vote.Instance == p.granite.instanceID {
+		return true, p.granite.Validate(msg)
+	}
+	return false, nil
+}
+
 // Receives a Granite message from some other participant.
-// The message is delivered to the Granite instance if it is for the current instance.
-func (p *Participant) ReceiveMessage(msg *GMessage) error {
+// The message is delivered to the Granite instance if it is for the current instance,
+// else it is dropped.
+// This method *does not check message validity*.
+// The message must have been previously validated with ValidateMessage indicating success.
+// Since messages for future instances cannot be validated, a valid message
+// can only be for the current or some previous instance (hence dropping if not current).
+// Returns whether the message was accepted for the instance, and an error if it could not be
+// processed.
+func (p *Participant) ReceiveMessage(msg *GMessage) (bool, error) {
 	if p.granite != nil && msg.Vote.Instance == p.granite.instanceID {
 		if err := p.granite.Receive(msg); err != nil {
-			return fmt.Errorf("error receiving message: %w", err)
+			return true, fmt.Errorf("receiving message: %w", err)
 		}
 		p.handleDecision()
+		return true, nil
 	} else if msg.Vote.Instance >= p.nextInstance {
 		// Queue messages for later instances
-		p.mpool = append(p.mpool, msg)
+		return false, xerrors.Errorf("message for future instance cannot be valid")
 	}
-
-	return nil
+	// Message dropped.
+	return false, nil
 }
 
 func (p *Participant) ReceiveAlarm() error {

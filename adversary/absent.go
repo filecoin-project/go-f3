@@ -29,8 +29,12 @@ func (a *Absent) ReceiveECChain(_ gpbft.ECChain) error {
 	return nil
 }
 
-func (a *Absent) ReceiveMessage(_ *gpbft.GMessage) error {
-	return nil
+func (a *Absent) ValidateMessage(_ *gpbft.GMessage) (bool, error) {
+	return true, nil
+}
+
+func (a *Absent) ReceiveMessage(_ *gpbft.GMessage) (bool, error) {
+	return true, nil
 }
 
 func (a *Absent) ReceiveAlarm() error {

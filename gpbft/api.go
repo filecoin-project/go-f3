@@ -19,9 +19,12 @@ type Message interface{}
 
 // Receives a Granite protocol message.
 type MessageReceiver interface {
+	// Validates a message received from another participant, if possible.
+	// Returns whether the message could be validated, and an error if it was invalid.
+	ValidateMessage(msg *GMessage) (bool, error)
 	// Receives a message from another participant.
-	// No validation may be assumed to have been performed on the message.
-	ReceiveMessage(msg *GMessage) error
+	// The message must already have been validated.
+	ReceiveMessage(msg *GMessage) (bool, error)
 	ReceiveAlarm() error
 }
 

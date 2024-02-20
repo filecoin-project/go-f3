@@ -117,7 +117,6 @@ func (p Payload) MarshalForSigning(nn NetworkName) []byte {
 }
 
 func (m GMessage) String() string {
-	// FIXME This needs value receiver to work, for reasons I cannot figure out.
 	return fmt.Sprintf("%s{%d}(%d %s)", m.Vote.Step, m.Vote.Instance, m.Vote.Round, &m.Vote.Value)
 }
 
@@ -216,11 +215,25 @@ func (i *instance) Start() error {
 	return i.drainInbox()
 }
 
-// Receives a new acceptable chain and updates its current acceptable chain.
-func (i *instance) receiveAcceptable(chain ECChain) {
-	i.acceptable = chain
+// Receives a new chain, and updates its current chain if the received one is acceptable
+// (i.e. if it extends the current acceptable).
+func (i *instance) ReceiveAcceptable(chain ECChain) {
+	if chain.HasPrefix(i.acceptable) {
+		i.acceptable = chain
+	}
 }
 
+// Checks whether a message is valid.
+// An invalid message can never become valid, so may be dropped.
+// This method is read-only and inspects only immutable state, so should be safe to invoke
+// concurrently.
+func (i *instance) Validate(msg *GMessage) error {
+	return i.validateMessage(msg)
+}
+
+// Receives a validated message.
+// This method will not attempt to validate the message, the caller must ensure the message
+// is valid before calling this method.
 func (i *instance) Receive(msg *GMessage) error {
 	if i.terminated() {
 		return fmt.Errorf("senders message after decision")
@@ -272,17 +285,6 @@ func (i *instance) receiveOne(msg *GMessage) error {
 		return nil // No-op
 	}
 	round := i.roundState(msg.Vote.Round)
-
-	// Drop any messages that can never be valid.
-	if !i.isValid(msg) {
-		i.log("dropping invalid %s", msg)
-		return nil
-	}
-
-	if err := i.isJustified(msg); err != nil {
-		i.log("dropping unjustified %s from sender %v, error: %s", msg, msg.Sender, err)
-		return nil
-	}
 
 	switch msg.Vote.Step {
 	case QUALITY_PHASE:
@@ -341,120 +343,130 @@ func (i *instance) tryCompletePhase() error {
 	}
 }
 
-// Checks whether a message is valid.
-// An invalid message can never become valid, so may be dropped.
-func (i *instance) isValid(msg *GMessage) bool {
-	power, pubKey := i.powerTable.Get(msg.Sender)
-	if power == nil || power.Sign() == 0 {
-		i.log("sender with zero power or not in power table")
-		return false
+// Checks message validity, includng justification and signatures.
+func (i *instance) validateMessage(msg *GMessage) error {
+	// Check sender is eligible.
+	senderPower, senderPubKey := i.powerTable.Get(msg.Sender)
+	if senderPower == nil || senderPower.Sign() == 0 {
+		return xerrors.Errorf("sender with zero power or not in power table")
 	}
 
+	// Check the value is acceptable.
 	if !(msg.Vote.Value.IsZero() || msg.Vote.Value.HasBase(i.input.Base())) {
-		i.log("unexpected base %s", &msg.Vote.Value)
-		return false
-	}
-	if msg.Vote.Step == QUALITY_PHASE {
-		return msg.Vote.Round == 0 && !msg.Vote.Value.IsZero()
-	} else if msg.Vote.Step == CONVERGE_PHASE {
-		if msg.Vote.Round == 0 ||
-			msg.Vote.Value.IsZero() ||
-			!i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Vote.Round, pubKey, i.host.NetworkName(), msg.Ticket) {
-			i.log("failed to verify ticket from %v", msg.Sender)
-			return false
-		}
-	} else if msg.Vote.Step == DECIDE_PHASE {
-		return !msg.Vote.Value.IsZero()
+		return xerrors.Errorf("unexpected base %s", &msg.Vote.Value)
 	}
 
+	// Check phase-specific constraints.
+	switch msg.Vote.Step {
+	case QUALITY_PHASE:
+		if msg.Vote.Round != 0 {
+			return xerrors.Errorf("unexpected round %d for quality phase", msg.Vote.Round)
+		}
+		if msg.Vote.Value.IsZero() {
+			return xerrors.Errorf("unexpected zero value for quality phase")
+		}
+	case CONVERGE_PHASE:
+		if msg.Vote.Round == 0 {
+			return xerrors.Errorf("unexpected round 0 for converge phase")
+		}
+		if msg.Vote.Value.IsZero() {
+			return xerrors.Errorf("unexpected zero value for converge phase")
+		}
+		if !i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Vote.Round, senderPubKey, i.host.NetworkName(), msg.Ticket) {
+			return xerrors.Errorf("failed to verify ticket from %v", msg.Sender)
+		}
+	case DECIDE_PHASE:
+		if msg.Vote.Round != 0 {
+			return xerrors.Errorf("unexpected non-zero round %d for decide phase", msg.Vote.Round)
+		}
+		if msg.Vote.Value.IsZero() {
+			return xerrors.Errorf("unexpected zero value for decide phase")
+		}
+	default:
+		// No additional checks for PREPARE and COMMIT.
+	}
+
+	// Check vote signature.
 	sigPayload := msg.Vote.MarshalForSigning(i.host.NetworkName())
-	if err := i.host.Verify(pubKey, sigPayload, msg.Signature); err != nil {
-		i.log("invalid signature on %v, %v", msg, err)
-		return false
+	if err := i.host.Verify(senderPubKey, sigPayload, msg.Signature); err != nil {
+		return xerrors.Errorf("invalid signature on %v, %v", msg, err)
 	}
 
-	return true
-}
-
-// Checks whether a message is justified by evidence of prior messages, if necessary.
-// An unjustified message can never become justified, so may be dropped.
-func (i *instance) isJustified(msg *GMessage) error {
-	// Dispense with messages that should carry no justification.
-	if msg.Vote.Step == QUALITY_PHASE || msg.Vote.Step == PREPARE_PHASE || (msg.Vote.Step == COMMIT_PHASE && msg.Vote.Value.IsZero()) {
-		if msg.Justification != nil {
-			return fmt.Errorf("message %v has unexpected justification", msg)
+	// Check justification
+	needsJustification := !(msg.Vote.Step == QUALITY_PHASE ||
+		msg.Vote.Step == PREPARE_PHASE ||
+		(msg.Vote.Step == COMMIT_PHASE && msg.Vote.Value.IsZero()))
+	if needsJustification {
+		if msg.Justification == nil {
+			return fmt.Errorf("message for phase %v round %v has no justification", msg.Vote.Step, msg.Vote.Round)
 		}
-		return nil
-	}
-	// Require justification for all other messages.
-	if msg.Justification == nil {
-		return fmt.Errorf("message for phase %v round %v has no justification", msg.Vote.Step, msg.Vote.Round)
-	}
-	// Always check that the justification is for the same instance.
-	if msg.Vote.Instance != msg.Justification.Vote.Instance {
-		return fmt.Errorf("message with instanceID %v has evidence from instanceID: %v", msg.Vote.Instance, msg.Justification.Vote.Instance)
-	}
+		// Check that the justification is for the same instance.
+		if msg.Vote.Instance != msg.Justification.Vote.Instance {
+			return fmt.Errorf("message with instanceID %v has evidence from instanceID: %v", msg.Vote.Instance, msg.Justification.Vote.Instance)
+		}
 
-	// Check every remaining field of the justification, according to the phase requirements.
-	// This map goes from the message phase to the expected justification phase(s),
-	// to the required vote values.
-	// Anything else is disallowed.
-	expectations := map[Phase]map[Phase]struct {
-		Round uint64
-		Value ECChain
-	}{
-		// CONVERGE is justified by a strong quorum of COMMIT for bottom,
-		// or a strong quorum of PREPARE for the same value, from the previous round.
-		CONVERGE_PHASE: {
-			COMMIT_PHASE:  {msg.Vote.Round - 1, ECChain{}},
-			PREPARE_PHASE: {msg.Vote.Round - 1, msg.Vote.Value},
-		},
-		// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
-		COMMIT_PHASE: {
-			PREPARE_PHASE: {msg.Vote.Round, msg.Vote.Value},
-		},
-		// DECIDE is justified by strong quorum of COMMIT with the same value.
-		// The DECIDE message doesn't specify a round.
-		DECIDE_PHASE: {
-			COMMIT_PHASE: {math.MaxUint64, msg.Vote.Value},
-		},
-	}
+		// Check every remaining field of the justification, according to the phase requirements.
+		// This map goes from the message phase to the expected justification phase(s),
+		// to the required vote values.
+		// Anything else is disallowed.
+		expectations := map[Phase]map[Phase]struct {
+			Round uint64
+			Value ECChain
+		}{
+			// CONVERGE is justified by a strong quorum of COMMIT for bottom,
+			// or a strong quorum of PREPARE for the same value, from the previous round.
+			CONVERGE_PHASE: {
+				COMMIT_PHASE:  {msg.Vote.Round - 1, ECChain{}},
+				PREPARE_PHASE: {msg.Vote.Round - 1, msg.Vote.Value},
+			},
+			// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
+			COMMIT_PHASE: {
+				PREPARE_PHASE: {msg.Vote.Round, msg.Vote.Value},
+			},
+			// DECIDE is justified by strong quorum of COMMIT with the same value.
+			// The DECIDE message doesn't specify a round.
+			DECIDE_PHASE: {
+				COMMIT_PHASE: {math.MaxUint64, msg.Vote.Value},
+			},
+		}
 
-	if expectedPhases, ok := expectations[msg.Vote.Step]; ok {
-		if expected, ok := expectedPhases[msg.Justification.Vote.Step]; ok {
-			if msg.Justification.Vote.Round != expected.Round && expected.Round != math.MaxUint64 {
-				return fmt.Errorf("message %v has justification from wrong round %d", msg, msg.Justification.Vote.Round)
-			}
-			if !msg.Justification.Vote.Value.Eq(expected.Value) {
-				return fmt.Errorf("message %v has justification for a different value: %v", msg, msg.Justification.Vote.Value)
+		if expectedPhases, ok := expectations[msg.Vote.Step]; ok {
+			if expected, ok := expectedPhases[msg.Justification.Vote.Step]; ok {
+				if msg.Justification.Vote.Round != expected.Round && expected.Round != math.MaxUint64 {
+					return fmt.Errorf("message %v has justification from wrong round %d", msg, msg.Justification.Vote.Round)
+				}
+				if !msg.Justification.Vote.Value.Eq(expected.Value) {
+					return fmt.Errorf("message %v has justification for a different value: %v", msg, msg.Justification.Vote.Value)
+				}
+			} else {
+				return fmt.Errorf("message %v has justification with unexpected phase: %v", msg, msg.Justification.Vote.Step)
 			}
 		} else {
-			return fmt.Errorf("message %v has justification with unexpected phase: %v", msg, msg.Justification.Vote.Step)
+			return fmt.Errorf("message %v has unexpected phase for justification", msg)
 		}
-	} else {
-		return fmt.Errorf("message %v has unexpected phase for justification", msg)
-	}
-	return i.verifyJustification(msg.Justification)
-}
 
-func (i *instance) verifyJustification(justification *Justification) error {
-	power := NewStoragePower(0)
-	signers := make([]PubKey, 0)
-	if err := justification.Signers.ForEach(func(bit uint64) error {
-		if int(bit) >= len(i.powerTable.Entries) {
-			return fmt.Errorf("invalid signer index: %d", bit)
+		// Check justification signature.
+		justificationPower := NewStoragePower(0)
+		signers := make([]PubKey, 0)
+		if err := msg.Justification.Signers.ForEach(func(bit uint64) error {
+			if int(bit) >= len(i.powerTable.Entries) {
+				return fmt.Errorf("invalid signer index: %d", bit)
+			}
+			justificationPower.Add(justificationPower, i.powerTable.Entries[bit].Power)
+			signers = append(signers, i.powerTable.Entries[bit].PubKey)
+			return nil
+		}); err != nil {
+			return fmt.Errorf("failed to iterate over signers: %w", err)
 		}
-		power.Add(power, i.powerTable.Entries[bit].Power)
-		signers = append(signers, i.powerTable.Entries[bit].PubKey)
-		return nil
-	}); err != nil {
-		return fmt.Errorf("failed to iterate over signers: %w", err)
+
+		payload := msg.Justification.Vote.MarshalForSigning(i.host.NetworkName())
+		if err := i.host.VerifyAggregate(payload, msg.Justification.Signature, signers); err != nil {
+			return xerrors.Errorf("verification of the aggregate failed: %+v: %w", msg.Justification, err)
+		}
+	} else if msg.Justification != nil {
+		return fmt.Errorf("message %v has unexpected justification", msg)
 	}
 
-	payload := justification.Vote.MarshalForSigning(i.host.NetworkName())
-	if err := i.host.VerifyAggregate(payload, justification.Signature, signers); err != nil {
-		return xerrors.Errorf("verification of the aggregate failed: %+v: %w", justification, err)
-	}
 	return nil
 }
 
