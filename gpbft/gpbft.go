@@ -386,69 +386,54 @@ func (i *instance) isJustified(msg *GMessage) error {
 		}
 		return nil
 	}
-
+	// Require justification for all other messages.
 	if msg.Justification == nil {
 		return fmt.Errorf("message for phase %v round %v has no justification", msg.Vote.Step, msg.Vote.Round)
 	}
+	// Always check that the justification is for the same instance.
 	if msg.Vote.Instance != msg.Justification.Vote.Instance {
 		return fmt.Errorf("message with instanceID %v has evidence from instanceID: %v", msg.Vote.Instance, msg.Justification.Vote.Instance)
 	}
 
-	switch msg.Vote.Step {
-	case CONVERGE_PHASE:
-		//CONVERGE is justified by a strong quorum of COMMIT for bottom from the previous round.
-		// or a strong quorum of PREPARE for the same value from the previous round.
-		prevRound := msg.Vote.Round - 1
-		if msg.Justification.Vote.Round != prevRound {
-			return fmt.Errorf("CONVERGE %v has evidence from wrong round %d", msg.Vote.Round, msg.Justification.Vote.Round)
-		}
-
-		if msg.Justification.Vote.Step == PREPARE_PHASE {
-			if msg.Vote.Value.HeadOrZero() != msg.Justification.Vote.Value.HeadOrZero() {
-				return fmt.Errorf("CONVERGE for value %v has PREPARE evidence for a different value: %v", msg.Vote.Value, msg.Justification.Vote.Value)
-			}
-			if msg.Vote.Value.IsZero() {
-				return fmt.Errorf("CONVERGE with PREPARE evidence for zero value: %v", msg.Justification.Vote.Value)
-			}
-		} else if msg.Justification.Vote.Step == COMMIT_PHASE {
-			if !msg.Justification.Vote.Value.IsZero() {
-				return fmt.Errorf("CONVERGE with COMMIT evidence for non-zero value: %v", msg.Justification.Vote.Value)
-			}
-		} else {
-			return fmt.Errorf("CONVERGE with evidence from wrong step %v", msg.Justification.Vote.Step)
-		}
-	case COMMIT_PHASE:
+	// Check every remaining field of the justification, according to the phase requirements.
+	// This map goes from the message phase to the expected justification phase(s),
+	// to the required vote values.
+	// Anything else is disallowed.
+	expectations := map[Phase]map[Phase]struct {
+		Round uint64
+		Value ECChain
+	}{
+		// CONVERGE is justified by a strong quorum of COMMIT for bottom,
+		// or a strong quorum of PREPARE for the same value, from the previous round.
+		CONVERGE_PHASE: {
+			COMMIT_PHASE:  {msg.Vote.Round - 1, ECChain{}},
+			PREPARE_PHASE: {msg.Vote.Round - 1, msg.Vote.Value},
+		},
 		// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
-		// COMMIT for bottom is always justified.
-		if msg.Vote.Round != msg.Justification.Vote.Round {
-			return fmt.Errorf("COMMIT %v has evidence from wrong round %d", msg.Vote.Round, msg.Justification.Vote.Round)
-		}
-
-		if msg.Justification.Vote.Step != PREPARE_PHASE {
-			return fmt.Errorf("COMMIT %v has evidence from wrong step %v", msg.Vote.Round, msg.Justification.Vote.Step)
-		}
-
-		if msg.Vote.Value.Head() != msg.Justification.Vote.Value.HeadOrZero() {
-			return fmt.Errorf("COMMIT %v has evidence for a different value: %v", msg.Vote.Value, msg.Justification.Vote.Value)
-		}
-	case DECIDE_PHASE:
-		// Implement actual justification of DECIDES
-		// Example: return fmt.Errorf("DECIDE phase not implemented")
-		if msg.Justification.Vote.Step != COMMIT_PHASE {
-			return fmt.Errorf("dropping DECIDE %v with evidence from wrong step %v", msg.Vote.Round, msg.Justification.Vote.Step)
-		}
-		if msg.Vote.Value.IsZero() || msg.Justification.Vote.Value.IsZero() {
-			return fmt.Errorf("dropping DECIDE %v with evidence for a zero value: %v", msg.Vote.Value, msg.Justification.Vote.Value)
-		}
-		if msg.Vote.Value.Head() != msg.Justification.Vote.Value.Head() {
-			return fmt.Errorf("dropping DECIDE %v with evidence for a different value: %v", msg.Vote.Value, msg.Justification.Vote.Value)
-		}
-	case QUALITY_PHASE, PREPARE_PHASE:
-		break
-	default:
-		return fmt.Errorf("unknown message step: %v", msg.Vote.Step)
+		COMMIT_PHASE: {
+			PREPARE_PHASE: {msg.Vote.Round, msg.Vote.Value},
+		},
+		// DECIDE is justified by strong quorum of COMMIT with the same value.
+		// The DECIDE message doesn't specify a round.
+		DECIDE_PHASE: {
+			COMMIT_PHASE: {math.MaxUint64, msg.Vote.Value},
+		},
 	}
 
+	if expectedPhases, ok := expectations[msg.Vote.Step]; ok {
+		if expected, ok := expectedPhases[msg.Justification.Vote.Step]; ok {
+			if msg.Justification.Vote.Round != expected.Round && expected.Round != math.MaxUint64 {
+				return fmt.Errorf("message %v has justification from wrong round %d", msg, msg.Justification.Vote.Round)
+			}
+			if !msg.Justification.Vote.Value.Eq(expected.Value) {
+				return fmt.Errorf("message %v has justification for a different value: %v", msg, msg.Justification.Vote.Value)
+			}
+		} else {
+			return fmt.Errorf("message %v has justification with unexpected phase: %v", msg, msg.Justification.Vote.Step)
+		}
+	} else {
+		return fmt.Errorf("message %v has unexpected phase for justification", msg)
+	}
 	return i.verifyJustification(msg.Justification)
 }
 
@@ -669,6 +654,11 @@ func (i *instance) beginDecide(round uint64) {
 		panic("beginDecide with no strong quorum for value")
 	}
 
+	// DECIDE messages always specify round = 0.
+	// Extreme out-of-order message delivery could result in different nodes deciding
+	// in different rounds (but for the same value).
+	// Since each node sends only one DECIDE message, they must share the same vote
+	// in order to be aggregated.
 	i.broadcast(0, DECIDE_PHASE, i.value, nil, justification)
 }
 
