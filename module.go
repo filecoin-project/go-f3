@@ -18,7 +18,7 @@ import (
 
 type Module struct {
 	NetworkName gpbft.NetworkName
-	CertStore   *certs.CertStore
+	CertStore   *certs.Store
 
 	ds     datastore.Datastore
 	host   host.Host
@@ -37,7 +37,7 @@ type Module struct {
 func NewModule(ctx context.Context, nn gpbft.NetworkName, ds datastore.Datastore, h host.Host,
 	ps *pubsub.PubSub, sigs gpbft.Signer, verif gpbft.Verifier, ec ECBackend, log Logger) (*Module, error) {
 	ds = namespace.Wrap(ds, nn.DatastorePrefix())
-	cs, err := certs.NewCertStore(ctx, ds)
+	cs, err := certs.NewStore(ctx, ds)
 	if err != nil {
 		return nil, xerrors.Errorf("creating CertStore: %w", err)
 	}

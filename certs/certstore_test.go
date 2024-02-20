@@ -13,7 +13,7 @@ func TestNewCertStore(t *testing.T) {
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
-	_, err := NewCertStore(ctx, ds)
+	_, err := NewStore(ctx, ds)
 	require.NoError(t, err)
 }
 
@@ -21,7 +21,7 @@ func TestLatest(t *testing.T) {
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
-	cs, err := NewCertStore(ctx, ds)
+	cs, err := NewStore(ctx, ds)
 	require.NoError(t, err)
 
 	latest := cs.Latest()
@@ -32,7 +32,7 @@ func TestPut(t *testing.T) {
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
-	cs, err := NewCertStore(ctx, ds)
+	cs, err := NewStore(ctx, ds)
 	require.NoError(t, err)
 
 	cert := &Cert{Instance: 1}
@@ -55,7 +55,7 @@ func TestGet(t *testing.T) {
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
-	cs, err := NewCertStore(ctx, ds)
+	cs, err := NewStore(ctx, ds)
 	require.NoError(t, err)
 
 	_, err = cs.Get(ctx, 1)
@@ -75,7 +75,7 @@ func TestGetRange(t *testing.T) {
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
-	cs, err := NewCertStore(ctx, ds)
+	cs, err := NewStore(ctx, ds)
 	require.NoError(t, err)
 
 	_, err = cs.GetRange(ctx, 1, 5)
@@ -96,7 +96,7 @@ func TestSubscribeForNewCerts(t *testing.T) {
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
-	cs, err := NewCertStore(ctx, ds)
+	cs, err := NewStore(ctx, ds)
 	require.NoError(t, err)
 
 	ch := make(chan *Cert, 1)
@@ -120,7 +120,7 @@ func TestLatestAfterPut(t *testing.T) {
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
-	cs, err := NewCertStore(ctx, ds)
+	cs, err := NewStore(ctx, ds)
 	require.NoError(t, err)
 
 	cert := &Cert{Instance: 1}
@@ -144,7 +144,7 @@ func TestPutSequential(t *testing.T) {
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
-	cs, err := NewCertStore(ctx, ds)
+	cs, err := NewStore(ctx, ds)
 	require.NoError(t, err)
 
 	for i := uint64(1); i <= 5; i++ {
@@ -162,7 +162,7 @@ func TestPersistency(t *testing.T) {
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
-	cs1, err := NewCertStore(ctx, ds)
+	cs1, err := NewStore(ctx, ds)
 	require.NoError(t, err)
 
 	for i := uint64(1); i <= 5; i++ {
@@ -171,7 +171,7 @@ func TestPersistency(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	cs2, err := NewCertStore(ctx, ds)
+	cs2, err := NewStore(ctx, ds)
 	require.NoError(t, err)
 
 	for i := uint64(1); i <= 5; i++ {
