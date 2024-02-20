@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3/blssig"
-	"github.com/filecoin-project/go-f3/f3"
+	"github.com/filecoin-project/go-f3/gpbft"
 )
 
 type Config struct {
@@ -26,8 +26,8 @@ func (c Config) UseBLS() Config {
 }
 
 type SigningBacked struct {
-	f3.Signer
-	f3.Verifier
+	gpbft.Signer
+	gpbft.Verifier
 }
 
 func FakeSigningBacked() *SigningBacked {
@@ -47,17 +47,17 @@ func BLSSigningBacked() *SigningBacked {
 
 type Simulation struct {
 	Network      *Network
-	Base         f3.ECChain
-	PowerTable   f3.PowerTable
+	Base         gpbft.ECChain
+	PowerTable   gpbft.PowerTable
 	Beacon       []byte
-	Participants []*f3.Participant
+	Participants []*gpbft.Participant
 	Adversary    AdversaryReceiver
 	CIDGen       *CIDGen
 }
 
-type AdversaryFactory func(id string, ntwk f3.Network) f3.Receiver
+type AdversaryFactory func(id string, ntwk gpbft.Network) gpbft.Receiver
 
-func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel int) *Simulation {
+func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLevel int) *Simulation {
 	// Create a network to deliver messages.
 	lat := NewLogNormal(simConfig.LatencySeed, simConfig.LatencyMean)
 	sb := simConfig.SigningBacked
@@ -73,21 +73,21 @@ func NewSimulation(simConfig Config, graniteConfig f3.GraniteConfig, traceLevel 
 	ntwk := NewNetwork(lat, traceLevel, *sb, "sim")
 
 	// Create participants.
-	genesisPower := f3.NewPowerTable(make([]f3.PowerEntry, 0))
-	participants := make([]*f3.Participant, simConfig.HonestCount)
+	genesisPower := gpbft.NewPowerTable(make([]gpbft.PowerEntry, 0))
+	participants := make([]*gpbft.Participant, simConfig.HonestCount)
 	for i := 0; i < len(participants); i++ {
 		pubKey := ntwk.GenerateKey()
-		vrf := f3.NewVRF(pubKey, ntwk.Signer, ntwk.Verifier)
-		participants[i] = f3.NewParticipant(f3.ActorID(i), graniteConfig, ntwk, vrf)
+		vrf := gpbft.NewVRF(pubKey, ntwk.Signer, ntwk.Verifier)
+		participants[i] = gpbft.NewParticipant(gpbft.ActorID(i), graniteConfig, ntwk, vrf)
 		ntwk.AddParticipant(participants[i], pubKey)
-		if err := genesisPower.Add(participants[i].ID(), f3.NewStoragePower(1), pubKey); err != nil {
+		if err := genesisPower.Add(participants[i].ID(), gpbft.NewStoragePower(1), pubKey); err != nil {
 			panic(fmt.Errorf("failed adding participant to power table: %w", err))
 		}
 	}
 
 	// Create genesis tipset, which all participants are expected to agree on as a base.
-	genesis := f3.NewTipSet(100, f3.NewTipSetIDFromString("genesis"))
-	baseChain, err := f3.NewChain(genesis)
+	genesis := gpbft.NewTipSet(100, gpbft.NewTipSetIDFromString("genesis"))
+	baseChain, err := gpbft.NewChain(genesis)
 	if err != nil {
 		panic(fmt.Errorf("failed creating new chain: %w", err))
 	}
@@ -107,14 +107,14 @@ func (s *Simulation) SetAdversary(adv AdversaryReceiver, power uint) {
 	s.Adversary = adv
 	pubKey := s.Network.GenerateKey()
 	s.Network.AddParticipant(adv, pubKey)
-	if err := s.PowerTable.Add(adv.ID(), f3.NewStoragePower(int64(power)), pubKey); err != nil {
+	if err := s.PowerTable.Add(adv.ID(), gpbft.NewStoragePower(int64(power)), pubKey); err != nil {
 		panic(err)
 	}
 }
 
 type ChainCount struct {
 	Count int
-	Chain f3.ECChain
+	Chain gpbft.ECChain
 }
 
 // Delivers canonical chains to honest participants.
@@ -176,7 +176,7 @@ func (s *Simulation) Run(maxRounds uint64) error {
 }
 
 func (s *Simulation) PrintResults() {
-	var firstFin f3.TipSet
+	var firstFin gpbft.TipSet
 	for _, p := range s.Participants {
 		thisFin, _ := p.Finalised()
 		if firstFin.IsZero() {
@@ -210,12 +210,12 @@ func NewCIDGen(seed uint64) *CIDGen {
 	return &CIDGen{seed}
 }
 
-func (c *CIDGen) Sample() f3.TipSetID {
+func (c *CIDGen) Sample() gpbft.TipSetID {
 	b := make([]byte, 8)
 	for i := range b {
 		b[i] = alphanum[c.nextN(len(alphanum))]
 	}
-	return f3.NewTipSetID(b)
+	return gpbft.NewTipSetID(b)
 }
 
 func (c *CIDGen) nextN(n int) uint64 {

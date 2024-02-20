@@ -5,7 +5,7 @@ import (
 	bls12381 "github.com/drand/kyber-bls12381"
 	"github.com/drand/kyber/pairing"
 	"github.com/drand/kyber/sign/bdn"
-	"github.com/filecoin-project/go-f3/f3"
+	"github.com/filecoin-project/go-f3/gpbft"
 	"golang.org/x/xerrors"
 )
 
@@ -22,7 +22,7 @@ func VerifierWithKeyOnG2() Verifier {
 	}
 }
 
-func (v Verifier) Verify(pubKey f3.PubKey, msg, sig []byte) error {
+func (v Verifier) Verify(pubKey gpbft.PubKey, msg, sig []byte) error {
 	pubKeyPoint := v.keyGroup.Point()
 	err := pubKeyPoint.UnmarshalBinary(pubKey)
 	if err != nil {

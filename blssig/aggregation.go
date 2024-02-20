@@ -3,7 +3,7 @@ package blssig
 import (
 	"fmt"
 
-	"github.com/filecoin-project/go-f3/f3"
+	"github.com/filecoin-project/go-f3/gpbft"
 
 	"github.com/drand/kyber"
 	"github.com/drand/kyber/sign"
@@ -11,7 +11,7 @@ import (
 	"golang.org/x/xerrors"
 )
 
-func (v Verifier) Aggregate(pubkeys []f3.PubKey, signatures [][]byte) ([]byte, error) {
+func (v Verifier) Aggregate(pubkeys []gpbft.PubKey, signatures [][]byte) ([]byte, error) {
 	if len(pubkeys) != len(signatures) {
 		return nil, xerrors.Errorf("lengths of pubkeys and sigs does not match %d != %d",
 			len(pubkeys), len(signatures))
@@ -34,7 +34,7 @@ func (v Verifier) Aggregate(pubkeys []f3.PubKey, signatures [][]byte) ([]byte, e
 	return aggSig, nil
 }
 
-func (v Verifier) VerifyAggregate(msg []byte, signature []byte, pubkeys []f3.PubKey) error {
+func (v Verifier) VerifyAggregate(msg []byte, signature []byte, pubkeys []gpbft.PubKey) error {
 	mask, err := v.pubkeysToMask(pubkeys)
 	if err != nil {
 		return xerrors.Errorf("converting public keys to mask: %w", err)
@@ -48,7 +48,7 @@ func (v Verifier) VerifyAggregate(msg []byte, signature []byte, pubkeys []f3.Pub
 	return bdn.Verify(v.suite, aggPubKey, msg, signature)
 }
 
-func (v Verifier) pubkeysToMask(pubkeys []f3.PubKey) (*sign.Mask, error) {
+func (v Verifier) pubkeysToMask(pubkeys []gpbft.PubKey) (*sign.Mask, error) {
 	kPubkeys := make([]kyber.Point, 0, len(pubkeys))
 	for i, p := range pubkeys {
 		point := v.keyGroup.Point()

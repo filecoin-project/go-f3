@@ -4,7 +4,7 @@ import (
 	"sort"
 
 	"github.com/filecoin-project/go-bitfield"
-	"github.com/filecoin-project/go-f3/f3"
+	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim"
 )
 
@@ -12,16 +12,16 @@ import (
 // Against a naive algorithm, when set up with 30% of power, and a victim set with 40%,
 // it can cause one victim to decide, while others revert to the base.
 type WithholdCommit struct {
-	id         f3.ActorID
+	id         gpbft.ActorID
 	host       sim.AdversaryHost
-	powertable *f3.PowerTable
+	powertable *gpbft.PowerTable
 	// The first victim is the target, others are those who need to confirm.
-	victims     []f3.ActorID
-	victimValue f3.ECChain
+	victims     []gpbft.ActorID
+	victimValue gpbft.ECChain
 }
 
 // A participant that never sends anything.
-func NewWitholdCommit(id f3.ActorID, host sim.AdversaryHost, powertable *f3.PowerTable) *WithholdCommit {
+func NewWitholdCommit(id gpbft.ActorID, host sim.AdversaryHost, powertable *gpbft.PowerTable) *WithholdCommit {
 	return &WithholdCommit{
 		id:         id,
 		host:       host,
@@ -29,24 +29,24 @@ func NewWitholdCommit(id f3.ActorID, host sim.AdversaryHost, powertable *f3.Powe
 	}
 }
 
-func (w *WithholdCommit) SetVictim(victims []f3.ActorID, victimValue f3.ECChain) {
+func (w *WithholdCommit) SetVictim(victims []gpbft.ActorID, victimValue gpbft.ECChain) {
 	w.victims = victims
 	w.victimValue = victimValue
 }
 
-func (w *WithholdCommit) ID() f3.ActorID {
+func (w *WithholdCommit) ID() gpbft.ActorID {
 	return w.id
 }
 
-func (w *WithholdCommit) ReceiveCanonicalChain(_ f3.ECChain, _ f3.PowerTable, _ []byte) error {
+func (w *WithholdCommit) ReceiveCanonicalChain(_ gpbft.ECChain, _ gpbft.PowerTable, _ []byte) error {
 	return nil
 }
 
-func (w *WithholdCommit) ReceiveECChain(_ f3.ECChain) error {
+func (w *WithholdCommit) ReceiveECChain(_ gpbft.ECChain) error {
 	return nil
 }
 
-func (w *WithholdCommit) ReceiveMessage(_ *f3.GMessage) error {
+func (w *WithholdCommit) ReceiveMessage(_ *gpbft.GMessage) error {
 	return nil
 }
 
@@ -58,28 +58,28 @@ func (w *WithholdCommit) Begin() {
 	broadcast := w.broadcastHelper(w.id)
 	// All victims need to see QUALITY and PREPARE in order to send their COMMIT,
 	// but only the one victim will see our COMMIT.
-	broadcast(f3.Payload{
+	broadcast(gpbft.Payload{
 		Instance: 0,
 		Round:    0,
-		Step:     f3.QUALITY_PHASE,
+		Step:     gpbft.QUALITY_PHASE,
 		Value:    w.victimValue,
 	}, nil)
-	preparePayload := f3.Payload{
+	preparePayload := gpbft.Payload{
 		Instance: 0,
 		Round:    0,
-		Step:     f3.PREPARE_PHASE,
+		Step:     gpbft.PREPARE_PHASE,
 		Value:    w.victimValue,
 	}
 	broadcast(preparePayload, nil)
 
-	commitPayload := f3.Payload{
+	commitPayload := gpbft.Payload{
 		Instance: 0,
 		Round:    0,
-		Step:     f3.COMMIT_PHASE,
+		Step:     gpbft.COMMIT_PHASE,
 		Value:    w.victimValue,
 	}
 
-	justification := f3.Justification{
+	justification := gpbft.Justification{
 		Vote:      preparePayload,
 		Signers:   bitfield.New(),
 		Signature: nil,
@@ -95,7 +95,7 @@ func (w *WithholdCommit) Begin() {
 	sort.Ints(signers)
 
 	signatures := make([][]byte, 0)
-	pubKeys := make([]f3.PubKey, 0)
+	pubKeys := make([]gpbft.PubKey, 0)
 	prepareMarshalled := preparePayload.MarshalForSigning(w.host.NetworkName())
 	for _, signerIndex := range signers {
 		entry := w.powertable.Entries[signerIndex]
@@ -112,8 +112,8 @@ func (w *WithholdCommit) Begin() {
 	broadcast(commitPayload, &justification)
 }
 
-func (w *WithholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Message) bool {
-	gmsg, ok := msg.(f3.GMessage)
+func (w *WithholdCommit) AllowMessage(_ gpbft.ActorID, to gpbft.ActorID, msg gpbft.Message) bool {
+	gmsg, ok := msg.(gpbft.GMessage)
 	if ok {
 		toMainVictim := to == w.victims[0]
 		toAnyVictim := false
@@ -122,17 +122,17 @@ func (w *WithholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Messag
 				toAnyVictim = true
 			}
 		}
-		if gmsg.Vote.Step == f3.QUALITY_PHASE {
+		if gmsg.Vote.Step == gpbft.QUALITY_PHASE {
 			// Don't allow victims to see dissenting QUALITY.
 			if toAnyVictim && !gmsg.Vote.Value.Eq(w.victimValue) {
 				return false
 			}
-		} else if gmsg.Vote.Step == f3.PREPARE_PHASE {
+		} else if gmsg.Vote.Step == gpbft.PREPARE_PHASE {
 			// Don't allow victims to see dissenting PREPARE.
 			if toAnyVictim && !gmsg.Vote.Value.Eq(w.victimValue) {
 				return false
 			}
-		} else if gmsg.Vote.Step == f3.COMMIT_PHASE {
+		} else if gmsg.Vote.Step == gpbft.COMMIT_PHASE {
 			// Allow only the main victim to see our COMMIT.
 			if !toMainVictim && gmsg.Sender == w.id {
 				return false
@@ -146,7 +146,7 @@ func (w *WithholdCommit) AllowMessage(_ f3.ActorID, to f3.ActorID, msg f3.Messag
 	return true
 }
 
-func (w *WithholdCommit) sign(pubkey f3.PubKey, msg []byte) []byte {
+func (w *WithholdCommit) sign(pubkey gpbft.PubKey, msg []byte) []byte {
 	sig, err := w.host.Sign(pubkey, msg)
 	if err != nil {
 		panic(err)
@@ -154,8 +154,8 @@ func (w *WithholdCommit) sign(pubkey f3.PubKey, msg []byte) []byte {
 	return sig
 }
 
-func (w *WithholdCommit) broadcastHelper(sender f3.ActorID) func(f3.Payload, *f3.Justification) {
-	return func(payload f3.Payload, justification *f3.Justification) {
+func (w *WithholdCommit) broadcastHelper(sender gpbft.ActorID) func(gpbft.Payload, *gpbft.Justification) {
+	return func(payload gpbft.Payload, justification *gpbft.Justification) {
 		pS := payload.MarshalForSigning(w.host.NetworkName())
 		_, pubkey := w.powertable.Get(sender)
 		sig, err := w.host.Sign(pubkey, pS)
@@ -163,7 +163,7 @@ func (w *WithholdCommit) broadcastHelper(sender f3.ActorID) func(f3.Payload, *f3
 			panic(err)
 		}
 
-		w.host.BroadcastSynchronous(sender, f3.GMessage{
+		w.host.BroadcastSynchronous(sender, gpbft.GMessage{
 			Sender:        sender,
 			Vote:          payload,
 			Signature:     sig,

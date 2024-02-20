@@ -1,35 +1,35 @@
 package adversary
 
 import (
-	"github.com/filecoin-project/go-f3/f3"
+	"github.com/filecoin-project/go-f3/gpbft"
 )
 
 type Absent struct {
-	id   f3.ActorID
-	host f3.Host
+	id   gpbft.ActorID
+	host gpbft.Host
 }
 
 // A participant that never sends anything.
-func NewAbsent(id f3.ActorID, host f3.Host) *Absent {
+func NewAbsent(id gpbft.ActorID, host gpbft.Host) *Absent {
 	return &Absent{
 		id:   id,
 		host: host,
 	}
 }
 
-func (a *Absent) ID() f3.ActorID {
+func (a *Absent) ID() gpbft.ActorID {
 	return a.id
 }
 
-func (a *Absent) ReceiveCanonicalChain(_ f3.ECChain, _ f3.PowerTable, _ []byte) error {
+func (a *Absent) ReceiveCanonicalChain(_ gpbft.ECChain, _ gpbft.PowerTable, _ []byte) error {
 	return nil
 }
 
-func (a *Absent) ReceiveECChain(_ f3.ECChain) error {
+func (a *Absent) ReceiveECChain(_ gpbft.ECChain) error {
 	return nil
 }
 
-func (a *Absent) ReceiveMessage(_ *f3.GMessage) error {
+func (a *Absent) ReceiveMessage(_ *gpbft.GMessage) error {
 	return nil
 }
 
@@ -37,6 +37,6 @@ func (a *Absent) ReceiveAlarm() error {
 	return nil
 }
 
-func (a *Absent) AllowMessage(_ f3.ActorID, _ f3.ActorID, _ f3.Message) bool {
+func (a *Absent) AllowMessage(_ gpbft.ActorID, _ gpbft.ActorID, _ gpbft.Message) bool {
 	return true
 }
