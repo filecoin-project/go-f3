@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/filecoin-project/go-f3/blssig"
 	"github.com/filecoin-project/go-f3/f3"
@@ -14,7 +15,7 @@ type Config struct {
 	// Honest participants have one unit of power each.
 	HonestCount int
 	LatencySeed int64
-	LatencyMean float64
+	LatencyMean time.Duration
 	// If nil then FakeSigner is used unless overriden by F3_TEST_USE_BLS
 	SigningBacked *SigningBacked
 }

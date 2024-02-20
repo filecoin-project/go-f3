@@ -9,11 +9,12 @@ import (
 	"golang.org/x/xerrors"
 	"math"
 	"sort"
+	"time"
 )
 
 type GraniteConfig struct {
 	// Initial delay for partial synchrony.
-	Delta float64
+	Delta time.Duration
 	// Delta back-off exponent for the round.
 	DeltaBackOffExponent float64
 }
@@ -140,7 +141,7 @@ type instance struct {
 	// Time at which the current phase can or must end.
 	// For QUALITY, PREPARE, and COMMIT, this is the latest time (the phase can end sooner).
 	// For CONVERGE, this is the exact time (the timeout solely defines the phase end).
-	phaseTimeout float64
+	phaseTimeout time.Time
 	// This instance's proposal for the current round. Never bottom.
 	// This is set after the QUALITY phase, and changes only at the end of a full round.
 	proposal ECChain
@@ -492,7 +493,7 @@ func (i *instance) tryQuality() error {
 	// Wait either for a strong quorum that agree on our proposal,
 	// or for the timeout to expire.
 	foundQuorum := i.quality.HasStrongQuorumFor(i.proposal.Head())
-	timeoutExpired := i.host.Time() >= i.phaseTimeout
+	timeoutExpired := atOrAfter(i.host.Time(), i.phaseTimeout)
 
 	if foundQuorum {
 		// Keep current proposal.
@@ -544,7 +545,7 @@ func (i *instance) tryConverge() error {
 	if i.phase != CONVERGE_PHASE {
 		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, CONVERGE_PHASE)
 	}
-	timeoutExpired := i.host.Time() >= i.phaseTimeout
+	timeoutExpired := atOrAfter(i.host.Time(), i.phaseTimeout)
 	if !timeoutExpired {
 		return nil
 	}
@@ -585,7 +586,7 @@ func (i *instance) tryPrepare() error {
 	prepared := i.roundState(i.round).prepared
 	// Optimisation: we could advance phase once a strong quorum on our proposal is not possible.
 	foundQuorum := prepared.HasStrongQuorumFor(i.proposal.Head())
-	timeoutExpired := i.host.Time() >= i.phaseTimeout
+	timeoutExpired := atOrAfter(i.host.Time(), i.phaseTimeout)
 
 	if foundQuorum {
 		i.value = i.proposal
@@ -626,7 +627,7 @@ func (i *instance) tryCommit(round uint64) error {
 	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
 	committed := i.roundState(round).committed
 	quorumValue, ok := committed.FindStrongQuorumValue()
-	timeoutExpired := i.host.Time() >= i.phaseTimeout
+	timeoutExpired := atOrAfter(i.host.Time(), i.phaseTimeout)
 
 	if ok && !quorumValue.IsZero() {
 		// A participant may be forced to decide a value that's not its preferred chain.
@@ -742,9 +743,10 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 // Sets an alarm to be delivered after a synchrony delay.
 // The delay duration increases with each round.
 // Returns the absolute time at which the alarm will fire.
-func (i *instance) alarmAfterSynchrony() float64 {
-	delta := i.config.Delta * math.Pow(i.config.DeltaBackOffExponent, float64(i.round))
-	timeout := i.host.Time() + delta
+func (i *instance) alarmAfterSynchrony() time.Time {
+	delta := time.Duration(float64(i.config.Delta) *
+		math.Pow(i.config.DeltaBackOffExponent, float64(i.round)))
+	timeout := i.host.Time().Add(delta)
 	i.host.SetAlarm(i.participantID, timeout)
 	return timeout
 }
@@ -1067,4 +1069,9 @@ func hasWeakQuorum(part, total *StoragePower) bool {
 
 	weakThreshold := new(StoragePower).Div(total, three)
 	return part.Cmp(weakThreshold) > 0
+}
+
+// Tests whether lhs is equal to or greater than rhs.
+func atOrAfter(lhs time.Time, rhs time.Time) bool {
+	return lhs.After(rhs) || lhs.Equal(rhs)
 }

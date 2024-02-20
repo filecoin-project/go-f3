@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/filecoin-project/go-f3/f3"
 )
@@ -43,7 +44,7 @@ type Network struct {
 	queue   messageQueue
 	latency LatencyModel
 	// Timestamp of last event.
-	clock float64
+	clock time.Time
 	// Whether global stabilisation time has passed, so adversary can't control network.
 	globalStabilisationElapsed bool
 	// Trace level.
@@ -60,7 +61,7 @@ func NewNetwork(latency LatencyModel, traceLevel int, sb SigningBacked, nn f3.Ne
 		participants:               map[f3.ActorID]f3.Receiver{},
 		participantIDs:             []f3.ActorID{},
 		queue:                      messageQueue{},
-		clock:                      0,
+		clock:                      time.Time{},
 		latency:                    latency,
 		globalStabilisationElapsed: false,
 		traceLevel:                 traceLevel,
@@ -94,7 +95,7 @@ func (n *Network) Broadcast(msg *f3.GMessage) {
 					source:    msg.Sender,
 					dest:      k,
 					payload:   *msg,
-					deliverAt: n.clock + latency,
+					deliverAt: n.clock.Add(latency),
 				})
 		}
 	}
@@ -102,11 +103,11 @@ func (n *Network) Broadcast(msg *f3.GMessage) {
 
 ///// Clock interface
 
-func (n *Network) Time() float64 {
+func (n *Network) Time() time.Time {
 	return n.clock
 }
 
-func (n *Network) SetAlarm(sender f3.ActorID, at float64) {
+func (n *Network) SetAlarm(sender f3.ActorID, at time.Time) {
 	n.queue.Insert(messageInFlight{
 		source:    sender,
 		dest:      sender,
@@ -174,7 +175,7 @@ func (n *Network) Tick(adv AdversaryReceiver) (bool, error) {
 
 func (n *Network) log(level int, format string, args ...interface{}) {
 	if level <= n.traceLevel {
-		fmt.Printf("net [%.3f]: ", n.clock)
+		fmt.Printf("net [%.3f]: ", n.clock.Sub(time.Time{}).Seconds())
 		fmt.Printf(format, args...)
 		fmt.Printf("\n")
 	}
@@ -184,7 +185,7 @@ type messageInFlight struct {
 	source    f3.ActorID  // ID of the sender
 	dest      f3.ActorID  // ID of the receiver
 	payload   interface{} // Message body
-	deliverAt float64     // Timestamp at which to deliver the message
+	deliverAt time.Time   // Timestamp at which to deliver the message
 }
 
 // A queue of directed messages, maintained as an ordered list.
@@ -192,7 +193,8 @@ type messageQueue []messageInFlight
 
 func (h *messageQueue) Insert(x messageInFlight) {
 	i := sort.Search(len(*h), func(i int) bool {
-		return (*h)[i].deliverAt >= x.deliverAt
+		ith := (*h)[i].deliverAt
+		return ith.After(x.deliverAt) || ith.Equal(x.deliverAt)
 	})
 	*h = append(*h, messageInFlight{})
 	copy((*h)[i+1:], (*h)[i:])

@@ -3,6 +3,7 @@ package test
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/filecoin-project/go-f3/adversary"
 	"github.com/filecoin-project/go-f3/f3"
@@ -15,7 +16,7 @@ func TestWitholdCommit1(t *testing.T) {
 	sm := sim.NewSimulation(sim.Config{
 		HonestCount: 7,
 		LatencySeed: int64(i),
-		LatencyMean: 0.01, // Near-synchrony
+		LatencyMean: 10 * time.Millisecond, // Near-synchrony
 	}, GraniteConfig(), sim.TraceNone)
 	adv := adversary.NewWitholdCommit(99, sm.Network, &sm.PowerTable)
 	sm.SetAdversary(adv, 3) // Adversary has 30% of 10 total power.

@@ -1,5 +1,7 @@
 package f3
 
+import "time"
+
 // Receives EC chain values.
 type ChainReceiver interface {
 	// Receives a chain appropriate for use as initial proposals for a Granite instance.
@@ -41,9 +43,9 @@ type Network interface {
 
 type Clock interface {
 	// Returns the current network time.
-	Time() float64
+	Time() time.Time
 	// Sets an alarm to fire at the given timestamp.
-	SetAlarm(sender ActorID, at float64)
+	SetAlarm(sender ActorID, at time.Time)
 }
 
 type Signer interface {
