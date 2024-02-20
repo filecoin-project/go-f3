@@ -109,7 +109,7 @@ func (p Payload) MarshalForSigning(nn NetworkName) []byte {
 	buf.WriteString(":")
 	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
 	_ = binary.Write(&buf, binary.BigEndian, p.Round)
-	_ = binary.Write(&buf, binary.BigEndian, []byte(p.Step.String()))
+	_ = binary.Write(&buf, binary.BigEndian, p.Step)
 	for _, t := range p.Value {
 		t.MarshalForSigning(&buf)
 	}
