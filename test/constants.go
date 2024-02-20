@@ -9,7 +9,7 @@ import (
 // These values are not intended to reflect real-world conditions.
 // The latency and delta values are similar in order to stress "slow" message paths and interleaving.
 // The values are not appropriate for benchmarks.
-const DELTA = 400 * time.Millisecond
+const DELTA = 200 * time.Millisecond
 const DELTA_BACK_OFF_EXPONENT = 1.300
 
 const LATENCY_SYNC = 0

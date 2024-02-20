@@ -13,7 +13,7 @@ import (
 )
 
 type GraniteConfig struct {
-	// Initial delay for partial synchrony.
+	// Expected bound on message propagation latency.
 	Delta time.Duration
 	// Delta back-off exponent for the round.
 	DeltaBackOffExponent float64
@@ -746,7 +746,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 func (i *instance) alarmAfterSynchrony() time.Time {
 	delta := time.Duration(float64(i.config.Delta) *
 		math.Pow(i.config.DeltaBackOffExponent, float64(i.round)))
-	timeout := i.host.Time().Add(delta)
+	timeout := i.host.Time().Add(2 * delta)
 	i.host.SetAlarm(i.participantID, timeout)
 	return timeout
 }

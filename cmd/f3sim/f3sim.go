@@ -17,8 +17,8 @@ func main() {
 	maxRounds := flag.Uint64("max-rounds", 10, "max rounds to allow before failing")
 	traceLevel := flag.Int("trace", sim.TraceNone, "trace verbosity level")
 
-	graniteDelta := flag.Float64("granite-delta", 2.000, "granite delta parameter")
-	deltaBackOffExponent := flag.Float64("delta-back-off-exponent", 1.300, "Exponential factor adjusting the delta value per round")
+	graniteDelta := flag.Float64("granite-delta", 2.000, "granite delta parameter (bound on message delay)")
+	deltaBackOffExponent := flag.Float64("delta-back-off-exponent", 1.300, "exponential factor adjusting the delta value per round")
 	flag.Parse()
 
 	for i := 0; i < *iterations; i++ {
