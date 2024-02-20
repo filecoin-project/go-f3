@@ -31,7 +31,7 @@ func main() {
 			LatencySeed: *latencySeed,
 			LatencyMean: time.Duration(*latencyMean * float64(time.Second)),
 		}
-		graniteConfig := f3.GraniteConfig{
+		graniteConfig := gpbft.GraniteConfig{
 			Delta:                time.Duration(*graniteDelta),
 			DeltaBackOffExponent: *deltaBackOffExponent,
 		}
