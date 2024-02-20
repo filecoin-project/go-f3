@@ -38,11 +38,6 @@ func (t TipSet) IsZero() bool {
 	return t.Epoch == 0 && t.CID.IsZero()
 }
 
-// Compares tipsets for equality.
-func (t *TipSet) Eq(other *TipSet) bool {
-	return t.Epoch == other.Epoch && t.CID == other.CID
-}
-
 func (t TipSet) String() string {
 	var b strings.Builder
 	b.Write(t.CID.Bytes())

@@ -13,8 +13,9 @@ import (
 )
 
 type GraniteConfig struct {
+	// Initial delay for partial synchrony.
 	Delta time.Duration
-	// Change to delta in each round after the first.
+	// Delta back-off exponent for the round.
 	DeltaBackOffExponent float64
 }
 
@@ -545,7 +546,6 @@ func (i *instance) tryConverge() error {
 		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, CONVERGE_PHASE)
 	}
 	timeoutExpired := atOrAfter(i.host.Time(), i.phaseTimeout)
-
 	if !timeoutExpired {
 		return nil
 	}
@@ -744,7 +744,8 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 // The delay duration increases with each round.
 // Returns the absolute time at which the alarm will fire.
 func (i *instance) alarmAfterSynchrony() time.Time {
-	delta := i.config.Delta * time.Duration(math.Pow(i.config.DeltaBackOffExponent, float64(i.round)))
+	delta := time.Duration(float64(i.config.Delta) *
+		math.Pow(i.config.DeltaBackOffExponent, float64(i.round)))
 	timeout := i.host.Time().Add(delta)
 	i.host.SetAlarm(i.participantID, timeout)
 	return timeout
@@ -1070,6 +1071,7 @@ func hasWeakQuorum(part, total *StoragePower) bool {
 	return part.Cmp(weakThreshold) > 0
 }
 
-func atOrAfter(hostTime time.Time, t time.Time) bool {
-	return hostTime.After(t) || hostTime.Equal(t)
+// Tests whether lhs is equal to or greater than rhs.
+func atOrAfter(lhs time.Time, rhs time.Time) bool {
+	return lhs.After(rhs) || lhs.Equal(rhs)
 }

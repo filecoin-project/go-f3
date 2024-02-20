@@ -44,8 +44,7 @@ type Network struct {
 	queue   messageQueue
 	latency LatencyModel
 	// Timestamp of last event.
-	clock     time.Time
-	startTime time.Time
+	clock time.Time
 	// Whether global stabilisation time has passed, so adversary can't control network.
 	globalStabilisationElapsed bool
 	// Trace level.
@@ -57,14 +56,12 @@ type Network struct {
 }
 
 func NewNetwork(latency LatencyModel, traceLevel int, sb SigningBacked, nn f3.NetworkName) *Network {
-	currentTime := time.Now()
 	return &Network{
 		SigningBacked:              sb,
 		participants:               map[f3.ActorID]f3.Receiver{},
 		participantIDs:             []f3.ActorID{},
 		queue:                      messageQueue{},
-		clock:                      currentTime,
-		startTime:                  currentTime,
+		clock:                      time.Time{},
 		latency:                    latency,
 		globalStabilisationElapsed: false,
 		traceLevel:                 traceLevel,
@@ -107,7 +104,7 @@ func (n *Network) Broadcast(msg *f3.GMessage) {
 ///// Clock interface
 
 func (n *Network) Time() time.Time {
-	return n.clock // To ensure not exactly equal time in simulation
+	return n.clock
 }
 
 func (n *Network) SetAlarm(sender f3.ActorID, at time.Time) {
@@ -178,8 +175,7 @@ func (n *Network) Tick(adv AdversaryReceiver) (bool, error) {
 
 func (n *Network) log(level int, format string, args ...interface{}) {
 	if level <= n.traceLevel {
-		simulationTime := n.clock.Sub(n.startTime).Seconds()
-		fmt.Printf("net [%.3f]: ", simulationTime)
+		fmt.Printf("net [%.3f]: ", n.clock.Sub(time.Time{}).Seconds())
 		fmt.Printf(format, args...)
 		fmt.Printf("\n")
 	}
@@ -197,7 +193,8 @@ type messageQueue []messageInFlight
 
 func (h *messageQueue) Insert(x messageInFlight) {
 	i := sort.Search(len(*h), func(i int) bool {
-		return (*h)[i].deliverAt.After(x.deliverAt) || (*h)[i].deliverAt.Equal(x.deliverAt)
+		ith := (*h)[i].deliverAt
+		return ith.After(x.deliverAt) || ith.Equal(x.deliverAt)
 	})
 	*h = append(*h, messageInFlight{})
 	copy((*h)[i+1:], (*h)[i:])

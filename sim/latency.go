@@ -13,10 +13,10 @@ type LatencyModel interface {
 
 type LogNormalLatency struct {
 	rng  *rand.Rand
-	mean float64
+	mean time.Duration
 }
 
-func NewLogNormal(seed int64, mean float64) *LogNormalLatency {
+func NewLogNormal(seed int64, mean time.Duration) *LogNormalLatency {
 	rng := rand.New(rand.NewSource(seed))
 	return &LogNormalLatency{rng: rng, mean: mean}
 }
@@ -24,5 +24,5 @@ func NewLogNormal(seed int64, mean float64) *LogNormalLatency {
 func (l *LogNormalLatency) Sample() time.Duration {
 	norm := l.rng.NormFloat64()
 	lognorm := math.Exp(norm)
-	return time.Duration(lognorm * l.mean)
+	return time.Duration(lognorm * float64(l.mean))
 }

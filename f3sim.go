@@ -13,7 +13,7 @@ func main() {
 	iterations := flag.Int("iterations", 1, "number of simulation iterations")
 	participantCount := flag.Int("participants", 3, "number of participants")
 	latencySeed := flag.Int64("latency-seed", time.Now().UnixMilli(), "random seed for network latency")
-	latencyMean := flag.Float64("latency-mean", 0.500, "mean network latency")
+	latencyMean := flag.Float64("latency-mean", 0.500, "mean network latency in seconds")
 	maxRounds := flag.Uint64("max-rounds", 10, "max rounds to allow before failing")
 	traceLevel := flag.Int("trace", sim.TraceNone, "trace verbosity level")
 
@@ -29,7 +29,7 @@ func main() {
 		simConfig := sim.Config{
 			HonestCount: *participantCount,
 			LatencySeed: *latencySeed,
-			LatencyMean: *latencyMean,
+			LatencyMean: time.Duration(*latencyMean * float64(time.Second)),
 		}
 		graniteConfig := f3.GraniteConfig{
 			Delta:                time.Duration(*graniteDelta),
