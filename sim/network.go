@@ -137,6 +137,7 @@ func (n *Network) BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.Message) 
 	}
 }
 
+// Returns whether there are any more messages to process.
 func (n *Network) Tick(adv AdversaryReceiver) (bool, error) {
 	// Find first message the adversary will allow.
 	i := 0
@@ -158,15 +159,25 @@ func (n *Network) Tick(adv AdversaryReceiver) (bool, error) {
 	msg := n.queue.Remove(i)
 	n.clock = msg.deliverAt
 	payloadStr, ok := msg.payload.(string)
+	receiver := n.participants[msg.dest]
 	if ok && strings.HasPrefix(payloadStr, "ALARM") {
 		n.log(TraceRecvd, "P%d %s", msg.source, payloadStr)
-		if err := n.participants[msg.dest].ReceiveAlarm(); err != nil {
+		if err := receiver.ReceiveAlarm(); err != nil {
 			return false, fmt.Errorf("failed receiving alarm: %w", err)
 		}
 	} else {
 		n.log(TraceRecvd, "P%d ← P%d: %v", msg.dest, msg.source, msg.payload)
 		gmsg := msg.payload.(gpbft.GMessage)
-		if err := n.participants[msg.dest].ReceiveMessage(&gmsg); err != nil {
+		if validated, err := receiver.ValidateMessage(&gmsg); !validated {
+			// Unable to validate message, probably because the instance has terminated.
+			// This might need to get more sophisticated about queueing messages for future instances
+			// when the participant supports multiple instances.
+		} else if err != nil {
+			return false, fmt.Errorf("invalid message: %w", err)
+		}
+		if accepted, err := receiver.ReceiveMessage(&gmsg); !accepted {
+			// Message for prior instance dropped.
+		} else if err != nil {
 			return false, fmt.Errorf("error receiving message: %w", err)
 		}
 	}
@@ -182,10 +193,10 @@ func (n *Network) log(level int, format string, args ...interface{}) {
 }
 
 type messageInFlight struct {
-	source    gpbft.ActorID  // ID of the sender
-	dest      gpbft.ActorID  // ID of the receiver
-	payload   interface{} // Message body
-	deliverAt time.Time   // Timestamp at which to deliver the message
+	source    gpbft.ActorID // ID of the sender
+	dest      gpbft.ActorID // ID of the receiver
+	payload   interface{}   // Message body
+	deliverAt time.Time     // Timestamp at which to deliver the message
 }
 
 // A queue of directed messages, maintained as an ordered list.

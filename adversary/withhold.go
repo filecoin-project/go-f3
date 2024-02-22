@@ -46,8 +46,12 @@ func (w *WithholdCommit) ReceiveECChain(_ gpbft.ECChain) error {
 	return nil
 }
 
-func (w *WithholdCommit) ReceiveMessage(_ *gpbft.GMessage) error {
-	return nil
+func (a *WithholdCommit) ValidateMessage(_ *gpbft.GMessage) (bool, error) {
+	return true, nil
+}
+
+func (a *WithholdCommit) ReceiveMessage(_ *gpbft.GMessage) (bool, error) {
+	return true, nil
 }
 
 func (w *WithholdCommit) ReceiveAlarm() error {
