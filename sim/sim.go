@@ -77,8 +77,7 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 	participants := make([]*gpbft.Participant, simConfig.HonestCount)
 	for i := 0; i < len(participants); i++ {
 		pubKey := ntwk.GenerateKey()
-		vrf := gpbft.NewVRF(pubKey, ntwk.Signer, ntwk.Verifier)
-		participants[i] = gpbft.NewParticipant(gpbft.ActorID(i), graniteConfig, ntwk, vrf)
+		participants[i] = gpbft.NewParticipant(gpbft.ActorID(i), graniteConfig, ntwk)
 		ntwk.AddParticipant(participants[i], pubKey)
 		if err := genesisPower.Add(participants[i].ID(), gpbft.NewStoragePower(1), pubKey); err != nil {
 			panic(fmt.Errorf("failed adding participant to power table: %w", err))

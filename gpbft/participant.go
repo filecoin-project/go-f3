@@ -10,7 +10,6 @@ type Participant struct {
 	id     ActorID
 	config GraniteConfig
 	host   Host
-	vrf    VRFer
 
 	// Chain to use as input for the next Granite instance.
 	nextChain ECChain
@@ -24,8 +23,8 @@ type Participant struct {
 	finalisedRound uint64
 }
 
-func NewParticipant(id ActorID, config GraniteConfig, host Host, vrf VRFer) *Participant {
-	return &Participant{id: id, config: config, host: host, vrf: vrf}
+func NewParticipant(id ActorID, config GraniteConfig, host Host) *Participant {
+	return &Participant{id: id, config: config, host: host}
 }
 
 func (p *Participant) ID() ActorID {
@@ -48,7 +47,7 @@ func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, bea
 	p.nextChain = chain
 	if p.granite == nil {
 		var err error
-		p.granite, err = newInstance(p.config, p.host, p.vrf, p.id, p.nextInstance, chain, power, beacon)
+		p.granite, err = newInstance(p.config, p.host, p.id, p.nextInstance, chain, power, beacon)
 		if err != nil {
 			return fmt.Errorf("failed creating new granite instance: %w", err)
 		}
