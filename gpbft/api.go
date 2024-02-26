@@ -72,3 +72,10 @@ type Host interface {
 	// Logs a message at the "logic" level
 	Log(format string, args ...interface{})
 }
+
+type DecisionReceiver interface {
+	// Receives a finality decision from the instance, with signatures from a strong quorum
+	// of participants justifying it.
+	// The decision payload always has round = 0 and step = DECIDE.
+	ReceiveDecision(participant ActorID, decision Justification)
+}

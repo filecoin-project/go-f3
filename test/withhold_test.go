@@ -18,7 +18,7 @@ func TestWitholdCommit1(t *testing.T) {
 		LatencySeed: int64(i),
 		LatencyMean: 10 * time.Millisecond, // Near-synchrony
 	}, GraniteConfig(), sim.TraceNone)
-	adv := adversary.NewWitholdCommit(99, sm.Network, &sm.PowerTable)
+	adv := adversary.NewWitholdCommit(99, sm.Network, sm.PowerTable)
 	sm.SetAdversary(adv, 3) // Adversary has 30% of 10 total power.
 
 	a := sm.Base.Extend(sm.CIDGen.Sample())
@@ -40,6 +40,7 @@ func TestWitholdCommit1(t *testing.T) {
 	}
 	// The adversary could convince the victim to decide a, so all must decide a.
 	require.NoError(t, err)
-	decision, _ := sm.Participants[0].Finalised()
-	require.Equal(t, a.Head(), decision)
+	decision, ok := sm.GetDecision(0, 0)
+	require.True(t, ok)
+	require.Equal(t, a, decision)
 }
