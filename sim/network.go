@@ -11,7 +11,7 @@ import (
 
 type AdversaryReceiver interface {
 	gpbft.Receiver
-	AllowMessage(from gpbft.ActorID, to gpbft.ActorID, msg gpbft.Message) bool
+	AllowMessage(from gpbft.ActorID, to gpbft.ActorID, msg gpbft.GMessage) bool
 }
 
 // Endpoint with which the adversary can control the network
@@ -20,7 +20,7 @@ type AdversaryHost interface {
 	// Sends a message to all other participants, immediately.
 	// Note that the adversary can subsequently delay delivery to some participants,
 	// before messages are actually received.
-	BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.Message)
+	BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.GMessage)
 }
 
 const (
@@ -122,7 +122,7 @@ func (n *Network) Log(format string, args ...interface{}) {
 
 ///// Adversary network interface
 
-func (n *Network) BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.Message) {
+func (n *Network) BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.GMessage) {
 	n.log(TraceSent, "P%d ↗ %v", sender, msg)
 	for _, k := range n.participantIDs {
 		if k != sender {
@@ -144,7 +144,8 @@ func (n *Network) Tick(adv AdversaryReceiver) (bool, error) {
 	if adv != nil && !n.globalStabilisationElapsed {
 		for ; i < len(n.queue); i++ {
 			msg := n.queue[i]
-			if adv.AllowMessage(msg.source, msg.dest, msg.payload) {
+			gmsg, ok := msg.payload.(gpbft.GMessage)
+			if !ok || adv.AllowMessage(msg.source, msg.dest, gmsg) {
 				break
 			}
 		}

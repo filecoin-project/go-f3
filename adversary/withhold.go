@@ -116,35 +116,32 @@ func (w *WithholdCommit) Begin() {
 	broadcast(commitPayload, &justification)
 }
 
-func (w *WithholdCommit) AllowMessage(_ gpbft.ActorID, to gpbft.ActorID, msg gpbft.Message) bool {
-	gmsg, ok := msg.(gpbft.GMessage)
-	if ok {
-		toMainVictim := to == w.victims[0]
-		toAnyVictim := false
-		for _, v := range w.victims {
-			if to == v {
-				toAnyVictim = true
-			}
+func (w *WithholdCommit) AllowMessage(_ gpbft.ActorID, to gpbft.ActorID, msg gpbft.GMessage) bool {
+	toMainVictim := to == w.victims[0]
+	toAnyVictim := false
+	for _, v := range w.victims {
+		if to == v {
+			toAnyVictim = true
 		}
-		if gmsg.Vote.Step == gpbft.QUALITY_PHASE {
-			// Don't allow victims to see dissenting QUALITY.
-			if toAnyVictim && !gmsg.Vote.Value.Eq(w.victimValue) {
-				return false
-			}
-		} else if gmsg.Vote.Step == gpbft.PREPARE_PHASE {
-			// Don't allow victims to see dissenting PREPARE.
-			if toAnyVictim && !gmsg.Vote.Value.Eq(w.victimValue) {
-				return false
-			}
-		} else if gmsg.Vote.Step == gpbft.COMMIT_PHASE {
-			// Allow only the main victim to see our COMMIT.
-			if !toMainVictim && gmsg.Sender == w.id {
-				return false
-			}
-			// Don't allow the main victim to see any dissenting COMMIts.
-			if toMainVictim && !gmsg.Vote.Value.Eq(w.victimValue) {
-				return false
-			}
+	}
+	if msg.Vote.Step == gpbft.QUALITY_PHASE {
+		// Don't allow victims to see dissenting QUALITY.
+		if toAnyVictim && !msg.Vote.Value.Eq(w.victimValue) {
+			return false
+		}
+	} else if msg.Vote.Step == gpbft.PREPARE_PHASE {
+		// Don't allow victims to see dissenting PREPARE.
+		if toAnyVictim && !msg.Vote.Value.Eq(w.victimValue) {
+			return false
+		}
+	} else if msg.Vote.Step == gpbft.COMMIT_PHASE {
+		// Allow only the main victim to see our COMMIT.
+		if !toMainVictim && msg.Sender == w.id {
+			return false
+		}
+		// Don't allow the main victim to see any dissenting COMMIts.
+		if toMainVictim && !msg.Vote.Value.Eq(w.victimValue) {
+			return false
 		}
 	}
 	return true

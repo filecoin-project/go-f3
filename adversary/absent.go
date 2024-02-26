@@ -41,6 +41,6 @@ func (a *Absent) ReceiveAlarm() error {
 	return nil
 }
 
-func (a *Absent) AllowMessage(_ gpbft.ActorID, _ gpbft.ActorID, _ gpbft.Message) bool {
+func (a *Absent) AllowMessage(_ gpbft.ActorID, _ gpbft.ActorID, _ gpbft.GMessage) bool {
 	return true
 }

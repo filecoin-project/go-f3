@@ -13,10 +13,6 @@ type ChainReceiver interface {
 	ReceiveECChain(chain ECChain) error
 }
 
-// A consensus message.
-// Opaque to the network, expected to be cast by the receiver.
-type Message interface{}
-
 // Receives a Granite protocol message.
 type MessageReceiver interface {
 	// Validates a message received from another participant, if possible.
