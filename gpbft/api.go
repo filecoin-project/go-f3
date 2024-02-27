@@ -50,7 +50,7 @@ type Clock interface {
 type Signer interface {
 	// GenerateKey is used for testing
 	GenerateKey() PubKey
-	// Signs a message for the given sender ID.
+	// Signs a message with the secret key corresponding to a public key.
 	Sign(sender PubKey, msg []byte) ([]byte, error)
 }
 

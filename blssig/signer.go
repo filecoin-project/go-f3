@@ -17,6 +17,7 @@ type Signer struct {
 	scheme   sign.AggregatableScheme
 	keyGroup kyber.Group
 
+	// Maps public keys to private keys.
 	keys map[string]kyber.Scalar
 }
 

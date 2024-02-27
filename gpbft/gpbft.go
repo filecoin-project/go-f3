@@ -19,11 +19,6 @@ type GraniteConfig struct {
 	DeltaBackOffExponent float64
 }
 
-type VRFer interface {
-	VRFTicketSource
-	VRFTicketVerifier
-}
-
 type Phase uint8
 
 const (
@@ -124,7 +119,6 @@ func (m GMessage) String() string {
 type instance struct {
 	config        GraniteConfig
 	host          Host
-	vrf           VRFer
 	participantID ActorID
 	instanceID    uint64
 	// The EC chain input to this instance.
@@ -163,7 +157,6 @@ type instance struct {
 func newInstance(
 	config GraniteConfig,
 	host Host,
-	vrf VRFer,
 	participantID ActorID,
 	instanceID uint64,
 	input ECChain,
@@ -175,7 +168,6 @@ func newInstance(
 	return &instance{
 		config:        config,
 		host:          host,
-		vrf:           vrf,
 		participantID: participantID,
 		instanceID:    instanceID,
 		input:         input,
@@ -372,7 +364,7 @@ func (i *instance) validateMessage(msg *GMessage) error {
 		if msg.Vote.Value.IsZero() {
 			return xerrors.Errorf("unexpected zero value for converge phase")
 		}
-		if !i.vrf.VerifyTicket(i.beacon, i.instanceID, msg.Vote.Round, senderPubKey, i.host.NetworkName(), msg.Ticket) {
+		if !VerifyTicket(i.beacon, i.instanceID, msg.Vote.Round, senderPubKey, i.host, msg.Ticket) {
 			return xerrors.Errorf("failed to verify ticket from %v", msg.Sender)
 		}
 	case DECIDE_PHASE:
@@ -532,7 +524,8 @@ func (i *instance) beginConverge() {
 			panic("beginConverge called but no justification for proposal")
 		}
 	}
-	ticket, err := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.host.NetworkName())
+	_, pubkey := i.powerTable.Get(i.participantID)
+	ticket, err := MakeTicket(i.beacon, i.instanceID, i.round, pubkey, i.host)
 	if err != nil {
 		i.log("error while creating VRF ticket: %v", err)
 		return
