@@ -10,6 +10,7 @@ type Participant struct {
 	id     ActorID
 	config GraniteConfig
 	host   Host
+	decisions DecisionReceiver
 
 	// Chain to use as input for the next Granite instance.
 	nextChain ECChain
@@ -18,13 +19,16 @@ type Participant struct {
 	// Current Granite instance.
 	granite *instance
 	// The output from the last terminated Granite instance.
-	finalised TipSet
-	// The round number at which the last instance was terminated.
-	finalisedRound uint64
+	finalised *Justification
+	// The round number during which the last instance was terminated.
+	// This is for informational purposes only. It does not necessarily correspond to the
+	// protocol round for which a strong quorum of COMMIT messages was observed,
+	// which may not be known to the participant.
+	terminatedDuringRound uint64
 }
 
-func NewParticipant(id ActorID, config GraniteConfig, host Host) *Participant {
-	return &Participant{id: id, config: config, host: host}
+func NewParticipant(id ActorID, config GraniteConfig, host Host, decisions DecisionReceiver) *Participant {
+	return &Participant{id: id, config: config, host: host, decisions: decisions}
 }
 
 func (p *Participant) ID() ActorID {
@@ -36,9 +40,6 @@ func (p *Participant) CurrentRound() uint64 {
 		return 0
 	}
 	return p.granite.round
-}
-func (p *Participant) Finalised() (TipSet, uint64) {
-	return p.finalised, p.finalisedRound
 }
 
 // Receives a new canonical EC chain for the instance.
@@ -102,8 +103,8 @@ func (p *Participant) ReceiveMessage(msg *GMessage) (bool, error) {
 }
 
 func (p *Participant) ReceiveAlarm() error {
-	// TODO include instance ID in alarm message, and filter here.
 	if p.granite != nil {
+		// An instance is robust to receiving extra alarms, e.g. from prior terminated instances.
 		if err := p.granite.ReceiveAlarm(); err != nil {
 			return fmt.Errorf("failed receiving alarm: %w", err)
 		}
@@ -114,9 +115,10 @@ func (p *Participant) ReceiveAlarm() error {
 
 func (p *Participant) handleDecision() {
 	if p.terminated() {
-		p.finalised = p.granite.value.Head()
-		p.finalisedRound = p.granite.round
+		p.finalised = p.granite.terminationValue
+		p.terminatedDuringRound = p.granite.round
 		p.granite = nil
+		p.decisions.ReceiveDecision(p.id, *p.finalised)
 	}
 }
 

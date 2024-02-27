@@ -2,6 +2,8 @@ package sim
 
 import (
 	"fmt"
+	"golang.org/x/xerrors"
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -48,10 +50,11 @@ func BLSSigningBacked() *SigningBacked {
 type Simulation struct {
 	Network      *Network
 	Base         gpbft.ECChain
-	PowerTable   gpbft.PowerTable
+	PowerTable   *gpbft.PowerTable
 	Beacon       []byte
 	Participants []*gpbft.Participant
 	Adversary    AdversaryReceiver
+	Decisions    *DecisionLog
 	CIDGen       *CIDGen
 }
 
@@ -71,13 +74,14 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 	}
 
 	ntwk := NewNetwork(lat, traceLevel, *sb, "sim")
+	decisions := NewDecisionLog(ntwk, sb.Verifier)
 
 	// Create participants.
 	genesisPower := gpbft.NewPowerTable(make([]gpbft.PowerEntry, 0))
 	participants := make([]*gpbft.Participant, simConfig.HonestCount)
 	for i := 0; i < len(participants); i++ {
 		pubKey := ntwk.GenerateKey()
-		participants[i] = gpbft.NewParticipant(gpbft.ActorID(i), graniteConfig, ntwk)
+		participants[i] = gpbft.NewParticipant(gpbft.ActorID(i), graniteConfig, ntwk, decisions)
 		ntwk.AddParticipant(participants[i], pubKey)
 		if err := genesisPower.Add(participants[i].ID(), gpbft.NewStoragePower(1), pubKey); err != nil {
 			panic(fmt.Errorf("failed adding participant to power table: %w", err))
@@ -91,13 +95,15 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 		panic(fmt.Errorf("failed creating new chain: %w", err))
 	}
 
+	decisions.BeginInstance(0, genesis, genesisPower)
 	return &Simulation{
 		Network:      ntwk,
 		Base:         baseChain,
-		PowerTable:   *genesisPower,
+		PowerTable:   genesisPower,
 		Beacon:       []byte("beacon"),
 		Participants: participants,
 		Adversary:    nil,
+		Decisions:    decisions,
 		CIDGen:       NewCIDGen(0x264803e715714f95), // Seed from Drand
 	}
 }
@@ -121,7 +127,7 @@ func (s *Simulation) ReceiveChains(chains ...ChainCount) {
 	pidx := 0
 	for _, chain := range chains {
 		for i := 0; i < chain.Count; i++ {
-			if err := s.Participants[pidx].ReceiveCanonicalChain(chain.Chain, s.PowerTable, s.Beacon); err != nil {
+			if err := s.Participants[pidx].ReceiveCanonicalChain(chain.Chain, *s.PowerTable, s.Beacon); err != nil {
 				panic(fmt.Errorf("participant %d failed receiving canonical chain %d: %w", pidx, i, err))
 			}
 			pidx += 1
@@ -161,32 +167,24 @@ func (s *Simulation) Run(maxRounds uint64) error {
 	if s.Participants[0].CurrentRound() >= maxRounds {
 		return fmt.Errorf("reached maximum number of %d rounds", maxRounds)
 	}
-	first, _ := s.Participants[0].Finalised()
-	for i, p := range s.Participants {
-		f, _ := p.Finalised()
-		if f.IsZero() {
-			return fmt.Errorf("participant %d finalized empty tipset", i)
-		}
-		if f != first {
-			return fmt.Errorf("finalized tipset mismatch between first participant and participant %d", i)
-		}
+	adversaryID := gpbft.ActorID(math.MaxUint64)
+	if s.Adversary != nil {
+		adversaryID = s.Adversary.ID()
+	}
+	if err := s.Decisions.CompleteInstance(0, adversaryID); err != nil {
+		return fmt.Errorf("incompatible or incomplete decisions: %w", err)
 	}
 	return nil
 }
 
+// Returns the decision for a participant in an instance.
+func (s *Simulation) GetDecision(instance uint64, participant gpbft.ActorID) (gpbft.ECChain, bool) {
+	v, ok := s.Decisions.Decisions[instance][participant]
+	return v.Vote.Value, ok
+}
+
 func (s *Simulation) PrintResults() {
-	var firstFin gpbft.TipSet
-	for _, p := range s.Participants {
-		thisFin, _ := p.Finalised()
-		if firstFin.IsZero() {
-			firstFin = thisFin
-		}
-		if thisFin.IsZero() {
-			fmt.Printf("‼️ Participant %d did not decide\n", p.ID())
-		} else if thisFin != firstFin {
-			fmt.Printf("‼️ Participant %d decided %v, but %d decided %v\n", p.ID(), thisFin, s.Participants[0].ID(), firstFin)
-		}
-	}
+	s.Decisions.PrintInstance(0)
 }
 
 func (s *Simulation) Describe() string {
@@ -196,6 +194,141 @@ func (s *Simulation) Describe() string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// Receives and validates finality decisions
+type DecisionLog struct {
+	Network  gpbft.Network
+	Verifier gpbft.Verifier
+	// Base tipset for each round.
+	Bases map[uint64]gpbft.TipSet
+	// Powertable for each round.
+	PowerTables map[uint64]*gpbft.PowerTable
+	// Decisions received for each round and participant.
+	Decisions map[uint64]map[gpbft.ActorID]gpbft.Justification
+	err       error
+}
+
+func NewDecisionLog(ntwk gpbft.Network, verifier gpbft.Verifier) *DecisionLog {
+	return &DecisionLog{
+		Network:     ntwk,
+		Verifier:    verifier,
+		Bases:       make(map[uint64]gpbft.TipSet),
+		PowerTables: make(map[uint64]*gpbft.PowerTable),
+		Decisions:   make(map[uint64]map[gpbft.ActorID]gpbft.Justification),
+	}
+}
+
+// Establishes the base tipset and power table for a new instance.
+func (dl *DecisionLog) BeginInstance(instance uint64, base gpbft.TipSet, power *gpbft.PowerTable) {
+	dl.Bases[instance] = base
+	dl.PowerTables[instance] = power
+}
+
+// Checks that all participants for an instance decided on the same value.
+func (dl *DecisionLog) CompleteInstance(instance uint64, adversary gpbft.ActorID) error {
+	if dl.err != nil {
+		return dl.err
+	}
+	powerTable := dl.PowerTables[instance]
+	decisions := dl.Decisions[instance]
+
+	// Check each actor in the power table decided, and their decisions matched.
+	var first gpbft.ECChain
+	for _, powerEntry := range powerTable.Entries {
+		decision, ok := decisions[powerEntry.ID]
+		if powerEntry.ID == adversary {
+			continue
+		}
+		if !ok {
+			return fmt.Errorf("actor %d did not decide", powerEntry.ID)
+		}
+		if first.IsZero() {
+			first = decision.Vote.Value
+		}
+		if !decision.Vote.Value.Eq(first) {
+			return fmt.Errorf("actor %d decided %v, but first actor decided %v",
+				powerEntry.ID, decision.Vote.Value, first)
+		}
+	}
+	return nil
+}
+
+func (dl *DecisionLog) PrintInstance(instance uint64) {
+	powerTable := dl.PowerTables[instance]
+	decisions := dl.Decisions[instance]
+
+	var first gpbft.ECChain
+	for _, powerEntry := range powerTable.Entries {
+		decision, ok := decisions[powerEntry.ID]
+		if !ok {
+			fmt.Printf("‼️ Participant %d did not decide\n", powerEntry.ID)
+		}
+		if first.IsZero() {
+			first = decision.Vote.Value
+		}
+		if !decision.Vote.Value.Eq(first) {
+			fmt.Printf("‼️ Participant %d decided %v, but %d decided %v\n",
+				powerEntry.ID, decision.Vote, powerTable.Entries[0].ID, first)
+		}
+	}
+}
+
+// Verifies and records a decision from a participant.
+func (dl *DecisionLog) ReceiveDecision(participant gpbft.ActorID, decision gpbft.Justification) {
+	if err := dl.verifyDecision(&decision); err == nil {
+		if dl.Decisions[decision.Vote.Instance] == nil {
+			dl.Decisions[decision.Vote.Instance] = make(map[gpbft.ActorID]gpbft.Justification)
+		}
+		dl.Decisions[decision.Vote.Instance][participant] = decision
+	} else {
+		fmt.Printf("invalid decision: %v\n", err)
+		dl.err = err
+	}
+}
+
+func (dl *DecisionLog) verifyDecision(decision *gpbft.Justification) error {
+	base := dl.Bases[decision.Vote.Instance]
+	powerTable := dl.PowerTables[decision.Vote.Instance]
+	if decision.Vote.Step != gpbft.DECIDE_PHASE {
+		return fmt.Errorf("decision for wrong phase: %v", decision)
+	}
+	if decision.Vote.Round != 0 {
+		return fmt.Errorf("decision for wrong round: %v", decision)
+	}
+	if decision.Vote.Value.IsZero() {
+		return fmt.Errorf("finalized empty tipset: %v", decision)
+	}
+	if !decision.Vote.Value.HasBase(base) {
+		return fmt.Errorf("finalized tipset with wrong base: %v", decision)
+	}
+
+	// Extract signers.
+	justificationPower := gpbft.NewStoragePower(0)
+	signers := make([]gpbft.PubKey, 0)
+	if err := decision.Signers.ForEach(func(bit uint64) error {
+		if int(bit) >= len(powerTable.Entries) {
+			return fmt.Errorf("invalid signer index: %d", bit)
+		}
+		justificationPower.Add(justificationPower, powerTable.Entries[bit].Power)
+		signers = append(signers, powerTable.Entries[bit].PubKey)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to iterate over signers: %w", err)
+	}
+	// Check signers have strong quorum
+	strongQuorum := gpbft.NewStoragePower(0)
+	strongQuorum = strongQuorum.Mul(strongQuorum, gpbft.NewStoragePower(2))
+	strongQuorum = strongQuorum.Div(strongQuorum, gpbft.NewStoragePower(3))
+	if justificationPower.Cmp(strongQuorum) < 0 {
+		return fmt.Errorf("decision lacks strong quorum: %v", decision)
+	}
+	// Verify aggregate signature
+	payload := decision.Vote.MarshalForSigning(dl.Network.NetworkName())
+	if err := dl.Verifier.VerifyAggregate(payload, decision.Signature, signers); err != nil {
+		return xerrors.Errorf("invalid aggregate signature: %v: %w", decision, err)
+	}
+	return nil
 }
 
 // A CID generator.

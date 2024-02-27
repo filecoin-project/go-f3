@@ -17,7 +17,7 @@ func TestSingleton(t *testing.T) {
 	sm.ReceiveChains(sim.ChainCount{Count: 1, Chain: a})
 
 	require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
-	expectRoundDecision(t, sm, 0, a.Head())
+	expectDecision(t, sm, a.Head())
 }
 
 func TestSyncPair(t *testing.T) {
@@ -26,7 +26,7 @@ func TestSyncPair(t *testing.T) {
 	sm.ReceiveChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
 	require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
-	expectRoundDecision(t, sm, 0, a.Head())
+	expectDecision(t, sm, a.Head())
 }
 
 func TestSyncPairBLS(t *testing.T) {
@@ -35,7 +35,7 @@ func TestSyncPairBLS(t *testing.T) {
 	sm.ReceiveChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
 	require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
-	expectRoundDecision(t, sm, 0, a.Head())
+	expectDecision(t, sm, a.Head())
 }
 
 func TestASyncPair(t *testing.T) {
@@ -46,8 +46,7 @@ func TestASyncPair(t *testing.T) {
 		sm.ReceiveChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
 		require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
-		// Can't guarantee progress when async.
-		expectEventualDecision(t, sm, a.Head(), sm.Base.Head())
+		expectDecision(t, sm, a.Head(), sm.Base.Head())
 	}
 }
 
@@ -59,7 +58,7 @@ func TestSyncPairDisagree(t *testing.T) {
 
 	require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 	// Decide base chain as the only common value.
-	expectRoundDecision(t, sm, 0, sm.Base.Head())
+	expectDecision(t, sm, sm.Base.Head())
 }
 
 func TestSyncPairDisagreeBLS(t *testing.T) {
@@ -70,7 +69,7 @@ func TestSyncPairDisagreeBLS(t *testing.T) {
 
 	require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 	// Decide base chain as the only common value.
-	expectRoundDecision(t, sm, 0, sm.Base.Head())
+	expectDecision(t, sm, sm.Base.Head())
 }
 
 func TestAsyncPairDisagree(t *testing.T) {
@@ -83,8 +82,7 @@ func TestAsyncPairDisagree(t *testing.T) {
 
 		require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 		// Decide base chain as the only common value.
-		// May not happen in round 0 when asynchronous.
-		expectEventualDecision(t, sm, sm.Base.Head())
+		expectDecision(t, sm, sm.Base.Head())
 	}
 }
 
@@ -95,7 +93,7 @@ func TestSyncAgreement(t *testing.T) {
 		sm.ReceiveChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 		require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 		// Synchronous, agreeing groups always decide the candidate.
-		expectRoundDecision(t, sm, 0, a.Head())
+		expectDecision(t, sm, a.Head())
 	}
 }
 
@@ -110,8 +108,7 @@ func TestAsyncAgreement(t *testing.T) {
 			sm.ReceiveChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
 			require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
-			// Can't guarantee progress when async.
-			expectEventualDecision(t, sm, sm.Base.Head(), a.Head())
+			expectDecision(t, sm, sm.Base.Head(), a.Head())
 		}
 	}
 }
@@ -125,7 +122,7 @@ func TestSyncHalves(t *testing.T) {
 
 		require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 		// Groups split 50/50 always decide the base.
-		expectRoundDecision(t, sm, 0, sm.Base.Head())
+		expectDecision(t, sm, sm.Base.Head())
 	}
 }
 
@@ -138,7 +135,7 @@ func TestSyncHalvesBLS(t *testing.T) {
 
 		require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 		// Groups split 50/50 always decide the base.
-		expectRoundDecision(t, sm, 0, sm.Base.Head())
+		expectDecision(t, sm, sm.Base.Head())
 	}
 }
 
@@ -153,7 +150,7 @@ func TestAsyncHalves(t *testing.T) {
 
 			require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 			// Groups split 50/50 always decide the base.
-			expectRoundDecision(t, sm, 0, sm.Base.Head())
+			expectDecision(t, sm, sm.Base.Head())
 		}
 	}
 }
@@ -168,8 +165,8 @@ func TestRequireStrongQuorumToProgress(t *testing.T) {
 		sm.ReceiveChains(sim.ChainCount{Count: 20, Chain: a}, sim.ChainCount{Count: 10, Chain: b})
 
 		require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
-		// Must decide base, but can't tell which round.
-		expectEventualDecision(t, sm, sm.Base.Head())
+		// Must decide base.
+		expectDecision(t, sm, sm.Base.Head())
 	}
 }
 
@@ -191,7 +188,7 @@ func TestLongestCommonPrefix(t *testing.T) {
 
 	require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 	// Must decide ab, the longest common prefix.
-	expectRoundDecision(t, sm, 0, ab.Head())
+	expectDecision(t, sm, ab.Head())
 }
 
 func newSyncConfig(honestCount int) sim.Config {
@@ -210,24 +207,13 @@ func newAsyncConfig(honestCount int, latencySeed int) sim.Config {
 	}
 }
 
-func expectRoundDecision(t *testing.T, sm *sim.Simulation, expectedRound uint64, expected ...gpbft.TipSet) {
-	decision, round := sm.Participants[0].Finalised()
-	require.Equal(t, expectedRound, round)
-
+func expectDecision(t *testing.T, sm *sim.Simulation, expected ...gpbft.TipSet) {
+	decision, ok := sm.GetDecision(0, 0)
+	require.True(t, ok, "no decision")
 	for _, e := range expected {
-		if decision == e {
+		if decision.Head() == e {
 			return
 		}
 	}
-	require.Fail(t, fmt.Sprintf("decided %s, expected one of %s", &decision, expected))
-}
-
-func expectEventualDecision(t *testing.T, sm *sim.Simulation, expected ...gpbft.TipSet) {
-	decision, _ := sm.Participants[0].Finalised()
-	for _, e := range expected {
-		if decision == e {
-			return
-		}
-	}
-	require.Fail(t, fmt.Sprintf("decided %s, expected one of %s", &decision, expected))
+	require.Fail(t, fmt.Sprintf("decided %s, expected one of %s", decision, expected))
 }

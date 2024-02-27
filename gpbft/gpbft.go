@@ -96,6 +96,13 @@ type Payload struct {
 	Value ECChain
 }
 
+func (p Payload) Eq(other *Payload) bool {
+	return p.Instance == other.Instance &&
+		p.Round == other.Round &&
+		p.Step == other.Step &&
+		p.Value.Eq(other.Value)
+}
+
 func (p Payload) MarshalForSigning(nn NetworkName) []byte {
 	var buf bytes.Buffer
 	buf.WriteString(DOMAIN_SEPARATION_TAG)
@@ -141,6 +148,10 @@ type instance struct {
 	// The value to be transmitted at the next phase, which may be bottom.
 	// This value may change away from the proposal between phases.
 	value ECChain
+	// The final termination value of the instance, for communication to the participant.
+	// This field is an alternative to plumbing an optional decision value out through
+	// all the method calls, or holding a callback handle to receive it here.
+	terminationValue *Justification
 	// Queue of messages to be synchronously processed before returning from top-level call.
 	inbox []*GMessage
 	// Quality phase state (only for round 0)
@@ -674,7 +685,12 @@ func (i *instance) beginDecide(round uint64) {
 func (i *instance) tryDecide() error {
 	quorumValue, ok := i.decision.FindStrongQuorumValue()
 	if ok {
-		i.terminate(quorumValue, i.round)
+		if quorum, ok := i.decision.FindStrongQuorumFor(quorumValue.Head()); ok {
+			decision := i.buildJustification(quorum, 0, DECIDE_PHASE, quorumValue)
+			i.terminate(decision)
+		} else {
+			panic("tryDecide with no strong quorum for value")
+		}
 	}
 
 	return nil
@@ -701,12 +717,11 @@ func (i *instance) isAcceptable(c ECChain) bool {
 	return i.acceptable.HasPrefix(c)
 }
 
-func (i *instance) terminate(value ECChain, round uint64) {
-	i.log("✅ terminated %s in round %d", &i.value, round)
+func (i *instance) terminate(decision *Justification) {
+	i.log("✅ terminated %s during round %d", &i.value, i.round)
 	i.phase = TERMINATED_PHASE
-	// Round is a parameter since a late COMMIT message can result in a decision for a round prior to the current one.
-	i.round = round
-	i.value = value
+	i.value = decision.Vote.Value
+	i.terminationValue = decision
 }
 
 func (i *instance) terminated() bool {

@@ -36,7 +36,7 @@ func (_ *FakeSigner) Verify(signer gpbft.PubKey, msg, sig []byte) error {
 	hash.Write(msg)
 
 	if !bytes.Equal(hash.Sum(nil), sig) {
-		return xerrors.Errorf("signature miss-match: %x != %x", hash.Sum(nil), sig)
+		return xerrors.Errorf("signature mismatch: %x != %x", hash.Sum(nil), sig)
 	}
 	return nil
 }
@@ -69,7 +69,7 @@ func (_ *FakeSigner) VerifyAggregate(payload, aggSig []byte, signers []gpbft.Pub
 		aggHash.Write(sig)
 	}
 	if !bytes.Equal(aggSig, aggHash.Sum(nil)) {
-		return xerrors.Errorf("aggregate signature miss-match")
+		return xerrors.Errorf("aggregate signature mismatch")
 	}
 
 	return nil
