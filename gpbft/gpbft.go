@@ -437,7 +437,7 @@ func (i *instance) validateMessage(msg *GMessage) error {
 			return fmt.Errorf("message %v has unexpected phase for justification", msg)
 		}
 
-		// Check justification signature.
+		// Check justification power and signature.
 		justificationPower := NewStoragePower(0)
 		signers := make([]PubKey, 0)
 		if err := msg.Justification.Signers.ForEach(func(bit uint64) error {
@@ -449,6 +449,10 @@ func (i *instance) validateMessage(msg *GMessage) error {
 			return nil
 		}); err != nil {
 			return fmt.Errorf("failed to iterate over signers: %w", err)
+		}
+
+		if !hasStrongQuorum(justificationPower, i.powerTable.Total) {
+			return fmt.Errorf("message %v has justification with insufficient power: %v", msg, justificationPower)
 		}
 
 		payload := msg.Justification.Vote.MarshalForSigning(i.host.NetworkName())
