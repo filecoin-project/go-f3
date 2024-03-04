@@ -312,6 +312,7 @@ func (i *instance) receiveOne(msg *GMessage) error {
 		}
 	case DECIDE_PHASE:
 		i.decision.Receive(msg.Sender, msg.Vote.Value, msg.Signature)
+		i.tryDecide()
 	default:
 		i.log("unexpected message %v", msg)
 	}
