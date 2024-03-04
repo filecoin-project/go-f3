@@ -7,9 +7,9 @@ import (
 
 // An F3 participant runs repeated instances of Granite to finalise longer chains.
 type Participant struct {
-	id     ActorID
-	config GraniteConfig
-	host   Host
+	id        ActorID
+	config    GraniteConfig
+	host      Host
 	decisions DecisionReceiver
 
 	// Chain to use as input for the next Granite instance.
@@ -88,6 +88,12 @@ func (p *Participant) ValidateMessage(msg *GMessage) (bool, error) {
 // Returns whether the message was accepted for the instance, and an error if it could not be
 // processed.
 func (p *Participant) ReceiveMessage(msg *GMessage) (bool, error) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recovered in ReceiveMessage", r)
+		}
+	}()
+
 	if p.granite != nil && msg.Vote.Instance == p.granite.instanceID {
 		if err := p.granite.Receive(msg); err != nil {
 			return true, fmt.Errorf("receiving message: %w", err)
@@ -103,6 +109,12 @@ func (p *Participant) ReceiveMessage(msg *GMessage) (bool, error) {
 }
 
 func (p *Participant) ReceiveAlarm() error {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recovered in ReceiveAlarm", r)
+		}
+	}()
+
 	if p.granite != nil {
 		// An instance is robust to receiving extra alarms, e.g. from prior terminated instances.
 		if err := p.granite.ReceiveAlarm(); err != nil {
