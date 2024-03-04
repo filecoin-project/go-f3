@@ -375,6 +375,9 @@ func (i *instance) validateMessage(msg *GMessage) error {
 		if msg.Vote.Value.IsZero() {
 			return xerrors.Errorf("unexpected zero value for converge phase")
 		}
+		if msg.Vote.Round == 1 && msg.Justification.Vote.Step == PREPARE_PHASE {
+			return xerrors.Errorf("unexpected justification for converge phase, first round has no PREPARE phase")
+		}
 		if !VerifyTicket(i.beacon, i.instanceID, msg.Vote.Round, senderPubKey, i.host, msg.Ticket) {
 			return xerrors.Errorf("failed to verify ticket from %v", msg.Sender)
 		}
@@ -384,6 +387,10 @@ func (i *instance) validateMessage(msg *GMessage) error {
 		}
 		if msg.Vote.Value.IsZero() {
 			return xerrors.Errorf("unexpected zero value for decide phase")
+		}
+	case COMMIT_PHASE:
+		if msg.Vote.Round == 0 && msg.Vote.Step == PREPARE_PHASE {
+			return xerrors.Errorf("unexpected PREPARE phase in round 0")
 		}
 	default:
 		// No additional checks for PREPARE and COMMIT.
@@ -418,13 +425,16 @@ func (i *instance) validateMessage(msg *GMessage) error {
 		}{
 			// CONVERGE is justified by a strong quorum of COMMIT for bottom,
 			// or a strong quorum of PREPARE for the same value, from the previous round.
+			// as there is no PREPARE in the first round, CONVERGE is then justified by a strong quorum of COMMIT for bottom.
 			CONVERGE_PHASE: {
 				COMMIT_PHASE:  {msg.Vote.Round - 1, ECChain{}},
 				PREPARE_PHASE: {msg.Vote.Round - 1, msg.Vote.Value},
+				QUALITY_PHASE: {0, msg.Vote.Value},
 			},
 			// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
 			COMMIT_PHASE: {
 				PREPARE_PHASE: {msg.Vote.Round, msg.Vote.Value},
+				QUALITY_PHASE: {0, msg.Vote.Value},
 			},
 			// DECIDE is justified by strong quorum of COMMIT with the same value.
 			// The DECIDE message doesn't specify a round.
@@ -501,15 +511,16 @@ func (i *instance) tryQuality() error {
 
 	if foundQuorum {
 		// Keep current proposal.
+		i.value = i.proposal
 	} else if timeoutExpired {
 		strongQuora := i.quality.ListStrongQuorumValues()
 		i.proposal = findFirstPrefixOf(strongQuora, i.proposal)
+		i.log("swaying proposal/value %s", &i.proposal)
+		i.value = ECChain{}
 	}
 
 	if foundQuorum || timeoutExpired {
-		i.value = i.proposal
-		i.log("adopting proposal/value %s", &i.proposal)
-		i.beginPrepare()
+		i.beginCommit()
 	}
 
 	return nil
@@ -613,11 +624,20 @@ func (i *instance) beginCommit() {
 	// The PREPARE phase exited either with i.value == i.proposal having a strong quorum agreement,
 	// or with i.value == bottom otherwise.
 	// No justification is required for committing bottom.
+	rs := i.roundState(i.round).prepared
+	phase := PREPARE_PHASE
+	if i.round == 0 {
+		// In the first round, the justification is fetched directly from QUALITY,
+		// as in this round there is no PREPARE step.
+		rs = i.quality
+		phase = QUALITY_PHASE
+	}
+
 	var justification *Justification
 	if !i.value.IsZero() {
-		if quorum, ok := i.roundState(i.round).prepared.FindStrongQuorumFor(i.value.Head()); ok {
+		if quorum, ok := rs.FindStrongQuorumFor(i.value.Head()); ok {
 			// Found a strong quorum of PREPARE, build the justification for it.
-			justification = i.buildJustification(quorum, i.round, PREPARE_PHASE, i.value)
+			justification = i.buildJustification(quorum, i.round, phase, i.value)
 		} else {
 			panic("beginCommit with no strong quorum for non-bottom value")
 		}
