@@ -38,7 +38,7 @@ func (w *WithholdCommit) ID() gpbft.ActorID {
 	return w.id
 }
 
-func (w *WithholdCommit) ReceiveCanonicalChain(_ gpbft.ECChain, _ gpbft.PowerTable, _ []byte) error {
+func (w *WithholdCommit) Start() error {
 	return nil
 }
 

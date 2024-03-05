@@ -27,7 +27,7 @@ func (i *ImmediateDecide) ID() gpbft.ActorID {
 	return i.id
 }
 
-func (i *ImmediateDecide) ReceiveCanonicalChain(_ gpbft.ECChain, _ gpbft.PowerTable, _ []byte) error {
+func (i *ImmediateDecide) Start() error {
 	return nil
 }
 
