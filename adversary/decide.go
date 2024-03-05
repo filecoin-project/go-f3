@@ -1,12 +1,12 @@
 package adversary
 
 import (
-	"fmt"
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim"
 )
 
+// / An "adversary" that immediately sends a DECIDE message, justified by its own COMMIT.
 type ImmediateDecide struct {
 	id         gpbft.ActorID
 	host       sim.AdversaryHost
@@ -55,24 +55,21 @@ func (i *ImmediateDecide) Begin() {
 		Step:     gpbft.DECIDE_PHASE,
 		Value:    i.value,
 	}
-
 	justificationPayload := gpbft.Payload{
 		Instance: 0,
 		Round:    0,
 		Step:     gpbft.COMMIT_PHASE,
 		Value:    i.value,
 	}
-	pS := justificationPayload.MarshalForSigning(i.host.NetworkName())
-
+	sigPayload := justificationPayload.MarshalForSigning(i.host.NetworkName())
 	_, pubkey := i.powertable.Get(i.id)
-	sig, err := i.host.Sign(pubkey, pS)
+	sig, err := i.host.Sign(pubkey, sigPayload)
 	if err != nil {
 		panic(err)
 	}
 
 	signers := bitfield.New()
 	signers.Set(uint64(i.powertable.Lookup[i.id]))
-
 	aggregatedSig, err := i.host.Aggregate([]gpbft.PubKey{pubkey}, [][]byte{sig})
 	if err != nil {
 		panic(err)
@@ -84,7 +81,6 @@ func (i *ImmediateDecide) Begin() {
 		Signature: aggregatedSig,
 	}
 
-	fmt.Printf("Sending message %v\n", payload)
 	i.broadcast(payload, &justification)
 }
 
