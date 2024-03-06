@@ -315,7 +315,7 @@ func (i *instance) receiveOne(msg *GMessage) error {
 		if err := i.tryDecide(); err != nil {
 			return fmt.Errorf("failed to decide: %w", err)
 		}
-		
+
 	default:
 		i.log("unexpected message %v", msg)
 	}
@@ -765,7 +765,7 @@ func (i *instance) alarmAfterSynchrony() time.Time {
 	delta := time.Duration(float64(i.config.Delta) *
 		math.Pow(i.config.DeltaBackOffExponent, float64(i.round)))
 	timeout := i.host.Time().Add(2 * delta)
-	i.host.SetAlarm(i.participantID, timeout)
+	i.host.SetAlarm(timeout)
 	return timeout
 }
 

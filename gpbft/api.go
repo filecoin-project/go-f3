@@ -49,7 +49,7 @@ type Clock interface {
 	// Returns the current network time.
 	Time() time.Time
 	// Sets an alarm to fire at the given timestamp.
-	SetAlarm(sender ActorID, at time.Time)
+	SetAlarm(at time.Time)
 }
 
 type Signer interface {
@@ -68,6 +68,13 @@ type Verifier interface {
 	VerifyAggregate(payload, aggSig []byte, signers []PubKey) error
 }
 
+type DecisionReceiver interface {
+	// Receives a finality decision from the instance, with signatures from a strong quorum
+	// of participants justifying it.
+	// The decision payload always has round = 0 and step = DECIDE.
+	ReceiveDecision(decision Justification)
+}
+
 // Participant interface to the host system resources.
 type Host interface {
 	Chain
@@ -75,13 +82,7 @@ type Host interface {
 	Clock
 	Signer
 	Verifier
+	DecisionReceiver
 	// Logs a message at the "logic" level
 	Log(format string, args ...interface{})
-}
-
-type DecisionReceiver interface {
-	// Receives a finality decision from the instance, with signatures from a strong quorum
-	// of participants justifying it.
-	// The decision payload always has round = 0 and step = DECIDE.
-	ReceiveDecision(participant ActorID, decision Justification)
 }
