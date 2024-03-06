@@ -27,6 +27,18 @@ type Participant struct {
 	terminatedDuringRound uint64
 }
 
+type PanicError struct {
+	Err error
+}
+
+func (e *PanicError) Error() string {
+	return fmt.Sprintf("panic recovered: %v", e.Err)
+}
+
+func (e *PanicError) Unwrap() error {
+	return e.Err
+}
+
 func NewParticipant(id ActorID, config GraniteConfig, host Host, decisions DecisionReceiver) *Participant {
 	return &Participant{id: id, config: config, host: host, decisions: decisions}
 }
@@ -45,9 +57,15 @@ func (p *Participant) CurrentRound() uint64 {
 // Receives a new canonical EC chain for the instance.
 // This becomes the instance's preferred value to finalise.
 func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, beacon []byte) error {
+	var err error
+	defer func() {
+		if r := recover(); r != nil {
+			err = &PanicError{Err: err}
+		}
+	}()
+
 	p.nextChain = chain
 	if p.granite == nil {
-		var err error
 		p.granite, err = newInstance(p.config, p.host, p.id, p.nextInstance, chain, power, beacon)
 		if err != nil {
 			return fmt.Errorf("failed creating new granite instance: %w", err)
@@ -55,16 +73,23 @@ func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, bea
 		p.nextInstance += 1
 		return p.granite.Start()
 	}
-	return nil
+	return err
 }
 
 // Receives a new EC chain, and notifies the current instance.
 // This may modify the set of valid values for the current instance.
 func (p *Participant) ReceiveECChain(chain ECChain) error {
+	var err error
+	defer func() {
+		if r := recover(); r != nil {
+			err = &PanicError{Err: err}
+		}
+	}()
+
 	if p.granite != nil {
 		p.granite.ReceiveAcceptable(chain)
 	}
-	return nil
+	return err
 }
 
 // Validates a message received from another participant, if possible.
@@ -72,10 +97,17 @@ func (p *Participant) ReceiveECChain(chain ECChain) error {
 // A message can only be validated if it is for the currently-executing protocol instance.
 // Returns whether the message could be validated, and an error if it was invalid.
 func (p *Participant) ValidateMessage(msg *GMessage) (bool, error) {
+	var err error
+	defer func() {
+		if r := recover(); r != nil {
+			err = &PanicError{Err: err}
+		}
+	}()
+
 	if p.granite != nil && msg.Vote.Instance == p.granite.instanceID {
 		return true, p.granite.Validate(msg)
 	}
-	return false, nil
+	return false, err
 }
 
 // Receives a Granite message from some other participant.
@@ -88,9 +120,10 @@ func (p *Participant) ValidateMessage(msg *GMessage) (bool, error) {
 // Returns whether the message was accepted for the instance, and an error if it could not be
 // processed.
 func (p *Participant) ReceiveMessage(msg *GMessage) (bool, error) {
+	var err error
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Println("Recovered in ReceiveMessage", r)
+			err = &PanicError{Err: err}
 		}
 	}()
 
@@ -105,13 +138,14 @@ func (p *Participant) ReceiveMessage(msg *GMessage) (bool, error) {
 		return false, xerrors.Errorf("message for future instance cannot be valid")
 	}
 	// Message dropped.
-	return false, nil
+	return false, err
 }
 
 func (p *Participant) ReceiveAlarm() error {
+	var err error
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Println("Recovered in ReceiveAlarm", r)
+			err = &PanicError{Err: err}
 		}
 	}()
 
@@ -122,7 +156,7 @@ func (p *Participant) ReceiveAlarm() error {
 		}
 		p.handleDecision()
 	}
-	return nil
+	return err
 }
 
 func (p *Participant) handleDecision() {
