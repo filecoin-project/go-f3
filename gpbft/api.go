@@ -49,6 +49,8 @@ type Clock interface {
 	// Returns the current network time.
 	Time() time.Time
 	// Sets an alarm to fire at the given timestamp.
+	// At most one alarm can be set at a time.
+	// Setting an alarm replaces any previous alarm that has not yet fired.
 	SetAlarm(at time.Time)
 }
 
