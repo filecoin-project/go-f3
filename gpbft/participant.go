@@ -7,10 +7,9 @@ import (
 
 // An F3 participant runs repeated instances of Granite to finalise longer chains.
 type Participant struct {
-	id        ActorID
-	config    GraniteConfig
-	host      Host
-	decisions DecisionReceiver
+	id     ActorID
+	config GraniteConfig
+	host   Host
 
 	// Instance identifier for the next Granite instance.
 	nextInstance uint64
@@ -37,8 +36,8 @@ func (e *PanicError) Unwrap() error {
 	return e.Err
 }
 
-func NewParticipant(id ActorID, config GraniteConfig, host Host, decisions DecisionReceiver) *Participant {
-	return &Participant{id: id, config: config, host: host, decisions: decisions}
+func NewParticipant(id ActorID, config GraniteConfig, host Host) *Participant {
+	return &Participant{id: id, config: config, host: host}
 }
 
 func (p *Participant) ID() ActorID {
@@ -157,7 +156,7 @@ func (p *Participant) handleDecision() {
 		p.finalised = p.granite.terminationValue
 		p.terminatedDuringRound = p.granite.round
 		p.granite = nil
-		p.decisions.ReceiveDecision(p.id, *p.finalised)
+		p.host.ReceiveDecision(*p.finalised)
 	}
 }
 

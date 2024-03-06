@@ -82,11 +82,12 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 	for i := 0; i < len(participants); i++ {
 		id := gpbft.ActorID(i)
 		host := &SimHost{
-			Network: ntwk,
-			EC:      ec,
-			id:      id,
+			Network:     ntwk,
+			EC:          ec,
+			DecisionLog: decisions,
+			id:          id,
 		}
-		participants[i] = gpbft.NewParticipant(id, graniteConfig, host, decisions)
+		participants[i] = gpbft.NewParticipant(id, graniteConfig, host)
 		pubKey := ntwk.GenerateKey()
 		ntwk.AddParticipant(participants[i], pubKey)
 		ec.AddParticipant(id, gpbft.NewStoragePower(1), pubKey)
@@ -200,6 +201,7 @@ func (s *Simulation) Describe() string {
 type SimHost struct {
 	*Network
 	*EC
+	*DecisionLog
 	id gpbft.ActorID
 }
 
@@ -212,6 +214,14 @@ func (v *SimHost) GetCanonicalChain() (chain gpbft.ECChain, power gpbft.PowerTab
 	power = *v.PowerTable
 	beacon = v.Beacon
 	return
+}
+
+func (v *SimHost) SetAlarm(at time.Time) {
+	v.Network.SetAlarm(v.id, at)
+}
+
+func (v *SimHost) ReceiveDecision(decision gpbft.Justification) {
+	v.DecisionLog.ReceiveDecision(v.id, decision)
 }
 
 // Receives and validates finality decisions
