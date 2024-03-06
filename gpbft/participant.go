@@ -59,7 +59,8 @@ func (p *Participant) Start() error {
 		return fmt.Errorf("failed creating new granite instance: %w", err)
 	}
 	p.nextInstance += 1
-	return p.granite.Start()
+	err = p.granite.Start()
+	return err
 }
 
 func (p *Participant) CurrentRound() uint64 {
