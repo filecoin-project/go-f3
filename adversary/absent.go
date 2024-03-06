@@ -21,7 +21,7 @@ func (a *Absent) ID() gpbft.ActorID {
 	return a.id
 }
 
-func (a *Absent) ReceiveCanonicalChain(_ gpbft.ECChain, _ gpbft.PowerTable, _ []byte) error {
+func (a *Absent) Start() error {
 	return nil
 }
 

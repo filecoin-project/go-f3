@@ -17,10 +17,10 @@ func TestAbsent(t *testing.T) {
 			LatencyMean: LATENCY_ASYNC,
 		}, GraniteConfig(), sim.TraceNone)
 		// Adversary has 1/4 of power.
-		sm.SetAdversary(adversary.NewAbsent(99, sm.Network), 1)
+		sm.SetAdversary(adversary.NewAbsent(99, sm.HostFor(99)), 1)
 
-		a := sm.Base.Extend(sm.CIDGen.Sample())
-		sm.ReceiveChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
+		a := sm.Base().Extend(sm.CIDGen.Sample())
+		sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
 		require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
 	}

@@ -7,13 +7,11 @@ import (
 
 // An F3 participant runs repeated instances of Granite to finalise longer chains.
 type Participant struct {
-	id     ActorID
-	config GraniteConfig
-	host   Host
+	id        ActorID
+	config    GraniteConfig
+	host      Host
 	decisions DecisionReceiver
 
-	// Chain to use as input for the next Granite instance.
-	nextChain ECChain
 	// Instance identifier for the next Granite instance.
 	nextInstance uint64
 	// Current Granite instance.
@@ -35,27 +33,22 @@ func (p *Participant) ID() ActorID {
 	return p.id
 }
 
+// Fetches the preferred EC chain for the instance and begins the GPBFT protocol.
+func (p *Participant) Start() error {
+	chain, power, beacon := p.host.GetCanonicalChain()
+	var err error
+	if p.granite, err = newInstance(p.config, p.host, p.id, p.nextInstance, chain, power, beacon); err != nil {
+		return fmt.Errorf("failed creating new granite instance: %w", err)
+	}
+	p.nextInstance += 1
+	return p.granite.Start()
+}
+
 func (p *Participant) CurrentRound() uint64 {
 	if p.granite == nil {
 		return 0
 	}
 	return p.granite.round
-}
-
-// Receives a new canonical EC chain for the instance.
-// This becomes the instance's preferred value to finalise.
-func (p *Participant) ReceiveCanonicalChain(chain ECChain, power PowerTable, beacon []byte) error {
-	p.nextChain = chain
-	if p.granite == nil {
-		var err error
-		p.granite, err = newInstance(p.config, p.host, p.id, p.nextInstance, chain, power, beacon)
-		if err != nil {
-			return fmt.Errorf("failed creating new granite instance: %w", err)
-		}
-		p.nextInstance += 1
-		return p.granite.Start()
-	}
-	return nil
 }
 
 // Receives a new EC chain, and notifies the current instance.
