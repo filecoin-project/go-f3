@@ -4,10 +4,6 @@ import "time"
 
 // Receives EC chain values.
 type ChainReceiver interface {
-	// Receives a chain appropriate for use as initial proposals for a Granite instance.
-	// The chain's base is assumed to be an appropriate base for the instance.
-	ReceiveCanonicalChain(chain ECChain, power PowerTable, beacon []byte) error
-
 	// Receives a new EC chain, and notifies the current instance if it extends its current acceptable chain.
 	// This modifies the set of valid values for the current instance.
 	ReceiveECChain(chain ECChain) error
@@ -27,8 +23,17 @@ type MessageReceiver interface {
 // Interface which network participants must implement.
 type Receiver interface {
 	ID() ActorID
+	// Begins executing the protocol.
+	// The node will request the canonical chain to propose from the host.
+	Start() error
 	ChainReceiver
 	MessageReceiver
+}
+
+type Chain interface {
+	// Returns the best EC chain, and the power table and beacon value for its base.
+	// These will be used as input to a subsequent instance of the protocol.
+	GetCanonicalChain() (chain ECChain, power PowerTable, beacon []byte)
 }
 
 // Endpoint to which participants can send messages.
@@ -65,6 +70,7 @@ type Verifier interface {
 
 // Participant interface to the host system resources.
 type Host interface {
+	Chain
 	Network
 	Clock
 	Signer

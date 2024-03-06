@@ -49,9 +49,7 @@ func BLSSigningBacked() *SigningBacked {
 
 type Simulation struct {
 	Network      *Network
-	Base         gpbft.ECChain
-	PowerTable   *gpbft.PowerTable
-	Beacon       []byte
+	EC           *EC
 	Participants []*gpbft.Participant
 	Adversary    AdversaryReceiver
 	Decisions    *DecisionLog
@@ -74,33 +72,30 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 	}
 
 	ntwk := NewNetwork(lat, traceLevel, *sb, "sim")
+	baseChain, _ := gpbft.NewChain(gpbft.NewTipSet(100, gpbft.NewTipSetIDFromString("genesis")))
+	beacon := []byte("beacon")
+	ec := NewEC(baseChain, beacon)
 	decisions := NewDecisionLog(ntwk, sb.Verifier)
 
 	// Create participants.
-	genesisPower := gpbft.NewPowerTable(make([]gpbft.PowerEntry, 0))
 	participants := make([]*gpbft.Participant, simConfig.HonestCount)
 	for i := 0; i < len(participants); i++ {
-		pubKey := ntwk.GenerateKey()
-		participants[i] = gpbft.NewParticipant(gpbft.ActorID(i), graniteConfig, ntwk, decisions)
-		ntwk.AddParticipant(participants[i], pubKey)
-		if err := genesisPower.Add(participants[i].ID(), gpbft.NewStoragePower(1), pubKey); err != nil {
-			panic(fmt.Errorf("failed adding participant to power table: %w", err))
+		id := gpbft.ActorID(i)
+		host := &SimHost{
+			Network: ntwk,
+			EC:      ec,
+			id:      id,
 		}
+		participants[i] = gpbft.NewParticipant(id, graniteConfig, host, decisions)
+		pubKey := ntwk.GenerateKey()
+		ntwk.AddParticipant(participants[i], pubKey)
+		ec.AddParticipant(id, gpbft.NewStoragePower(1), pubKey)
 	}
 
-	// Create genesis tipset, which all participants are expected to agree on as a base.
-	genesis := gpbft.NewTipSet(100, gpbft.NewTipSetIDFromString("genesis"))
-	baseChain, err := gpbft.NewChain(genesis)
-	if err != nil {
-		panic(fmt.Errorf("failed creating new chain: %w", err))
-	}
-
-	decisions.BeginInstance(0, genesis, genesisPower)
+	decisions.BeginInstance(0, baseChain.Head(), ec.PowerTable)
 	return &Simulation{
 		Network:      ntwk,
-		Base:         baseChain,
-		PowerTable:   genesisPower,
-		Beacon:       []byte("beacon"),
+		EC:           ec,
 		Participants: participants,
 		Adversary:    nil,
 		Decisions:    decisions,
@@ -108,12 +103,26 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 	}
 }
 
+func (s *Simulation) Base() gpbft.ECChain {
+	return s.EC.Base
+}
+
+func (s *Simulation) PowerTable() *gpbft.PowerTable {
+	return s.EC.PowerTable
+}
+
 func (s *Simulation) SetAdversary(adv AdversaryReceiver, power uint) {
 	s.Adversary = adv
 	pubKey := s.Network.GenerateKey()
 	s.Network.AddParticipant(adv, pubKey)
-	if err := s.PowerTable.Add(adv.ID(), gpbft.NewStoragePower(int64(power)), pubKey); err != nil {
-		panic(err)
+	s.EC.AddParticipant(adv.ID(), gpbft.NewStoragePower(int64(power)), pubKey)
+}
+
+func (s *Simulation) HostFor(id gpbft.ActorID) *SimHost {
+	return &SimHost{
+		Network: s.Network,
+		EC:      s.EC,
+		id:      id,
 	}
 }
 
@@ -122,30 +131,13 @@ type ChainCount struct {
 	Chain gpbft.ECChain
 }
 
-// Delivers canonical chains to honest participants.
-func (s *Simulation) ReceiveChains(chains ...ChainCount) {
+// Sets canonical chains to be delivered to honest participants,
+// then starts each participant.
+func (s *Simulation) SetChains(chains ...ChainCount) {
 	pidx := 0
 	for _, chain := range chains {
 		for i := 0; i < chain.Count; i++ {
-			if err := s.Participants[pidx].ReceiveCanonicalChain(chain.Chain, *s.PowerTable, s.Beacon); err != nil {
-				panic(fmt.Errorf("participant %d failed receiving canonical chain %d: %w", pidx, i, err))
-			}
-			pidx += 1
-		}
-	}
-	if pidx != len(s.Participants) {
-		panic(fmt.Errorf("%d participants but %d chains", len(s.Participants), pidx))
-	}
-}
-
-// Delivers EC chains to honest participants.
-func (s *Simulation) ReceiveECChains(chains ...ChainCount) {
-	pidx := 0
-	for _, chain := range chains {
-		for i := 0; i < chain.Count; i++ {
-			if err := s.Participants[pidx].ReceiveECChain(chain.Chain); err != nil {
-				panic(err)
-			}
+			s.EC.Chains[s.Participants[pidx].ID()] = chain.Chain
 			pidx += 1
 		}
 	}
@@ -156,6 +148,13 @@ func (s *Simulation) ReceiveECChains(chains ...ChainCount) {
 
 // Runs simulation, and returns whether all participants decided on the same value.
 func (s *Simulation) Run(maxRounds uint64) error {
+	// Start participants.
+	for _, p := range s.Participants {
+		if err := p.Start(); err != nil {
+			panic(fmt.Errorf("participant %d failed starting: %w", p.ID(), err))
+		}
+	}
+
 	var err error
 	var moreTicks bool
 	// Run until there are no more messages, meaning termination or deadlock.
@@ -194,6 +193,25 @@ func (s *Simulation) Describe() string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// One participant's host
+// This provides methods that know the caller's participant ID and can provide its view of the world.
+type SimHost struct {
+	*Network
+	*EC
+	id gpbft.ActorID
+}
+
+var _ gpbft.Host = (*SimHost)(nil)
+
+///// Chain interface
+
+func (v *SimHost) GetCanonicalChain() (chain gpbft.ECChain, power gpbft.PowerTable, beacon []byte) {
+	chain = v.Chains[v.id]
+	power = *v.PowerTable
+	beacon = v.Beacon
+	return
 }
 
 // Receives and validates finality decisions
