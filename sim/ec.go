@@ -4,8 +4,12 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
-// Simulated EC state.
+// Simulated EC state for each protocol instance.
 type EC struct {
+	Instances []*ECInstance
+}
+
+type ECInstance struct {
 	// The base of all chains, which participants must agree on.
 	Base gpbft.ECChain
 	// EC chains visible to participants.
@@ -18,15 +22,36 @@ type EC struct {
 
 func NewEC(base gpbft.ECChain, beacon []byte) *EC {
 	return &EC{
-		Base:       base,
-		Chains:     make(map[gpbft.ActorID]gpbft.ECChain),
-		PowerTable: gpbft.NewPowerTable(nil),
-		Beacon:     beacon,
+		Instances: []*ECInstance{
+			{
+				Base:       base,
+				Chains:     make(map[gpbft.ActorID]gpbft.ECChain),
+				PowerTable: gpbft.NewPowerTable(nil),
+				Beacon:     beacon,
+			},
+		},
 	}
 }
 
+// Adds a participant to the first instance.
 func (ec *EC) AddParticipant(id gpbft.ActorID, power *gpbft.StoragePower, pubkey []byte) {
-	if err := ec.PowerTable.Add(id, power, pubkey); err != nil {
+	if err := ec.Instances[0].PowerTable.Add(id, power, pubkey); err != nil {
 		panic("failed to add participant")
 	}
+}
+
+// Adds a new instance to the EC state, with a new chain shared by all participants.
+// The power table and beacon correspond to the base of the new chain.
+func (ec *EC) AddInstance(chain gpbft.ECChain, power *gpbft.PowerTable, beacon []byte) {
+	newInstance := &ECInstance{
+		Base:       chain.BaseChain(),
+		Chains:     make(map[gpbft.ActorID]gpbft.ECChain),
+		PowerTable: power,
+		Beacon:     beacon,
+	}
+	// Set the chain for each participant with power.
+	for _, entry := range power.Entries {
+		newInstance.Chains[entry.ID] = chain
+	}
+	ec.Instances = append(ec.Instances, newInstance)
 }

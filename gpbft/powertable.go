@@ -79,10 +79,27 @@ func (p *PowerTable) Get(id ActorID) (*StoragePower, PubKey) {
 	return nil, nil
 }
 
-// Has returns true iff the ActorID is part of the power table with positive power
+// Has returns true iff the ActorID is part of the power table with positive power.
 func (p *PowerTable) Has(id ActorID) bool {
 	index, ok := p.Lookup[id]
 	return ok && p.Entries[index].Power.Cmp(NewStoragePower(0)) > 0
+}
+
+// Creates a deep copy of the PowerTable.
+func (p *PowerTable) Copy() *PowerTable {
+	entries := make([]PowerEntry, len(p.Entries))
+	copy(entries, p.Entries)
+	lookup := make(map[ActorID]int, len(p.Lookup))
+	for k, v := range p.Lookup {
+		lookup[k] = v
+	}
+	total := NewStoragePower(0)
+	total.Add(total, p.Total)
+	return &PowerTable{
+		Entries: entries,
+		Lookup:  lookup,
+		Total:   total,
+	}
 }
 
 ///// General helpers /////

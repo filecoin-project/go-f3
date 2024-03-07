@@ -38,10 +38,10 @@ func main() {
 		sm := sim.NewSimulation(simConfig, graniteConfig, *traceLevel)
 
 		// Same chain for everyone.
-		candidate := sm.Base().Extend(sm.CIDGen.Sample())
+		candidate := sm.Base(0).Extend(sm.CIDGen.Sample())
 		sm.SetChains(sim.ChainCount{Count: *participantCount, Chain: candidate})
 
-		err := sm.Run(*maxRounds)
+		err := sm.Run(1, *maxRounds)
 		if err != nil {
 			sm.PrintResults()
 		}
