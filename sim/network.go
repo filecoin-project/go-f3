@@ -108,6 +108,10 @@ func (n *Network) Time() time.Time {
 }
 
 func (n *Network) SetAlarm(sender gpbft.ActorID, at time.Time) {
+	// Remove any existing alarm for the same sender.
+	n.queue.RemoveWhere(func(m messageInFlight) bool {
+		return m.dest == sender && m.payload == "ALARM"
+	})
 	n.queue.Insert(messageInFlight{
 		source:    sender,
 		dest:      sender,
@@ -219,4 +223,16 @@ func (h *messageQueue) Remove(i int) messageInFlight {
 	copy((*h)[i:], (*h)[i+1:])
 	*h = (*h)[:len(*h)-1]
 	return v
+}
+
+// Removes all entries from the queue that satisfy a predicate.
+func (h *messageQueue) RemoveWhere(f func(messageInFlight) bool) {
+	i := 0
+	for _, x := range *h {
+		if !f(x) {
+			(*h)[i] = x
+			i++
+		}
+	}
+	*h = (*h)[:i]
 }
