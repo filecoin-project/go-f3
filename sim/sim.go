@@ -199,7 +199,10 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 // Returns the decision for a participant in an instance.
 func (s *Simulation) GetDecision(instance uint64, participant gpbft.ActorID) (gpbft.ECChain, bool) {
 	v, ok := s.Decisions.Decisions[instance][participant]
-	return v.Vote.Value, ok
+	if ok {
+		return v.Vote.Value, ok
+	}
+	return gpbft.ECChain{}, ok
 }
 
 func (s *Simulation) PrintResults() {
