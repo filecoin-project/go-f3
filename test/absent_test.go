@@ -19,9 +19,9 @@ func TestAbsent(t *testing.T) {
 		// Adversary has 1/4 of power.
 		sm.SetAdversary(adversary.NewAbsent(99, sm.HostFor(99)), 1)
 
-		a := sm.Base().Extend(sm.CIDGen.Sample())
+		a := sm.Base(0).Extend(sm.CIDGen.Sample())
 		sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
-		require.NoErrorf(t, sm.Run(MAX_ROUNDS), "%s", sm.Describe())
+		require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
 	}
 }

@@ -45,20 +45,14 @@ func (p *Participant) ID() ActorID {
 }
 
 // Fetches the preferred EC chain for the instance and begins the GPBFT protocol.
-func (p *Participant) Start() error {
-	var err error
+func (p *Participant) Start() (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = &PanicError{Err: err}
 		}
 	}()
 
-	chain, power, beacon := p.host.GetCanonicalChain()
-	if p.granite, err = newInstance(p.config, p.host, p.id, p.nextInstance, chain, power, beacon); err != nil {
-		return fmt.Errorf("failed creating new granite instance: %w", err)
-	}
-	p.nextInstance += 1
-	return p.granite.Start()
+	return p.beginInstance()
 }
 
 func (p *Participant) CurrentRound() uint64 {
@@ -70,8 +64,7 @@ func (p *Participant) CurrentRound() uint64 {
 
 // Receives a new EC chain, and notifies the current instance.
 // This may modify the set of valid values for the current instance.
-func (p *Participant) ReceiveECChain(chain ECChain) error {
-	var err error
+func (p *Participant) ReceiveECChain(chain ECChain) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = &PanicError{Err: err}
@@ -88,8 +81,7 @@ func (p *Participant) ReceiveECChain(chain ECChain) error {
 // An invalid message can never become valid, so may be dropped.
 // A message can only be validated if it is for the currently-executing protocol instance.
 // Returns whether the message could be validated, and an error if it was invalid.
-func (p *Participant) ValidateMessage(msg *GMessage) (bool, error) {
-	var err error
+func (p *Participant) ValidateMessage(msg *GMessage) (checked bool, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = &PanicError{Err: err}
@@ -99,7 +91,7 @@ func (p *Participant) ValidateMessage(msg *GMessage) (bool, error) {
 	if p.granite != nil && msg.Vote.Instance == p.granite.instanceID {
 		return true, p.granite.Validate(msg)
 	}
-	return false, err
+	return false, nil
 }
 
 // Receives a Granite message from some other participant.
@@ -111,8 +103,7 @@ func (p *Participant) ValidateMessage(msg *GMessage) (bool, error) {
 // can only be for the current or some previous instance (hence dropping if not current).
 // Returns whether the message was accepted for the instance, and an error if it could not be
 // processed.
-func (p *Participant) ReceiveMessage(msg *GMessage) (bool, error) {
-	var err error
+func (p *Participant) ReceiveMessage(msg *GMessage) (accepted bool, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = &PanicError{Err: err}
@@ -123,41 +114,61 @@ func (p *Participant) ReceiveMessage(msg *GMessage) (bool, error) {
 		if err := p.granite.Receive(msg); err != nil {
 			return true, fmt.Errorf("receiving message: %w", err)
 		}
-		p.handleDecision()
-		return true, nil
+		return true, p.handleDecision()
 	} else if msg.Vote.Instance >= p.nextInstance {
 		// Queue messages for later instances
 		return false, xerrors.Errorf("message for future instance cannot be valid")
 	}
 	// Message dropped.
-	return false, err
+	return false, nil
 }
 
-func (p *Participant) ReceiveAlarm() error {
-	var err error
+func (p *Participant) ReceiveAlarm() (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = &PanicError{Err: err}
 		}
 	}()
 
-	if p.granite != nil {
-		// An instance is robust to receiving extra alarms, e.g. from prior terminated instances.
+	if p.granite == nil {
+		// The alarm is for fetching the next chain and beginning a new instance.
+		return p.beginInstance()
+	} else {
 		if err := p.granite.ReceiveAlarm(); err != nil {
 			return fmt.Errorf("failed receiving alarm: %w", err)
 		}
-		p.handleDecision()
+		return p.handleDecision()
 	}
-	return err
 }
 
-func (p *Participant) handleDecision() {
+func (p *Participant) beginInstance() error {
+	chain, power, beacon := p.host.GetCanonicalChain()
+	var err error
+	if p.granite, err = newInstance(p.config, p.host, p.id, p.nextInstance, chain, power, beacon); err != nil {
+		return fmt.Errorf("failed creating new granite instance: %w", err)
+	}
+	p.nextInstance += 1
+	if err := p.granite.Start(); err != nil {
+		return fmt.Errorf("failed starting granite instance: %w", err)
+	}
+	return p.handleDecision()
+}
+
+func (p *Participant) handleDecision() error {
 	if p.terminated() {
 		p.finalised = p.granite.terminationValue
 		p.terminatedDuringRound = p.granite.round
 		p.granite = nil
-		p.host.ReceiveDecision(*p.finalised)
+		p.host.ReceiveDecision(p.finalised)
+
+		// Set an alarm at which to fetch the next chain and begin a new instance.
+		// At the moment, this is set to "immediately".
+		// TODO: set delay based on tipset timestamp when they are provided by the host.
+		// https://github.com/filecoin-project/go-f3/issues/113
+		p.host.SetAlarm(p.host.Time())
+		return nil
 	}
+	return nil
 }
 
 func (p *Participant) terminated() bool {

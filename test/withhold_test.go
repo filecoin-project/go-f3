@@ -18,11 +18,11 @@ func TestWitholdCommit1(t *testing.T) {
 		LatencySeed: int64(i),
 		LatencyMean: 10 * time.Millisecond, // Near-synchrony
 	}, GraniteConfig(), sim.TraceNone)
-	adv := adversary.NewWitholdCommit(99, sm.HostFor(99), sm.PowerTable())
+	adv := adversary.NewWitholdCommit(99, sm.HostFor(99), sm.PowerTable(0))
 	sm.SetAdversary(adv, 3) // Adversary has 30% of 10 total power.
 
-	a := sm.Base().Extend(sm.CIDGen.Sample())
-	b := sm.Base().Extend(sm.CIDGen.Sample())
+	a := sm.Base(0).Extend(sm.CIDGen.Sample())
+	b := sm.Base(0).Extend(sm.CIDGen.Sample())
 	// Of 7 nodes, 4 victims will prefer chain A, 3 others will prefer chain B.
 	// The adversary will target the first to decide, and withhold COMMIT from the rest.
 	// After the victim decides in round 0, the adversary stops participating.
@@ -33,7 +33,7 @@ func TestWitholdCommit1(t *testing.T) {
 
 	adv.Begin()
 	sm.SetChains(sim.ChainCount{Count: 4, Chain: a}, sim.ChainCount{Count: 3, Chain: b})
-	err := sm.Run(MAX_ROUNDS)
+	err := sm.Run(1, MAX_ROUNDS)
 	if err != nil {
 		fmt.Printf("%s", sm.Describe())
 		sm.PrintResults()

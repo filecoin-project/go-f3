@@ -75,6 +75,7 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 	baseChain, _ := gpbft.NewChain(gpbft.NewTipSet(100, gpbft.NewTipSetIDFromString("genesis")))
 	beacon := []byte("beacon")
 	ec := NewEC(baseChain, beacon)
+	cidGen := NewCIDGen(0x264803e715714f95) // Seed from Drand
 	decisions := NewDecisionLog(ntwk, sb.Verifier)
 
 	// Create participants.
@@ -85,6 +86,7 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 			Network:     ntwk,
 			EC:          ec,
 			DecisionLog: decisions,
+			CIDGen:      cidGen,
 			id:          id,
 		}
 		participants[i] = gpbft.NewParticipant(id, graniteConfig, host)
@@ -93,23 +95,23 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 		ec.AddParticipant(id, gpbft.NewStoragePower(1), pubKey)
 	}
 
-	decisions.BeginInstance(0, baseChain.Head(), ec.PowerTable)
+	decisions.BeginInstance(0, baseChain.Head(), ec.Instances[0].PowerTable)
 	return &Simulation{
 		Network:      ntwk,
 		EC:           ec,
 		Participants: participants,
 		Adversary:    nil,
 		Decisions:    decisions,
-		CIDGen:       NewCIDGen(0x264803e715714f95), // Seed from Drand
+		CIDGen:       cidGen,
 	}
 }
 
-func (s *Simulation) Base() gpbft.ECChain {
-	return s.EC.Base
+func (s *Simulation) Base(instance uint64) gpbft.ECChain {
+	return s.EC.Instances[instance].Base
 }
 
-func (s *Simulation) PowerTable() *gpbft.PowerTable {
-	return s.EC.PowerTable
+func (s *Simulation) PowerTable(instance uint64) *gpbft.PowerTable {
+	return s.EC.Instances[instance].PowerTable
 }
 
 func (s *Simulation) SetAdversary(adv AdversaryReceiver, power uint) {
@@ -121,9 +123,11 @@ func (s *Simulation) SetAdversary(adv AdversaryReceiver, power uint) {
 
 func (s *Simulation) HostFor(id gpbft.ActorID) *SimHost {
 	return &SimHost{
-		Network: s.Network,
-		EC:      s.EC,
-		id:      id,
+		Network:     s.Network,
+		EC:          s.EC,
+		DecisionLog: s.Decisions,
+		CIDGen:      s.CIDGen,
+		id:          id,
 	}
 }
 
@@ -132,13 +136,12 @@ type ChainCount struct {
 	Chain gpbft.ECChain
 }
 
-// Sets canonical chains to be delivered to honest participants,
-// then starts each participant.
+// Sets canonical chains to be delivered to honest participants in the first instance.
 func (s *Simulation) SetChains(chains ...ChainCount) {
 	pidx := 0
 	for _, chain := range chains {
 		for i := 0; i < chain.Count; i++ {
-			s.EC.Chains[s.Participants[pidx].ID()] = chain.Chain
+			s.EC.Instances[0].Chains[s.Participants[pidx].ID()] = chain.Chain
 			pidx += 1
 		}
 	}
@@ -148,7 +151,7 @@ func (s *Simulation) SetChains(chains ...ChainCount) {
 }
 
 // Runs simulation, and returns whether all participants decided on the same value.
-func (s *Simulation) Run(maxRounds uint64) error {
+func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 	// Start participants.
 	for _, p := range s.Participants {
 		if err := p.Start(); err != nil {
@@ -156,23 +159,39 @@ func (s *Simulation) Run(maxRounds uint64) error {
 		}
 	}
 
-	var err error
-	var moreTicks bool
-	// Run until there are no more messages, meaning termination or deadlock.
-	for moreTicks, err = s.Network.Tick(s.Adversary); err == nil && moreTicks && s.Participants[0].CurrentRound() <= maxRounds; moreTicks, err = s.Network.Tick(s.Adversary) {
-	}
-	if err != nil {
-		return fmt.Errorf("error performing simulation step: %w", err)
-	}
-	if s.Participants[0].CurrentRound() >= maxRounds {
-		return fmt.Errorf("reached maximum number of %d rounds", maxRounds)
-	}
 	adversaryID := gpbft.ActorID(math.MaxUint64)
 	if s.Adversary != nil {
 		adversaryID = s.Adversary.ID()
 	}
-	if err := s.Decisions.CompleteInstance(0, adversaryID); err != nil {
-		return fmt.Errorf("incompatible or incomplete decisions: %w", err)
+	finalInstance := instanceCount - 1
+	currentInstance := uint64(0)
+
+	// Run until there are no more messages, meaning termination or deadlock.
+	moreTicks := true
+	for moreTicks {
+		var err error
+		if s.Decisions.err != nil {
+			return fmt.Errorf("error in decision: %w", s.Decisions.err)
+		}
+		if s.Participants[0].CurrentRound() >= maxRounds {
+			return fmt.Errorf("reached maximum number of %d rounds", maxRounds)
+		}
+		// Verify the current instance as soon as it completes.
+		if s.Decisions.HasCompletedInstance(currentInstance, adversaryID) {
+			if err := s.Decisions.VerifyInstance(currentInstance, adversaryID); err != nil {
+				return fmt.Errorf("invalid decisions for instance %d: %w",
+					currentInstance, err)
+			}
+			// Stop after all nodes have decided for the last instance.
+			if currentInstance == finalInstance {
+				break
+			}
+			currentInstance += 1
+		}
+		moreTicks, err = s.Network.Tick(s.Adversary)
+		if err != nil {
+			return fmt.Errorf("error performing simulation step: %w", err)
+		}
 	}
 	return nil
 }
@@ -202,6 +221,7 @@ type SimHost struct {
 	*Network
 	*EC
 	*DecisionLog
+	*CIDGen
 	id gpbft.ActorID
 }
 
@@ -210,9 +230,19 @@ var _ gpbft.Host = (*SimHost)(nil)
 ///// Chain interface
 
 func (v *SimHost) GetCanonicalChain() (chain gpbft.ECChain, power gpbft.PowerTable, beacon []byte) {
-	chain = v.Chains[v.id]
-	power = *v.PowerTable
-	beacon = v.Beacon
+	// Find the instance after the last instance finalised by the participant.
+	instance := uint64(0)
+	for i := len(v.Decisions) - 1; i >= 0; i-- {
+		if v.Decisions[i][v.id] != nil {
+			instance = uint64(i + 1)
+			break
+		}
+	}
+
+	i := v.Instances[instance]
+	chain = i.Chains[v.id]
+	power = *i.PowerTable
+	beacon = i.Beacon
 	return
 }
 
@@ -220,20 +250,37 @@ func (v *SimHost) SetAlarm(at time.Time) {
 	v.Network.SetAlarm(v.id, at)
 }
 
-func (v *SimHost) ReceiveDecision(decision gpbft.Justification) {
-	v.DecisionLog.ReceiveDecision(v.id, decision)
+func (v *SimHost) ReceiveDecision(decision *gpbft.Justification) {
+	firstForInstance := v.DecisionLog.ReceiveDecision(v.id, decision)
+	if firstForInstance {
+		// When the first valid decision is received for an instance, prepare for the next one.
+		nextBase := decision.Vote.Value.Head()
+		// Copy the previous instance power table.
+		// The simulator doesn't have any facility to evolve the power table.
+		// See https://github.com/filecoin-project/go-f3/issues/114.
+		nextPowerTable := v.EC.Instances[decision.Vote.Instance].PowerTable.Copy()
+		nextBeacon := []byte(fmt.Sprintf("beacon %d", decision.Vote.Instance+1))
+		// Create a new chain for all participants.
+		// There's no facility yet for them to observe different chains after the first instance.
+		// See https://github.com/filecoin-project/go-f3/issues/115.
+		newTip := gpbft.NewTipSet(nextBase.Epoch+1, v.CIDGen.Sample())
+		nextChain, _ := gpbft.NewChain(nextBase, newTip)
+
+		v.EC.AddInstance(nextChain, nextPowerTable, nextBeacon)
+		v.DecisionLog.BeginInstance(decision.Vote.Instance+1, nextBase, nextPowerTable)
+	}
 }
 
 // Receives and validates finality decisions
 type DecisionLog struct {
 	Network  gpbft.Network
 	Verifier gpbft.Verifier
-	// Base tipset for each round.
-	Bases map[uint64]gpbft.TipSet
-	// Powertable for each round.
-	PowerTables map[uint64]*gpbft.PowerTable
-	// Decisions received for each round and participant.
-	Decisions map[uint64]map[gpbft.ActorID]gpbft.Justification
+	// Base tipset for each instance.
+	Bases []gpbft.TipSet
+	// Powertable for each instance.
+	PowerTables []*gpbft.PowerTable
+	// Decisions received for each instance and participant.
+	Decisions []map[gpbft.ActorID]*gpbft.Justification
 	err       error
 }
 
@@ -241,30 +288,47 @@ func NewDecisionLog(ntwk gpbft.Network, verifier gpbft.Verifier) *DecisionLog {
 	return &DecisionLog{
 		Network:     ntwk,
 		Verifier:    verifier,
-		Bases:       make(map[uint64]gpbft.TipSet),
-		PowerTables: make(map[uint64]*gpbft.PowerTable),
-		Decisions:   make(map[uint64]map[gpbft.ActorID]gpbft.Justification),
+		Bases:       nil,
+		PowerTables: nil,
+		Decisions:   nil,
 	}
 }
 
 // Establishes the base tipset and power table for a new instance.
 func (dl *DecisionLog) BeginInstance(instance uint64, base gpbft.TipSet, power *gpbft.PowerTable) {
-	dl.Bases[instance] = base
-	dl.PowerTables[instance] = power
+	if instance != uint64(len(dl.Bases)) {
+		panic(fmt.Errorf("instance %d is not the next instance", instance))
+	}
+	dl.Bases = append(dl.Bases, base)
+	dl.PowerTables = append(dl.PowerTables, power)
+	dl.Decisions = append(dl.Decisions, make(map[gpbft.ActorID]*gpbft.Justification))
 }
 
-// Checks that all participants for an instance decided on the same value.
-func (dl *DecisionLog) CompleteInstance(instance uint64, adversary gpbft.ActorID) error {
+// Checks whether all participants (except any adversary) have decided on a value for an instance.
+func (dl *DecisionLog) HasCompletedInstance(instance uint64, adversary gpbft.ActorID) bool {
+	if instance >= uint64(len(dl.Bases)) {
+		return false
+	}
+	target := len(dl.PowerTables[instance].Entries)
+	if dl.PowerTables[instance].Has(adversary) {
+		target -= 1
+	}
+
+	return len(dl.Decisions[instance]) == target
+}
+
+// Checks that all participants (except any adversary) for an instance decided on the same value.
+func (dl *DecisionLog) VerifyInstance(instance uint64, adversary gpbft.ActorID) error {
 	if dl.err != nil {
 		return dl.err
 	}
-	powerTable := dl.PowerTables[instance]
-	decisions := dl.Decisions[instance]
-
+	if instance >= uint64(len(dl.Bases)) {
+		panic(fmt.Errorf("instance %d not yet begun", instance))
+	}
 	// Check each actor in the power table decided, and their decisions matched.
 	var first gpbft.ECChain
-	for _, powerEntry := range powerTable.Entries {
-		decision, ok := decisions[powerEntry.ID]
+	for _, powerEntry := range dl.PowerTables[instance].Entries {
+		decision, ok := dl.Decisions[instance][powerEntry.ID]
 		if powerEntry.ID == adversary {
 			continue
 		}
@@ -283,12 +347,12 @@ func (dl *DecisionLog) CompleteInstance(instance uint64, adversary gpbft.ActorID
 }
 
 func (dl *DecisionLog) PrintInstance(instance uint64) {
-	powerTable := dl.PowerTables[instance]
-	decisions := dl.Decisions[instance]
-
+	if instance >= uint64(len(dl.Bases)) {
+		panic(fmt.Errorf("instance %d not yet begun", instance))
+	}
 	var first gpbft.ECChain
-	for _, powerEntry := range powerTable.Entries {
-		decision, ok := decisions[powerEntry.ID]
+	for _, powerEntry := range dl.PowerTables[instance].Entries {
+		decision, ok := dl.Decisions[instance][powerEntry.ID]
 		if !ok {
 			fmt.Printf("‼️ Participant %d did not decide\n", powerEntry.ID)
 		}
@@ -297,25 +361,31 @@ func (dl *DecisionLog) PrintInstance(instance uint64) {
 		}
 		if !decision.Vote.Value.Eq(first) {
 			fmt.Printf("‼️ Participant %d decided %v, but %d decided %v\n",
-				powerEntry.ID, decision.Vote, powerTable.Entries[0].ID, first)
+				powerEntry.ID, decision.Vote, dl.PowerTables[instance].Entries[0].ID, first)
 		}
 	}
 }
 
 // Verifies and records a decision from a participant.
-func (dl *DecisionLog) ReceiveDecision(participant gpbft.ActorID, decision gpbft.Justification) {
-	if err := dl.verifyDecision(&decision); err == nil {
-		if dl.Decisions[decision.Vote.Instance] == nil {
-			dl.Decisions[decision.Vote.Instance] = make(map[gpbft.ActorID]gpbft.Justification)
+// Returns whether this was the first decision for the instance.
+func (dl *DecisionLog) ReceiveDecision(participant gpbft.ActorID, decision *gpbft.Justification) (first bool) {
+	if err := dl.verifyDecision(decision); err == nil {
+		if len(dl.Decisions[decision.Vote.Instance]) == 0 {
+			first = true
 		}
+		// Record the participant's decision.
 		dl.Decisions[decision.Vote.Instance][participant] = decision
 	} else {
 		fmt.Printf("invalid decision: %v\n", err)
 		dl.err = err
 	}
+	return
 }
 
 func (dl *DecisionLog) verifyDecision(decision *gpbft.Justification) error {
+	if decision.Vote.Instance >= uint64(len(dl.Bases)) {
+		return fmt.Errorf("decision for future instance: %v", decision)
+	}
 	base := dl.Bases[decision.Vote.Instance]
 	powerTable := dl.PowerTables[decision.Vote.Instance]
 	if decision.Vote.Step != gpbft.DECIDE_PHASE {
@@ -325,10 +395,10 @@ func (dl *DecisionLog) verifyDecision(decision *gpbft.Justification) error {
 		return fmt.Errorf("decision for wrong round: %v", decision)
 	}
 	if decision.Vote.Value.IsZero() {
-		return fmt.Errorf("finalized empty tipset: %v", decision)
+		return fmt.Errorf("decided empty tipset: %v", decision)
 	}
 	if !decision.Vote.Value.HasBase(base) {
-		return fmt.Errorf("finalized tipset with wrong base: %v", decision)
+		return fmt.Errorf("decided tipset with wrong base: %v", decision)
 	}
 
 	// Extract signers.
