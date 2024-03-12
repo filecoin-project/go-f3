@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
+	"math/big"
+	"sort"
+	"time"
+
 	"github.com/filecoin-project/go-bitfield"
 	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
 	"golang.org/x/xerrors"
-	"math"
-	"sort"
-	"time"
 )
 
 type GraniteConfig struct {
@@ -354,7 +356,7 @@ func (i *instance) tryCompletePhase() error {
 func (i *instance) validateMessage(msg *GMessage) error {
 	// Check sender is eligible.
 	senderPower, senderPubKey := i.powerTable.Get(msg.Sender)
-	if senderPower == nil || senderPower.Sign() == 0 {
+	if senderPower == 0 {
 		return xerrors.Errorf("sender with zero power or not in power table")
 	}
 
@@ -453,20 +455,21 @@ func (i *instance) validateMessage(msg *GMessage) error {
 		}
 
 		// Check justification power and signature.
-		justificationPower := NewStoragePower(0)
+		var justificationPower uint16
 		signers := make([]PubKey, 0)
 		if err := msg.Justification.Signers.ForEach(func(bit uint64) error {
 			if int(bit) >= len(i.powerTable.Entries) {
 				return fmt.Errorf("invalid signer index: %d", bit)
 			}
-			justificationPower.Add(justificationPower, i.powerTable.Entries[bit].Power)
+			// TODO: panic on overflow? That should be impossible.
+			justificationPower += scalePower(i.powerTable.Entries[bit].Power, i.powerTable.Total)
 			signers = append(signers, i.powerTable.Entries[bit].PubKey)
 			return nil
 		}); err != nil {
 			return fmt.Errorf("failed to iterate over signers: %w", err)
 		}
 
-		if !hasStrongQuorum(justificationPower, i.powerTable.Total) {
+		if !hasStrongQuorum(justificationPower) {
 			return fmt.Errorf("message %v has justification with insufficient power: %v", msg, justificationPower)
 		}
 
@@ -809,7 +812,7 @@ type quorumState struct {
 	// The power supporting each chain so far.
 	chainSupport map[TipSet]chainSupport
 	// Total power of all distinct senders from which some chain has been senders so far.
-	sendersTotalPower *StoragePower
+	sendersTotalPower uint16
 	// Table of senders' power.
 	powerTable PowerTable
 	// Stores justifications received for some value.
@@ -819,7 +822,7 @@ type quorumState struct {
 // A chain value and the total power supporting it
 type chainSupport struct {
 	chain           ECChain
-	power           *StoragePower
+	power           uint16
 	signatures      map[ActorID][]byte
 	hasStrongQuorum bool
 	hasWeakQuorum   bool
@@ -830,7 +833,6 @@ func newQuorumState(powerTable PowerTable) *quorumState {
 	return &quorumState{
 		senders:               map[ActorID]struct{}{},
 		chainSupport:          map[TipSet]chainSupport{},
-		sendersTotalPower:     NewStoragePower(0),
 		powerTable:            powerTable,
 		receivedJustification: map[TipSet]*Justification{},
 	}
@@ -843,7 +845,7 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte) {
 	// Add sender's power to total the first time a value is senders from them.
 	if _, ok := q.senders[sender]; !ok {
 		q.senders[sender] = struct{}{}
-		q.sendersTotalPower.Add(q.sendersTotalPower, senderPower)
+		q.sendersTotalPower += senderPower
 	}
 
 	head := value.HeadOrZero()
@@ -856,7 +858,6 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte) {
 	} else {
 		candidate = chainSupport{
 			chain:           value,
-			power:           NewStoragePower(0),
 			signatures:      map[ActorID][]byte{},
 			hasStrongQuorum: false,
 			hasWeakQuorum:   false,
@@ -867,10 +868,10 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte) {
 	candidate.signatures[sender] = signature
 
 	// Add sender's power to the chain's total power.
-	candidate.power.Add(candidate.power, senderPower)
+	candidate.power += senderPower
 
-	candidate.hasStrongQuorum = hasStrongQuorum(candidate.power, q.powerTable.Total)
-	candidate.hasWeakQuorum = hasWeakQuorum(candidate.power, q.powerTable.Total)
+	candidate.hasStrongQuorum = hasStrongQuorum(candidate.power)
+	candidate.hasWeakQuorum = hasWeakQuorum(candidate.power)
 	q.chainSupport[head] = candidate
 }
 
@@ -894,7 +895,7 @@ func (q *quorumState) ListAllValues() []ECChain {
 
 // Checks whether at least one message has been senders from a strong quorum of senders.
 func (q *quorumState) ReceivedFromStrongQuorum() bool {
-	return hasStrongQuorum(q.sendersTotalPower, q.powerTable.Total)
+	return hasStrongQuorum(q.sendersTotalPower)
 }
 
 // Checks whether a chain (head) has reached a strong quorum.
@@ -944,16 +945,17 @@ func (q *quorumState) FindStrongQuorumFor(value TipSet) (QuorumResult, bool) {
 	// Accumulate signers and signatures until they reach a strong quorum.
 	signatures := make([][]byte, 0, len(chainSupport.signatures))
 	pubkeys := make([]PubKey, 0, len(signatures))
-	justificationPower := NewStoragePower(0)
+	var justificationPower uint16
 	for i, idx := range signers {
 		if idx >= len(q.powerTable.Entries) {
 			panic(fmt.Sprintf("invalid signer index: %d for %d entries", idx, len(q.powerTable.Entries)))
 		}
 		entry := q.powerTable.Entries[idx]
-		justificationPower.Add(justificationPower, entry.Power)
+		// TODO: panic on overflow?
+		justificationPower += scalePower(entry.Power, q.powerTable.Total)
 		signatures = append(signatures, chainSupport.signatures[entry.ID])
 		pubkeys = append(pubkeys, entry.PubKey)
-		if hasStrongQuorum(justificationPower, q.powerTable.Total) {
+		if hasStrongQuorum(justificationPower) {
 			return QuorumResult{
 				Signers:    signers[:i+1],
 				PubKeys:    pubkeys,
@@ -1071,22 +1073,28 @@ func findFirstPrefixOf(candidates []ECChain, preferred ECChain) ECChain {
 	return preferred.BaseChain()
 }
 
-// Check whether a portion of storage power is a strong quorum of the total
-func hasStrongQuorum(part, total *StoragePower) bool {
-	two := NewStoragePower(2)
-	three := NewStoragePower(3)
+func scalePower(power, total *StoragePower) uint16 {
+	const maxPower = 0xffff
+	if power.Cmp(total) > 0 {
+		panic(fmt.Sprintf("total power %d is less than the power of a single participant %d", total, power))
+	}
+	scaled := big.NewInt(maxPower)
+	scaled = scaled.Mul(scaled, (*big.Int)(power))
+	scaled = scaled.Div(scaled, (*big.Int)(total))
+	return uint16(scaled.Uint64())
+}
 
-	strongThreshold := new(StoragePower).Mul(total, two)
-	strongThreshold.Div(strongThreshold, three)
-	return part.Cmp(strongThreshold) > 0
+const strongQuorum = (2 * 0xffff) / 3 // 43690 (exactly)
+const weakQuorum = (1 * 0xffff) / 3   // 21845 (exactly)
+
+// Check whether a portion of storage power is a strong quorum of the total
+func hasStrongQuorum(part uint16) bool {
+	return part > strongQuorum
 }
 
 // Check whether a portion of storage power is a weak quorum of the total
-func hasWeakQuorum(part, total *StoragePower) bool {
-	three := NewStoragePower(3)
-
-	weakThreshold := new(StoragePower).Div(total, three)
-	return part.Cmp(weakThreshold) > 0
+func hasWeakQuorum(part uint16) bool {
+	return part > weakQuorum
 }
 
 // Tests whether lhs is equal to or greater than rhs.

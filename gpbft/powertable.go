@@ -2,7 +2,6 @@ package gpbft
 
 import (
 	"fmt"
-	"math/big"
 	"sort"
 )
 
@@ -68,21 +67,20 @@ func (p *PowerTable) Add(id ActorID, power *StoragePower, pubKey []byte) error {
 	return nil
 }
 
-func (p *PowerTable) Get(id ActorID) (*StoragePower, PubKey) {
+func (p *PowerTable) Get(id ActorID) (uint16, PubKey) {
+	// TODO: pre-scale power. We can't do that now because we support dynamically adding new
+	// entries.
 	if index, ok := p.Lookup[id]; ok {
 		entry := p.Entries[index]
-
-		powerCopy := new(big.Int)
-		powerCopy.Set(entry.Power)
-		return powerCopy, entry.PubKey
+		return scalePower(entry.Power, p.Total), entry.PubKey
 	}
-	return nil, nil
+	return 0, nil
 }
 
 // Has returns true iff the ActorID is part of the power table with positive power.
 func (p *PowerTable) Has(id ActorID) bool {
-	index, ok := p.Lookup[id]
-	return ok && p.Entries[index].Power.Cmp(NewStoragePower(0)) > 0
+	power, _ := p.Get(id)
+	return power > 0
 }
 
 // Creates a deep copy of the PowerTable.
