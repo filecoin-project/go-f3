@@ -141,7 +141,7 @@ func TestSyncHalvesBLS(t *testing.T) {
 
 func TestAsyncHalves(t *testing.T) {
 	t.Parallel()
-	for n := 4; n <= 2; n += 2 {
+	for n := 4; n <= 20; n += 2 {
 		for i := 0; i < ASYNC_ITERS; i++ {
 			sm := sim.NewSimulation(newAsyncConfig(n, i), GraniteConfig(), sim.TraceNone)
 			a := sm.Base(0).Extend(sm.CIDGen.Sample())

@@ -25,15 +25,11 @@ type Participant struct {
 }
 
 type PanicError struct {
-	Err error
+	Err any
 }
 
 func (e *PanicError) Error() string {
 	return fmt.Sprintf("panic recovered: %v", e.Err)
-}
-
-func (e *PanicError) Unwrap() error {
-	return e.Err
 }
 
 func NewParticipant(id ActorID, config GraniteConfig, host Host) *Participant {
@@ -67,7 +63,7 @@ func (p *Participant) CurrentRound() uint64 {
 func (p *Participant) ReceiveECChain(chain ECChain) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = &PanicError{Err: err}
+			err = &PanicError{Err: r}
 		}
 	}()
 
@@ -84,7 +80,7 @@ func (p *Participant) ReceiveECChain(chain ECChain) (err error) {
 func (p *Participant) ValidateMessage(msg *GMessage) (checked bool, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = &PanicError{Err: err}
+			err = &PanicError{Err: r}
 		}
 	}()
 
@@ -106,7 +102,7 @@ func (p *Participant) ValidateMessage(msg *GMessage) (checked bool, err error) {
 func (p *Participant) ReceiveMessage(msg *GMessage) (accepted bool, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = &PanicError{Err: err}
+			err = &PanicError{Err: r}
 		}
 	}()
 
@@ -126,7 +122,7 @@ func (p *Participant) ReceiveMessage(msg *GMessage) (accepted bool, err error) {
 func (p *Participant) ReceiveAlarm() (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = &PanicError{Err: err}
+			err = &PanicError{Err: r}
 		}
 	}()
 
