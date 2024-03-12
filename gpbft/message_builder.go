@@ -49,7 +49,7 @@ func (mb MessageBuilder) Justification() *Justification {
 }
 
 type powerTableAccessor interface {
-	Get(ActorID) (*big.Int, PubKey)
+	Get(ActorID) (uint16, *big.Int, PubKey)
 }
 
 type SignerWithMarshaler interface {
@@ -109,7 +109,7 @@ func (sb *SignatureBuilder) VRFToSign() []byte {
 }
 
 func (mt MessageBuilder) PrepareSigningInputs(msh SigningMarshaler, networkName NetworkName, id ActorID) (SignatureBuilder, error) {
-	_, pubKey := mt.powerTable.Get(id)
+	_, _, pubKey := mt.powerTable.Get(id)
 	if pubKey == nil {
 		return SignatureBuilder{}, xerrors.Errorf("could not find pubkey for actor %d", id)
 	}

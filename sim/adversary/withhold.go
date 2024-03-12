@@ -170,7 +170,7 @@ func (w *WithholdCommit) sign(pubkey gpbft.PubKey, msg []byte) []byte {
 func (w *WithholdCommit) broadcastHelper(sender gpbft.ActorID, powertable *gpbft.PowerTable) func(gpbft.Payload, *gpbft.Justification) {
 	return func(payload gpbft.Payload, justification *gpbft.Justification) {
 		pS := w.host.MarshalPayloadForSigning(w.host.NetworkName(), &payload)
-		_, pubkey := powertable.Get(sender)
+		_, _, pubkey := powertable.Get(sender)
 		sig, err := w.host.Sign(pubkey, pS)
 		if err != nil {
 			panic(err)

@@ -444,8 +444,8 @@ func (i *instance) tryCurrentPhase() error {
 // It must be safe for concurrent use.
 func ValidateMessage(powerTable *PowerTable, beacon []byte, host Host, msg *GMessage) error {
 	// Check sender is eligible.
-	senderPower, senderPubKey := powerTable.Get(msg.Sender)
-	if senderPower == nil || senderPower.Sign() == 0 {
+	senderPower, _, senderPubKey := powerTable.Get(msg.Sender)
+	if senderPower == 0 {
 		return xerrors.Errorf("sender %d with zero power or not in power table", msg.Sender)
 	}
 
@@ -555,20 +555,20 @@ func ValidateMessage(powerTable *PowerTable, beacon []byte, host Host, msg *GMes
 		}
 
 		// Check justification power and signature.
-		justificationPower := NewStoragePower(0)
+		var justificationPower uint16
 		signers := make([]PubKey, 0)
 		if err := msg.Justification.Signers.ForEach(func(bit uint64) error {
 			if int(bit) >= len(powerTable.Entries) {
 				return fmt.Errorf("invalid signer index: %d", bit)
 			}
-			justificationPower.Add(justificationPower, powerTable.Entries[bit].Power)
+			justificationPower += powerTable.ScaledPower[bit]
 			signers = append(signers, powerTable.Entries[bit].PubKey)
 			return nil
 		}); err != nil {
 			return fmt.Errorf("failed to iterate over signers: %w", err)
 		}
 
-		if !IsStrongQuorum(justificationPower, powerTable.Total) {
+		if !IsStrongQuorum(justificationPower, powerTable.ScaledTotal) {
 			return fmt.Errorf("message %v has justification with insufficient power: %v", msg, justificationPower)
 		}
 
@@ -957,7 +957,7 @@ type quorumState struct {
 	// Set of senders from which a message has been received.
 	senders map[ActorID]struct{}
 	// Total power of all distinct senders from which some chain has been received so far.
-	sendersTotalPower *StoragePower
+	sendersTotalPower uint16
 	// The power supporting each chain so far.
 	chainSupport map[ChainKey]chainSupport
 	// Table of senders' power.
@@ -969,7 +969,7 @@ type quorumState struct {
 // A chain value and the total power supporting it
 type chainSupport struct {
 	chain           ECChain
-	power           *StoragePower
+	power           uint16
 	signatures      map[ActorID][]byte
 	hasStrongQuorum bool
 }
@@ -978,7 +978,6 @@ type chainSupport struct {
 func newQuorumState(powerTable PowerTable) *quorumState {
 	return &quorumState{
 		senders:               map[ActorID]struct{}{},
-		sendersTotalPower:     NewStoragePower(0),
 		chainSupport:          map[ChainKey]chainSupport{},
 		powerTable:            powerTable,
 		receivedJustification: map[ChainKey]*Justification{},
@@ -1013,35 +1012,34 @@ func (q *quorumState) ReceiveEachPrefix(sender ActorID, values ECChain) {
 
 // Adds sender's power to total the first time a value is received from them.
 // Returns the sender's power, and whether this was the first invocation for this sender.
-func (q *quorumState) receiveSender(sender ActorID) (*StoragePower, bool) {
+func (q *quorumState) receiveSender(sender ActorID) (uint16, bool) {
 	if _, found := q.senders[sender]; found {
-		return nil, false
+		return 0, false
 	}
 	q.senders[sender] = struct{}{}
-	senderPower, _ := q.powerTable.Get(sender)
-	q.sendersTotalPower.Add(q.sendersTotalPower, senderPower)
+	senderPower, _, _ := q.powerTable.Get(sender)
+	q.sendersTotalPower += senderPower
 	return senderPower, true
 }
 
 // Receives a chain from a sender.
-func (q *quorumState) receiveInner(sender ActorID, value ECChain, power *StoragePower, signature []byte) {
+func (q *quorumState) receiveInner(sender ActorID, value ECChain, power uint16, signature []byte) {
 	key := value.Key()
 	candidate, ok := q.chainSupport[key]
 	if !ok {
 		candidate = chainSupport{
 			chain:           value,
-			power:           NewStoragePower(0),
 			signatures:      map[ActorID][]byte{},
 			hasStrongQuorum: false,
 		}
 	}
 
-	candidate.power.Add(candidate.power, power)
+	candidate.power += power
 	if candidate.signatures[sender] != nil {
 		panic("duplicate message should have been dropped")
 	}
 	candidate.signatures[sender] = signature
-	candidate.hasStrongQuorum = IsStrongQuorum(candidate.power, q.powerTable.Total)
+	candidate.hasStrongQuorum = IsStrongQuorum(candidate.power, q.powerTable.ScaledTotal)
 	q.chainSupport[key] = candidate
 }
 
@@ -1069,13 +1067,13 @@ func (q *quorumState) ListAllValues() []ECChain {
 
 // Checks whether at least one message has been senders from a strong quorum of senders.
 func (q *quorumState) ReceivedFromStrongQuorum() bool {
-	return IsStrongQuorum(q.sendersTotalPower, q.powerTable.Total)
+	return IsStrongQuorum(q.sendersTotalPower, q.powerTable.ScaledTotal)
 }
 
 // ReceivedFromWeakQuorum checks whether at least one message has been received
 // from a weak quorum of senders.
 func (q *quorumState) ReceivedFromWeakQuorum() bool {
-	return hasWeakQuorum(q.sendersTotalPower, q.powerTable.Total)
+	return hasWeakQuorum(q.sendersTotalPower, q.powerTable.ScaledTotal)
 }
 
 // Checks whether a chain has reached a strong quorum.
@@ -1145,16 +1143,17 @@ func (q *quorumState) FindStrongQuorumFor(key ChainKey) (QuorumResult, bool) {
 	// Accumulate signers and signatures until they reach a strong quorum.
 	signatures := make([][]byte, 0, len(chainSupport.signatures))
 	pubkeys := make([]PubKey, 0, len(signatures))
-	justificationPower := NewStoragePower(0)
+	var justificationPower uint16
 	for i, idx := range signers {
 		if idx >= len(q.powerTable.Entries) {
 			panic(fmt.Sprintf("invalid signer index: %d for %d entries", idx, len(q.powerTable.Entries)))
 		}
+		power := q.powerTable.ScaledPower[idx]
 		entry := q.powerTable.Entries[idx]
-		justificationPower.Add(justificationPower, entry.Power)
+		justificationPower += power
 		signatures = append(signatures, chainSupport.signatures[entry.ID])
 		pubkeys = append(pubkeys, entry.PubKey)
-		if IsStrongQuorum(justificationPower, q.powerTable.Total) {
+		if IsStrongQuorum(justificationPower, q.powerTable.ScaledTotal) {
 			return QuorumResult{
 				Signers:    signers[:i+1],
 				PubKeys:    pubkeys,
@@ -1272,7 +1271,7 @@ func (c *convergeState) FindMaxTicketProposal(table PowerTable) ConvergeValue {
 
 	for key, value := range c.values {
 		for _, ticket := range c.tickets[key] {
-			senderPower, _ := table.Get(ticket.Sender)
+			_, senderPower, _ := table.Get(ticket.Sender)
 			ticketAsInt := new(big.Int).SetBytes(ticket.Ticket)
 			weightedTicket := new(big.Int).Mul(ticketAsInt, senderPower)
 			if maxTicket == nil || weightedTicket.Cmp(maxTicket) > 0 {
@@ -1324,22 +1323,27 @@ func findFirstPrefixOf(preferred ECChain, candidates []ECChain) ECChain {
 	return preferred.BaseChain()
 }
 
-// Check whether a portion of storage power is a strong quorum of the total
-func IsStrongQuorum(part, total *StoragePower) bool {
-	two := NewStoragePower(2)
-	three := NewStoragePower(3)
+func scalePower(power, total *StoragePower) (uint16, error) {
+	const maxPower = 0xffff
+	if power.Cmp(total) > 0 {
+		return 0, xerrors.Errorf("total power %d is less than the power of a single participant %d", total, power)
+	}
+	scaled := big.NewInt(maxPower)
+	scaled = scaled.Mul(scaled, (*big.Int)(power))
+	scaled = scaled.Div(scaled, (*big.Int)(total))
+	return uint16(scaled.Uint64()), nil
+}
 
-	strongThreshold := new(StoragePower).Mul(total, two)
-	strongThreshold.Div(strongThreshold, three)
-	return part.Cmp(strongThreshold) > 0
+// Check whether a portion of storage power is a strong quorum of the total
+func IsStrongQuorum(part uint16, whole uint16) bool {
+	// XXX ceiling!
+	return part >= (2*whole)/3
 }
 
 // Check whether a portion of storage power is a weak quorum of the total
-func hasWeakQuorum(part, total *StoragePower) bool {
-	three := NewStoragePower(3)
-
-	weakThreshold := new(StoragePower).Div(total, three)
-	return part.Cmp(weakThreshold) > 0
+func hasWeakQuorum(part, whole uint16) bool {
+	// XXX ceiling!
+	return part > whole/3
 }
 
 // Tests whether lhs is equal to or greater than rhs.
