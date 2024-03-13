@@ -45,6 +45,10 @@ func TestMultiASyncPair(t *testing.T) {
 }
 
 func TestMultiSyncAgreement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("too slow for testing.Short")
+	}
+
 	t.Parallel()
 	repeatInParallel(t, 9, func(t *testing.T, repetition int) {
 		honestCount := repetition + 3
@@ -61,6 +65,10 @@ func TestMultiSyncAgreement(t *testing.T) {
 }
 
 func TestMultiAsyncAgreement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("too slow for testing.Short")
+	}
+
 	t.Parallel()
 	repeatInParallel(t, 9, func(t *testing.T, repetition int) {
 		honestCount := repetition + 3
