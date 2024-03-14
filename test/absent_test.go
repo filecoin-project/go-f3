@@ -11,11 +11,7 @@ import (
 func TestAbsent(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		// fmt.Println("Iteration", i)
-		sm := sim.NewSimulation(sim.Config{
-			HonestCount: 3,
-			LatencySeed: int64(i),
-			LatencyMean: LATENCY_ASYNC,
-		}, GraniteConfig(), sim.TraceNone)
+		sm := sim.NewSimulation(AsyncConfig(3, i), GraniteConfig(), sim.TraceNone)
 		// Adversary has 1/4 of power.
 		sm.SetAdversary(adversary.NewAbsent(99, sm.HostFor(99)), 1)
 

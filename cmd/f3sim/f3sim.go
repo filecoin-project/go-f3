@@ -27,9 +27,11 @@ func main() {
 		fmt.Printf("Iteration %d: seed=%d, mean=%f\n", i, seed, *latencyMean)
 
 		simConfig := sim.Config{
-			HonestCount: *participantCount,
-			LatencySeed: *latencySeed,
-			LatencyMean: time.Duration(*latencyMean * float64(time.Second)),
+			HonestCount:          *participantCount,
+			LatencySeed:          *latencySeed,
+			LatencyMean:          time.Duration(*latencyMean * float64(time.Second)),
+			ECEpochDuration:      30 * time.Second,
+			ECStabilisationDelay: 0,
 		}
 		graniteConfig := gpbft.GraniteConfig{
 			Delta:                time.Duration(*graniteDelta * float64(time.Second)),

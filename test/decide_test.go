@@ -9,10 +9,7 @@ import (
 )
 
 func TestImmediateDecide(t *testing.T) {
-	sm := sim.NewSimulation(sim.Config{
-		HonestCount: 1,
-		LatencyMean: LATENCY_ASYNC,
-	}, GraniteConfig(), sim.TraceNone)
+	sm := sim.NewSimulation(AsyncConfig(1, 0), GraniteConfig(), sim.TraceNone)
 
 	// Create adversarial node
 	value := sm.Base(0).Extend(sm.CIDGen.Sample())

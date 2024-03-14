@@ -176,13 +176,10 @@ func (p *Participant) handleDecision() error {
 		p.finalised = p.granite.terminationValue
 		p.terminatedDuringRound = p.granite.round
 		p.granite = nil
-		p.host.ReceiveDecision(p.finalised)
+		nextStart := p.host.ReceiveDecision(p.finalised)
 
 		// Set an alarm at which to fetch the next chain and begin a new instance.
-		// At the moment, this is set to "immediately".
-		// TODO: set delay based on tipset timestamp when they are provided by the host.
-		// https://github.com/filecoin-project/go-f3/issues/113
-		p.host.SetAlarm(p.host.Time())
+		p.host.SetAlarm(nextStart)
 		return nil
 	}
 	return nil

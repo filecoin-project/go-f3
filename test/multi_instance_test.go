@@ -11,10 +11,7 @@ import (
 const INSTANCE_COUNT = 4000
 
 func TestMultiSingleton(t *testing.T) {
-	sm := sim.NewSimulation(sim.Config{
-		HonestCount: 1,
-		LatencyMean: LATENCY_SYNC,
-	}, GraniteConfig(), sim.TraceNone)
+	sm := sim.NewSimulation(SyncConfig(1), GraniteConfig(), sim.TraceNone)
 	a := sm.Base(0).Extend(sm.CIDGen.Sample())
 	sm.SetChains(sim.ChainCount{Count: 1, Chain: a})
 
@@ -24,10 +21,7 @@ func TestMultiSingleton(t *testing.T) {
 }
 
 func TestMultiSyncPair(t *testing.T) {
-	sm := sim.NewSimulation(sim.Config{
-		HonestCount: 2,
-		LatencyMean: LATENCY_SYNC,
-	}, GraniteConfig(), sim.TraceNone)
+	sm := sim.NewSimulation(SyncConfig(2), GraniteConfig(), sim.TraceNone)
 	a := sm.Base(0).Extend(sm.CIDGen.Sample())
 	sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
@@ -37,10 +31,7 @@ func TestMultiSyncPair(t *testing.T) {
 }
 
 func TestMultiASyncPair(t *testing.T) {
-	sm := sim.NewSimulation(sim.Config{
-		HonestCount: 2,
-		LatencyMean: LATENCY_ASYNC,
-	}, GraniteConfig(), sim.TraceNone)
+	sm := sim.NewSimulation(AsyncConfig(2, 0), GraniteConfig(), sim.TraceNone)
 	a := sm.Base(0).Extend(sm.CIDGen.Sample())
 	sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
@@ -55,10 +46,7 @@ func TestMultiASyncPair(t *testing.T) {
 func TestMultiSyncAgreement(t *testing.T) {
 	t.Parallel()
 	for n := 3; n <= 12; n++ {
-		sm := sim.NewSimulation(sim.Config{
-			HonestCount: n,
-			LatencyMean: LATENCY_SYNC,
-		}, GraniteConfig(), sim.TraceNone)
+		sm := sim.NewSimulation(SyncConfig(n), GraniteConfig(), sim.TraceNone)
 		a := sm.Base(0).Extend(sm.CIDGen.Sample())
 		// All nodes start with the same chain and will observe the same extensions of that chain
 		// in subsequent instances.
@@ -73,10 +61,7 @@ func TestMultiSyncAgreement(t *testing.T) {
 func TestMultiAsyncAgreement(t *testing.T) {
 	t.Parallel()
 	for n := 3; n <= 12; n++ {
-		sm := sim.NewSimulation(sim.Config{
-			HonestCount: n,
-			LatencyMean: LATENCY_ASYNC,
-		}, GraniteConfig(), sim.TraceNone)
+		sm := sim.NewSimulation(AsyncConfig(n, 0), GraniteConfig(), sim.TraceNone)
 		sm.SetChains(sim.ChainCount{Count: n, Chain: sm.Base(0).Extend(sm.CIDGen.Sample())})
 
 		require.NoErrorf(t, sm.Run(INSTANCE_COUNT, MAX_ROUNDS), "%s", sm.Describe())
