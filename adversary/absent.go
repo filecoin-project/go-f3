@@ -33,7 +33,7 @@ func (a *Absent) ValidateMessage(_ *gpbft.GMessage) (bool, error) {
 	return true, nil
 }
 
-func (a *Absent) ReceiveMessage(_ *gpbft.GMessage) (bool, error) {
+func (a *Absent) ReceiveMessage(_ *gpbft.GMessage, _ bool) (bool, error) {
 	return true, nil
 }
 

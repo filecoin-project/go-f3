@@ -1,41 +1,88 @@
 package test
 
 import (
-	"fmt"
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
 
-///// Tests for multiple chained instances of the protocol.
+///// Tests for multiple chained instances of the protocol, no adversaries.
 
-func TestMultiInstanceAgreement(t *testing.T) {
+const INSTANCE_COUNT = 4000
+
+func TestMultiSingleton(t *testing.T) {
 	sm := sim.NewSimulation(sim.Config{
-		HonestCount: 10,
+		HonestCount: 1,
+		LatencyMean: LATENCY_SYNC,
+	}, GraniteConfig(), sim.TraceNone)
+	a := sm.Base(0).Extend(sm.CIDGen.Sample())
+	sm.SetChains(sim.ChainCount{Count: 1, Chain: a})
+
+	require.NoErrorf(t, sm.Run(INSTANCE_COUNT, MAX_ROUNDS), "%s", sm.Describe())
+	expected := sm.EC.Instances[INSTANCE_COUNT].Base
+	expectInstanceDecision(t, sm, INSTANCE_COUNT-1, expected.Head())
+}
+
+func TestMultiSyncPair(t *testing.T) {
+	sm := sim.NewSimulation(sim.Config{
+		HonestCount: 2,
+		LatencyMean: LATENCY_SYNC,
+	}, GraniteConfig(), sim.TraceNone)
+	a := sm.Base(0).Extend(sm.CIDGen.Sample())
+	sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
+
+	require.NoErrorf(t, sm.Run(INSTANCE_COUNT, MAX_ROUNDS), "%s", sm.Describe())
+	expected := sm.EC.Instances[INSTANCE_COUNT].Base
+	expectInstanceDecision(t, sm, INSTANCE_COUNT-1, expected.Head())
+}
+
+func TestMultiASyncPair(t *testing.T) {
+	sm := sim.NewSimulation(sim.Config{
+		HonestCount: 2,
 		LatencyMean: LATENCY_ASYNC,
 	}, GraniteConfig(), sim.TraceNone)
+	a := sm.Base(0).Extend(sm.CIDGen.Sample())
+	sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
-	// All nodes start with the same chain and will observe the same extensions of that chain
-	// in subsequent instances.
-	sm.SetChains(sim.ChainCount{Count: 10, Chain: sm.Base(0).Extend(sm.CIDGen.Sample())})
+	require.NoErrorf(t, sm.Run(INSTANCE_COUNT, MAX_ROUNDS), "%s", sm.Describe())
+	// Note: when async, the decision is not always the latest possible value,
+	// but should be something recent.
+	// This expectation may need to be relaxed.
+	expected := sm.EC.Instances[INSTANCE_COUNT].Base
+	expectInstanceDecision(t, sm, INSTANCE_COUNT-1, expected...)
+}
 
-	// NOTE: This test fails with values much higher than this as the participants
-	// get too far out of sync.
-	// See https://github.com/filecoin-project/go-f3/issues/113
-	instances := uint64(1750)
-	lastInstance := instances - 1
-	err := sm.Run(instances, MAX_ROUNDS)
-	if err != nil {
-		fmt.Printf("%s", sm.Describe())
-		sm.PrintResults()
+func TestMultiSyncAgreement(t *testing.T) {
+	t.Parallel()
+	for n := 3; n <= 12; n++ {
+		sm := sim.NewSimulation(sim.Config{
+			HonestCount: n,
+			LatencyMean: LATENCY_SYNC,
+		}, GraniteConfig(), sim.TraceNone)
+		a := sm.Base(0).Extend(sm.CIDGen.Sample())
+		// All nodes start with the same chain and will observe the same extensions of that chain
+		// in subsequent instances.
+		sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
+		require.NoErrorf(t, sm.Run(INSTANCE_COUNT, MAX_ROUNDS), "%s", sm.Describe())
+		// Synchronous, agreeing groups always decide the candidate.
+		expected := sm.EC.Instances[INSTANCE_COUNT].Base
+		expectInstanceDecision(t, sm, INSTANCE_COUNT-1, expected...)
 	}
-	require.NoError(t, err)
+}
 
-	// The expected decision is the base for the next instance.
-	expected := sm.EC.Instances[lastInstance+1].Base
-	for _, participant := range sm.Participants {
-		decision, ok := sm.GetDecision(lastInstance, participant.ID())
-		require.True(t, ok, "no decision for participant %d", participant.ID())
-		require.Equal(t, expected.Head(), decision.Head())
+func TestMultiAsyncAgreement(t *testing.T) {
+	t.Parallel()
+	for n := 3; n <= 12; n++ {
+		sm := sim.NewSimulation(sim.Config{
+			HonestCount: n,
+			LatencyMean: LATENCY_ASYNC,
+		}, GraniteConfig(), sim.TraceNone)
+		sm.SetChains(sim.ChainCount{Count: n, Chain: sm.Base(0).Extend(sm.CIDGen.Sample())})
+
+		require.NoErrorf(t, sm.Run(INSTANCE_COUNT, MAX_ROUNDS), "%s", sm.Describe())
+		// Note: The expected decision only needs to be something recent.
+		// Relax this expectation when the EC chain is less clean.
+		expected := sm.EC.Instances[INSTANCE_COUNT].Base
+		expectInstanceDecision(t, sm, INSTANCE_COUNT-1, expected...)
 	}
 }

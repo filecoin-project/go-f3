@@ -39,7 +39,7 @@ func (i *ImmediateDecide) ValidateMessage(_ *gpbft.GMessage) (bool, error) {
 	return true, nil
 }
 
-func (i *ImmediateDecide) ReceiveMessage(_ *gpbft.GMessage) (bool, error) {
+func (i *ImmediateDecide) ReceiveMessage(_ *gpbft.GMessage, _ bool) (bool, error) {
 	return true, nil
 }
 

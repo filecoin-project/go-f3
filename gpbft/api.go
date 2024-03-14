@@ -15,8 +15,8 @@ type MessageReceiver interface {
 	// Returns whether the message could be validated, and an error if it was invalid.
 	ValidateMessage(msg *GMessage) (bool, error)
 	// Receives a message from another participant.
-	// The message must already have been validated.
-	ReceiveMessage(msg *GMessage) (bool, error)
+	// The `validated` parameter indicates whether the message has already passed validation.
+	ReceiveMessage(msg *GMessage, validated bool) (bool, error)
 	ReceiveAlarm() error
 }
 

@@ -1,10 +1,8 @@
 package test
 
 import (
-	"fmt"
 	"testing"
 
-	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/stretchr/testify/require"
 )
@@ -205,15 +203,4 @@ func newAsyncConfig(honestCount int, latencySeed int) sim.Config {
 		LatencySeed: int64(latencySeed),
 		LatencyMean: LATENCY_ASYNC,
 	}
-}
-
-func expectDecision(t *testing.T, sm *sim.Simulation, expected ...gpbft.TipSet) {
-	decision, ok := sm.GetDecision(0, 0)
-	require.True(t, ok, "no decision")
-	for _, e := range expected {
-		if decision.Head() == e {
-			return
-		}
-	}
-	require.Fail(t, fmt.Sprintf("decided %s, expected one of %s", decision, expected))
 }

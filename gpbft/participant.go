@@ -2,7 +2,6 @@ package gpbft
 
 import (
 	"fmt"
-	"golang.org/x/xerrors"
 )
 
 // An F3 participant runs repeated instances of Granite to finalise longer chains.
@@ -15,6 +14,10 @@ type Participant struct {
 	nextInstance uint64
 	// Current Granite instance.
 	granite *instance
+	// Messages queued for future instances.
+	// Unbounded queues are a denial-of-service risk.
+	// See https://github.com/filecoin-project/go-f3/issues/12
+	mqueue map[uint64][]*GMessage
 	// The output from the last terminated Granite instance.
 	finalised *Justification
 	// The round number during which the last instance was terminated.
@@ -29,11 +32,11 @@ type PanicError struct {
 }
 
 func (e *PanicError) Error() string {
-	return fmt.Sprintf("panic recovered: %v", e.Err)
+	return fmt.Sprintf("participant panicked: %v", e.Err)
 }
 
 func NewParticipant(id ActorID, config GraniteConfig, host Host) *Participant {
-	return &Participant{id: id, config: config, host: host}
+	return &Participant{id: id, config: config, host: host, mqueue: map[uint64][]*GMessage{}}
 }
 
 func (p *Participant) ID() ActorID {
@@ -44,7 +47,7 @@ func (p *Participant) ID() ActorID {
 func (p *Participant) Start() (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = &PanicError{Err: err}
+			err = &PanicError{Err: r}
 		}
 	}()
 
@@ -91,15 +94,15 @@ func (p *Participant) ValidateMessage(msg *GMessage) (checked bool, err error) {
 }
 
 // Receives a Granite message from some other participant.
-// The message is delivered to the Granite instance if it is for the current instance,
-// else it is dropped.
-// This method *does not check message validity*.
-// The message must have been previously validated with ValidateMessage indicating success.
-// Since messages for future instances cannot be validated, a valid message
-// can only be for the current or some previous instance (hence dropping if not current).
-// Returns whether the message was accepted for the instance, and an error if it could not be
-// processed.
-func (p *Participant) ReceiveMessage(msg *GMessage) (accepted bool, err error) {
+// If the message is for the current instance, it is delivered immediately.
+// If it is for a future instance, it is locally queued, to be delivered when that instance begins.
+// If it is for a previous instance, it is dropped.
+//
+// This method checks message validity only if the validated parameter is false.
+// Validity can only be checked when the messages instance begins.
+// Returns whether the message was for the current instance, and an error if it was invalid or
+// could not be processed.
+func (p *Participant) ReceiveMessage(msg *GMessage, validated bool) (accepted bool, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = &PanicError{Err: r}
@@ -107,15 +110,22 @@ func (p *Participant) ReceiveMessage(msg *GMessage) (accepted bool, err error) {
 	}()
 
 	if p.granite != nil && msg.Vote.Instance == p.granite.instanceID {
+		// Validate message for the current instance if it wasn't already.
+		if !validated {
+			if err := p.granite.Validate(msg); err != nil {
+				return true, err
+			}
+		}
+		// Deliver message for the current instance.
 		if err := p.granite.Receive(msg); err != nil {
 			return true, fmt.Errorf("receiving message: %w", err)
 		}
 		return true, p.handleDecision()
 	} else if msg.Vote.Instance >= p.nextInstance {
-		// Queue messages for later instances
-		return false, xerrors.Errorf("message for future instance cannot be valid")
+		// Locally queue message for a future instance.
+		p.mqueue[msg.Vote.Instance] = append(p.mqueue[msg.Vote.Instance], msg)
 	}
-	// Message dropped.
+	// Drop message for a previous instance.
 	return false, nil
 }
 
@@ -147,6 +157,17 @@ func (p *Participant) beginInstance() error {
 	if err := p.granite.Start(); err != nil {
 		return fmt.Errorf("failed starting granite instance: %w", err)
 	}
+	// Deliver any queued messages for the new instance.
+	for _, msg := range p.mqueue[p.granite.instanceID] {
+		if p.terminated() {
+			break
+		}
+		p.host.Log("Delivering queued P%d{%d} ← P%d: %v", p.id, p.granite.instanceID, msg.Sender, msg)
+		if err := p.granite.Receive(msg); err != nil {
+			return fmt.Errorf("delivering queued message: %w", err)
+		}
+	}
+	delete(p.mqueue, p.granite.instanceID)
 	return p.handleDecision()
 }
 
