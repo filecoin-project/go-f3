@@ -162,7 +162,9 @@ func (n *Network) Tick(adv AdversaryReceiver) (bool, error) {
 	}
 
 	msg := n.queue.Remove(i)
-	n.clock = msg.deliverAt
+	if msg.deliverAt.After(n.clock) {
+		n.clock = msg.deliverAt
+	}
 	payloadStr, ok := msg.payload.(string)
 	receiver := n.participants[msg.dest]
 	if ok && strings.HasPrefix(payloadStr, "ALARM") {
