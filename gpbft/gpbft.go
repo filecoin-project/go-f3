@@ -981,18 +981,21 @@ func (q *quorumState) ListStrongQuorumValues() []ECChain {
 	var withQuorum []ECChain
 	for cid, cp := range q.chainSupport {
 		if cp.hasStrongQuorum {
-			withQuorum = append(withQuorum, q.chainSupport[cid].chain)
+			withQuorum = append(withQuorum, filterEmptyTipsets(q.chainSupport[cid].chain))
 		}
 	}
 	sort.Slice(withQuorum, func(i, j int) bool {
-		return len(withQuorum[i]) > len(withQuorum[j])
+		return withQuorum[i].Head().Epoch > withQuorum[j].Head().Epoch
 	})
-	prevLength := 0
-	for _, v := range withQuorum {
-		if len(v) == prevLength {
-			panic(fmt.Sprintf("multiple chains of length %d with strong quorum", prevLength))
+	if len(withQuorum) <= 1 {
+		return withQuorum
+	}
+
+	// Check that the chains are prefixes of each other.
+	for i := 1; i < len(withQuorum); i++ {
+		if !withQuorum[i-1].HasPrefixAssumingCorrectChains(withQuorum[i]) {
+			panic("chains with strong quorum of QUALITY are not prefixes of each other")
 		}
-		prevLength = len(v)
 	}
 	return withQuorum
 }
@@ -1092,4 +1095,15 @@ func hasWeakQuorum(part, total *StoragePower) bool {
 // Tests whether lhs is equal to or greater than rhs.
 func atOrAfter(lhs time.Time, rhs time.Time) bool {
 	return lhs.After(rhs) || lhs.Equal(rhs)
+}
+
+// filterEmptyTipsets filters the ECChain removing empty Tipsets
+func filterEmptyTipsets(slice ECChain) ECChain {
+	var result ECChain
+	for _, element := range slice {
+		if !element.IsZero() {
+			result = append(result, element)
+		}
+	}
+	return result
 }
