@@ -1,4 +1,4 @@
-all: test lint
+all: generate test lint
 
 test:
 	go test ./...
@@ -7,3 +7,7 @@ test:
 lint:
 	golangci-lint run ./...
 .PHONY: lint
+
+generate:
+	go generate ./...
+.PHONY: generate

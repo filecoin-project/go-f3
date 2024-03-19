@@ -8,8 +8,10 @@ import (
 	gen "github.com/whyrusleeping/cbor-gen"
 )
 
+//go:generate go run .
+
 func main() {
-	err := gen.WriteTupleEncodersToFile("./gpbft/gen.go", "gpbft",
+	err := gen.WriteTupleEncodersToFile("../gpbft/gen.go", "gpbft",
 		gpbft.GMessage{},
 		gpbft.Payload{},
 		gpbft.Justification{},
