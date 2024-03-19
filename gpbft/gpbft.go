@@ -981,7 +981,7 @@ func (q *quorumState) ListStrongQuorumValues() []ECChain {
 	var withQuorum []ECChain
 	for cid, cp := range q.chainSupport {
 		if cp.hasStrongQuorum {
-			withQuorum = append(withQuorum, filterEmptyTipsets(q.chainSupport[cid].chain))
+			withQuorum = append(withQuorum, q.chainSupport[cid].chain)
 		}
 	}
 	sort.Slice(withQuorum, func(i, j int) bool {
@@ -1095,15 +1095,4 @@ func hasWeakQuorum(part, total *StoragePower) bool {
 // Tests whether lhs is equal to or greater than rhs.
 func atOrAfter(lhs time.Time, rhs time.Time) bool {
 	return lhs.After(rhs) || lhs.Equal(rhs)
-}
-
-// filterEmptyTipsets filters the ECChain removing empty Tipsets
-func filterEmptyTipsets(slice ECChain) ECChain {
-	var result ECChain
-	for _, element := range slice {
-		if !element.IsZero() {
-			result = append(result, element)
-		}
-	}
-	return result
 }
