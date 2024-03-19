@@ -173,18 +173,13 @@ func (n *Network) Tick(adv AdversaryReceiver) (bool, error) {
 			return false, fmt.Errorf("failed receiving alarm: %w", err)
 		}
 	} else {
-		n.log(TraceRecvd, "P%d ← P%d: %v", msg.dest, msg.source, msg.payload)
 		gmsg := msg.payload.(gpbft.GMessage)
-		if validated, err := receiver.ValidateMessage(&gmsg); !validated {
-			// Unable to validate message, probably because the instance has terminated.
-			// This might need to get more sophisticated about queueing messages for future instances
-			// when the participant supports multiple instances.
-		} else if err != nil {
+		validated, err := receiver.ValidateMessage(&gmsg)
+		if err != nil {
 			return false, fmt.Errorf("invalid message: %w", err)
 		}
-		if accepted, err := receiver.ReceiveMessage(&gmsg); !accepted {
-			// Message for prior instance dropped.
-		} else if err != nil {
+		n.log(TraceRecvd, "P%d ← P%d: %v", msg.dest, msg.source, msg.payload)
+		if _, err := receiver.ReceiveMessage(&gmsg, validated); err != nil {
 			return false, fmt.Errorf("error receiving message: %w", err)
 		}
 	}
@@ -210,9 +205,10 @@ type messageInFlight struct {
 type messageQueue []messageInFlight
 
 func (h *messageQueue) Insert(x messageInFlight) {
+	// Insert the new message after any messages with a sooner or equal deliverAt.
 	i := sort.Search(len(*h), func(i int) bool {
 		ith := (*h)[i].deliverAt
-		return ith.After(x.deliverAt) || ith.Equal(x.deliverAt)
+		return ith.After(x.deliverAt)
 	})
 	*h = append(*h, messageInFlight{})
 	copy((*h)[i+1:], (*h)[i:])

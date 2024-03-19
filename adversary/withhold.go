@@ -50,7 +50,7 @@ func (a *WithholdCommit) ValidateMessage(_ *gpbft.GMessage) (bool, error) {
 	return true, nil
 }
 
-func (a *WithholdCommit) ReceiveMessage(_ *gpbft.GMessage) (bool, error) {
+func (a *WithholdCommit) ReceiveMessage(_ *gpbft.GMessage, _ bool) (bool, error) {
 	return true, nil
 }
 

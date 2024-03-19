@@ -352,6 +352,11 @@ func (i *instance) tryCompletePhase() error {
 
 // Checks message validity, includng justification and signatures.
 func (i *instance) validateMessage(msg *GMessage) error {
+	// Check the message is for this instance.
+	// The caller should ensure this is always the case.
+	if msg.Vote.Instance != i.instanceID {
+		return xerrors.Errorf("message for wrong instance %d, expected %d", msg.Vote.Instance, i.instanceID)
+	}
 	// Check sender is eligible.
 	senderPower, senderPubKey := i.powerTable.Get(msg.Sender)
 	if senderPower == nil || senderPower.Sign() == 0 {
