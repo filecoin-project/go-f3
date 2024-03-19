@@ -164,22 +164,6 @@ func (c ECChain) HasPrefix(other ECChain) bool {
 	return true
 }
 
-// Checks whether a chain has some prefix (including the head).
-// Always false for a zero value.
-func (c ECChain) HasPrefixAssumingCorrectChains(other ECChain) bool {
-	if c.IsZero() || other.IsZero() {
-		return false
-	}
-
-	for i := len(c) - 1; i >= 0; i-- {
-		if c[i] == other.Head() {
-			return true
-		}
-	}
-
-	return false
-}
-
 // Checks whether a chain has some tipset (including as its base).
 func (c ECChain) HasTipset(t TipSet) bool {
 	for _, t2 := range c {

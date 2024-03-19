@@ -987,16 +987,14 @@ func (q *quorumState) ListStrongQuorumValues() []ECChain {
 	sort.Slice(withQuorum, func(i, j int) bool {
 		return withQuorum[i].Head().Epoch > withQuorum[j].Head().Epoch
 	})
-	if len(withQuorum) <= 1 {
-		return withQuorum
-	}
 
-	// Check that the chains are prefixes of each other.
-	for i := 1; i < len(withQuorum); i++ {
-		if !withQuorum[i-1].HasPrefixAssumingCorrectChains(withQuorum[i]) {
-			panic("chains with strong quorum of QUALITY are not prefixes of each other")
+	prevEpochNumber := int64(0)
+	for _, v := range withQuorum {
+		if v.Head().Epoch == prevEpochNumber {
+			panic(fmt.Sprintf("multiple chains with head epoch number %d with strong quorum", prevEpochNumber))
 		}
 	}
+
 	return withQuorum
 }
 
