@@ -17,7 +17,12 @@ type Config struct {
 	// Honest participants have one unit of power each.
 	HonestCount int
 	LatencySeed int64
+	// Mean delivery latency for messages.
 	LatencyMean time.Duration
+	// Duration of EC epochs.
+	ECEpochDuration time.Duration
+	// Time to wait after EC epoch before starting next instance.
+	ECStabilisationDelay time.Duration
 	// If nil then FakeSigner is used unless overriden by F3_TEST_USE_BLS
 	SigningBacked *SigningBacked
 }
@@ -48,6 +53,7 @@ func BLSSigningBacked() *SigningBacked {
 }
 
 type Simulation struct {
+	Config       Config
 	Network      *Network
 	EC           *EC
 	Participants []*gpbft.Participant
@@ -83,6 +89,7 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 	for i := 0; i < len(participants); i++ {
 		id := gpbft.ActorID(i)
 		host := &SimHost{
+			Config:      &simConfig,
 			Network:     ntwk,
 			EC:          ec,
 			DecisionLog: decisions,
@@ -97,6 +104,7 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 
 	decisions.BeginInstance(0, baseChain.Head(), ec.Instances[0].PowerTable)
 	return &Simulation{
+		Config:       simConfig,
 		Network:      ntwk,
 		EC:           ec,
 		Participants: participants,
@@ -123,6 +131,7 @@ func (s *Simulation) SetAdversary(adv AdversaryReceiver, power uint) {
 
 func (s *Simulation) HostFor(id gpbft.ActorID) *SimHost {
 	return &SimHost{
+		Config:      &s.Config,
 		Network:     s.Network,
 		EC:          s.EC,
 		DecisionLog: s.Decisions,
@@ -221,6 +230,7 @@ func (s *Simulation) Describe() string {
 // One participant's host
 // This provides methods that know the caller's participant ID and can provide its view of the world.
 type SimHost struct {
+	*Config
 	*Network
 	*EC
 	*DecisionLog
@@ -253,7 +263,7 @@ func (v *SimHost) SetAlarm(at time.Time) {
 	v.Network.SetAlarm(v.id, at)
 }
 
-func (v *SimHost) ReceiveDecision(decision *gpbft.Justification) {
+func (v *SimHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 	firstForInstance := v.DecisionLog.ReceiveDecision(v.id, decision)
 	if firstForInstance {
 		// When the first valid decision is received for an instance, prepare for the next one.
@@ -272,6 +282,11 @@ func (v *SimHost) ReceiveDecision(decision *gpbft.Justification) {
 		v.EC.AddInstance(nextChain, nextPowerTable, nextBeacon)
 		v.DecisionLog.BeginInstance(decision.Vote.Instance+1, nextBase, nextPowerTable)
 	}
+	elapsedEpochs := decision.Vote.Value.Head().Epoch - v.EC.BaseEpoch
+	finalTimestamp := v.EC.BaseTimestamp.Add(time.Duration(elapsedEpochs) * v.Config.ECEpochDuration)
+	// Next instance starts some fixed time after the next EC epoch is due.
+	nextInstanceStart := finalTimestamp.Add(v.Config.ECEpochDuration).Add(v.Config.ECStabilisationDelay)
+	return nextInstanceStart
 }
 
 // Receives and validates finality decisions

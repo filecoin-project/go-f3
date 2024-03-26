@@ -7,10 +7,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-///// Tests with no adversaries.
+///// Tests for a single instance with no adversaries.
 
 func TestSingleton(t *testing.T) {
-	sm := sim.NewSimulation(newSyncConfig(1), GraniteConfig(), sim.TraceNone)
+	sm := sim.NewSimulation(SyncConfig(1), GraniteConfig(), sim.TraceNone)
 	a := sm.Base(0).Extend(sm.CIDGen.Sample())
 	sm.SetChains(sim.ChainCount{Count: 1, Chain: a})
 
@@ -19,7 +19,7 @@ func TestSingleton(t *testing.T) {
 }
 
 func TestSyncPair(t *testing.T) {
-	sm := sim.NewSimulation(newSyncConfig(2), GraniteConfig(), sim.TraceNone)
+	sm := sim.NewSimulation(SyncConfig(2), GraniteConfig(), sim.TraceNone)
 	a := sm.Base(0).Extend(sm.CIDGen.Sample())
 	sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
@@ -28,7 +28,7 @@ func TestSyncPair(t *testing.T) {
 }
 
 func TestSyncPairBLS(t *testing.T) {
-	sm := sim.NewSimulation(newSyncConfig(2).UseBLS(), GraniteConfig(), sim.TraceNone)
+	sm := sim.NewSimulation(SyncConfig(2).UseBLS(), GraniteConfig(), sim.TraceNone)
 	a := sm.Base(0).Extend(sm.CIDGen.Sample())
 	sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
@@ -39,7 +39,7 @@ func TestSyncPairBLS(t *testing.T) {
 func TestASyncPair(t *testing.T) {
 	for i := 0; i < ASYNC_ITERS; i++ {
 		//fmt.Println("i =", i)
-		sm := sim.NewSimulation(newAsyncConfig(2, i), GraniteConfig(), sim.TraceNone)
+		sm := sim.NewSimulation(AsyncConfig(2, i), GraniteConfig(), sim.TraceNone)
 		a := sm.Base(0).Extend(sm.CIDGen.Sample())
 		sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
@@ -49,7 +49,7 @@ func TestASyncPair(t *testing.T) {
 }
 
 func TestSyncPairDisagree(t *testing.T) {
-	sm := sim.NewSimulation(newSyncConfig(2), GraniteConfig(), sim.TraceNone)
+	sm := sim.NewSimulation(SyncConfig(2), GraniteConfig(), sim.TraceNone)
 	a := sm.Base(0).Extend(sm.CIDGen.Sample())
 	b := sm.Base(0).Extend(sm.CIDGen.Sample())
 	sm.SetChains(sim.ChainCount{Count: 1, Chain: a}, sim.ChainCount{Count: 1, Chain: b})
@@ -60,7 +60,7 @@ func TestSyncPairDisagree(t *testing.T) {
 }
 
 func TestSyncPairDisagreeBLS(t *testing.T) {
-	sm := sim.NewSimulation(newSyncConfig(2).UseBLS(), GraniteConfig(), sim.TraceNone)
+	sm := sim.NewSimulation(SyncConfig(2).UseBLS(), GraniteConfig(), sim.TraceNone)
 	a := sm.Base(0).Extend(sm.CIDGen.Sample())
 	b := sm.Base(0).Extend(sm.CIDGen.Sample())
 	sm.SetChains(sim.ChainCount{Count: 1, Chain: a}, sim.ChainCount{Count: 1, Chain: b})
@@ -73,7 +73,7 @@ func TestSyncPairDisagreeBLS(t *testing.T) {
 func TestAsyncPairDisagree(t *testing.T) {
 	for i := 0; i < ASYNC_ITERS; i++ {
 		//fmt.Println("i =", i)
-		sm := sim.NewSimulation(newAsyncConfig(2, i), GraniteConfig(), sim.TraceNone)
+		sm := sim.NewSimulation(AsyncConfig(2, i), GraniteConfig(), sim.TraceNone)
 		a := sm.Base(0).Extend(sm.CIDGen.Sample())
 		b := sm.Base(0).Extend(sm.CIDGen.Sample())
 		sm.SetChains(sim.ChainCount{Count: 1, Chain: a}, sim.ChainCount{Count: 1, Chain: b})
@@ -86,7 +86,7 @@ func TestAsyncPairDisagree(t *testing.T) {
 
 func TestSyncAgreement(t *testing.T) {
 	for n := 3; n <= 50; n++ {
-		sm := sim.NewSimulation(newSyncConfig(n), GraniteConfig(), sim.TraceNone)
+		sm := sim.NewSimulation(SyncConfig(n), GraniteConfig(), sim.TraceNone)
 		a := sm.Base(0).Extend(sm.CIDGen.Sample())
 		sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 		require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
@@ -101,7 +101,7 @@ func TestAsyncAgreement(t *testing.T) {
 	for n := 3; n <= 16; n++ {
 		for i := 0; i < ASYNC_ITERS; i++ {
 			//fmt.Println("n =", n, "i =", i)
-			sm := sim.NewSimulation(newAsyncConfig(n, i), GraniteConfig(), sim.TraceNone)
+			sm := sim.NewSimulation(AsyncConfig(n, i), GraniteConfig(), sim.TraceNone)
 			a := sm.Base(0).Extend(sm.CIDGen.Sample())
 			sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
@@ -113,7 +113,7 @@ func TestAsyncAgreement(t *testing.T) {
 
 func TestSyncHalves(t *testing.T) {
 	for n := 4; n <= 50; n += 2 {
-		sm := sim.NewSimulation(newSyncConfig(n), GraniteConfig(), sim.TraceNone)
+		sm := sim.NewSimulation(SyncConfig(n), GraniteConfig(), sim.TraceNone)
 		a := sm.Base(0).Extend(sm.CIDGen.Sample())
 		b := sm.Base(0).Extend(sm.CIDGen.Sample())
 		sm.SetChains(sim.ChainCount{Count: n / 2, Chain: a}, sim.ChainCount{Count: n / 2, Chain: b})
@@ -126,7 +126,7 @@ func TestSyncHalves(t *testing.T) {
 
 func TestSyncHalvesBLS(t *testing.T) {
 	for n := 4; n <= 10; n += 2 {
-		sm := sim.NewSimulation(newSyncConfig(n).UseBLS(), GraniteConfig(), sim.TraceNone)
+		sm := sim.NewSimulation(SyncConfig(n).UseBLS(), GraniteConfig(), sim.TraceNone)
 		a := sm.Base(0).Extend(sm.CIDGen.Sample())
 		b := sm.Base(0).Extend(sm.CIDGen.Sample())
 		sm.SetChains(sim.ChainCount{Count: n / 2, Chain: a}, sim.ChainCount{Count: n / 2, Chain: b})
@@ -141,7 +141,7 @@ func TestAsyncHalves(t *testing.T) {
 	t.Parallel()
 	for n := 4; n <= 20; n += 2 {
 		for i := 0; i < ASYNC_ITERS; i++ {
-			sm := sim.NewSimulation(newAsyncConfig(n, i), GraniteConfig(), sim.TraceNone)
+			sm := sim.NewSimulation(AsyncConfig(n, i), GraniteConfig(), sim.TraceNone)
 			a := sm.Base(0).Extend(sm.CIDGen.Sample())
 			b := sm.Base(0).Extend(sm.CIDGen.Sample())
 			sm.SetChains(sim.ChainCount{Count: n / 2, Chain: a}, sim.ChainCount{Count: n / 2, Chain: b})
@@ -156,7 +156,7 @@ func TestAsyncHalves(t *testing.T) {
 func TestRequireStrongQuorumToProgress(t *testing.T) {
 	t.Parallel()
 	for i := 0; i < ASYNC_ITERS; i++ {
-		sm := sim.NewSimulation(newAsyncConfig(30, i), GraniteConfig(), sim.TraceNone)
+		sm := sim.NewSimulation(AsyncConfig(30, i), GraniteConfig(), sim.TraceNone)
 		a := sm.Base(0).Extend(sm.CIDGen.Sample())
 		b := sm.Base(0).Extend(sm.CIDGen.Sample())
 		// No strict > quorum.
@@ -171,7 +171,7 @@ func TestRequireStrongQuorumToProgress(t *testing.T) {
 func TestLongestCommonPrefix(t *testing.T) {
 	// This test uses a synchronous configuration to ensure timely message delivery.
 	// If async, it is possible to decide the base chain if QUALITY messages are delayed.
-	sm := sim.NewSimulation(newSyncConfig(4), GraniteConfig(), sim.TraceAll)
+	sm := sim.NewSimulation(SyncConfig(4), GraniteConfig(), sim.TraceNone)
 	ab := sm.Base(0).Extend(sm.CIDGen.Sample())
 	abc := ab.Extend(sm.CIDGen.Sample())
 	abd := ab.Extend(sm.CIDGen.Sample())
@@ -187,20 +187,4 @@ func TestLongestCommonPrefix(t *testing.T) {
 	require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
 	// Must decide ab, the longest common prefix.
 	expectDecision(t, sm, ab.Head())
-}
-
-func newSyncConfig(honestCount int) sim.Config {
-	return sim.Config{
-		HonestCount: honestCount,
-		LatencySeed: 0,
-		LatencyMean: LATENCY_SYNC,
-	}
-}
-
-func newAsyncConfig(honestCount int, latencySeed int) sim.Config {
-	return sim.Config{
-		HonestCount: honestCount,
-		LatencySeed: int64(latencySeed),
-		LatencyMean: LATENCY_ASYNC,
-	}
 }

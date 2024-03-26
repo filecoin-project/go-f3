@@ -48,9 +48,11 @@ type Network interface {
 type Clock interface {
 	// Returns the current network time.
 	Time() time.Time
-	// Sets an alarm to fire at the given timestamp.
+	// Sets an alarm to fire after the given timestamp.
 	// At most one alarm can be set at a time.
 	// Setting an alarm replaces any previous alarm that has not yet fired.
+	// The timestamp may be in the past, in which case the alarm will fire as soon as possible
+	// (but not synchronously).
 	SetAlarm(at time.Time)
 }
 
@@ -74,7 +76,10 @@ type DecisionReceiver interface {
 	// Receives a finality decision from the instance, with signatures from a strong quorum
 	// of participants justifying it.
 	// The decision payload always has round = 0 and step = DECIDE.
-	ReceiveDecision(decision *Justification)
+	// The notification must return the timestamp at which the next instance should begin,
+	// based on the decision received (which may be in the past).
+	// E.g. this might be: finalised tipset timestamp + epoch duration + stabilisation delay.
+	ReceiveDecision(decision *Justification) time.Time
 }
 
 // Participant interface to the host system resources.
