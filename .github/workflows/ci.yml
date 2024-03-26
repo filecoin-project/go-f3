@@ -20,6 +20,11 @@ jobs:
         with:
           version: v1.54
           only-new-issues: true
+      - name: Tidy go.mod
+        run: go mod tidy
+      - name: Check Tidy go.mod
+        run: |
+          git diff --exit-code || { echo "##[error] go.mod is not tidy, run 'go mod tidy' and commit the changes."; exit 1; }
 
   test:
     name: Test
@@ -45,4 +50,3 @@ jobs:
       - name: Check for changes
         run: |
           git diff --exit-code || { echo "##[error] Generated code differs from repository content, run 'make generate' and commit the changes."; exit 1; }
-
