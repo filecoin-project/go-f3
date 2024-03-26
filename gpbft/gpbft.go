@@ -990,15 +990,16 @@ func (q *quorumState) ListStrongQuorumValues() []ECChain {
 		}
 	}
 	sort.Slice(withQuorum, func(i, j int) bool {
-		return len(withQuorum[i]) > len(withQuorum[j])
+		return withQuorum[i].Head().Epoch > withQuorum[j].Head().Epoch
 	})
-	prevLength := 0
+
+	prevEpochNumber := int64(0)
 	for _, v := range withQuorum {
-		if len(v) == prevLength {
-			panic(fmt.Sprintf("multiple chains of length %d with strong quorum", prevLength))
+		if v.Head().Epoch == prevEpochNumber {
+			panic(fmt.Sprintf("multiple chains with head epoch number %d with strong quorum", prevEpochNumber))
 		}
-		prevLength = len(v)
 	}
+
 	return withQuorum
 }
 
