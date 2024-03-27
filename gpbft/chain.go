@@ -112,7 +112,7 @@ func (c ECChain) BaseChain() ECChain {
 // The new tipset is given an epoch and weight one greater than the previous head.
 func (c ECChain) Extend(cid TipSetID) ECChain {
 	return append(c, TipSet{
-		Epoch: c[0].Epoch + 1,
+		Epoch: c.Head().Epoch + 1,
 		CID:   cid,
 	})
 }
