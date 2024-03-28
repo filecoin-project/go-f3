@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/filecoin-project/go-bitfield"
-	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
-	"golang.org/x/xerrors"
 	"math"
 	"sort"
 	"time"
+
+	"github.com/filecoin-project/go-bitfield"
+	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
+	"golang.org/x/xerrors"
 )
 
 type GraniteConfig struct {
@@ -363,6 +364,10 @@ func (i *instance) validateMessage(msg *GMessage) error {
 		return xerrors.Errorf("sender with zero power or not in power table")
 	}
 
+	// Check that message value is a valid chain.
+	if err := msg.Vote.Value.Validate(); err != nil {
+		return xerrors.Errorf("invalid message vote value chain: %w", err)
+	}
 	// Check the value is acceptable.
 	if !(msg.Vote.Value.IsZero() || msg.Vote.Value.HasBase(i.input.Base())) {
 		return xerrors.Errorf("unexpected base %s", &msg.Vote.Value)
@@ -415,6 +420,10 @@ func (i *instance) validateMessage(msg *GMessage) error {
 		// Check that the justification is for the same instance.
 		if msg.Vote.Instance != msg.Justification.Vote.Instance {
 			return fmt.Errorf("message with instanceID %v has evidence from instanceID: %v", msg.Vote.Instance, msg.Justification.Vote.Instance)
+		}
+		// Check that justification vote value is a valid chain.
+		if err := msg.Justification.Vote.Value.Validate(); err != nil {
+			return xerrors.Errorf("invalid justification vote value chain: %w", err)
 		}
 
 		// Check every remaining field of the justification, according to the phase requirements.
