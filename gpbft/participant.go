@@ -25,6 +25,8 @@ type Participant struct {
 	// protocol round for which a strong quorum of COMMIT messages was observed,
 	// which may not be known to the participant.
 	terminatedDuringRound uint64
+	// tracer traces logic logs for debugging and simulation purposes.
+	tracer Tracer
 }
 
 type PanicError struct {
@@ -35,8 +37,8 @@ func (e *PanicError) Error() string {
 	return fmt.Sprintf("participant panicked: %v", e.Err)
 }
 
-func NewParticipant(id ActorID, config GraniteConfig, host Host) *Participant {
-	return &Participant{id: id, config: config, host: host, mqueue: map[uint64][]*GMessage{}}
+func NewParticipant(id ActorID, config GraniteConfig, host Host, tracer Tracer) *Participant {
+	return &Participant{id: id, config: config, host: host, mqueue: map[uint64][]*GMessage{}, tracer: tracer}
 }
 
 func (p *Participant) ID() ActorID {
@@ -150,7 +152,7 @@ func (p *Participant) ReceiveAlarm() (err error) {
 func (p *Participant) beginInstance() error {
 	chain, power, beacon := p.host.GetCanonicalChain()
 	var err error
-	if p.granite, err = newInstance(p.config, p.host, p.id, p.nextInstance, chain, power, beacon); err != nil {
+	if p.granite, err = newInstance(p.config, p.host, p.id, p.nextInstance, chain, power, beacon, p.tracer); err != nil {
 		return fmt.Errorf("failed creating new granite instance: %w", err)
 	}
 	p.nextInstance += 1
@@ -162,7 +164,9 @@ func (p *Participant) beginInstance() error {
 		if p.terminated() {
 			break
 		}
-		p.host.Log("Delivering queued P%d{%d} ← P%d: %v", p.id, p.granite.instanceID, msg.Sender, msg)
+		if p.tracer != nil {
+			p.tracer.Log("Delivering queued P%d{%d} ← P%d: %v", p.id, p.granite.instanceID, msg.Sender, msg)
+		}
 		if err := p.granite.Receive(msg); err != nil {
 			return fmt.Errorf("delivering queued message: %w", err)
 		}

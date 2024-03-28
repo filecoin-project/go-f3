@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/filecoin-project/go-bitfield"
-	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
-	"golang.org/x/xerrors"
 	"math"
 	"sort"
 	"time"
+
+	"github.com/filecoin-project/go-bitfield"
+	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
+	"golang.org/x/xerrors"
 )
 
 type GraniteConfig struct {
@@ -163,6 +164,8 @@ type instance struct {
 	acceptable ECChain
 	// Decision state. Collects DECIDE messages until a decision can be made, independently of protocol phases/rounds.
 	decision *quorumState
+	// tracer traces logic logs for debugging and simulation purposes.
+	tracer Tracer
 }
 
 func newInstance(
@@ -172,7 +175,7 @@ func newInstance(
 	instanceID uint64,
 	input ECChain,
 	powerTable PowerTable,
-	beacon []byte) (*instance, error) {
+	beacon []byte, tracer Tracer) (*instance, error) {
 	if input.IsZero() {
 		return nil, fmt.Errorf("input is empty")
 	}
@@ -194,6 +197,7 @@ func newInstance(
 		},
 		acceptable: input,
 		decision:   newQuorumState(powerTable),
+		tracer:     tracer,
 	}, nil
 }
 
@@ -793,9 +797,11 @@ func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase P
 }
 
 func (i *instance) log(format string, args ...interface{}) {
-	msg := fmt.Sprintf(format, args...)
-	i.host.Log("P%d{%d}: %s (round %d, step %s, proposal %s, value %s)", i.participantID, i.instanceID, msg,
-		i.round, i.phase, &i.proposal, &i.value)
+	if i.tracer != nil {
+		msg := fmt.Sprintf(format, args...)
+		i.tracer.Log("P%d{%d}: %s (round %d, step %s, proposal %s, value %s)", i.participantID, i.instanceID, msg,
+			i.round, i.phase, &i.proposal, &i.value)
+	}
 }
 
 func (i *instance) sign(msg []byte) ([]byte, error) {
