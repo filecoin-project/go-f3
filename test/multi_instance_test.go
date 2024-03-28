@@ -1,9 +1,10 @@
 package test
 
 import (
+	"testing"
+
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 ///// Tests for multiple chained instances of the protocol, no adversaries.
@@ -45,8 +46,9 @@ func TestMultiASyncPair(t *testing.T) {
 
 func TestMultiSyncAgreement(t *testing.T) {
 	t.Parallel()
-	for n := 3; n <= 12; n++ {
-		sm := sim.NewSimulation(SyncConfig(n), GraniteConfig(), sim.TraceNone)
+	repeatInParallel(t, 9, func(t *testing.T, repetition int) {
+		honestCount := repetition + 3
+		sm := sim.NewSimulation(SyncConfig(honestCount), GraniteConfig(), sim.TraceNone)
 		a := sm.Base(0).Extend(sm.CIDGen.Sample())
 		// All nodes start with the same chain and will observe the same extensions of that chain
 		// in subsequent instances.
@@ -55,19 +57,20 @@ func TestMultiSyncAgreement(t *testing.T) {
 		// Synchronous, agreeing groups always decide the candidate.
 		expected := sm.EC.Instances[INSTANCE_COUNT].Base
 		expectInstanceDecision(t, sm, INSTANCE_COUNT-1, expected...)
-	}
+	})
 }
 
 func TestMultiAsyncAgreement(t *testing.T) {
 	t.Parallel()
-	for n := 3; n <= 12; n++ {
-		sm := sim.NewSimulation(AsyncConfig(n, 0), GraniteConfig(), sim.TraceNone)
-		sm.SetChains(sim.ChainCount{Count: n, Chain: sm.Base(0).Extend(sm.CIDGen.Sample())})
+	repeatInParallel(t, 9, func(t *testing.T, repetition int) {
+		honestCount := repetition + 3
+		sm := sim.NewSimulation(AsyncConfig(honestCount, 0), GraniteConfig(), sim.TraceNone)
+		sm.SetChains(sim.ChainCount{Count: honestCount, Chain: sm.Base(0).Extend(sm.CIDGen.Sample())})
 
 		require.NoErrorf(t, sm.Run(INSTANCE_COUNT, MAX_ROUNDS), "%s", sm.Describe())
 		// Note: The expected decision only needs to be something recent.
 		// Relax this expectation when the EC chain is less clean.
 		expected := sm.EC.Instances[INSTANCE_COUNT].Base
 		expectInstanceDecision(t, sm, INSTANCE_COUNT-1, expected...)
-	}
+	})
 }
