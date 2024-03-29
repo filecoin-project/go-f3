@@ -64,7 +64,6 @@ const DOMAIN_SEPARATION_TAG = "GPBFT"
 type GMessage struct {
 	// ID of the sender/signer of this message (a miner actor ID).
 	Sender ActorID
-
 	// Vote is the payload that is signed by the signature
 	Vote Payload
 	// Signature by the sender's public key over Instance || Round || Step || Value.
@@ -380,6 +379,8 @@ func (i *instance) validateMessage(msg *GMessage) error {
 
 	// Check phase-specific constraints.
 	switch msg.Vote.Step {
+	case INITIAL_PHASE:
+		return xerrors.Errorf("invalid vote step: %v", INITIAL_PHASE)
 	case QUALITY_PHASE:
 		if msg.Vote.Round != 0 {
 			return xerrors.Errorf("unexpected round %d for quality phase", msg.Vote.Round)
@@ -404,8 +405,10 @@ func (i *instance) validateMessage(msg *GMessage) error {
 		if msg.Vote.Value.IsZero() {
 			return xerrors.Errorf("unexpected zero value for decide phase")
 		}
-	default:
+	case PREPARE_PHASE, COMMIT_PHASE:
 		// No additional checks for PREPARE and COMMIT.
+	default:
+		return xerrors.Errorf("unknown vote step: %d", msg.Vote.Step)
 	}
 
 	// Check vote signature.
