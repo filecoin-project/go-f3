@@ -8,6 +8,7 @@ import (
 	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
 	"golang.org/x/xerrors"
 	"math"
+	"math/big"
 	"sort"
 	"time"
 )
@@ -297,7 +298,7 @@ func (i *instance) receiveOne(msg *GMessage) error {
 			i.quality.Receive(msg.Sender, prefix, msg.Signature)
 		}
 	case CONVERGE_PHASE:
-		if err := round.converged.Receive(msg.Vote.Value, msg.Ticket); err != nil {
+		if err := round.converged.Receive(msg.Sender, msg.Vote.Value, msg.Ticket); err != nil {
 			return fmt.Errorf("failed processing CONVERGE message: %w", err)
 		}
 	case PREPARE_PHASE:
@@ -564,7 +565,7 @@ func (i *instance) tryConverge() error {
 		return nil
 	}
 
-	i.value = i.roundState(i.round).converged.findMinTicketProposal()
+	i.value = i.roundState(i.round).converged.findMinTicketProposal(i.powerTable)
 	if i.value.IsZero() {
 		return fmt.Errorf("no values at CONVERGE")
 	}
@@ -1026,35 +1027,47 @@ type convergeState struct {
 	// Chains indexed by head CID
 	values map[TipSet]ECChain
 	// Tickets provided by proposers of each chain.
-	tickets map[TipSet][]Ticket
+	tickets map[TipSet]map[ActorID]Ticket
 }
 
 func newConvergeState() *convergeState {
 	return &convergeState{
 		values:  map[TipSet]ECChain{},
-		tickets: map[TipSet][]Ticket{},
+		tickets: map[TipSet]map[ActorID]Ticket{},
 	}
 }
 
 // Receives a new CONVERGE value from a sender.
-func (c *convergeState) Receive(value ECChain, ticket Ticket) error {
+func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket) error {
 	if value.IsZero() {
 		return fmt.Errorf("bottom cannot be justified for CONVERGE")
 	}
 	key := value.Head()
 	c.values[key] = value
-	c.tickets[key] = append(c.tickets[key], ticket)
+
+	if _, ok := c.tickets[key]; !ok {
+		c.tickets[key] = make(map[ActorID]Ticket)
+	}
+
+	c.tickets[key][sender] = ticket
 
 	return nil
 }
 
-func (c *convergeState) findMinTicketProposal() ECChain {
-	var minTicket Ticket
+func (c *convergeState) findMinTicketProposal(table PowerTable) ECChain {
+	var minTicket *big.Float
 	var minValue ECChain
+
 	for cid, value := range c.values {
-		for _, ticket := range c.tickets[cid] {
-			if minTicket == nil || ticket.Compare(minTicket) < 0 {
-				minTicket = ticket
+		for sender, ticket := range c.tickets[cid] {
+			senderPower := table.GetRelative(sender)
+			if senderPower.Sign() <= 0 {
+				continue
+			}
+			ticketAsInt := new(big.Int).SetBytes(ticket)
+			normalizedTicket := new(big.Float).Quo(new(big.Float).SetInt(ticketAsInt), senderPower)
+			if minTicket == nil || normalizedTicket.Cmp(minTicket) < 0 {
+				minTicket = normalizedTicket
 				minValue = value
 			}
 		}
