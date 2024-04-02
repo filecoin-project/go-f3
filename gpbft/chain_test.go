@@ -60,7 +60,7 @@ func requireTipSetMarshaledForSigning(t *testing.T, subject gpbft.TipSet) {
 	var gotSigningMarshal bytes.Buffer
 	subject.MarshalForSigning(&gotSigningMarshal)
 	wantPrefix := binary.BigEndian.AppendUint64(nil, uint64(subject.Epoch))
-	wantSuffix := subject.CID.Bytes()
+	wantSuffix := subject.ID.Bytes()
 	require.Equal(t, len(wantPrefix)+len(wantSuffix), gotSigningMarshal.Len())
 	require.True(t, bytes.HasPrefix(gotSigningMarshal.Bytes(), wantPrefix))
 	require.True(t, bytes.HasSuffix(gotSigningMarshal.Bytes(), wantSuffix))
@@ -145,7 +145,7 @@ func TestECChain(t *testing.T) {
 		require.False(t, subject.HasPrefix(subjectExtended))
 		require.True(t, subjectExtended.HasPrefix(subject))
 
-		require.False(t, subject.Extend(wantBase.CID).HasPrefix(subjectExtended.Extend(wantNextID)))
+		require.False(t, subject.Extend(wantBase.ID).HasPrefix(subjectExtended.Extend(wantNextID)))
 	})
 	t.Run("SameBase is false when either chain is zero", func(t *testing.T) {
 		var zeroChain gpbft.ECChain

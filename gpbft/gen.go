@@ -472,9 +472,27 @@ func (t *TipSet) MarshalCBOR(w io.Writer) error {
 		}
 	}
 
-	// t.CID (gpbft.TipSetID) (struct)
-	if err := t.CID.MarshalCBOR(cw); err != nil {
+	// t.CID (gpbft.TipSetID) (slice)
+	if len(t.ID) > 8192 {
+		return xerrors.Errorf("Slice value in field t.CID was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajArray, uint64(len(t.ID))); err != nil {
 		return err
+	}
+	for _, v := range t.ID {
+		if len(v) > 2097152 {
+			return xerrors.Errorf("Byte array in field v was too long")
+		}
+
+		if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(v))); err != nil {
+			return err
+		}
+
+		if _, err := cw.Write(v); err != nil {
+			return err
+		}
+
 	}
 	return nil
 }
@@ -527,14 +545,55 @@ func (t *TipSet) UnmarshalCBOR(r io.Reader) (err error) {
 
 		t.Epoch = int64(extraI)
 	}
-	// t.CID (gpbft.TipSetID) (struct)
+	// t.CID (gpbft.TipSetID) (slice)
 
-	{
+	maj, extra, err = cr.ReadHeader()
+	if err != nil {
+		return err
+	}
 
-		if err := t.CID.UnmarshalCBOR(cr); err != nil {
-			return xerrors.Errorf("unmarshaling t.CID: %w", err)
+	if extra > 8192 {
+		return fmt.Errorf("t.CID: array too large (%d)", extra)
+	}
+
+	if maj != cbg.MajArray {
+		return fmt.Errorf("expected cbor array")
+	}
+
+	if extra > 0 {
+		t.ID = make([][]uint8, extra)
+	}
+
+	for i := 0; i < int(extra); i++ {
+		{
+			var maj byte
+			var extra uint64
+			var err error
+			_ = maj
+			_ = extra
+			_ = err
+
+			maj, extra, err = cr.ReadHeader()
+			if err != nil {
+				return err
+			}
+
+			if extra > 2097152 {
+				return fmt.Errorf("t.CID[i]: byte array too large (%d)", extra)
+			}
+			if maj != cbg.MajByteString {
+				return fmt.Errorf("expected byte array")
+			}
+
+			if extra > 0 {
+				t.ID[i] = make([]uint8, extra)
+			}
+
+			if _, err := io.ReadFull(cr, t.ID[i]); err != nil {
+				return err
+			}
+
 		}
-
 	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package gpbft
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -15,15 +16,15 @@ import (
 type TipSet struct {
 	// The epoch of the blocks in the tipset.
 	Epoch int64
-	// The CID of the tipset.
-	CID TipSetID
+	// The identifier of the tipset.
+	ID TipSetID
 }
 
 // Creates a new tipset.
 func NewTipSet(epoch int64, cid TipSetID) TipSet {
 	return TipSet{
 		Epoch: epoch,
-		CID:   cid,
+		ID:    cid,
 	}
 }
 
@@ -34,12 +35,26 @@ func ZeroTipSet() TipSet {
 }
 
 func (t TipSet) IsZero() bool {
-	return t.Epoch == 0 && t.CID.IsZero()
+	return t.Epoch == 0 && t.ID.IsZero()
+}
+
+func (t TipSet) Eq(other TipSet) bool {
+	return t.Epoch == other.Epoch && t.ID.Eq(other.ID)
+}
+
+// An identifier for this tipset suitable for use as a map key.
+// This must completely and verifiably determine the tipset data; it is not sufficient to use
+// the block CIDs and rely on external verification of the attached metadata.
+func (t TipSet) Key() string {
+	buf := bytes.Buffer{}
+	buf.Write(t.ID.Bytes())
+	_ = binary.Write(&buf, binary.BigEndian, t.Epoch)
+	return buf.String()
 }
 
 func (t TipSet) String() string {
 	var b strings.Builder
-	b.Write(t.CID.Bytes())
+	b.Write(t.ID.Bytes())
 	b.WriteString("@")
 	b.WriteString(strconv.FormatInt(t.Epoch, 10))
 	return b.String()
@@ -47,7 +62,7 @@ func (t TipSet) String() string {
 
 func (t TipSet) MarshalForSigning(w io.Writer) {
 	_ = binary.Write(w, binary.BigEndian, t.Epoch)
-	_, _ = w.Write(t.CID.Bytes())
+	_, _ = w.Write(t.ID.Bytes())
 }
 
 // A chain of tipsets comprising a base (the last finalised tipset from which the chain extends).
@@ -55,6 +70,9 @@ func (t TipSet) MarshalForSigning(w io.Writer) {
 // Tipsets are assumed to be built contiguously on each other, though epochs may be missing due to null rounds.
 // The zero value is not a valid chain, and represents a "bottom" value when used in a Granite message.
 type ECChain []TipSet
+
+// A map key for a chain. The zero value means "bottom".
+type ChainKey string
 
 // Creates a new chain.
 func NewChain(base TipSet, suffix ...TipSet) (ECChain, error) {
@@ -91,14 +109,6 @@ func (c ECChain) Head() TipSet {
 	return c[len(c)-1]
 }
 
-// Returns the CID of the head tipset, or empty string for a zero value
-func (c ECChain) HeadOrZero() TipSet {
-	if c.IsZero() {
-		return ZeroTipSet()
-	}
-	return c.Head()
-}
-
 // Returns a new chain with the same base and no suffix.
 // Invalid for a zero value.
 func (c ECChain) BaseChain() ECChain {
@@ -110,7 +120,7 @@ func (c ECChain) BaseChain() ECChain {
 func (c ECChain) Extend(cid TipSetID) ECChain {
 	return append(c, TipSet{
 		Epoch: c.Head().Epoch + 1,
-		CID:   cid,
+		ID:    cid,
 	})
 }
 
@@ -127,7 +137,7 @@ func (c ECChain) Eq(other ECChain) bool {
 		return false
 	}
 	for i := range c {
-		if c[i] != other[i] {
+		if !c[i].Eq(other[i]) {
 			return false
 		}
 	}
@@ -140,7 +150,7 @@ func (c ECChain) SameBase(other ECChain) bool {
 	if c.IsZero() || other.IsZero() {
 		return false
 	}
-	return c.Base() == other.Base()
+	return c.Base().Eq(other.Base())
 }
 
 // Check whether a chain has a specific base tipset.
@@ -149,7 +159,7 @@ func (c ECChain) HasBase(t TipSet) bool {
 	if c.IsZero() || t.IsZero() {
 		return false
 	}
-	return c[0] == t
+	return c[0].Eq(t)
 }
 
 // Checks whether a chain has some prefix (including the base).
@@ -162,7 +172,7 @@ func (c ECChain) HasPrefix(other ECChain) bool {
 		return false
 	}
 	for i := range other {
-		if c[i] != other[i] {
+		if !c[i].Eq(other[i]) {
 			return false
 		}
 	}
@@ -176,7 +186,7 @@ func (c ECChain) HasTipset(t TipSet) bool {
 		return false
 	}
 	for _, t2 := range c {
-		if t2 == t {
+		if t2.Eq(t) {
 			return true
 		}
 	}
@@ -204,6 +214,16 @@ func (c ECChain) Validate() error {
 		}
 	}
 	return nil
+}
+
+// Returns an identifier for the chain suitable for use as a map key.
+// This must completely determine the sequence of tipsets in the chain.
+func (c ECChain) Key() ChainKey {
+	buf := bytes.Buffer{}
+	for _, t := range c {
+		buf.Write([]byte(t.Key()))
+	}
+	return ChainKey(buf.String())
 }
 
 func (c ECChain) String() string {

@@ -39,7 +39,7 @@ nextParticipant:
 		decision, ok := sm.GetDecision(instance, participant.ID())
 		require.True(t, ok, "no decision for participant %d in instance %d", participant.ID(), instance)
 		for _, e := range expected {
-			if decision.Head() == e {
+			if decision.Head().Eq(e) {
 				continue nextParticipant
 			}
 		}

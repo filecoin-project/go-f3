@@ -60,7 +60,7 @@ type Simulation struct {
 	Participants []*gpbft.Participant
 	Adversary    AdversaryReceiver
 	Decisions    *DecisionLog
-	CIDGen       *CIDGen
+	CIDGen       *TipIDGen
 }
 
 type AdversaryFactory func(id string, ntwk gpbft.Network) gpbft.Receiver
@@ -94,7 +94,7 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 			Network:     ntwk,
 			EC:          ec,
 			DecisionLog: decisions,
-			CIDGen:      cidGen,
+			TipIDGen:    cidGen,
 			id:          id,
 		}
 		participants[i] = gpbft.NewParticipant(id, graniteConfig, host, host)
@@ -136,7 +136,7 @@ func (s *Simulation) HostFor(id gpbft.ActorID) *SimHost {
 		Network:     s.Network,
 		EC:          s.EC,
 		DecisionLog: s.Decisions,
-		CIDGen:      s.CIDGen,
+		TipIDGen:    s.CIDGen,
 		id:          id,
 	}
 }
@@ -235,7 +235,7 @@ type SimHost struct {
 	*Network
 	*EC
 	*DecisionLog
-	*CIDGen
+	*TipIDGen
 	id gpbft.ActorID
 }
 
@@ -277,7 +277,7 @@ func (v *SimHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 		// Create a new chain for all participants.
 		// There's no facility yet for them to observe different chains after the first instance.
 		// See https://github.com/filecoin-project/go-f3/issues/115.
-		newTip := gpbft.NewTipSet(nextBase.Epoch+1, v.CIDGen.Sample())
+		newTip := gpbft.NewTipSet(nextBase.Epoch+1, v.TipIDGen.Sample())
 		nextChain, _ := gpbft.NewChain(nextBase, newTip)
 
 		v.EC.AddInstance(nextChain, nextPowerTable, nextBeacon)
@@ -448,26 +448,26 @@ func (dl *DecisionLog) verifyDecision(decision *gpbft.Justification) error {
 	return nil
 }
 
-// A CID generator.
-// This uses a fast xorshift PRNG to generate random CIDs.
-// The statistical properties of these CIDs are not important to correctness.
-type CIDGen struct {
+// A tipset ID generator.
+// This uses a fast xorshift PRNG to generate random tipset IDs.
+// The statistical properties of these are not important to correctness.
+type TipIDGen struct {
 	xorshiftState uint64
 }
 
-func NewCIDGen(seed uint64) *CIDGen {
-	return &CIDGen{seed}
+func NewCIDGen(seed uint64) *TipIDGen {
+	return &TipIDGen{seed}
 }
 
-func (c *CIDGen) Sample() gpbft.TipSetID {
+func (c *TipIDGen) Sample() gpbft.TipSetID {
 	b := make([]byte, 8)
 	for i := range b {
 		b[i] = alphanum[c.nextN(len(alphanum))]
 	}
-	return gpbft.NewTipSetID(b)
+	return gpbft.NewTipSetID([][]byte{b})
 }
 
-func (c *CIDGen) nextN(n int) uint64 {
+func (c *TipIDGen) nextN(n int) uint64 {
 	bucketSize := uint64(1<<63) / uint64(n)
 	limit := bucketSize * uint64(n)
 	for {
@@ -478,7 +478,7 @@ func (c *CIDGen) nextN(n int) uint64 {
 	}
 }
 
-func (c *CIDGen) next() uint64 {
+func (c *TipIDGen) next() uint64 {
 	x := c.xorshiftState
 	x ^= x << 13
 	x ^= x >> 7

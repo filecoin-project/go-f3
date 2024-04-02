@@ -1,13 +1,9 @@
 package gpbft
 
 import (
-	"io"
-	"math/big"
-	"strings"
-
+	"bytes"
 	"github.com/ipfs/go-datastore"
-	cbg "github.com/whyrusleeping/cbor-gen"
-	"golang.org/x/xerrors"
+	"math/big"
 )
 
 type ActorID uint64
@@ -33,57 +29,44 @@ func NewStoragePower(value int64) *StoragePower {
 }
 
 // Opaque type identifying a tipset.
-// This is expected to be a concatenation of CIDs of block headers identifying a tipset.
+// This is expected to be a canonical sequence of CIDs of block headers identifying a tipset.
 // GossipPBFT doesn't need to know anything about CID format or behaviour, so adapts to this simple type
 // rather than import all the dependencies of the CID package.
-type TipSetID struct {
-	// The inner value is a string so that this type can be used as a map key (like the go-cid package).
-	value string
+// This type is intentionally unsuitable for use as a map key.
+type TipSetID [][]byte
+
+// Creates a new TipSetID from a slice of block CIDs.
+func NewTipSetID(blocks [][]byte) TipSetID {
+	return blocks
 }
 
-var _ cbg.CBORMarshaler = TipSetID{}
-var _ cbg.CBORUnmarshaler = (*TipSetID)(nil)
-
-func (t TipSetID) MarshalCBOR(w io.Writer) error {
-	return cbg.WriteByteArray(w, []byte(t.value))
-}
-
-func (t *TipSetID) UnmarshalCBOR(r io.Reader) error {
-	b, err := cbg.ReadByteArray(r, cbg.ByteArrayMaxLen)
-	if err != nil {
-		return xerrors.Errorf("decoding TipSetID from CBOR: %w", err)
-	}
-	t.value = string(b)
-	return nil
-}
-
-// Creates a new TipSetID from a byte array.
-func NewTipSetID(b []byte) TipSetID {
-	return TipSetID{string(b)}
-}
-
-// Creates a new TipSetID from a string.
+// Creates a new singleton TipSetID from a string, treated as a CID.
 func NewTipSetIDFromString(s string) TipSetID {
-	return TipSetID{s}
-}
-
-// Returns a zero-value TipSetID.
-func ZeroTipSetID() TipSetID {
-	return TipSetID{}
+	return TipSetID{[]byte(s)}
 }
 
 // Checks whether a tipset ID is zero.
 func (t TipSetID) IsZero() bool {
-	return t.value == ""
+	return len(t) == 0
 }
 
-// Orders two tipset IDs.
-// Returns -1 if a < b, 0 if a == b, 1 if a > b.
-// This is a lexicographic ordering of the bytes of the IDs.
-func (t TipSetID) Compare(o TipSetID) int {
-	return strings.Compare(t.value, o.value)
+func (t TipSetID) Eq(other TipSetID) bool {
+	if len(t) != len(other) {
+		return false
+	}
+	for i, b := range t {
+		if !bytes.Equal(b, other[i]) {
+			return false
+		}
+	}
+	return true
 }
 
+// FIXME this is not unique without a delimiter
 func (t TipSetID) Bytes() []byte {
-	return []byte(t.value)
+	buf := bytes.Buffer{}
+	for _, b := range t {
+		buf.Write(b)
+	}
+	return buf.Bytes()
 }
