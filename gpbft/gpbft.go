@@ -565,7 +565,7 @@ func (i *instance) tryConverge() error {
 		return nil
 	}
 
-	i.value = i.roundState(i.round).converged.findMinTicketProposal(i.powerTable)
+	i.value = i.roundState(i.round).converged.findMaxTicketProposal(i.powerTable)
 	if i.value.IsZero() {
 		return fmt.Errorf("no values at CONVERGE")
 	}
@@ -1054,25 +1054,22 @@ func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket) er
 	return nil
 }
 
-func (c *convergeState) findMinTicketProposal(table PowerTable) ECChain {
-	var minTicket *big.Float
-	var minValue ECChain
+func (c *convergeState) findMaxTicketProposal(table PowerTable) ECChain {
+	var maxTicket *big.Int
+	var maxValue ECChain
 
 	for cid, value := range c.values {
 		for sender, ticket := range c.tickets[cid] {
-			senderPower := table.GetRelative(sender)
-			if senderPower.Sign() <= 0 {
-				continue
-			}
+			senderPower, _ := table.Get(sender)
 			ticketAsInt := new(big.Int).SetBytes(ticket)
-			normalizedTicket := new(big.Float).Quo(new(big.Float).SetInt(ticketAsInt), senderPower)
-			if minTicket == nil || normalizedTicket.Cmp(minTicket) < 0 {
-				minTicket = normalizedTicket
-				minValue = value
+			weightedTicket := new(big.Int).Mul(ticketAsInt, senderPower)
+			if maxTicket == nil || weightedTicket.Cmp(maxTicket) > 0 {
+				maxTicket = weightedTicket
+				maxValue = value
 			}
 		}
 	}
-	return minValue
+	return maxValue
 }
 
 ///// General helpers /////
