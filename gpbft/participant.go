@@ -1,6 +1,7 @@
 package gpbft
 
 import (
+	"errors"
 	"fmt"
 )
 
@@ -69,11 +70,12 @@ func (p *Participant) ReceiveECChain(chain ECChain) (err error) {
 			err = &PanicError{Err: r}
 		}
 	}()
-
-	if p.granite != nil {
+	if chain.IsZero() {
+		err = errors.New("cannot receive zero chain")
+	} else if err = chain.Validate(); err == nil && p.granite != nil {
 		p.granite.ReceiveAcceptable(chain)
 	}
-	return err
+	return
 }
 
 // Validates a message received from another participant, if possible.
@@ -149,6 +151,12 @@ func (p *Participant) ReceiveAlarm() (err error) {
 
 func (p *Participant) beginInstance() error {
 	chain, power, beacon := p.host.GetCanonicalChain()
+	if chain.IsZero() {
+		return errors.New("canonical chain cannot be zero-valued")
+	}
+	if err := chain.Validate(); err != nil {
+		return fmt.Errorf("invalid connanical chain: %w", err)
+	}
 	var err error
 	if p.granite, err = newInstance(p.config, p.host, p.id, p.nextInstance, chain, power, beacon); err != nil {
 		return fmt.Errorf("failed creating new granite instance: %w", err)
