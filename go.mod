@@ -1,6 +1,6 @@
 module github.com/filecoin-project/go-f3
 
-go 1.20
+go 1.21
 
 require (
 	github.com/Kubuxu/go-broadcast v0.0.0-20240212204713-7007a1e29a19
