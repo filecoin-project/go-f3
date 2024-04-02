@@ -9,9 +9,9 @@ import (
 )
 
 func TestAbsent(t *testing.T) {
-	for i := 0; i < 1000; i++ {
-		// fmt.Println("Iteration", i)
-		sm := sim.NewSimulation(AsyncConfig(3, i), GraniteConfig(), sim.TraceNone)
+	t.Parallel()
+	repeatInParallel(t, ASYNC_ITERS, func(t *testing.T, repetition int) {
+		sm := sim.NewSimulation(AsyncConfig(3, repetition), GraniteConfig(), sim.TraceNone)
 		// Adversary has 1/4 of power.
 		sm.SetAdversary(adversary.NewAbsent(99, sm.HostFor(99)), 1)
 
@@ -19,5 +19,5 @@ func TestAbsent(t *testing.T) {
 		sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
 		require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
-	}
+	})
 }
