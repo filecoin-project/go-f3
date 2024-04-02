@@ -2,11 +2,12 @@ package sim
 
 import (
 	"fmt"
-	"golang.org/x/xerrors"
 	"math"
 	"os"
 	"strings"
 	"time"
+
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-f3/blssig"
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -96,7 +97,7 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 			CIDGen:      cidGen,
 			id:          id,
 		}
-		participants[i] = gpbft.NewParticipant(id, graniteConfig, host)
+		participants[i] = gpbft.NewParticipant(id, graniteConfig, host, host)
 		pubKey := ntwk.GenerateKey()
 		ntwk.AddParticipant(participants[i], pubKey)
 		ec.AddParticipant(id, gpbft.NewStoragePower(1), pubKey)

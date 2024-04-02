@@ -82,6 +82,12 @@ type DecisionReceiver interface {
 	ReceiveDecision(decision *Justification) time.Time
 }
 
+// Tracer collects trace logs that capture logical state changes.
+// The primary purpose of Tracer is to aid debugging and simulation.
+type Tracer interface {
+	Log(format string, args ...any)
+}
+
 // Participant interface to the host system resources.
 type Host interface {
 	Chain
@@ -90,6 +96,4 @@ type Host interface {
 	Signer
 	Verifier
 	DecisionReceiver
-	// Logs a message at the "logic" level
-	Log(format string, args ...interface{})
 }
