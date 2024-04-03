@@ -159,6 +159,9 @@ func (p *Participant) beginInstance() error {
 	if err := chain.Validate(); err != nil {
 		return fmt.Errorf("invalid connanical chain: %w", err)
 	}
+	if err := power.Validate(); err != nil {
+		return fmt.Errorf("invalid power table: %w", err)
+	}
 	var err error
 	if p.granite, err = newInstance(p.config, p.host, p.id, p.nextInstance, chain, power, beacon, p.tracer); err != nil {
 		return fmt.Errorf("failed creating new granite instance: %w", err)
