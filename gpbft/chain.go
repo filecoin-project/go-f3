@@ -2,9 +2,8 @@ package gpbft
 
 import (
 	"encoding/binary"
-	"fmt"
+	"errors"
 	"io"
-	"reflect"
 	"strconv"
 	"strings"
 )
@@ -59,14 +58,12 @@ type ECChain []TipSet
 
 // Creates a new chain.
 func NewChain(base TipSet, suffix ...TipSet) (ECChain, error) {
-	epoch := base.Epoch
-	for _, t := range suffix {
-		if t.Epoch <= epoch {
-			return nil, fmt.Errorf("tipsets not in order")
-		}
-		epoch = t.Epoch
+	var chain ECChain = []TipSet{base}
+	chain = append(chain, suffix...)
+	if err := chain.Validate(); err != nil {
+		return nil, err
 	}
-	return append([]TipSet{base}, suffix...), nil
+	return chain, nil
 }
 
 func (c ECChain) IsZero() bool {
@@ -126,22 +123,30 @@ func (c ECChain) Prefix(to int) ECChain {
 
 // Compares two ECChains for equality.
 func (c ECChain) Eq(other ECChain) bool {
-	return reflect.DeepEqual(c, other)
+	if len(c) != len(other) {
+		return false
+	}
+	for i := range c {
+		if c[i] != other[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // Checks whether two chains have the same base.
 // Always false for a zero value.
 func (c ECChain) SameBase(other ECChain) bool {
-	if c.IsZero() {
+	if c.IsZero() || other.IsZero() {
 		return false
 	}
-	return c[0] == other[0]
+	return c.Base() == other.Base()
 }
 
 // Check whether a chain has a specific base tipset.
 // Always false for a zero value.
 func (c ECChain) HasBase(t TipSet) bool {
-	if c.IsZero() {
+	if c.IsZero() || t.IsZero() {
 		return false
 	}
 	return c[0] == t
@@ -150,7 +155,7 @@ func (c ECChain) HasBase(t TipSet) bool {
 // Checks whether a chain has some prefix (including the base).
 // Always false for a zero value.
 func (c ECChain) HasPrefix(other ECChain) bool {
-	if c.IsZero() {
+	if c.IsZero() || other.IsZero() {
 		return false
 	}
 	if len(other) > len(c) {
@@ -166,12 +171,39 @@ func (c ECChain) HasPrefix(other ECChain) bool {
 
 // Checks whether a chain has some tipset (including as its base).
 func (c ECChain) HasTipset(t TipSet) bool {
+	if t.IsZero() {
+		// Chain can never contain zero-valued TipSet.
+		return false
+	}
 	for _, t2 := range c {
 		if t2 == t {
 			return true
 		}
 	}
 	return false
+}
+
+// Validate verifies the integrity of the chain, returning an error if it finds any issues.
+// A chain is valid if it meets the following criteria:
+// 1) All contained elements have non-zero values. Use TipSet.IsZero to check for zero-valued elements.
+// 2) TipSets are arranged in strictly increasing order by their epochs, without any repetitions.
+// An entirely zero-valued chain itself is deemed valid. See ECChain.IsZero.
+func (c ECChain) Validate() error {
+	if c.IsZero() {
+		return nil
+	}
+	var epochSoFar int64
+	for _, tipSet := range c {
+		switch {
+		case tipSet.IsZero():
+			return errors.New("chain cannot contain zero-valued tip sets")
+		case tipSet.Epoch <= epochSoFar:
+			return errors.New("chain epoch must be in order and unique")
+		default:
+			epochSoFar = tipSet.Epoch
+		}
+	}
+	return nil
 }
 
 func (c ECChain) String() string {

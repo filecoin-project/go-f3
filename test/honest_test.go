@@ -1,6 +1,7 @@
 package test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/filecoin-project/go-f3/sim"
@@ -19,61 +20,78 @@ func TestSingleton(t *testing.T) {
 }
 
 func TestSyncPair(t *testing.T) {
-	sm := sim.NewSimulation(SyncConfig(2), GraniteConfig(), sim.TraceNone)
-	a := sm.Base(0).Extend(sm.CIDGen.Sample())
-	sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
+	t.Parallel()
+	tests := []struct {
+		name   string
+		config sim.Config
+	}{
+		{
+			name:   "no signing",
+			config: SyncConfig(2),
+		},
+		{
+			name:   "bls",
+			config: SyncConfig(2).UseBLS(),
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			sm := sim.NewSimulation(test.config, GraniteConfig(), sim.TraceNone)
+			a := sm.Base(0).Extend(sm.CIDGen.Sample())
+			sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
-	require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
-	expectDecision(t, sm, a.Head())
-}
-
-func TestSyncPairBLS(t *testing.T) {
-	sm := sim.NewSimulation(SyncConfig(2).UseBLS(), GraniteConfig(), sim.TraceNone)
-	a := sm.Base(0).Extend(sm.CIDGen.Sample())
-	sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
-
-	require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
-	expectDecision(t, sm, a.Head())
+			require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
+			expectDecision(t, sm, a.Head())
+		})
+	}
 }
 
 func TestASyncPair(t *testing.T) {
-	for i := 0; i < ASYNC_ITERS; i++ {
-		//fmt.Println("i =", i)
-		sm := sim.NewSimulation(AsyncConfig(2, i), GraniteConfig(), sim.TraceNone)
+	t.Parallel()
+	repeatInParallel(t, ASYNC_ITERS, func(t *testing.T, repetition int) {
+		sm := sim.NewSimulation(AsyncConfig(2, repetition), GraniteConfig(), sim.TraceNone)
 		a := sm.Base(0).Extend(sm.CIDGen.Sample())
 		sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
 		require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
 		expectDecision(t, sm, a.Head(), sm.Base(0).Head())
-	}
+	})
 }
 
 func TestSyncPairDisagree(t *testing.T) {
-	sm := sim.NewSimulation(SyncConfig(2), GraniteConfig(), sim.TraceNone)
-	a := sm.Base(0).Extend(sm.CIDGen.Sample())
-	b := sm.Base(0).Extend(sm.CIDGen.Sample())
-	sm.SetChains(sim.ChainCount{Count: 1, Chain: a}, sim.ChainCount{Count: 1, Chain: b})
+	t.Parallel()
+	tests := []struct {
+		name   string
+		config sim.Config
+	}{
+		{
+			name:   "no signing",
+			config: SyncConfig(2),
+		},
+		{
+			name:   "bls",
+			config: SyncConfig(2).UseBLS(),
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			sm := sim.NewSimulation(test.config, GraniteConfig(), sim.TraceNone)
+			a := sm.Base(0).Extend(sm.CIDGen.Sample())
+			b := sm.Base(0).Extend(sm.CIDGen.Sample())
+			sm.SetChains(sim.ChainCount{Count: 1, Chain: a}, sim.ChainCount{Count: 1, Chain: b})
 
-	require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
-	// Decide base chain as the only common value.
-	expectDecision(t, sm, sm.Base(0).Head())
-}
-
-func TestSyncPairDisagreeBLS(t *testing.T) {
-	sm := sim.NewSimulation(SyncConfig(2).UseBLS(), GraniteConfig(), sim.TraceNone)
-	a := sm.Base(0).Extend(sm.CIDGen.Sample())
-	b := sm.Base(0).Extend(sm.CIDGen.Sample())
-	sm.SetChains(sim.ChainCount{Count: 1, Chain: a}, sim.ChainCount{Count: 1, Chain: b})
-
-	require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
-	// Decide base chain as the only common value.
-	expectDecision(t, sm, sm.Base(0).Head())
+			require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
+			// Decide base chain as the only common value.
+			expectDecision(t, sm, sm.Base(0).Head())
+		})
+	}
 }
 
 func TestAsyncPairDisagree(t *testing.T) {
-	for i := 0; i < ASYNC_ITERS; i++ {
-		//fmt.Println("i =", i)
-		sm := sim.NewSimulation(AsyncConfig(2, i), GraniteConfig(), sim.TraceNone)
+	repeatInParallel(t, ASYNC_ITERS, func(t *testing.T, repetition int) {
+		sm := sim.NewSimulation(AsyncConfig(2, repetition), GraniteConfig(), sim.TraceNone)
 		a := sm.Base(0).Extend(sm.CIDGen.Sample())
 		b := sm.Base(0).Extend(sm.CIDGen.Sample())
 		sm.SetChains(sim.ChainCount{Count: 1, Chain: a}, sim.ChainCount{Count: 1, Chain: b})
@@ -81,82 +99,92 @@ func TestAsyncPairDisagree(t *testing.T) {
 		require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
 		// Decide base chain as the only common value.
 		expectDecision(t, sm, sm.Base(0).Head())
-	}
+	})
 }
 
 func TestSyncAgreement(t *testing.T) {
-	for n := 3; n <= 50; n++ {
-		sm := sim.NewSimulation(SyncConfig(n), GraniteConfig(), sim.TraceNone)
+	repeatInParallel(t, 50, func(t *testing.T, repetition int) {
+		honestCount := 3 + repetition
+		sm := sim.NewSimulation(SyncConfig(honestCount), GraniteConfig(), sim.TraceNone)
 		a := sm.Base(0).Extend(sm.CIDGen.Sample())
 		sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 		require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
 		// Synchronous, agreeing groups always decide the candidate.
 		expectDecision(t, sm, a.Head())
-	}
+	})
 }
 
 func TestAsyncAgreement(t *testing.T) {
 	t.Parallel()
 	// These iterations are much slower, so we can't test as many participants.
 	for n := 3; n <= 16; n++ {
-		for i := 0; i < ASYNC_ITERS; i++ {
-			//fmt.Println("n =", n, "i =", i)
-			sm := sim.NewSimulation(AsyncConfig(n, i), GraniteConfig(), sim.TraceNone)
-			a := sm.Base(0).Extend(sm.CIDGen.Sample())
-			sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
+		honestCount := n
+		t.Run(fmt.Sprintf("honest count %d", honestCount), func(t *testing.T) {
+			repeatInParallel(t, ASYNC_ITERS, func(t *testing.T, repetition int) {
+				sm := sim.NewSimulation(AsyncConfig(honestCount, repetition), GraniteConfig(), sim.TraceNone)
+				a := sm.Base(0).Extend(sm.CIDGen.Sample())
+				sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
-			require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
-			expectDecision(t, sm, sm.Base(0).Head(), a.Head())
-		}
+				require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
+				expectDecision(t, sm, sm.Base(0).Head(), a.Head())
+			})
+		})
 	}
 }
 
 func TestSyncHalves(t *testing.T) {
-	for n := 4; n <= 50; n += 2 {
-		sm := sim.NewSimulation(SyncConfig(n), GraniteConfig(), sim.TraceNone)
+	t.Parallel()
+	repeatInParallel(t, 15, func(t *testing.T, repetition int) {
+		honestCount := repetition*2 + 2
+		sm := sim.NewSimulation(SyncConfig(honestCount), GraniteConfig(), sim.TraceNone)
 		a := sm.Base(0).Extend(sm.CIDGen.Sample())
 		b := sm.Base(0).Extend(sm.CIDGen.Sample())
-		sm.SetChains(sim.ChainCount{Count: n / 2, Chain: a}, sim.ChainCount{Count: n / 2, Chain: b})
+		sm.SetChains(sim.ChainCount{Count: honestCount / 2, Chain: a}, sim.ChainCount{Count: honestCount / 2, Chain: b})
 
 		require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
 		// Groups split 50/50 always decide the base.
 		expectDecision(t, sm, sm.Base(0).Head())
-	}
+	})
 }
 
 func TestSyncHalvesBLS(t *testing.T) {
-	for n := 4; n <= 10; n += 2 {
-		sm := sim.NewSimulation(SyncConfig(n).UseBLS(), GraniteConfig(), sim.TraceNone)
+	t.Parallel()
+	repeatInParallel(t, 3, func(t *testing.T, repetition int) {
+		honestCount := repetition*2 + 2
+		sm := sim.NewSimulation(SyncConfig(honestCount).UseBLS(), GraniteConfig(), sim.TraceNone)
 		a := sm.Base(0).Extend(sm.CIDGen.Sample())
 		b := sm.Base(0).Extend(sm.CIDGen.Sample())
-		sm.SetChains(sim.ChainCount{Count: n / 2, Chain: a}, sim.ChainCount{Count: n / 2, Chain: b})
+		sm.SetChains(sim.ChainCount{Count: honestCount / 2, Chain: a}, sim.ChainCount{Count: honestCount / 2, Chain: b})
 
 		require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
 		// Groups split 50/50 always decide the base.
 		expectDecision(t, sm, sm.Base(0).Head())
-	}
+	})
 }
 
 func TestAsyncHalves(t *testing.T) {
 	t.Parallel()
 	for n := 4; n <= 20; n += 2 {
-		for i := 0; i < ASYNC_ITERS; i++ {
-			sm := sim.NewSimulation(AsyncConfig(n, i), GraniteConfig(), sim.TraceNone)
-			a := sm.Base(0).Extend(sm.CIDGen.Sample())
-			b := sm.Base(0).Extend(sm.CIDGen.Sample())
-			sm.SetChains(sim.ChainCount{Count: n / 2, Chain: a}, sim.ChainCount{Count: n / 2, Chain: b})
+		honestCount := n
+		t.Run(fmt.Sprintf("honest count %d", honestCount), func(t *testing.T) {
+			repeatInParallel(t, ASYNC_ITERS, func(t *testing.T, repetition int) {
+				sm := sim.NewSimulation(AsyncConfig(honestCount, repetition), GraniteConfig(), sim.TraceNone)
+				a := sm.Base(0).Extend(sm.CIDGen.Sample())
+				b := sm.Base(0).Extend(sm.CIDGen.Sample())
+				sm.SetChains(sim.ChainCount{Count: honestCount / 2, Chain: a}, sim.ChainCount{Count: honestCount / 2, Chain: b})
 
-			require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
-			// Groups split 50/50 always decide the base.
-			expectDecision(t, sm, sm.Base(0).Head())
-		}
+				require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
+				// Groups split 50/50 always decide the base.
+				expectDecision(t, sm, sm.Base(0).Head())
+			})
+		})
 	}
 }
 
 func TestRequireStrongQuorumToProgress(t *testing.T) {
 	t.Parallel()
-	for i := 0; i < ASYNC_ITERS; i++ {
-		sm := sim.NewSimulation(AsyncConfig(30, i), GraniteConfig(), sim.TraceNone)
+	repeatInParallel(t, ASYNC_ITERS, func(t *testing.T, repetition int) {
+		sm := sim.NewSimulation(AsyncConfig(30, repetition), GraniteConfig(), sim.TraceNone)
 		a := sm.Base(0).Extend(sm.CIDGen.Sample())
 		b := sm.Base(0).Extend(sm.CIDGen.Sample())
 		// No strict > quorum.
@@ -165,7 +193,7 @@ func TestRequireStrongQuorumToProgress(t *testing.T) {
 		require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
 		// Must decide base.
 		expectDecision(t, sm, sm.Base(0).Head())
-	}
+	})
 }
 
 func TestLongestCommonPrefix(t *testing.T) {

@@ -1,6 +1,6 @@
 module github.com/filecoin-project/go-f3
 
-go 1.20
+go 1.21
 
 require (
 	github.com/Kubuxu/go-broadcast v0.0.0-20240212204713-7007a1e29a19
@@ -15,6 +15,7 @@ require (
 	github.com/whyrusleeping/cbor-gen v0.1.0
 	go.uber.org/multierr v1.11.0
 	golang.org/x/crypto v0.21.0
+	golang.org/x/sync v0.3.0
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028
 )
 

@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/filecoin-project/go-bitfield"
-	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
-	"golang.org/x/xerrors"
 	"math"
 	"math/big"
 	"sort"
 	"time"
+
+	"github.com/filecoin-project/go-bitfield"
+	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
+	"golang.org/x/xerrors"
 )
 
 type GraniteConfig struct {
@@ -164,6 +165,8 @@ type instance struct {
 	acceptable ECChain
 	// Decision state. Collects DECIDE messages until a decision can be made, independently of protocol phases/rounds.
 	decision *quorumState
+	// tracer traces logic logs for debugging and simulation purposes.
+	tracer Tracer
 }
 
 func newInstance(
@@ -173,7 +176,8 @@ func newInstance(
 	instanceID uint64,
 	input ECChain,
 	powerTable PowerTable,
-	beacon []byte) (*instance, error) {
+	beacon []byte,
+	tracer Tracer) (*instance, error) {
 	if input.IsZero() {
 		return nil, fmt.Errorf("input is empty")
 	}
@@ -195,6 +199,7 @@ func newInstance(
 		},
 		acceptable: input,
 		decision:   newQuorumState(powerTable),
+		tracer:     tracer,
 	}, nil
 }
 
@@ -364,6 +369,10 @@ func (i *instance) validateMessage(msg *GMessage) error {
 		return xerrors.Errorf("sender with zero power or not in power table")
 	}
 
+	// Check that message value is a valid chain.
+	if err := msg.Vote.Value.Validate(); err != nil {
+		return xerrors.Errorf("invalid message vote value chain: %w", err)
+	}
 	// Check the value is acceptable.
 	if !(msg.Vote.Value.IsZero() || msg.Vote.Value.HasBase(i.input.Base())) {
 		return xerrors.Errorf("unexpected base %s", &msg.Vote.Value)
@@ -416,6 +425,10 @@ func (i *instance) validateMessage(msg *GMessage) error {
 		// Check that the justification is for the same instance.
 		if msg.Vote.Instance != msg.Justification.Vote.Instance {
 			return fmt.Errorf("message with instanceID %v has evidence from instanceID: %v", msg.Vote.Instance, msg.Justification.Vote.Instance)
+		}
+		// Check that justification vote value is a valid chain.
+		if err := msg.Justification.Vote.Value.Validate(); err != nil {
+			return xerrors.Errorf("invalid justification vote value chain: %w", err)
 		}
 
 		// Check every remaining field of the justification, according to the phase requirements.
@@ -794,9 +807,11 @@ func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase P
 }
 
 func (i *instance) log(format string, args ...interface{}) {
-	msg := fmt.Sprintf(format, args...)
-	i.host.Log("P%d{%d}: %s (round %d, step %s, proposal %s, value %s)", i.participantID, i.instanceID, msg,
-		i.round, i.phase, &i.proposal, &i.value)
+	if i.tracer != nil {
+		msg := fmt.Sprintf(format, args...)
+		i.tracer.Log("P%d{%d}: %s (round %d, step %s, proposal %s, value %s)", i.participantID, i.instanceID, msg,
+			i.round, i.phase, &i.proposal, &i.value)
+	}
 }
 
 func (i *instance) sign(msg []byte) ([]byte, error) {
