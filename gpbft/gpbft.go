@@ -1027,13 +1027,18 @@ type convergeState struct {
 	// Chains indexed by head CID
 	values map[TipSet]ECChain
 	// Tickets provided by proposers of each chain.
-	tickets map[TipSet]map[ActorID]Ticket
+	tickets map[TipSet][]ActorTicket
+}
+
+type ActorTicket struct {
+	Actor  ActorID
+	Ticket Ticket
 }
 
 func newConvergeState() *convergeState {
 	return &convergeState{
 		values:  map[TipSet]ECChain{},
-		tickets: map[TipSet]map[ActorID]Ticket{},
+		tickets: map[TipSet][]ActorTicket{},
 	}
 }
 
@@ -1045,11 +1050,7 @@ func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket) er
 	key := value.Head()
 	c.values[key] = value
 
-	if _, ok := c.tickets[key]; !ok {
-		c.tickets[key] = make(map[ActorID]Ticket)
-	}
-
-	c.tickets[key][sender] = ticket
+	c.tickets[key] = append(c.tickets[key], ActorTicket{Actor: sender, Ticket: ticket})
 
 	return nil
 }
@@ -1059,9 +1060,9 @@ func (c *convergeState) findMaxTicketProposal(table PowerTable) ECChain {
 	var maxValue ECChain
 
 	for cid, value := range c.values {
-		for sender, ticket := range c.tickets[cid] {
-			senderPower, _ := table.Get(sender)
-			ticketAsInt := new(big.Int).SetBytes(ticket)
+		for _, actorTicket := range c.tickets[cid] {
+			senderPower, _ := table.Get(actorTicket.Actor)
+			ticketAsInt := new(big.Int).SetBytes(actorTicket.Ticket)
 			weightedTicket := new(big.Int).Mul(ticketAsInt, senderPower)
 			if maxTicket == nil || weightedTicket.Cmp(maxTicket) > 0 {
 				maxTicket = weightedTicket

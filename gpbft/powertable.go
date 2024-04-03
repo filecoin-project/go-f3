@@ -79,17 +79,6 @@ func (p *PowerTable) Get(id ActorID) (*StoragePower, PubKey) {
 	return nil, nil
 }
 
-// GetRelative returns the relative power of a specific participant.
-func (p *PowerTable) GetRelative(id ActorID) *big.Float {
-	if index, ok := p.Lookup[id]; ok {
-		entry := p.Entries[index]
-		relativePower := new(big.Float).Quo(new(big.Float).SetInt(entry.Power), new(big.Float).SetInt(p.Total))
-		return relativePower
-	}
-
-	return new(big.Float).SetFloat64(0)
-}
-
 // Has returns true iff the ActorID is part of the power table with positive power.
 func (p *PowerTable) Has(id ActorID) bool {
 	index, ok := p.Lookup[id]
