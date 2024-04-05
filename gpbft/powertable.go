@@ -1,13 +1,15 @@
 package gpbft
 
 import (
+	"errors"
 	"fmt"
 	"math/big"
 	"sort"
 )
 
-// PowerEntry represents a single entry in the PowerTable.
-// It includes an ActorID and its Weight
+var _ sort.Interface = (*PowerTable)(nil)
+
+// PowerEntry represents a single entry in the PowerTable, including ActorID and its StoragePower and PubKey.
 type PowerEntry struct {
 	ID     ActorID
 	Power  *StoragePower
@@ -25,49 +27,40 @@ type PowerTable struct {
 // NewPowerTable creates a new PowerTable from a slice of PowerEntry .
 // It is more efficient than Add, as it only needs to sort the entries once.
 // Note that the function takes ownership of the slice - it must not be modified afterwards.
-func NewPowerTable(entries []PowerEntry) *PowerTable {
-	sort.Slice(entries, func(i, j int) bool {
-		return comparePowerEntries(entries[i], entries[j])
-	})
-
-	lookup := make(map[ActorID]int, len(entries))
-	total := NewStoragePower(0)
-	for i, entry := range entries {
-		lookup[entry.ID] = i
-		total.Add(total, entry.Power)
-	}
-
+func NewPowerTable() *PowerTable {
 	return &PowerTable{
-		Entries: entries,
-		Lookup:  lookup,
-		Total:   total,
+		Lookup: make(map[ActorID]int),
+		Total:  NewStoragePower(0),
 	}
 }
 
-// Add adds a new entry to the PowerTable.
-// This is linear in the table size, so adding many entries this way is inefficient.
-func (p *PowerTable) Add(id ActorID, power *StoragePower, pubKey []byte) error {
-	if _, ok := p.Lookup[id]; ok {
-		return fmt.Errorf("duplicate power entry")
+// Add inserts one or more entries to this PowerTable.
+//
+// Each inserted entry must meet the following criteria:
+// * It must not already be present int the PowerTable.
+// * It must have StoragePower larger than zero.
+// * It must have a non-zero length public key.
+func (p *PowerTable) Add(entries ...PowerEntry) error {
+	for _, entry := range entries {
+		switch {
+		case len(entry.PubKey) == 0:
+			return fmt.Errorf("unspecified public key for actor ID: %d", entry.ID)
+		case p.Has(entry.ID):
+			return fmt.Errorf("power entry already exists for actor ID: %d", entry.ID)
+		case entry.Power.Sign() <= 0:
+			return fmt.Errorf("zero power for actor ID: %d", entry.ID)
+		default:
+			p.Total.Add(p.Total, entry.Power)
+			p.Entries = append(p.Entries, entry)
+			p.Lookup[entry.ID] = len(p.Entries) - 1
+		}
 	}
-	entry := PowerEntry{ID: id, Power: power, PubKey: pubKey}
-	index := sort.Search(len(p.Entries), func(i int) bool {
-		return comparePowerEntries(p.Entries[i], entry)
-	})
-
-	p.Entries = append(p.Entries, PowerEntry{})
-	copy(p.Entries[index+1:], p.Entries[index:])
-	p.Entries[index] = entry
-
-	p.Lookup[id] = index
-	for i := index + 1; i < len(p.Entries); i++ {
-		p.Lookup[p.Entries[i].ID] = i
-	}
-	p.Total.Add(p.Total, power)
-
+	sort.Sort(p)
 	return nil
 }
 
+// Get retrieves the StoragePower and PubKey for the given id, if present in the table.
+// Otherwise, returns nil.
 func (p *PowerTable) Get(id ActorID) (*StoragePower, PubKey) {
 	if index, ok := p.Lookup[id]; ok {
 		entry := p.Entries[index]
@@ -79,40 +72,86 @@ func (p *PowerTable) Get(id ActorID) (*StoragePower, PubKey) {
 	return nil, nil
 }
 
-// Has returns true iff the ActorID is part of the power table with positive power.
+// Has check whether this PowerTable contains an entry for the given id.
 func (p *PowerTable) Has(id ActorID) bool {
-	index, ok := p.Lookup[id]
-	return ok && p.Entries[index].Power.Cmp(NewStoragePower(0)) > 0
+	_, found := p.Lookup[id]
+	return found
 }
 
-// Creates a deep copy of the PowerTable.
+// Copy creates a deep copy of this PowerTable.
 func (p *PowerTable) Copy() *PowerTable {
-	entries := make([]PowerEntry, len(p.Entries))
-	copy(entries, p.Entries)
-	lookup := make(map[ActorID]int, len(p.Lookup))
+	replica := NewPowerTable()
+	if p.Len() != 0 {
+		replica.Entries = make([]PowerEntry, p.Len())
+		copy(replica.Entries, p.Entries)
+	}
 	for k, v := range p.Lookup {
-		lookup[k] = v
+		replica.Lookup[k] = v
+	}
+	replica.Total.Add(replica.Total, p.Total)
+	return replica
+}
+
+// Len returns the number of entries in this PowerTable.
+func (p *PowerTable) Len() int {
+	return len(p.Entries)
+}
+
+// Less determines if the entry at index i should be sorted before the entry at index j.
+// Entries are sorted descending order of their power, where entries with equal power are
+// sorted by ascending order of their ID.
+// This ordering is guaranteed to be stable, since a valid PowerTable cannot contain entries with duplicate IDs; see Validate.
+func (p *PowerTable) Less(i, j int) bool {
+	one, other := p.Entries[i], p.Entries[j]
+	switch cmp := one.Power.Cmp(other.Power); {
+	case cmp > 0:
+		return true
+	case cmp == 0:
+		return one.ID < other.ID
+	default:
+		return false
+	}
+}
+
+// Swap swaps the entry at index i with the entry at index j.
+// This function must not be called directly since it is used as part of sort.Interface.
+func (p *PowerTable) Swap(i, j int) {
+	p.Entries[i], p.Entries[j] = p.Entries[j], p.Entries[i]
+	p.Lookup[p.Entries[i].ID], p.Lookup[p.Entries[j].ID] = i, j
+}
+
+// Validate checks the validity of this PowerTable.
+// Such table must meet the following criteria:
+// * Its entries must be in order as defined by Less.
+// * It must not contain any entries with duplicate ID.
+// * All entries must have power larger than zero
+// * All entries must have non-zero public key.
+// * PowerTable.Total must correspond to the total aggregated power of entries.
+// * PowerTable.Lookup must contain the expected mapping of entry actor ID to index.
+func (p *PowerTable) Validate() error {
+	if len(p.Entries) != len(p.Lookup) {
+		return errors.New("inconsistent entries and lookup map")
 	}
 	total := NewStoragePower(0)
-	total.Add(total, p.Total)
-	return &PowerTable{
-		Entries: entries,
-		Lookup:  lookup,
-		Total:   total,
+	var previous *PowerEntry
+	for index, entry := range p.Entries {
+		if lookupIndex, found := p.Lookup[entry.ID]; !found || index != lookupIndex {
+			return fmt.Errorf("lookup index does not match entries for actor ID: %d", entry.ID)
+		}
+		if len(entry.PubKey) == 0 {
+			return fmt.Errorf("unspecified public key for actor ID: %d", entry.ID)
+		}
+		if entry.Power.Sign() <= 0 {
+			return fmt.Errorf("zero power for entry with actor ID: %d", entry.ID)
+		}
+		if previous != nil && !p.Less(index-1, index) {
+			return fmt.Errorf("entry not in order at index: %d", index)
+		}
+		total.Add(total, entry.Power)
+		previous = &entry
 	}
-}
-
-///// General helpers /////
-
-// comparePowerEntries compares two PowerEntry elements.
-// It returns true if the first entry should be sorted before the second.
-func comparePowerEntries(a, b PowerEntry) bool {
-	cmp := a.Power.Cmp(b.Power)
-	if cmp > 0 {
-		return true
+	if total.Cmp(p.Total) != 0 {
+		return errors.New("total power does not match entries")
 	}
-	if cmp == 0 {
-		return a.ID < b.ID
-	}
-	return false
+	return nil
 }
