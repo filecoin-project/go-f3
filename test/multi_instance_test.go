@@ -13,7 +13,7 @@ const INSTANCE_COUNT = 4000
 
 func TestMultiSingleton(t *testing.T) {
 	sm := sim.NewSimulation(SyncConfig(1), GraniteConfig(), sim.TraceNone)
-	a := sm.Base(0).Extend(sm.CIDGen.Sample())
+	a := sm.Base(0).Extend(sm.TipGen.Sample())
 	sm.SetChains(sim.ChainCount{Count: 1, Chain: a})
 
 	require.NoErrorf(t, sm.Run(INSTANCE_COUNT, MAX_ROUNDS), "%s", sm.Describe())
@@ -23,7 +23,7 @@ func TestMultiSingleton(t *testing.T) {
 
 func TestMultiSyncPair(t *testing.T) {
 	sm := sim.NewSimulation(SyncConfig(2), GraniteConfig(), sim.TraceNone)
-	a := sm.Base(0).Extend(sm.CIDGen.Sample())
+	a := sm.Base(0).Extend(sm.TipGen.Sample())
 	sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
 	require.NoErrorf(t, sm.Run(INSTANCE_COUNT, MAX_ROUNDS), "%s", sm.Describe())
@@ -33,7 +33,7 @@ func TestMultiSyncPair(t *testing.T) {
 
 func TestMultiASyncPair(t *testing.T) {
 	sm := sim.NewSimulation(AsyncConfig(2, 0), GraniteConfig(), sim.TraceNone)
-	a := sm.Base(0).Extend(sm.CIDGen.Sample())
+	a := sm.Base(0).Extend(sm.TipGen.Sample())
 	sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
 	require.NoErrorf(t, sm.Run(INSTANCE_COUNT, MAX_ROUNDS), "%s", sm.Describe())
@@ -49,7 +49,7 @@ func TestMultiSyncAgreement(t *testing.T) {
 	repeatInParallel(t, 9, func(t *testing.T, repetition int) {
 		honestCount := repetition + 3
 		sm := sim.NewSimulation(SyncConfig(honestCount), GraniteConfig(), sim.TraceNone)
-		a := sm.Base(0).Extend(sm.CIDGen.Sample())
+		a := sm.Base(0).Extend(sm.TipGen.Sample())
 		// All nodes start with the same chain and will observe the same extensions of that chain
 		// in subsequent instances.
 		sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
@@ -65,7 +65,7 @@ func TestMultiAsyncAgreement(t *testing.T) {
 	repeatInParallel(t, 9, func(t *testing.T, repetition int) {
 		honestCount := repetition + 3
 		sm := sim.NewSimulation(AsyncConfig(honestCount, 0), GraniteConfig(), sim.TraceNone)
-		sm.SetChains(sim.ChainCount{Count: honestCount, Chain: sm.Base(0).Extend(sm.CIDGen.Sample())})
+		sm.SetChains(sim.ChainCount{Count: honestCount, Chain: sm.Base(0).Extend(sm.TipGen.Sample())})
 
 		require.NoErrorf(t, sm.Run(INSTANCE_COUNT, MAX_ROUNDS), "%s", sm.Describe())
 		// Note: The expected decision only needs to be something recent.

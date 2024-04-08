@@ -8,9 +8,7 @@ import (
 
 // Simulated EC state for each protocol instance.
 type EC struct {
-	// The first instance's base chain's first epoch.
-	BaseEpoch int64
-	// Timestamp of the base epoch.
+	// Timestamp of the base chain.
 	BaseTimestamp time.Time
 	Instances     []*ECInstance
 }
@@ -28,7 +26,6 @@ type ECInstance struct {
 
 func NewEC(base gpbft.ECChain, beacon []byte) *EC {
 	return &EC{
-		BaseEpoch:     base.Base().Epoch,
 		BaseTimestamp: time.Time{},
 		Instances: []*ECInstance{
 			{

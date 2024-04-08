@@ -1,6 +1,7 @@
 package test
 
 import (
+	"bytes"
 	"os"
 	"runtime"
 	"strconv"
@@ -39,7 +40,7 @@ nextParticipant:
 		decision, ok := sm.GetDecision(instance, participant.ID())
 		require.True(t, ok, "no decision for participant %d in instance %d", participant.ID(), instance)
 		for _, e := range expected {
-			if decision.Head().Eq(e) {
+			if bytes.Equal(decision.Head(), e) {
 				continue nextParticipant
 			}
 		}

@@ -2,73 +2,25 @@ package gpbft
 
 import (
 	"bytes"
-	"encoding/binary"
+	"encoding/hex"
 	"errors"
-	"io"
-	"strconv"
 	"strings"
 )
 
-// Information about a tipset that is relevant to the F3 protocol.
-// This is a lightweight value type comprising 3 machine words.
-// Fields are exported for CBOR generation, but are opqaue and should not be accessed
-// within the protocol implementation.
-type TipSet struct {
-	// The epoch of the blocks in the tipset.
-	Epoch int64
-	// The identifier of the tipset.
-	ID TipSetID
-}
-
-// Creates a new tipset.
-func NewTipSet(epoch int64, cid TipSetID) TipSet {
-	return TipSet{
-		Epoch: epoch,
-		ID:    cid,
-	}
-}
-
-// Returns a zero value tipset.
-// The zero value is not a meaningful tipset and may be used to represent bottom.
-func ZeroTipSet() TipSet {
-	return TipSet{}
-}
-
-func (t TipSet) IsZero() bool {
-	return t.Epoch == 0 && t.ID.IsZero()
-}
-
-func (t TipSet) Eq(other TipSet) bool {
-	return t.Epoch == other.Epoch && t.ID.Eq(other.ID)
-}
-
-// An identifier for this tipset suitable for use as a map key.
-// This must completely and verifiably determine the tipset data; it is not sufficient to use
-// the block CIDs and rely on external verification of the attached metadata.
-func (t TipSet) Key() string {
-	buf := bytes.Buffer{}
-	buf.Write(t.ID.Bytes())
-	_ = binary.Write(&buf, binary.BigEndian, t.Epoch)
-	return buf.String()
-}
-
-func (t TipSet) String() string {
-	var b strings.Builder
-	b.Write(t.ID.Bytes())
-	b.WriteString("@")
-	b.WriteString(strconv.FormatInt(t.Epoch, 10))
-	return b.String()
-}
-
-func (t TipSet) MarshalForSigning(w io.Writer) {
-	_ = binary.Write(w, binary.BigEndian, t.Epoch)
-	_, _ = w.Write(t.ID.Bytes())
-}
+// Opaque type representing a tipset.
+// This is expected to be:
+// - a canonical sequence of CIDs of block headers identifying a tipset,
+// - a commitment to the resulting power table,
+// - a commitment to additional derived values.
+// However, GossipPBFT doesn't need to know anything about that structure.
+type TipSet = []byte
 
 // A chain of tipsets comprising a base (the last finalised tipset from which the chain extends).
 // and (possibly empty) suffix.
-// Tipsets are assumed to be built contiguously on each other, though epochs may be missing due to null rounds.
-// The zero value is not a valid chain, and represents a "bottom" value when used in a Granite message.
+// Tipsets are assumed to be built contiguously on each other,
+// though epochs may be missing due to null rounds.
+// The zero value is not a valid chain, and represents a "bottom" value
+// when used in a Granite message.
 type ECChain []TipSet
 
 // A map key for a chain. The zero value means "bottom".
@@ -115,13 +67,8 @@ func (c ECChain) BaseChain() ECChain {
 	return ECChain{c[0]}
 }
 
-// Returns a new chain extending this chain with one tipset.
-// The new tipset is given an epoch and weight one greater than the previous head.
-func (c ECChain) Extend(cid TipSetID) ECChain {
-	return append(c, TipSet{
-		Epoch: c.Head().Epoch + 1,
-		ID:    cid,
-	})
+func (c ECChain) Extend(tip TipSet) ECChain {
+	return append(c, tip)
 }
 
 // Returns a chain with suffix (after the base) truncated to a maximum length.
@@ -137,7 +84,7 @@ func (c ECChain) Eq(other ECChain) bool {
 		return false
 	}
 	for i := range c {
-		if !c[i].Eq(other[i]) {
+		if !bytes.Equal(c[i], other[i]) {
 			return false
 		}
 	}
@@ -150,16 +97,16 @@ func (c ECChain) SameBase(other ECChain) bool {
 	if c.IsZero() || other.IsZero() {
 		return false
 	}
-	return c.Base().Eq(other.Base())
+	return bytes.Equal(c.Base(), other.Base())
 }
 
 // Check whether a chain has a specific base tipset.
 // Always false for a zero value.
 func (c ECChain) HasBase(t TipSet) bool {
-	if c.IsZero() || t.IsZero() {
+	if c.IsZero() || len(t) == 0 {
 		return false
 	}
-	return c[0].Eq(t)
+	return bytes.Equal(c[0], t)
 }
 
 // Checks whether a chain has some prefix (including the base).
@@ -172,7 +119,7 @@ func (c ECChain) HasPrefix(other ECChain) bool {
 		return false
 	}
 	for i := range other {
-		if !c[i].Eq(other[i]) {
+		if !bytes.Equal(c[i], other[i]) {
 			return false
 		}
 	}
@@ -181,12 +128,12 @@ func (c ECChain) HasPrefix(other ECChain) bool {
 
 // Checks whether a chain has some tipset (including as its base).
 func (c ECChain) HasTipset(t TipSet) bool {
-	if t.IsZero() {
+	if len(t) == 0 {
 		// Chain can never contain zero-valued TipSet.
 		return false
 	}
 	for _, t2 := range c {
-		if t2.Eq(t) {
+		if bytes.Equal(t, t2) {
 			return true
 		}
 	}
@@ -202,15 +149,9 @@ func (c ECChain) Validate() error {
 	if c.IsZero() {
 		return nil
 	}
-	var epochSoFar int64
 	for _, tipSet := range c {
-		switch {
-		case tipSet.IsZero():
+		if len(tipSet) == 0 {
 			return errors.New("chain cannot contain zero-valued tip sets")
-		case tipSet.Epoch <= epochSoFar:
-			return errors.New("chain epoch must be in order and unique")
-		default:
-			epochSoFar = tipSet.Epoch
 		}
 	}
 	return nil
@@ -221,7 +162,7 @@ func (c ECChain) Validate() error {
 func (c ECChain) Key() ChainKey {
 	buf := bytes.Buffer{}
 	for _, t := range c {
-		buf.Write([]byte(t.Key()))
+		buf.Write(t)
 	}
 	return ChainKey(buf.String())
 }
@@ -230,7 +171,7 @@ func (c ECChain) String() string {
 	var b strings.Builder
 	b.WriteString("[")
 	for i, t := range c {
-		b.WriteString(t.String())
+		b.WriteString(hex.EncodeToString(t))
 		if i < len(c)-1 {
 			b.WriteString(", ")
 		}
