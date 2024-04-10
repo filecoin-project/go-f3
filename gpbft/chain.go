@@ -2,6 +2,7 @@ package gpbft
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"strings"
@@ -160,8 +161,15 @@ func (c ECChain) Validate() error {
 // Returns an identifier for the chain suitable for use as a map key.
 // This must completely determine the sequence of tipsets in the chain.
 func (c ECChain) Key() ChainKey {
-	buf := bytes.Buffer{}
+	var ln int
 	for _, t := range c {
+		ln += 4      // for length (over-estimate)
+		ln += len(t) // for data
+	}
+	var buf bytes.Buffer
+	buf.Grow(ln)
+	for _, t := range c {
+		_ = binary.Write(&buf, binary.BigEndian, uint32(len(t)))
 		buf.Write(t)
 	}
 	return ChainKey(buf.String())
