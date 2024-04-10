@@ -163,7 +163,7 @@ func (c ECChain) Validate() error {
 func (c ECChain) Key() ChainKey {
 	var ln int
 	for _, t := range c {
-		ln += 4      // for length (over-estimate)
+		ln += 4      // for length
 		ln += len(t) // for data
 	}
 	var buf bytes.Buffer
