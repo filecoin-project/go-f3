@@ -42,6 +42,7 @@ func TestMultiSyncPair(t *testing.T) {
 
 	require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
 	expected := sm.GetInstance(instanceCount).Base
+	require.NotNil(t, expected)
 	requireConsensusAtInstance(t, sm, instanceCount-1, expected.Head())
 }
 

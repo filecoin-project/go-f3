@@ -500,7 +500,7 @@ func (i *instance) beginQuality() error {
 	// Broadcast input value and wait up to Δ to receive from others.
 	i.phase = QUALITY_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony()
-	i.broadcast(i.round, QUALITY_PHASE, i.input, nil, nil)
+	i.broadcast(i.round, QUALITY_PHASE, i.input, nil, false)
 	return nil
 }
 
@@ -556,14 +556,7 @@ func (i *instance) beginConverge() {
 			panic("beginConverge called but no justification for proposal")
 		}
 	}
-	_, pubkey := i.powerTable.Get(i.participant.id)
-	ticket, err := MakeTicket(i.beacon, i.instanceID, i.round, pubkey, i.participant.host)
-	if err != nil {
-		i.log("error while creating VRF ticket: %v", err)
-		return
-	}
-
-	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, ticket, justification)
+	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, justification, true)
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
@@ -614,7 +607,7 @@ func (i *instance) beginPrepare(justification *Justification) {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony()
-	i.broadcast(i.round, PREPARE_PHASE, i.value, nil, justification)
+	i.broadcast(i.round, PREPARE_PHASE, i.value, justification, false)
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -658,7 +651,7 @@ func (i *instance) beginCommit() {
 		}
 	}
 
-	i.broadcast(i.round, COMMIT_PHASE, i.value, nil, justification)
+	i.broadcast(i.round, COMMIT_PHASE, i.value, justification, false)
 }
 
 func (i *instance) tryCommit(round uint64) error {
@@ -720,7 +713,7 @@ func (i *instance) beginDecide(round uint64) {
 	// in different rounds (but for the same value).
 	// Since each node sends only one DECIDE message, they must share the same vote
 	// in order to be aggregated.
-	i.broadcast(0, DECIDE_PHASE, i.value, nil, justification)
+	i.broadcast(0, DECIDE_PHASE, i.value, justification, false)
 }
 
 // Skips immediately to the DECIDE phase and sends a DECIDE message
@@ -730,7 +723,7 @@ func (i *instance) skipToDecide(value ECChain, justification *Justification) {
 	i.phase = DECIDE_PHASE
 	i.proposal = value
 	i.value = i.proposal
-	i.broadcast(0, DECIDE_PHASE, i.value, nil, justification)
+	i.broadcast(0, DECIDE_PHASE, i.value, justification, false)
 }
 
 func (i *instance) tryDecide() error {
@@ -784,30 +777,30 @@ func (i *instance) terminated() bool {
 	return i.phase == TERMINATED_PHASE
 }
 
-func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Ticket, justification *Justification) {
+func (i *instance) broadcast(round uint64, step Phase, value ECChain, justification *Justification, createTicket bool) {
 	p := Payload{
 		Instance: i.instanceID,
 		Round:    round,
 		Step:     step,
 		Value:    value,
 	}
-	sp := p.MarshalForSigning(i.participant.host.NetworkName())
-
-	sig, err := i.sign(sp)
-	if err != nil {
-		i.log("error while signing message: %v", err)
-		return
-	}
-
-	gmsg := &GMessage{
-		Sender:        i.participant.id,
-		Vote:          p,
-		Signature:     sig,
-		Ticket:        ticket,
+	messageTemplate := MessageTemplate{
+		powerTable:    &i.powerTable,
+		NetworkName:   i.participant.host.NetworkName(),
+		Payload:       p,
 		Justification: justification,
 	}
-	i.participant.host.Broadcast(gmsg)
-	i.enqueueInbox(gmsg)
+	if createTicket {
+		messageTemplate.BeaconForTicket = i.beacon
+	}
+	//gmsg, err := messageTemplate.Build(i.host, i.participantID)
+	//if err != nil {
+	//i.log("error while signing message: %v", err)
+	//return
+	//}
+
+	i.participant.host.RequestBroadcast(&messageTemplate)
+	//i.enqueueInbox(gmsg)
 }
 
 // Sets an alarm to be delivered after a synchrony delay.
@@ -845,11 +838,6 @@ func (i *instance) log(format string, args ...interface{}) {
 		i.tracer.Log("P%d{%d}: %s (round %d, step %s, proposal %s, value %s)", i.participant.id, i.instanceID, msg,
 			i.round, i.phase, &i.proposal, &i.value)
 	}
-}
-
-func (i *instance) sign(msg []byte) ([]byte, error) {
-	_, pubKey := i.powerTable.Get(i.participant.id)
-	return i.participant.host.Sign(pubKey, msg)
 }
 
 ///// Incremental quorum-calculation helper /////

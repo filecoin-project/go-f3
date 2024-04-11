@@ -25,7 +25,7 @@ type simHost struct {
 
 func newHost(id gpbft.ActorID, sim *Simulation) *simHost {
 	return &simHost{
-		Network:  sim.network,
+		Network:  sim.network.NetworkFor(sim.signingBacked, id),
 		Verifier: sim.signingBacked,
 		Signer:   sim.signingBacked,
 		sim:      sim,

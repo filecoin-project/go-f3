@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -94,22 +95,19 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	// Expect alarm is set to 2X of configured delta.
 	pt.host.EXPECT().SetAlarm(pt.time.Add(2 * pt.delta))
 
-	wantSignature := generateRandomBytes(pt.rng)
-
-	// Expect message is signed with expected payload.
-	pt.host.On("Sign", pt.pubKey, pt.matchMessageSigningPayload()).Return(wantSignature, nil)
-
 	// Expect a broadcast occurs with quality phase message, and the expected chain, signature.
-	wantQualityPhaseBroadcastMessage := &gpbft.GMessage{
-		Sender: pt.id,
-		Vote: gpbft.Payload{
+	wantQualityPhaseBroadcastTemplate := &gpbft.MessageTemplate{
+		NetworkName: pt.networkName,
+
+		Payload: gpbft.Payload{
 			Instance: pt.instance,
 			Step:     gpbft.QUALITY_PHASE,
 			Value:    pt.canonicalChain,
 		},
-		Signature: wantSignature,
 	}
-	pt.host.EXPECT().Broadcast(wantQualityPhaseBroadcastMessage)
+	pt.host.EXPECT().RequestBroadcast(mock.MatchedBy(func(mt *gpbft.MessageTemplate) bool {
+		return assert.ObjectsExportedFieldsAreEqual(mt, wantQualityPhaseBroadcastTemplate)
+	}))
 }
 
 func (pt *participantTestSubject) requireNotStarted() {

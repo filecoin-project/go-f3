@@ -52,6 +52,31 @@ func (n *Network) AddParticipant(p gpbft.Receiver) {
 	n.participants[p.ID()] = p
 }
 
+////// Network interface
+
+func (n *Network) NetworkFor(signer gpbft.Signer, id gpbft.ActorID) *NetworkFor {
+	return &NetworkFor{
+		ParticipantID: id,
+		Signer:        signer,
+		Network:       n,
+	}
+}
+
+type NetworkFor struct {
+	ParticipantID gpbft.ActorID
+	Signer        gpbft.Signer
+	*Network
+}
+
+func (nf *NetworkFor) RequestBroadcast(mt *gpbft.MessageTemplate) {
+	gmsg, err := mt.Build(nf.Signer, nf.ParticipantID)
+	if err != nil {
+		nf.Log("building message for: %d: %+v", nf.ParticipantID, err)
+		return
+	}
+	nf.Broadcast(gmsg)
+}
+
 func (n *Network) NetworkName() gpbft.NetworkName {
 	return n.networkName
 }
@@ -59,16 +84,19 @@ func (n *Network) NetworkName() gpbft.NetworkName {
 func (n *Network) Broadcast(msg *gpbft.GMessage) {
 	n.log(TraceSent, "P%d ↗ %v", msg.Sender, msg)
 	for _, dest := range n.participantIDs {
+		// FIXME: something in gpbft assumes that we will immediately recieve message from ourselves
+		latencySample := time.Duration(0)
 		if dest != msg.Sender {
-			latencySample := n.latency.Sample(n.Time(), msg.Sender, dest)
-			n.queue.Insert(
-				messageInFlight{
-					source:    msg.Sender,
-					dest:      dest,
-					payload:   *msg,
-					deliverAt: n.clock.Add(latencySample),
-				})
+			latencySample = n.latency.Sample(n.Time(), msg.Sender, dest)
 		}
+
+		n.queue.Insert(
+			messageInFlight{
+				source:    msg.Sender,
+				dest:      dest,
+				payload:   *msg,
+				deliverAt: n.clock.Add(latencySample),
+			})
 	}
 }
 
