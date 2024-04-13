@@ -97,7 +97,7 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 			TipGen:      tipGen,
 			id:          id,
 		}
-		participants[i] = gpbft.NewParticipant(id, graniteConfig, host, host)
+		participants[i] = gpbft.NewParticipant(id, graniteConfig, host, host, 0)
 		pubKey := ntwk.GenerateKey()
 		ntwk.AddParticipant(participants[i], pubKey)
 		ec.AddParticipant(id, gpbft.NewStoragePower(1), pubKey)
