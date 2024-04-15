@@ -4,6 +4,8 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
+var _ Receiver = (*Absent)(nil)
+
 type Absent struct {
 	id   gpbft.ActorID
 	host gpbft.Host

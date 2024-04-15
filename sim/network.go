@@ -7,21 +7,8 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/sim/adversary"
 )
-
-type AdversaryReceiver interface {
-	gpbft.Receiver
-	AllowMessage(from gpbft.ActorID, to gpbft.ActorID, msg gpbft.GMessage) bool
-}
-
-// Endpoint with which the adversary can control the network
-type AdversaryHost interface {
-	gpbft.Host
-	// Sends a message to all other participants, immediately.
-	// Note that the adversary can subsequently delay delivery to some participants,
-	// before messages are actually received.
-	BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.GMessage)
-}
 
 const (
 	TraceNone = iota
@@ -142,7 +129,7 @@ func (n *Network) BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.GMessage)
 }
 
 // Returns whether there are any more messages to process.
-func (n *Network) Tick(adv AdversaryReceiver) (bool, error) {
+func (n *Network) Tick(adv adversary.Receiver) (bool, error) {
 	// Find first message the adversary will allow.
 	i := 0
 	if adv != nil && !n.globalStabilisationElapsed {
