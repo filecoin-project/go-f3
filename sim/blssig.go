@@ -30,10 +30,10 @@ func (b *BLSSigningBackend) Sign(sender gpbft.PubKey, msg []byte) ([]byte, error
 func NewBLSSigningBackend() *BLSSigningBackend {
 	suite := bls12381.NewBLS12381Suite()
 	return &BLSSigningBackend{
-		Verifier:        blssig.VerifierWithKeyOnG2(),
+		Verifier:        blssig.VerifierWithKeyOnG1(),
 		signersByPubKey: make(map[string]*blssig.Signer),
 		suite:           suite,
-		scheme:          bdn.NewSchemeOnG1(suite),
+		scheme:          bdn.NewSchemeOnG2(suite),
 	}
 }
 
@@ -43,6 +43,6 @@ func (b *BLSSigningBackend) GenerateKey() (gpbft.PubKey, any) {
 	if err != nil {
 		panic(err)
 	}
-	b.signersByPubKey[string(pubKeyB)] = blssig.SignerWithKeyOnG2(pubKeyB, priv)
+	b.signersByPubKey[string(pubKeyB)] = blssig.SignerWithKeyOnG1(pubKeyB, priv)
 	return pubKeyB, priv
 }

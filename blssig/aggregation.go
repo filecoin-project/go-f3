@@ -7,7 +7,6 @@ import (
 
 	"github.com/drand/kyber"
 	"github.com/drand/kyber/sign"
-	"github.com/drand/kyber/sign/bdn"
 	"golang.org/x/xerrors"
 )
 
@@ -22,7 +21,7 @@ func (v Verifier) Aggregate(pubkeys []gpbft.PubKey, signatures [][]byte) ([]byte
 		return nil, xerrors.Errorf("converting public keys to mask: %w", err)
 	}
 
-	aggSigPoint, err := bdn.AggregateSignatures(v.suite, signatures, mask)
+	aggSigPoint, err := v.scheme.AggregateSignatures(signatures, mask)
 	if err != nil {
 		return nil, xerrors.Errorf("computing aggregate signature: %w", err)
 	}
@@ -40,12 +39,12 @@ func (v Verifier) VerifyAggregate(msg []byte, signature []byte, pubkeys []gpbft.
 		return xerrors.Errorf("converting public keys to mask: %w", err)
 	}
 
-	aggPubKey, err := bdn.AggregatePublicKeys(v.suite, mask)
+	aggPubKey, err := v.scheme.AggregatePublicKeys(mask)
 	if err != nil {
 		return xerrors.Errorf("aggregating public keys: %w", err)
 	}
 
-	return bdn.Verify(v.suite, aggPubKey, msg, signature)
+	return v.scheme.Verify(aggPubKey, msg, signature)
 }
 
 func (v Verifier) pubkeysToMask(pubkeys []gpbft.PubKey) (*sign.Mask, error) {
