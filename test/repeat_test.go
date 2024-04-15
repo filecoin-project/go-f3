@@ -10,6 +10,10 @@ import (
 )
 
 func TestRepeat(t *testing.T) {
+	if testing.Short() {
+		t.Skip("too slow for testing.Short")
+	}
+
 	t.Parallel()
 
 	// Repeated messages should not interfere with consensus. Hence, test with larger than 1/3 adversary power.

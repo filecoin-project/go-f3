@@ -115,6 +115,10 @@ func TestSyncAgreement(t *testing.T) {
 }
 
 func TestAsyncAgreement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	t.Parallel()
 	// These iterations are much slower, so we can't test as many participants.
 	for n := 3; n <= 16; n++ {
@@ -148,6 +152,10 @@ func TestSyncHalves(t *testing.T) {
 }
 
 func TestSyncHalvesBLS(t *testing.T) {
+	if testing.Short() {
+		t.Skip("too slow for testing.Short")
+	}
+
 	t.Parallel()
 	repeatInParallel(t, 3, func(t *testing.T, repetition int) {
 		honestCount := repetition*2 + 2
@@ -163,6 +171,10 @@ func TestSyncHalvesBLS(t *testing.T) {
 }
 
 func TestAsyncHalves(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	t.Parallel()
 	for n := 4; n <= 20; n += 2 {
 		honestCount := n
@@ -182,6 +194,10 @@ func TestAsyncHalves(t *testing.T) {
 }
 
 func TestRequireStrongQuorumToProgress(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	t.Parallel()
 	repeatInParallel(t, ASYNC_ITERS, func(t *testing.T, repetition int) {
 		sm := sim.NewSimulation(AsyncConfig(30, repetition), GraniteConfig(), sim.TraceNone)
