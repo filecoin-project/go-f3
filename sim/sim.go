@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/filecoin-project/go-f3/blssig"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim/adversary"
 	"golang.org/x/xerrors"
@@ -24,33 +23,19 @@ type Config struct {
 	ECEpochDuration time.Duration
 	// Time to wait after EC epoch before starting next instance.
 	ECStabilisationDelay time.Duration
-	// If nil then FakeSigner is used unless overriden by F3_TEST_USE_BLS
-	SigningBacked *SigningBacked
+	// If nil then FakeSigningBackend is used unless overriden by F3_TEST_USE_BLS
+	SigningBacked SigningBacked
 }
 
 func (c Config) UseBLS() Config {
-	c.SigningBacked = BLSSigningBacked()
+	c.SigningBacked = NewBLSSigningBackend()
 	return c
 }
 
-type SigningBacked struct {
+type SigningBacked interface {
 	gpbft.Signer
 	gpbft.Verifier
-}
-
-func FakeSigningBacked() *SigningBacked {
-	fakeSigner := &FakeSigner{}
-	return &SigningBacked{
-		Signer:   fakeSigner,
-		Verifier: fakeSigner,
-	}
-}
-
-func BLSSigningBacked() *SigningBacked {
-	return &SigningBacked{
-		Signer:   blssig.SignerWithKeyOnG2(),
-		Verifier: blssig.VerifierWithKeyOnG2(),
-	}
+	GenerateKey() (gpbft.PubKey, any)
 }
 
 type Simulation struct {
@@ -72,18 +57,18 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 
 	if sb == nil {
 		if os.Getenv("F3_TEST_USE_BLS") != "1" {
-			sb = FakeSigningBacked()
+			sb = NewFakeSigningBackend()
 		} else {
-			sb = BLSSigningBacked()
+			sb = NewBLSSigningBackend()
 		}
 	}
 
-	ntwk := NewNetwork(lat, traceLevel, *sb, "sim")
+	ntwk := NewNetwork(lat, traceLevel, sb, "sim")
 	baseChain, _ := gpbft.NewChain([]byte(("genesis")))
 	beacon := []byte("beacon")
 	ec := NewEC(baseChain, beacon)
 	tipGen := NewTipGen(0x264803e715714f95) // Seed from Drand
-	decisions := NewDecisionLog(ntwk, sb.Verifier)
+	decisions := NewDecisionLog(ntwk, sb)
 
 	// Create participants.
 	participants := make([]*gpbft.Participant, simConfig.HonestCount)
@@ -98,7 +83,7 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 			id:          id,
 		}
 		participants[i] = gpbft.NewParticipant(id, graniteConfig, host, host, 0)
-		pubKey := ntwk.GenerateKey()
+		pubKey, _ := sb.GenerateKey()
 		ntwk.AddParticipant(participants[i], pubKey)
 		ec.AddParticipant(id, gpbft.NewStoragePower(1), pubKey)
 	}
@@ -125,7 +110,7 @@ func (s *Simulation) PowerTable(instance uint64) *gpbft.PowerTable {
 
 func (s *Simulation) SetAdversary(adv adversary.Receiver, power uint) {
 	s.Adversary = adv
-	pubKey := s.Network.GenerateKey()
+	pubKey, _ := s.Network.GenerateKey()
 	s.Network.AddParticipant(adv, pubKey)
 	s.EC.AddParticipant(adv.ID(), gpbft.NewStoragePower(int64(power)), pubKey)
 }
