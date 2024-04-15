@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/xerrors"
-
 	"github.com/filecoin-project/go-f3/blssig"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/sim/adversary"
+	"golang.org/x/xerrors"
 )
 
 type Config struct {
@@ -58,7 +58,7 @@ type Simulation struct {
 	Network      *Network
 	EC           *EC
 	Participants []*gpbft.Participant
-	Adversary    AdversaryReceiver
+	Adversary    adversary.Receiver
 	Decisions    *DecisionLog
 	TipGen       *TipGen
 }
@@ -123,7 +123,7 @@ func (s *Simulation) PowerTable(instance uint64) *gpbft.PowerTable {
 	return s.EC.Instances[instance].PowerTable
 }
 
-func (s *Simulation) SetAdversary(adv AdversaryReceiver, power uint) {
+func (s *Simulation) SetAdversary(adv adversary.Receiver, power uint) {
 	s.Adversary = adv
 	pubKey := s.Network.GenerateKey()
 	s.Network.AddParticipant(adv, pubKey)

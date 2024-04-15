@@ -3,17 +3,18 @@ package adversary
 import (
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/sim"
 )
+
+var _ Receiver = (*ImmediateDecide)(nil)
 
 // / An "adversary" that immediately sends a DECIDE message, justified by its own COMMIT.
 type ImmediateDecide struct {
 	id    gpbft.ActorID
-	host  sim.AdversaryHost
+	host  Host
 	value gpbft.ECChain
 }
 
-func NewImmediateDecide(id gpbft.ActorID, host sim.AdversaryHost, value gpbft.ECChain) *ImmediateDecide {
+func NewImmediateDecide(id gpbft.ActorID, host Host, value gpbft.ECChain) *ImmediateDecide {
 	return &ImmediateDecide{
 		id:    id,
 		host:  host,

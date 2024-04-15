@@ -4,17 +4,17 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
-type (
-	Repeat struct {
-		id            gpbft.ActorID
-		host          gpbft.Host
-		echoCountDist CountSampler
-	}
-	CountSampler interface {
-		// TODO replace with math/rand/v2 rand.Source once upgraded to go 1.22.
-		Uint64() uint64
-	}
-)
+var _ Receiver = (*Repeat)(nil)
+
+type Repeat struct {
+	id            gpbft.ActorID
+	host          gpbft.Host
+	echoCountDist CountSampler
+}
+type CountSampler interface {
+	// TODO replace with math/rand/v2 rand.Source once upgraded to go 1.22.
+	Uint64() uint64
+}
 
 func NewRepeat(id gpbft.ActorID, host gpbft.Host, echoCountDist CountSampler) *Repeat {
 	return &Repeat{

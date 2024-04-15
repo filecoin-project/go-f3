@@ -5,22 +5,23 @@ import (
 
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/sim"
 )
+
+var _ Receiver = (*WithholdCommit)(nil)
 
 // This adversary send its COMMIT message to only a single victim, withholding it from others.
 // Against a naive algorithm, when set up with 30% of power, and a victim set with 40%,
 // it can cause one victim to decide, while others revert to the base.
 type WithholdCommit struct {
 	id   gpbft.ActorID
-	host sim.AdversaryHost
+	host Host
 	// The first victim is the target, others are those who need to confirm.
 	victims     []gpbft.ActorID
 	victimValue gpbft.ECChain
 }
 
 // A participant that never sends anything.
-func NewWitholdCommit(id gpbft.ActorID, host sim.AdversaryHost) *WithholdCommit {
+func NewWitholdCommit(id gpbft.ActorID, host Host) *WithholdCommit {
 	return &WithholdCommit{
 		id:   id,
 		host: host,
