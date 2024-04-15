@@ -4,8 +4,8 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/filecoin-project/go-f3/adversary"
 	"github.com/filecoin-project/go-f3/sim"
+	"github.com/filecoin-project/go-f3/sim/adversary"
 	"github.com/stretchr/testify/require"
 )
 
