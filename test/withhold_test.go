@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/filecoin-project/go-f3/adversary"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim"
+	"github.com/filecoin-project/go-f3/sim/adversary"
 	"github.com/stretchr/testify/require"
 )
 
