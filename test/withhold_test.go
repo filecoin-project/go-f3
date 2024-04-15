@@ -16,7 +16,7 @@ func TestWitholdCommit1(t *testing.T) {
 	simConfig := AsyncConfig(7, i)
 	simConfig.LatencyMean = 10 * time.Millisecond // Near-synchrony
 	sm := sim.NewSimulation(simConfig, GraniteConfig(), sim.TraceNone)
-	adv := adversary.NewWitholdCommit(99, sm.HostFor(99), sm.PowerTable(0))
+	adv := adversary.NewWitholdCommit(99, sm.HostFor(99))
 	sm.SetAdversary(adv, 3) // Adversary has 30% of 10 total power.
 
 	a := sm.Base(0).Extend(sm.TipGen.Sample())

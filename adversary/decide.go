@@ -8,18 +8,16 @@ import (
 
 // / An "adversary" that immediately sends a DECIDE message, justified by its own COMMIT.
 type ImmediateDecide struct {
-	id         gpbft.ActorID
-	host       sim.AdversaryHost
-	powertable *gpbft.PowerTable
-	value      gpbft.ECChain
+	id    gpbft.ActorID
+	host  sim.AdversaryHost
+	value gpbft.ECChain
 }
 
-func NewImmediateDecide(id gpbft.ActorID, host sim.AdversaryHost, powertable *gpbft.PowerTable, value gpbft.ECChain) *ImmediateDecide {
+func NewImmediateDecide(id gpbft.ActorID, host sim.AdversaryHost, value gpbft.ECChain) *ImmediateDecide {
 	return &ImmediateDecide{
-		id:         id,
-		host:       host,
-		powertable: powertable,
-		value:      value,
+		id:    id,
+		host:  host,
+		value: value,
 	}
 }
 
@@ -48,6 +46,7 @@ func (i *ImmediateDecide) ReceiveAlarm() error {
 }
 
 func (i *ImmediateDecide) Begin() {
+	_, powertable, _ := i.host.GetCanonicalChain()
 	// Immediately send a DECIDE message
 	payload := gpbft.Payload{
 		Instance: 0,
@@ -62,14 +61,14 @@ func (i *ImmediateDecide) Begin() {
 		Value:    i.value,
 	}
 	sigPayload := justificationPayload.MarshalForSigning(i.host.NetworkName())
-	_, pubkey := i.powertable.Get(i.id)
+	_, pubkey := powertable.Get(i.id)
 	sig, err := i.host.Sign(pubkey, sigPayload)
 	if err != nil {
 		panic(err)
 	}
 
 	signers := bitfield.New()
-	signers.Set(uint64(i.powertable.Lookup[i.id]))
+	signers.Set(uint64(powertable.Lookup[i.id]))
 	aggregatedSig, err := i.host.Aggregate([]gpbft.PubKey{pubkey}, [][]byte{sig})
 	if err != nil {
 		panic(err)
@@ -81,7 +80,7 @@ func (i *ImmediateDecide) Begin() {
 		Signature: aggregatedSig,
 	}
 
-	i.broadcast(payload, &justification)
+	i.broadcast(payload, &justification, powertable)
 }
 
 func (i *ImmediateDecide) AllowMessage(_ gpbft.ActorID, _ gpbft.ActorID, _ gpbft.GMessage) bool {
@@ -89,9 +88,9 @@ func (i *ImmediateDecide) AllowMessage(_ gpbft.ActorID, _ gpbft.ActorID, _ gpbft
 	return true
 }
 
-func (i *ImmediateDecide) broadcast(payload gpbft.Payload, justification *gpbft.Justification) {
+func (i *ImmediateDecide) broadcast(payload gpbft.Payload, justification *gpbft.Justification, powertable gpbft.PowerTable) {
 	pS := payload.MarshalForSigning(i.host.NetworkName())
-	_, pubkey := i.powertable.Get(i.id)
+	_, pubkey := powertable.Get(i.id)
 	sig, err := i.host.Sign(pubkey, pS)
 	if err != nil {
 		panic(err)

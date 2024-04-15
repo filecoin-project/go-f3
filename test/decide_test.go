@@ -2,10 +2,11 @@ package test
 
 import (
 	"fmt"
+	"testing"
+
 	"github.com/filecoin-project/go-f3/adversary"
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestImmediateDecide(t *testing.T) {
@@ -13,7 +14,7 @@ func TestImmediateDecide(t *testing.T) {
 
 	// Create adversarial node
 	value := sm.Base(0).Extend(sm.TipGen.Sample())
-	adv := adversary.NewImmediateDecide(99, sm.HostFor(99), sm.PowerTable(0), value)
+	adv := adversary.NewImmediateDecide(99, sm.HostFor(99), value)
 
 	// Add the adversary to the simulation with 3/4 of total power.
 	sm.SetAdversary(adv, 3)
