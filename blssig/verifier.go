@@ -11,14 +11,16 @@ import (
 
 type Verifier struct {
 	suite    pairing.Suite
+	scheme   *bdn.Scheme
 	keyGroup kyber.Group
 }
 
-func VerifierWithKeyOnG2() Verifier {
+func VerifierWithKeyOnG1() Verifier {
 	suite := bls12381.NewBLS12381Suite()
 	return Verifier{
 		suite:    suite,
-		keyGroup: suite.G2(),
+		scheme:   bdn.NewSchemeOnG2(suite),
+		keyGroup: suite.G1(),
 	}
 }
 
@@ -32,5 +34,5 @@ func (v Verifier) Verify(pubKey gpbft.PubKey, msg, sig []byte) error {
 		return xerrors.Errorf("the public key is a null point")
 	}
 
-	return bdn.Verify(v.suite, pubKeyPoint, msg, sig)
+	return v.scheme.Verify(pubKeyPoint, msg, sig)
 }

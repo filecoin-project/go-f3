@@ -24,14 +24,14 @@ type (
 func TestBLSSigning(t *testing.T) {
 	var (
 		blsSuit   = bls12381.NewBLS12381Suite()
-		blsSchema = bdn.NewSchemeOnG1(blsSuit)
+		blsSchema = bdn.NewSchemeOnG2(blsSuit)
 	)
 	suite.Run(t, NewSigningSuite(func(t *testing.T) (gpbft.PubKey, gpbft.Signer) {
 		privKey, pubKey := blsSchema.NewKeyPair(blsSuit.RandomStream())
 		pubKeyB, err := pubKey.MarshalBinary()
 		require.NoError(t, err)
-		return pubKeyB, blssig.SignerWithKeyOnG2(pubKeyB, privKey)
-	}, blssig.VerifierWithKeyOnG2()))
+		return pubKeyB, blssig.SignerWithKeyOnG1(pubKeyB, privKey)
+	}, blssig.VerifierWithKeyOnG1()))
 }
 
 func TestFakeSigning(t *testing.T) {

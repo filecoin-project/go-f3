@@ -21,9 +21,9 @@ type Signer struct {
 	privKey kyber.Scalar
 }
 
-func SignerWithKeyOnG2(pub gpbft.PubKey, privKey kyber.Scalar) *Signer {
+func SignerWithKeyOnG1(pub gpbft.PubKey, privKey kyber.Scalar) *Signer {
 	return &Signer{
-		scheme:  bls.NewSchemeOnG1(bls12381.NewBLS12381Suite()),
+		scheme:  bls.NewSchemeOnG2(bls12381.NewBLS12381Suite()),
 		pubKey:  pub,
 		privKey: privKey,
 	}
