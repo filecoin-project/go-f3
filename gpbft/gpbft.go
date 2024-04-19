@@ -1074,6 +1074,9 @@ func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket) er
 	return nil
 }
 
+// I think it is ok to have non-determinism here. If the same ticket is used for two different values
+// then either we get a decision on one of them only or we go to a new round. Eventually there is a round
+// where the max ticket is held by a correct participant, who will not double vote.
 func (c *convergeState) findMaxTicketProposal(table PowerTable) ECChain {
 	var maxTicket *big.Int
 	var maxValue ECChain
