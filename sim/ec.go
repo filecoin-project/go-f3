@@ -1,15 +1,14 @@
 package sim
 
 import (
-	"github.com/filecoin-project/go-f3/gpbft"
 	"time"
+
+	"github.com/filecoin-project/go-f3/gpbft"
 )
 
 // Simulated EC state for each protocol instance.
 type EC struct {
-	// The first instance's base chain's first epoch.
-	BaseEpoch int64
-	// Timestamp of the base epoch.
+	// Timestamp of the base chain.
 	BaseTimestamp time.Time
 	Instances     []*ECInstance
 }
@@ -27,13 +26,12 @@ type ECInstance struct {
 
 func NewEC(base gpbft.ECChain, beacon []byte) *EC {
 	return &EC{
-		BaseEpoch:     base.Base().Epoch,
 		BaseTimestamp: time.Time{},
 		Instances: []*ECInstance{
 			{
 				Base:       base,
 				Chains:     make(map[gpbft.ActorID]gpbft.ECChain),
-				PowerTable: gpbft.NewPowerTable(nil),
+				PowerTable: gpbft.NewPowerTable(),
 				Beacon:     beacon,
 			},
 		},
@@ -42,7 +40,8 @@ func NewEC(base gpbft.ECChain, beacon []byte) *EC {
 
 // Adds a participant to the first instance.
 func (ec *EC) AddParticipant(id gpbft.ActorID, power *gpbft.StoragePower, pubkey []byte) {
-	if err := ec.Instances[0].PowerTable.Add(id, power, pubkey); err != nil {
+	entry := gpbft.PowerEntry{ID: id, Power: power, PubKey: pubkey}
+	if err := ec.Instances[0].PowerTable.Add(entry); err != nil {
 		panic("failed to add participant")
 	}
 }

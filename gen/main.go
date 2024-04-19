@@ -15,7 +15,6 @@ func main() {
 		gpbft.GMessage{},
 		gpbft.Payload{},
 		gpbft.Justification{},
-		gpbft.TipSet{},
 	)
 	if err != nil {
 		fmt.Println(err)

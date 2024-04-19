@@ -2,75 +2,85 @@ package sim
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"errors"
 	"fmt"
 
 	"github.com/filecoin-project/go-f3/gpbft"
-	"golang.org/x/crypto/blake2b"
-	"golang.org/x/xerrors"
 )
 
-type FakeSigner struct {
-	i int
+var _ SigningBacked = (*FakeSigningBackend)(nil)
+
+type FakeSigningBackend struct {
+	i        int
+	keyPairs map[string]string
 }
 
-var _ gpbft.Signer = (*FakeSigner)(nil)
-var _ gpbft.Verifier = (*FakeSigner)(nil)
+func NewFakeSigningBackend() *FakeSigningBackend {
+	return &FakeSigningBackend{
+		keyPairs: make(map[string]string),
+	}
+}
 
-func (s *FakeSigner) GenerateKey() gpbft.PubKey {
+func (s *FakeSigningBackend) GenerateKey() (gpbft.PubKey, any) {
 	pubKey := gpbft.PubKey(fmt.Sprintf("pubkey:%08x", s.i))
+	privKey := fmt.Sprintf("privkey:%08x", s.i)
+	s.keyPairs[string(pubKey)] = privKey
 	s.i++
-	return pubKey
+	return pubKey, privKey
 }
 
-func (_ *FakeSigner) Sign(signer gpbft.PubKey, msg []byte) ([]byte, error) {
-	hash, _ := blake2b.New256(nil)
-	hash.Write(signer)
-	hash.Write(msg)
-
-	return hash.Sum(nil), nil
+func (s *FakeSigningBackend) Sign(signer gpbft.PubKey, msg []byte) ([]byte, error) {
+	return s.generateSignature(signer, msg)
 }
 
-func (_ *FakeSigner) Verify(signer gpbft.PubKey, msg, sig []byte) error {
-	hash, _ := blake2b.New256(nil)
-	hash.Write(signer)
-	hash.Write(msg)
-
-	if !bytes.Equal(hash.Sum(nil), sig) {
-		return xerrors.Errorf("signature mismatch: %x != %x", hash.Sum(nil), sig)
+func (s *FakeSigningBackend) generateSignature(signer gpbft.PubKey, msg []byte) ([]byte, error) {
+	priv, known := s.keyPairs[string(signer)]
+	if !known {
+		return nil, errors.New("unknown signer")
 	}
-	return nil
+	hasher := sha256.New()
+	hasher.Write(signer)
+	hasher.Write([]byte(priv))
+	hasher.Write(msg)
+	return hasher.Sum(nil), nil
 }
 
-func (_ *FakeSigner) Aggregate(pubKeys []gpbft.PubKey, sigs [][]byte) ([]byte, error) {
-
-	// Fake implementation.
-	hash, _ := blake2b.New256(nil)
-	for i, s := range sigs {
-		hash.Write(pubKeys[i])
-		hash.Write(s)
+func (s *FakeSigningBackend) Verify(signer gpbft.PubKey, msg, sig []byte) error {
+	switch wantSig, err := s.generateSignature(signer, msg); {
+	case err != nil:
+		return fmt.Errorf("cannot verify: %w", err)
+	case !bytes.Equal(wantSig, sig):
+		return errors.New("signature is not valid")
+	default:
+		return nil
 	}
-
-	return hash.Sum(nil), nil
 }
 
-func (_ *FakeSigner) VerifyAggregate(payload, aggSig []byte, signers []gpbft.PubKey) error {
-	aggHash, _ := blake2b.New256(nil)
-	sigHash, _ := blake2b.New256(nil)
-	sumBuf := make([]byte, 0, blake2b.Size256)
+func (_ *FakeSigningBackend) Aggregate(signers []gpbft.PubKey, sigs [][]byte) ([]byte, error) {
+	if len(signers) != len(sigs) {
+		return nil, errors.New("public keys and signatures length mismatch")
+	}
+	hasher := sha256.New()
+	for i, signer := range signers {
+		hasher.Write(signer)
+		hasher.Write(sigs[i])
+	}
+	return hasher.Sum(nil), nil
+}
+
+func (s *FakeSigningBackend) VerifyAggregate(payload, aggSig []byte, signers []gpbft.PubKey) error {
+	hasher := sha256.New()
 	for _, signer := range signers {
-		sigHash.Reset()
-		sumBuf := sumBuf[:0]
-
-		sigHash.Write(signer)
-		sigHash.Write(payload)
-		sig := sigHash.Sum(sumBuf)
-
-		aggHash.Write(signer)
-		aggHash.Write(sig)
+		sig, err := s.Sign(signer, payload)
+		if err != nil {
+			return err
+		}
+		hasher.Write(signer)
+		hasher.Write(sig)
 	}
-	if !bytes.Equal(aggSig, aggHash.Sum(nil)) {
-		return xerrors.Errorf("aggregate signature mismatch")
+	if !bytes.Equal(aggSig, hasher.Sum(nil)) {
+		return errors.New("signature is not valid")
 	}
-
 	return nil
 }

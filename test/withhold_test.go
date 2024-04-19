@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/filecoin-project/go-f3/adversary"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim"
+	"github.com/filecoin-project/go-f3/sim/adversary"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,11 +16,11 @@ func TestWitholdCommit1(t *testing.T) {
 	simConfig := AsyncConfig(7, i)
 	simConfig.LatencyMean = 10 * time.Millisecond // Near-synchrony
 	sm := sim.NewSimulation(simConfig, GraniteConfig(), sim.TraceNone)
-	adv := adversary.NewWitholdCommit(99, sm.HostFor(99), sm.PowerTable(0))
+	adv := adversary.NewWitholdCommit(99, sm.HostFor(99))
 	sm.SetAdversary(adv, 3) // Adversary has 30% of 10 total power.
 
-	a := sm.Base(0).Extend(sm.CIDGen.Sample())
-	b := sm.Base(0).Extend(sm.CIDGen.Sample())
+	a := sm.Base(0).Extend(sm.TipGen.Sample())
+	b := sm.Base(0).Extend(sm.TipGen.Sample())
 	// Of 7 nodes, 4 victims will prefer chain A, 3 others will prefer chain B.
 	// The adversary will target the first to decide, and withhold COMMIT from the rest.
 	// After the victim decides in round 0, the adversary stops participating.

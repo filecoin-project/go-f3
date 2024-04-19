@@ -38,8 +38,8 @@ func (e *PanicError) Error() string {
 	return fmt.Sprintf("participant panicked: %v", e.Err)
 }
 
-func NewParticipant(id ActorID, config GraniteConfig, host Host, tracer Tracer) *Participant {
-	return &Participant{id: id, config: config, host: host, mqueue: map[uint64][]*GMessage{}, tracer: tracer}
+func NewParticipant(id ActorID, config GraniteConfig, host Host, tracer Tracer, instance uint64) *Participant {
+	return &Participant{id: id, config: config, host: host, mqueue: map[uint64][]*GMessage{}, tracer: tracer, nextInstance: instance}
 }
 
 func (p *Participant) ID() ActorID {
@@ -157,7 +157,10 @@ func (p *Participant) beginInstance() error {
 		return errors.New("canonical chain cannot be zero-valued")
 	}
 	if err := chain.Validate(); err != nil {
-		return fmt.Errorf("invalid connanical chain: %w", err)
+		return fmt.Errorf("invalid canonical chain: %w", err)
+	}
+	if err := power.Validate(); err != nil {
+		return fmt.Errorf("invalid power table: %w", err)
 	}
 	var err error
 	if p.granite, err = newInstance(p.config, p.host, p.id, p.nextInstance, chain, power, beacon, p.tracer); err != nil {

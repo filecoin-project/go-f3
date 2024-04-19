@@ -7,10 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/xerrors"
-
-	"github.com/filecoin-project/go-f3/blssig"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/sim/adversary"
+	"golang.org/x/xerrors"
 )
 
 type Config struct {
@@ -24,33 +23,19 @@ type Config struct {
 	ECEpochDuration time.Duration
 	// Time to wait after EC epoch before starting next instance.
 	ECStabilisationDelay time.Duration
-	// If nil then FakeSigner is used unless overriden by F3_TEST_USE_BLS
-	SigningBacked *SigningBacked
+	// If nil then FakeSigningBackend is used unless overriden by F3_TEST_USE_BLS
+	SigningBacked SigningBacked
 }
 
 func (c Config) UseBLS() Config {
-	c.SigningBacked = BLSSigningBacked()
+	c.SigningBacked = NewBLSSigningBackend()
 	return c
 }
 
-type SigningBacked struct {
+type SigningBacked interface {
 	gpbft.Signer
 	gpbft.Verifier
-}
-
-func FakeSigningBacked() *SigningBacked {
-	fakeSigner := &FakeSigner{}
-	return &SigningBacked{
-		Signer:   fakeSigner,
-		Verifier: fakeSigner,
-	}
-}
-
-func BLSSigningBacked() *SigningBacked {
-	return &SigningBacked{
-		Signer:   blssig.SignerWithKeyOnG2(),
-		Verifier: blssig.VerifierWithKeyOnG2(),
-	}
+	GenerateKey() (gpbft.PubKey, any)
 }
 
 type Simulation struct {
@@ -58,9 +43,9 @@ type Simulation struct {
 	Network      *Network
 	EC           *EC
 	Participants []*gpbft.Participant
-	Adversary    AdversaryReceiver
+	Adversary    adversary.Receiver
 	Decisions    *DecisionLog
-	CIDGen       *CIDGen
+	TipGen       *TipGen
 }
 
 type AdversaryFactory func(id string, ntwk gpbft.Network) gpbft.Receiver
@@ -72,18 +57,18 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 
 	if sb == nil {
 		if os.Getenv("F3_TEST_USE_BLS") != "1" {
-			sb = FakeSigningBacked()
+			sb = NewFakeSigningBackend()
 		} else {
-			sb = BLSSigningBacked()
+			sb = NewBLSSigningBackend()
 		}
 	}
 
-	ntwk := NewNetwork(lat, traceLevel, *sb, "sim")
-	baseChain, _ := gpbft.NewChain(gpbft.NewTipSet(100, gpbft.NewTipSetIDFromString("genesis")))
+	ntwk := NewNetwork(lat, traceLevel, sb, "sim")
+	baseChain, _ := gpbft.NewChain([]byte(("genesis")))
 	beacon := []byte("beacon")
 	ec := NewEC(baseChain, beacon)
-	cidGen := NewCIDGen(0x264803e715714f95) // Seed from Drand
-	decisions := NewDecisionLog(ntwk, sb.Verifier)
+	tipGen := NewTipGen(0x264803e715714f95) // Seed from Drand
+	decisions := NewDecisionLog(ntwk, sb)
 
 	// Create participants.
 	participants := make([]*gpbft.Participant, simConfig.HonestCount)
@@ -94,11 +79,11 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 			Network:     ntwk,
 			EC:          ec,
 			DecisionLog: decisions,
-			CIDGen:      cidGen,
+			TipGen:      tipGen,
 			id:          id,
 		}
-		participants[i] = gpbft.NewParticipant(id, graniteConfig, host, host)
-		pubKey := ntwk.GenerateKey()
+		participants[i] = gpbft.NewParticipant(id, graniteConfig, host, host, 0)
+		pubKey, _ := sb.GenerateKey()
 		ntwk.AddParticipant(participants[i], pubKey)
 		ec.AddParticipant(id, gpbft.NewStoragePower(1), pubKey)
 	}
@@ -111,7 +96,7 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 		Participants: participants,
 		Adversary:    nil,
 		Decisions:    decisions,
-		CIDGen:       cidGen,
+		TipGen:       tipGen,
 	}
 }
 
@@ -123,9 +108,9 @@ func (s *Simulation) PowerTable(instance uint64) *gpbft.PowerTable {
 	return s.EC.Instances[instance].PowerTable
 }
 
-func (s *Simulation) SetAdversary(adv AdversaryReceiver, power uint) {
+func (s *Simulation) SetAdversary(adv adversary.Receiver, power uint) {
 	s.Adversary = adv
-	pubKey := s.Network.GenerateKey()
+	pubKey, _ := s.Network.GenerateKey()
 	s.Network.AddParticipant(adv, pubKey)
 	s.EC.AddParticipant(adv.ID(), gpbft.NewStoragePower(int64(power)), pubKey)
 }
@@ -136,7 +121,7 @@ func (s *Simulation) HostFor(id gpbft.ActorID) *SimHost {
 		Network:     s.Network,
 		EC:          s.EC,
 		DecisionLog: s.Decisions,
-		CIDGen:      s.CIDGen,
+		TipGen:      s.TipGen,
 		id:          id,
 	}
 }
@@ -235,7 +220,7 @@ type SimHost struct {
 	*Network
 	*EC
 	*DecisionLog
-	*CIDGen
+	*TipGen
 	id gpbft.ActorID
 }
 
@@ -277,13 +262,13 @@ func (v *SimHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 		// Create a new chain for all participants.
 		// There's no facility yet for them to observe different chains after the first instance.
 		// See https://github.com/filecoin-project/go-f3/issues/115.
-		newTip := gpbft.NewTipSet(nextBase.Epoch+1, v.CIDGen.Sample())
+		newTip := v.TipGen.Sample()
 		nextChain, _ := gpbft.NewChain(nextBase, newTip)
 
 		v.EC.AddInstance(nextChain, nextPowerTable, nextBeacon)
 		v.DecisionLog.BeginInstance(decision.Vote.Instance+1, nextBase, nextPowerTable)
 	}
-	elapsedEpochs := decision.Vote.Value.Head().Epoch - v.EC.BaseEpoch
+	elapsedEpochs := 1 //decision.Vote.Value.Head().Epoch - v.EC.BaseEpoch
 	finalTimestamp := v.EC.BaseTimestamp.Add(time.Duration(elapsedEpochs) * v.Config.ECEpochDuration)
 	// Next instance starts some fixed time after the next EC epoch is due.
 	nextInstanceStart := finalTimestamp.Add(v.Config.ECEpochDuration).Add(v.Config.ECStabilisationDelay)
@@ -448,26 +433,26 @@ func (dl *DecisionLog) verifyDecision(decision *gpbft.Justification) error {
 	return nil
 }
 
-// A CID generator.
-// This uses a fast xorshift PRNG to generate random CIDs.
-// The statistical properties of these CIDs are not important to correctness.
-type CIDGen struct {
+// A tipset generator.
+// This uses a fast xorshift PRNG to generate random tipset IDs.
+// The statistical properties of these are not important to correctness.
+type TipGen struct {
 	xorshiftState uint64
 }
 
-func NewCIDGen(seed uint64) *CIDGen {
-	return &CIDGen{seed}
+func NewTipGen(seed uint64) *TipGen {
+	return &TipGen{seed}
 }
 
-func (c *CIDGen) Sample() gpbft.TipSetID {
+func (c *TipGen) Sample() gpbft.TipSet {
 	b := make([]byte, 8)
 	for i := range b {
 		b[i] = alphanum[c.nextN(len(alphanum))]
 	}
-	return gpbft.NewTipSetID(b)
+	return b
 }
 
-func (c *CIDGen) nextN(n int) uint64 {
+func (c *TipGen) nextN(n int) uint64 {
 	bucketSize := uint64(1<<63) / uint64(n)
 	limit := bucketSize * uint64(n)
 	for {
@@ -478,7 +463,7 @@ func (c *CIDGen) nextN(n int) uint64 {
 	}
 }
 
-func (c *CIDGen) next() uint64 {
+func (c *TipGen) next() uint64 {
 	x := c.xorshiftState
 	x ^= x << 13
 	x ^= x >> 7

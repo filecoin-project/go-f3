@@ -5,27 +5,26 @@ import (
 
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/sim"
 )
+
+var _ Receiver = (*WithholdCommit)(nil)
 
 // This adversary send its COMMIT message to only a single victim, withholding it from others.
 // Against a naive algorithm, when set up with 30% of power, and a victim set with 40%,
 // it can cause one victim to decide, while others revert to the base.
 type WithholdCommit struct {
-	id         gpbft.ActorID
-	host       sim.AdversaryHost
-	powertable *gpbft.PowerTable
+	id   gpbft.ActorID
+	host Host
 	// The first victim is the target, others are those who need to confirm.
 	victims     []gpbft.ActorID
 	victimValue gpbft.ECChain
 }
 
 // A participant that never sends anything.
-func NewWitholdCommit(id gpbft.ActorID, host sim.AdversaryHost, powertable *gpbft.PowerTable) *WithholdCommit {
+func NewWitholdCommit(id gpbft.ActorID, host Host) *WithholdCommit {
 	return &WithholdCommit{
-		id:         id,
-		host:       host,
-		powertable: powertable,
+		id:   id,
+		host: host,
 	}
 }
 
@@ -59,7 +58,8 @@ func (w *WithholdCommit) ReceiveAlarm() error {
 }
 
 func (w *WithholdCommit) Begin() {
-	broadcast := w.broadcastHelper(w.id)
+	_, powertable, _ := w.host.GetCanonicalChain()
+	broadcast := w.broadcastHelper(w.id, powertable)
 	// All victims need to see QUALITY and PREPARE in order to send their COMMIT,
 	// but only the one victim will see our COMMIT.
 	broadcast(gpbft.Payload{
@@ -93,16 +93,16 @@ func (w *WithholdCommit) Begin() {
 	// properly to accumulate the evidence for its COMMIT message.
 	signers := make([]int, 0)
 	for _, actorID := range w.victims {
-		signers = append(signers, w.powertable.Lookup[actorID])
+		signers = append(signers, powertable.Lookup[actorID])
 	}
-	signers = append(signers, w.powertable.Lookup[w.id])
+	signers = append(signers, powertable.Lookup[w.id])
 	sort.Ints(signers)
 
 	signatures := make([][]byte, 0)
 	pubKeys := make([]gpbft.PubKey, 0)
 	prepareMarshalled := preparePayload.MarshalForSigning(w.host.NetworkName())
 	for _, signerIndex := range signers {
-		entry := w.powertable.Entries[signerIndex]
+		entry := powertable.Entries[signerIndex]
 		signatures = append(signatures, w.sign(entry.PubKey, prepareMarshalled))
 		pubKeys = append(pubKeys, entry.PubKey)
 		justification.Signers.Set(uint64(signerIndex))
@@ -155,10 +155,10 @@ func (w *WithholdCommit) sign(pubkey gpbft.PubKey, msg []byte) []byte {
 	return sig
 }
 
-func (w *WithholdCommit) broadcastHelper(sender gpbft.ActorID) func(gpbft.Payload, *gpbft.Justification) {
+func (w *WithholdCommit) broadcastHelper(sender gpbft.ActorID, powertable gpbft.PowerTable) func(gpbft.Payload, *gpbft.Justification) {
 	return func(payload gpbft.Payload, justification *gpbft.Justification) {
 		pS := payload.MarshalForSigning(w.host.NetworkName())
-		_, pubkey := w.powertable.Get(sender)
+		_, pubkey := powertable.Get(sender)
 		sig, err := w.host.Sign(pubkey, pS)
 		if err != nil {
 			panic(err)
