@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"math/big"
 	"sort"
 	"time"
 
@@ -302,7 +303,7 @@ func (i *instance) receiveOne(msg *GMessage) error {
 			i.quality.Receive(msg.Sender, prefix, msg.Signature)
 		}
 	case CONVERGE_PHASE:
-		if err := round.converged.Receive(msg.Vote.Value, msg.Ticket); err != nil {
+		if err := round.converged.Receive(msg.Sender, msg.Vote.Value, msg.Ticket); err != nil {
 			return fmt.Errorf("failed processing CONVERGE message: %w", err)
 		}
 	case PREPARE_PHASE:
@@ -581,7 +582,7 @@ func (i *instance) tryConverge() error {
 		return nil
 	}
 
-	i.value = i.roundState(i.round).converged.findMinTicketProposal()
+	i.value = i.roundState(i.round).converged.findMaxTicketProposal(i.powerTable)
 	if i.value.IsZero() {
 		return fmt.Errorf("no values at CONVERGE")
 	}
@@ -1045,40 +1046,54 @@ type convergeState struct {
 	// Chains indexed by key
 	values map[ChainKey]ECChain
 	// Tickets provided by proposers of each chain.
-	tickets map[ChainKey][]Ticket
+	tickets map[ChainKey][]ActorTicket
+}
+
+type ActorTicket struct {
+	Actor  ActorID
+	Ticket Ticket
 }
 
 func newConvergeState() *convergeState {
 	return &convergeState{
 		values:  map[ChainKey]ECChain{},
-		tickets: map[ChainKey][]Ticket{},
+		tickets: map[ChainKey][]ActorTicket{},
 	}
 }
 
 // Receives a new CONVERGE value from a sender.
-func (c *convergeState) Receive(value ECChain, ticket Ticket) error {
+func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket) error {
 	if value.IsZero() {
 		return fmt.Errorf("bottom cannot be justified for CONVERGE")
 	}
 	key := value.Key()
+
+	// !!! TODO: Drop duplicates (see https://github.com/filecoin-project/go-f3/issues/12)
 	c.values[key] = value
-	c.tickets[key] = append(c.tickets[key], ticket)
+	c.tickets[key] = append(c.tickets[key], ActorTicket{Actor: sender, Ticket: ticket})
 
 	return nil
 }
 
-func (c *convergeState) findMinTicketProposal() ECChain {
-	var minTicket Ticket
-	var minValue ECChain
-	for key, value := range c.values {
-		for _, ticket := range c.tickets[key] {
-			if minTicket == nil || ticket.Compare(minTicket) < 0 {
-				minTicket = ticket
-				minValue = value
+// I think it is ok to have non-determinism here. If the same ticket is used for two different values
+// then either we get a decision on one of them only or we go to a new round. Eventually there is a round
+// where the max ticket is held by a correct participant, who will not double vote.
+func (c *convergeState) findMaxTicketProposal(table PowerTable) ECChain {
+	var maxTicket *big.Int
+	var maxValue ECChain
+
+	for cid, value := range c.values {
+		for _, actorTicket := range c.tickets[cid] {
+			senderPower, _ := table.Get(actorTicket.Actor)
+			ticketAsInt := new(big.Int).SetBytes(actorTicket.Ticket)
+			weightedTicket := new(big.Int).Mul(ticketAsInt, senderPower)
+			if maxTicket == nil || weightedTicket.Cmp(maxTicket) > 0 {
+				maxTicket = weightedTicket
+				maxValue = value
 			}
 		}
 	}
-	return minValue
+	return maxValue
 }
 
 ///// General helpers /////
