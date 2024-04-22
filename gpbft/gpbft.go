@@ -1067,8 +1067,9 @@ func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket) er
 		return fmt.Errorf("bottom cannot be justified for CONVERGE")
 	}
 	key := value.Key()
-	c.values[key] = value
 
+	// !!! TODO: Drop duplicates (see https://github.com/filecoin-project/go-f3/issues/12)
+	c.values[key] = value
 	c.tickets[key] = append(c.tickets[key], ActorTicket{Actor: sender, Ticket: ticket})
 
 	return nil
