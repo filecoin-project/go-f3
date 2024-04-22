@@ -30,7 +30,7 @@ func (i *ImmediateDecide) Start() error {
 	return nil
 }
 
-func (i *ImmediateDecide) ReceiveECChain(_ gpbft.ECChain) error {
+func (i *ImmediateDecide) ReceiveECChain(gpbft.ECChain) error {
 	return nil
 }
 
