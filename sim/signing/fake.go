@@ -1,4 +1,4 @@
-package sim
+package signing
 
 import (
 	"bytes"
@@ -9,20 +9,20 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
-var _ SigningBacked = (*FakeSigningBackend)(nil)
+var _ Backend = (*FakeBackend)(nil)
 
-type FakeSigningBackend struct {
+type FakeBackend struct {
 	i        int
 	keyPairs map[string]string
 }
 
-func NewFakeSigningBackend() *FakeSigningBackend {
-	return &FakeSigningBackend{
+func NewFakeBackend() *FakeBackend {
+	return &FakeBackend{
 		keyPairs: make(map[string]string),
 	}
 }
 
-func (s *FakeSigningBackend) GenerateKey() (gpbft.PubKey, any) {
+func (s *FakeBackend) GenerateKey() (gpbft.PubKey, any) {
 	pubKey := gpbft.PubKey(fmt.Sprintf("pubkey:%08x", s.i))
 	privKey := fmt.Sprintf("privkey:%08x", s.i)
 	s.keyPairs[string(pubKey)] = privKey
@@ -30,11 +30,11 @@ func (s *FakeSigningBackend) GenerateKey() (gpbft.PubKey, any) {
 	return pubKey, privKey
 }
 
-func (s *FakeSigningBackend) Sign(signer gpbft.PubKey, msg []byte) ([]byte, error) {
+func (s *FakeBackend) Sign(signer gpbft.PubKey, msg []byte) ([]byte, error) {
 	return s.generateSignature(signer, msg)
 }
 
-func (s *FakeSigningBackend) generateSignature(signer gpbft.PubKey, msg []byte) ([]byte, error) {
+func (s *FakeBackend) generateSignature(signer gpbft.PubKey, msg []byte) ([]byte, error) {
 	priv, known := s.keyPairs[string(signer)]
 	if !known {
 		return nil, errors.New("unknown signer")
@@ -46,7 +46,7 @@ func (s *FakeSigningBackend) generateSignature(signer gpbft.PubKey, msg []byte) 
 	return hasher.Sum(nil), nil
 }
 
-func (s *FakeSigningBackend) Verify(signer gpbft.PubKey, msg, sig []byte) error {
+func (s *FakeBackend) Verify(signer gpbft.PubKey, msg, sig []byte) error {
 	switch wantSig, err := s.generateSignature(signer, msg); {
 	case err != nil:
 		return fmt.Errorf("cannot verify: %w", err)
@@ -57,7 +57,7 @@ func (s *FakeSigningBackend) Verify(signer gpbft.PubKey, msg, sig []byte) error 
 	}
 }
 
-func (_ *FakeSigningBackend) Aggregate(signers []gpbft.PubKey, sigs [][]byte) ([]byte, error) {
+func (_ *FakeBackend) Aggregate(signers []gpbft.PubKey, sigs [][]byte) ([]byte, error) {
 	if len(signers) != len(sigs) {
 		return nil, errors.New("public keys and signatures length mismatch")
 	}
@@ -69,7 +69,7 @@ func (_ *FakeSigningBackend) Aggregate(signers []gpbft.PubKey, sigs [][]byte) ([
 	return hasher.Sum(nil), nil
 }
 
-func (s *FakeSigningBackend) VerifyAggregate(payload, aggSig []byte, signers []gpbft.PubKey) error {
+func (s *FakeBackend) VerifyAggregate(payload, aggSig []byte, signers []gpbft.PubKey) error {
 	hasher := sha256.New()
 	for _, signer := range signers {
 		sig, err := s.Sign(signer, payload)

@@ -5,38 +5,12 @@ import (
 	"math"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim/adversary"
-	"golang.org/x/xerrors"
+	"github.com/filecoin-project/go-f3/sim/latency"
+	"github.com/filecoin-project/go-f3/sim/signing"
 )
-
-type Config struct {
-	// Honest participant count.
-	// Honest participants have one unit of power each.
-	HonestCount int
-	LatencySeed int64
-	// Mean delivery latency for messages.
-	LatencyMean time.Duration
-	// Duration of EC epochs.
-	ECEpochDuration time.Duration
-	// Time to wait after EC epoch before starting next instance.
-	ECStabilisationDelay time.Duration
-	// If nil then FakeSigningBackend is used unless overriden by F3_TEST_USE_BLS
-	SigningBacked SigningBacked
-}
-
-func (c Config) UseBLS() Config {
-	c.SigningBacked = NewBLSSigningBackend()
-	return c
-}
-
-type SigningBacked interface {
-	gpbft.Signer
-	gpbft.Verifier
-	GenerateKey() (gpbft.PubKey, any)
-}
 
 type Simulation struct {
 	Config       Config
@@ -48,18 +22,16 @@ type Simulation struct {
 	TipGen       *TipGen
 }
 
-type AdversaryFactory func(id string, ntwk gpbft.Network) gpbft.Receiver
-
 func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLevel int) *Simulation {
 	// Create a network to deliver messages.
-	lat := NewLogNormal(simConfig.LatencySeed, simConfig.LatencyMean)
+	lat := latency.NewLogNormal(simConfig.LatencySeed, simConfig.LatencyMean)
 	sb := simConfig.SigningBacked
 
 	if sb == nil {
 		if os.Getenv("F3_TEST_USE_BLS") != "1" {
-			sb = NewFakeSigningBackend()
+			sb = signing.NewFakeBackend()
 		} else {
-			sb = NewBLSSigningBackend()
+			sb = signing.NewBLSBackend()
 		}
 	}
 
@@ -212,264 +184,3 @@ func (s *Simulation) Describe() string {
 	}
 	return b.String()
 }
-
-// One participant's host
-// This provides methods that know the caller's participant ID and can provide its view of the world.
-type SimHost struct {
-	*Config
-	*Network
-	*EC
-	*DecisionLog
-	*TipGen
-	id gpbft.ActorID
-}
-
-var _ gpbft.Host = (*SimHost)(nil)
-
-///// Chain interface
-
-func (v *SimHost) GetCanonicalChain() (chain gpbft.ECChain, power gpbft.PowerTable, beacon []byte) {
-	// Find the instance after the last instance finalised by the participant.
-	instance := uint64(0)
-	for i := len(v.Decisions) - 1; i >= 0; i-- {
-		if v.Decisions[i][v.id] != nil {
-			instance = uint64(i + 1)
-			break
-		}
-	}
-
-	i := v.Instances[instance]
-	chain = i.Chains[v.id]
-	power = *i.PowerTable
-	beacon = i.Beacon
-	return
-}
-
-func (v *SimHost) SetAlarm(at time.Time) {
-	v.Network.SetAlarm(v.id, at)
-}
-
-func (v *SimHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
-	firstForInstance := v.DecisionLog.ReceiveDecision(v.id, decision)
-	if firstForInstance {
-		// When the first valid decision is received for an instance, prepare for the next one.
-		nextBase := decision.Vote.Value.Head()
-		// Copy the previous instance power table.
-		// The simulator doesn't have any facility to evolve the power table.
-		// See https://github.com/filecoin-project/go-f3/issues/114.
-		nextPowerTable := v.EC.Instances[decision.Vote.Instance].PowerTable.Copy()
-		nextBeacon := []byte(fmt.Sprintf("beacon %d", decision.Vote.Instance+1))
-		// Create a new chain for all participants.
-		// There's no facility yet for them to observe different chains after the first instance.
-		// See https://github.com/filecoin-project/go-f3/issues/115.
-		newTip := v.TipGen.Sample()
-		nextChain, _ := gpbft.NewChain(nextBase, newTip)
-
-		v.EC.AddInstance(nextChain, nextPowerTable, nextBeacon)
-		v.DecisionLog.BeginInstance(decision.Vote.Instance+1, nextBase, nextPowerTable)
-	}
-	elapsedEpochs := 1 //decision.Vote.Value.Head().Epoch - v.EC.BaseEpoch
-	finalTimestamp := v.EC.BaseTimestamp.Add(time.Duration(elapsedEpochs) * v.Config.ECEpochDuration)
-	// Next instance starts some fixed time after the next EC epoch is due.
-	nextInstanceStart := finalTimestamp.Add(v.Config.ECEpochDuration).Add(v.Config.ECStabilisationDelay)
-	return nextInstanceStart
-}
-
-// Receives and validates finality decisions
-type DecisionLog struct {
-	Network  gpbft.Network
-	Verifier gpbft.Verifier
-	// Base tipset for each instance.
-	Bases []gpbft.TipSet
-	// Powertable for each instance.
-	PowerTables []*gpbft.PowerTable
-	// Decisions received for each instance and participant.
-	Decisions []map[gpbft.ActorID]*gpbft.Justification
-	err       error
-}
-
-func NewDecisionLog(ntwk gpbft.Network, verifier gpbft.Verifier) *DecisionLog {
-	return &DecisionLog{
-		Network:     ntwk,
-		Verifier:    verifier,
-		Bases:       nil,
-		PowerTables: nil,
-		Decisions:   nil,
-	}
-}
-
-// Establishes the base tipset and power table for a new instance.
-func (dl *DecisionLog) BeginInstance(instance uint64, base gpbft.TipSet, power *gpbft.PowerTable) {
-	if instance != uint64(len(dl.Bases)) {
-		panic(fmt.Errorf("instance %d is not the next instance", instance))
-	}
-	dl.Bases = append(dl.Bases, base)
-	dl.PowerTables = append(dl.PowerTables, power)
-	dl.Decisions = append(dl.Decisions, make(map[gpbft.ActorID]*gpbft.Justification))
-}
-
-// Checks whether all participants (except any adversary) have decided on a value for an instance.
-func (dl *DecisionLog) HasCompletedInstance(instance uint64, adversary gpbft.ActorID) bool {
-	if instance >= uint64(len(dl.Bases)) {
-		return false
-	}
-	target := len(dl.PowerTables[instance].Entries)
-	if dl.PowerTables[instance].Has(adversary) {
-		target -= 1
-	}
-
-	return len(dl.Decisions[instance]) == target
-}
-
-// Checks that all participants (except any adversary) for an instance decided on the same value.
-func (dl *DecisionLog) VerifyInstance(instance uint64, adversary gpbft.ActorID) error {
-	if dl.err != nil {
-		return dl.err
-	}
-	if instance >= uint64(len(dl.Bases)) {
-		panic(fmt.Errorf("instance %d not yet begun", instance))
-	}
-	// Check each actor in the power table decided, and their decisions matched.
-	var first gpbft.ECChain
-	for _, powerEntry := range dl.PowerTables[instance].Entries {
-		decision, ok := dl.Decisions[instance][powerEntry.ID]
-		if powerEntry.ID == adversary {
-			continue
-		}
-		if !ok {
-			return fmt.Errorf("actor %d did not decide", powerEntry.ID)
-		}
-		if first.IsZero() {
-			first = decision.Vote.Value
-		}
-		if !decision.Vote.Value.Eq(first) {
-			return fmt.Errorf("actor %d decided %v, but first actor decided %v",
-				powerEntry.ID, decision.Vote.Value, first)
-		}
-	}
-	return nil
-}
-
-func (dl *DecisionLog) PrintInstance(instance uint64) {
-	if instance >= uint64(len(dl.Bases)) {
-		panic(fmt.Errorf("instance %d not yet begun", instance))
-	}
-	var first gpbft.ECChain
-	for _, powerEntry := range dl.PowerTables[instance].Entries {
-		decision, ok := dl.Decisions[instance][powerEntry.ID]
-		if !ok {
-			fmt.Printf("‼️ Participant %d did not decide\n", powerEntry.ID)
-		}
-		if first.IsZero() {
-			first = decision.Vote.Value
-		}
-		if !decision.Vote.Value.Eq(first) {
-			fmt.Printf("‼️ Participant %d decided %v, but %d decided %v\n",
-				powerEntry.ID, decision.Vote, dl.PowerTables[instance].Entries[0].ID, first)
-		}
-	}
-}
-
-// Verifies and records a decision from a participant.
-// Returns whether this was the first decision for the instance.
-func (dl *DecisionLog) ReceiveDecision(participant gpbft.ActorID, decision *gpbft.Justification) (first bool) {
-	if err := dl.verifyDecision(decision); err == nil {
-		if len(dl.Decisions[decision.Vote.Instance]) == 0 {
-			first = true
-		}
-		// Record the participant's decision.
-		dl.Decisions[decision.Vote.Instance][participant] = decision
-	} else {
-		fmt.Printf("invalid decision: %v\n", err)
-		dl.err = err
-	}
-	return
-}
-
-func (dl *DecisionLog) verifyDecision(decision *gpbft.Justification) error {
-	if decision.Vote.Instance >= uint64(len(dl.Bases)) {
-		return fmt.Errorf("decision for future instance: %v", decision)
-	}
-	base := dl.Bases[decision.Vote.Instance]
-	powerTable := dl.PowerTables[decision.Vote.Instance]
-	if decision.Vote.Step != gpbft.DECIDE_PHASE {
-		return fmt.Errorf("decision for wrong phase: %v", decision)
-	}
-	if decision.Vote.Round != 0 {
-		return fmt.Errorf("decision for wrong round: %v", decision)
-	}
-	if decision.Vote.Value.IsZero() {
-		return fmt.Errorf("decided empty tipset: %v", decision)
-	}
-	if !decision.Vote.Value.HasBase(base) {
-		return fmt.Errorf("decided tipset with wrong base: %v", decision)
-	}
-
-	// Extract signers.
-	justificationPower := gpbft.NewStoragePower(0)
-	signers := make([]gpbft.PubKey, 0)
-	if err := decision.Signers.ForEach(func(bit uint64) error {
-		if int(bit) >= len(powerTable.Entries) {
-			return fmt.Errorf("invalid signer index: %d", bit)
-		}
-		justificationPower.Add(justificationPower, powerTable.Entries[bit].Power)
-		signers = append(signers, powerTable.Entries[bit].PubKey)
-		return nil
-	}); err != nil {
-		return fmt.Errorf("failed to iterate over signers: %w", err)
-	}
-	// Check signers have strong quorum
-	strongQuorum := gpbft.NewStoragePower(0)
-	strongQuorum = strongQuorum.Mul(strongQuorum, gpbft.NewStoragePower(2))
-	strongQuorum = strongQuorum.Div(strongQuorum, gpbft.NewStoragePower(3))
-	if justificationPower.Cmp(strongQuorum) < 0 {
-		return fmt.Errorf("decision lacks strong quorum: %v", decision)
-	}
-	// Verify aggregate signature
-	payload := decision.Vote.MarshalForSigning(dl.Network.NetworkName())
-	if err := dl.Verifier.VerifyAggregate(payload, decision.Signature, signers); err != nil {
-		return xerrors.Errorf("invalid aggregate signature: %v: %w", decision, err)
-	}
-	return nil
-}
-
-// A tipset generator.
-// This uses a fast xorshift PRNG to generate random tipset IDs.
-// The statistical properties of these are not important to correctness.
-type TipGen struct {
-	xorshiftState uint64
-}
-
-func NewTipGen(seed uint64) *TipGen {
-	return &TipGen{seed}
-}
-
-func (c *TipGen) Sample() gpbft.TipSet {
-	b := make([]byte, 8)
-	for i := range b {
-		b[i] = alphanum[c.nextN(len(alphanum))]
-	}
-	return b
-}
-
-func (c *TipGen) nextN(n int) uint64 {
-	bucketSize := uint64(1<<63) / uint64(n)
-	limit := bucketSize * uint64(n)
-	for {
-		x := c.next()
-		if x < limit {
-			return x / bucketSize
-		}
-	}
-}
-
-func (c *TipGen) next() uint64 {
-	x := c.xorshiftState
-	x ^= x << 13
-	x ^= x >> 7
-	x ^= x << 17
-	c.xorshiftState = x
-	return x
-}
-
-var alphanum = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")

@@ -1,4 +1,4 @@
-package sim
+package latency
 
 import (
 	"math"
@@ -7,21 +7,21 @@ import (
 )
 
 // A model for network latency.
-type LatencyModel interface {
+type Model interface {
 	Sample() time.Duration
 }
 
-type LogNormalLatency struct {
+type LogNormal struct {
 	rng  *rand.Rand
 	mean time.Duration
 }
 
-func NewLogNormal(seed int64, mean time.Duration) *LogNormalLatency {
+func NewLogNormal(seed int64, mean time.Duration) *LogNormal {
 	rng := rand.New(rand.NewSource(seed))
-	return &LogNormalLatency{rng: rng, mean: mean}
+	return &LogNormal{rng: rng, mean: mean}
 }
 
-func (l *LogNormalLatency) Sample() time.Duration {
+func (l *LogNormal) Sample() time.Duration {
 	norm := l.rng.NormFloat64()
 	lognorm := math.Exp(norm)
 	return time.Duration(lognorm * float64(l.mean))

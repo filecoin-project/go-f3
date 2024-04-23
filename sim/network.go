@@ -2,12 +2,13 @@ package sim
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim/adversary"
+	"github.com/filecoin-project/go-f3/sim/latency"
+	"github.com/filecoin-project/go-f3/sim/signing"
 )
 
 const (
@@ -15,13 +16,11 @@ const (
 	TraceSent
 	TraceRecvd
 	TraceLogic
-	TraceAll
+	TraceAll //nolint:unused
 )
 
-const _ = TraceAll // Suppress unused constant warning.
-
 type Network struct {
-	SigningBacked
+	signing.Backend
 
 	// Participants by ID.
 	participants map[gpbft.ActorID]gpbft.Receiver
@@ -29,7 +28,7 @@ type Network struct {
 	participantIDs []gpbft.ActorID
 	// Messages received by the network but not yet delivered to all participants.
 	queue   messageQueue
-	latency LatencyModel
+	latency latency.Model
 	// Timestamp of last event.
 	clock time.Time
 	// Whether global stabilisation time has passed, so adversary can't control network.
@@ -42,9 +41,9 @@ type Network struct {
 	networkName gpbft.NetworkName
 }
 
-func NewNetwork(latency LatencyModel, traceLevel int, sb SigningBacked, nn gpbft.NetworkName) *Network {
+func NewNetwork(latency latency.Model, traceLevel int, sb signing.Backend, nn gpbft.NetworkName) *Network {
 	return &Network{
-		SigningBacked:              sb,
+		Backend:                    sb,
 		participants:               map[gpbft.ActorID]gpbft.Receiver{},
 		participantIDs:             []gpbft.ActorID{},
 		queue:                      messageQueue{},
@@ -179,45 +178,4 @@ func (n *Network) log(level int, format string, args ...interface{}) {
 		fmt.Printf(format, args...)
 		fmt.Printf("\n")
 	}
-}
-
-type messageInFlight struct {
-	source    gpbft.ActorID // ID of the sender
-	dest      gpbft.ActorID // ID of the receiver
-	payload   interface{}   // Message body
-	deliverAt time.Time     // Timestamp at which to deliver the message
-}
-
-// A queue of directed messages, maintained as an ordered list.
-type messageQueue []messageInFlight
-
-func (h *messageQueue) Insert(x messageInFlight) {
-	// Insert the new message after any messages with a sooner or equal deliverAt.
-	i := sort.Search(len(*h), func(i int) bool {
-		ith := (*h)[i].deliverAt
-		return ith.After(x.deliverAt)
-	})
-	*h = append(*h, messageInFlight{})
-	copy((*h)[i+1:], (*h)[i:])
-	(*h)[i] = x
-}
-
-// Removes an entry from the queue
-func (h *messageQueue) Remove(i int) messageInFlight {
-	v := (*h)[i]
-	copy((*h)[i:], (*h)[i+1:])
-	*h = (*h)[:len(*h)-1]
-	return v
-}
-
-// Removes all entries from the queue that satisfy a predicate.
-func (h *messageQueue) RemoveWhere(f func(messageInFlight) bool) {
-	i := 0
-	for _, x := range *h {
-		if !f(x) {
-			(*h)[i] = x
-			i++
-		}
-	}
-	*h = (*h)[:i]
 }
