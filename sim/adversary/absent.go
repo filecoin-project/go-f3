@@ -27,7 +27,7 @@ func (a *Absent) Start() error {
 	return nil
 }
 
-func (a *Absent) ReceiveECChain(_ gpbft.ECChain) error {
+func (a *Absent) ReceiveECChain(gpbft.ECChain) error {
 	return nil
 }
 

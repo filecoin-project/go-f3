@@ -41,7 +41,7 @@ func (w *WithholdCommit) Start() error {
 	return nil
 }
 
-func (w *WithholdCommit) ReceiveECChain(_ gpbft.ECChain) error {
+func (w *WithholdCommit) ReceiveECChain(gpbft.ECChain) error {
 	return nil
 }
 

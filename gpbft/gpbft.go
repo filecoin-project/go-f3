@@ -224,12 +224,14 @@ func (i *instance) Start() error {
 	return i.drainInbox()
 }
 
-// Receives a new chain, and updates its current chain if the received one is acceptable
-// (i.e. if it extends the current acceptable).
-func (i *instance) ReceiveAcceptable(chain ECChain) {
-	if chain.HasPrefix(i.acceptable) {
+// ReceiveAcceptable receives a new chain, and updates the current chain of this instance if acceptable.
+// See instance.isAcceptable.
+func (i *instance) ReceiveAcceptable(chain ECChain) bool {
+	acceptable := i.isAcceptable(chain)
+	if acceptable {
 		i.acceptable = chain
 	}
+	return acceptable
 }
 
 // Checks whether a message is valid.
