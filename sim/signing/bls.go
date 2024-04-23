@@ -1,4 +1,4 @@
-package sim
+package signing
 
 import (
 	"errors"
@@ -10,16 +10,16 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
-var _ SigningBacked = (*BLSSigningBackend)(nil)
+var _ Backend = (*BLSBackend)(nil)
 
-type BLSSigningBackend struct {
+type BLSBackend struct {
 	gpbft.Verifier
 	signersByPubKey map[string]*blssig.Signer
 	suite           pairing.Suite
 	scheme          *bdn.Scheme
 }
 
-func (b *BLSSigningBackend) Sign(sender gpbft.PubKey, msg []byte) ([]byte, error) {
+func (b *BLSBackend) Sign(sender gpbft.PubKey, msg []byte) ([]byte, error) {
 	signer, known := b.signersByPubKey[string(sender)]
 	if !known {
 		return nil, errors.New("cannot sign: unknown sender")
@@ -27,9 +27,9 @@ func (b *BLSSigningBackend) Sign(sender gpbft.PubKey, msg []byte) ([]byte, error
 	return signer.Sign(sender, msg)
 }
 
-func NewBLSSigningBackend() *BLSSigningBackend {
+func NewBLSBackend() *BLSBackend {
 	suite := bls12381.NewBLS12381Suite()
-	return &BLSSigningBackend{
+	return &BLSBackend{
 		Verifier:        blssig.VerifierWithKeyOnG1(),
 		signersByPubKey: make(map[string]*blssig.Signer),
 		suite:           suite,
@@ -37,7 +37,7 @@ func NewBLSSigningBackend() *BLSSigningBackend {
 	}
 }
 
-func (b *BLSSigningBackend) GenerateKey() (gpbft.PubKey, any) {
+func (b *BLSBackend) GenerateKey() (gpbft.PubKey, any) {
 	priv, pub := b.scheme.NewKeyPair(b.suite.RandomStream())
 	pubKeyB, err := pub.MarshalBinary()
 	if err != nil {

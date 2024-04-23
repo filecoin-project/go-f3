@@ -7,7 +7,7 @@ import (
 	"github.com/drand/kyber/sign/bdn"
 	"github.com/filecoin-project/go-f3/blssig"
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/sim"
+	"github.com/filecoin-project/go-f3/sim/signing"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
@@ -35,7 +35,7 @@ func TestBLSSigning(t *testing.T) {
 }
 
 func TestFakeSigning(t *testing.T) {
-	var fakeSigning = sim.NewFakeSigningBackend()
+	var fakeSigning = signing.NewFakeBackend()
 	suite.Run(t, NewSigningSuite(func(t *testing.T) (gpbft.PubKey, gpbft.Signer) {
 		pubKey, _ := fakeSigning.GenerateKey()
 		return pubKey, fakeSigning

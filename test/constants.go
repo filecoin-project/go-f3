@@ -1,9 +1,10 @@
 package test
 
 import (
+	"time"
+
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim"
-	"time"
 )
 
 // Configuration constants used across most tests.
