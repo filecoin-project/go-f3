@@ -4,6 +4,7 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/filecoin-project/go-f3/sim/adversary"
 	"github.com/stretchr/testify/require"
@@ -16,33 +17,68 @@ func TestRepeat(t *testing.T) {
 
 	t.Parallel()
 
-	// Repeated messages should not interfere with consensus. Hence, test with larger than 1/3 adversary power.
 	honestCounts := []int{
-		1, // 1/2 adversary power
 		2, // 1/3 adversary power
 		3, // 1/4 adversary power
+		4, // 1/5 adversary power
 	}
 	tests := []struct {
-		name          string
-		honestCount   []int
-		echoCountDist func(int) adversary.CountSampler // Distribution from which the number of echos is drawn.
+		name              string
+		repetitionSampler func(int) adversary.RepetitionSampler
+		maxRounds         uint64
 	}{
 		{
-			name: "uniform random",
-			echoCountDist: func(repetition int) adversary.CountSampler {
-				return uniformRandomRange{
-					rng: rand.New(rand.NewSource(int64(repetition))),
-					min: 10,
-					max: 50,
+			name: "once",
+			repetitionSampler: func(int) adversary.RepetitionSampler {
+				return func(*gpbft.GMessage) int {
+					return 1
 				}
 			},
+			maxRounds: MAX_ROUNDS,
+		},
+		{
+			name: "bounded uniform random",
+			repetitionSampler: func(repetition int) adversary.RepetitionSampler {
+				return newBoundedRepeater(int64(repetition), 10, 50)
+			},
+			maxRounds: MAX_ROUNDS,
 		},
 		{
 			name: "zipf",
-			echoCountDist: func(repetition int) adversary.CountSampler {
+			repetitionSampler: func(repetition int) adversary.RepetitionSampler {
 				rng := rand.New(rand.NewSource(int64(repetition)))
-				return rand.NewZipf(rng, 1.2, 1.0, 100)
+				zipf := rand.NewZipf(rng, 1.2, 1.0, 100)
+				return func(*gpbft.GMessage) int {
+					return int(zipf.Uint64())
+				}
 			},
+			maxRounds: MAX_ROUNDS,
+		},
+		{
+			name: "QUALITY Repeater",
+			repetitionSampler: func(repetition int) adversary.RepetitionSampler {
+				boundedRepeater := newBoundedRepeater(int64(repetition), 10, 50)
+				return func(msg *gpbft.GMessage) int {
+					if msg.Vote.Step != gpbft.QUALITY_PHASE {
+						return 0
+					}
+					return boundedRepeater(msg)
+				}
+			},
+			maxRounds: MAX_ROUNDS,
+		},
+		{
+			name: "COMMIT Repeater",
+			repetitionSampler: func(repetition int) adversary.RepetitionSampler {
+				boundedRepeater := newBoundedRepeater(int64(repetition), 10, 50)
+				return func(msg *gpbft.GMessage) int {
+					if msg.Vote.Step != gpbft.COMMIT_PHASE {
+						return 0
+					}
+					return boundedRepeater(msg)
+				}
+			},
+			maxRounds: 100,
 		},
 	}
 	for _, test := range tests {
@@ -51,14 +87,14 @@ func TestRepeat(t *testing.T) {
 			for _, hc := range honestCounts {
 				repeatInParallel(t, ASYNC_ITERS, func(t *testing.T, repetition int) {
 					sm := sim.NewSimulation(AsyncConfig(hc, repetition), GraniteConfig(), sim.TraceNone)
-					dist := test.echoCountDist(repetition)
+					dist := test.repetitionSampler(repetition)
 					repeat := adversary.NewRepeat(99, sm.HostFor(99), dist)
 					sm.SetAdversary(repeat, 1)
 
 					a := sm.Base(0).Extend(sm.TipGen.Sample())
 					sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
-					require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
+					require.NoErrorf(t, sm.Run(1, test.maxRounds), "%s", sm.Describe())
 				})
 			}
 
@@ -66,13 +102,9 @@ func TestRepeat(t *testing.T) {
 	}
 }
 
-var _ adversary.CountSampler = (*uniformRandomRange)(nil)
-
-type uniformRandomRange struct {
-	rng      *rand.Rand
-	min, max uint64
-}
-
-func (r uniformRandomRange) Uint64() uint64 {
-	return r.rng.Uint64()%(r.max-r.min+1) + r.min
+func newBoundedRepeater(rngSeed int64, min, max int) adversary.RepetitionSampler {
+	rng := rand.New(rand.NewSource(rngSeed))
+	return func(*gpbft.GMessage) int {
+		return int(rng.Uint64())%(max-min+1) + min
+	}
 }
