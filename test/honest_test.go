@@ -11,7 +11,8 @@ import (
 ///// Tests for a single instance with no adversaries.
 
 func TestSingleton(t *testing.T) {
-	sm := sim.NewSimulation(SyncConfig(1), GraniteConfig(), sim.TraceNone)
+	sm, err := sim.NewSimulation(SyncConfig(1), GraniteConfig(), sim.TraceNone)
+	require.NoError(t, err)
 	a := sm.Base(0).Extend(sm.TipGen.Sample())
 	sm.SetChains(sim.ChainCount{Count: 1, Chain: a})
 
@@ -37,7 +38,8 @@ func TestSyncPair(t *testing.T) {
 	for _, test := range tests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
-			sm := sim.NewSimulation(test.config, GraniteConfig(), sim.TraceNone)
+			sm, err := sim.NewSimulation(test.config, GraniteConfig(), sim.TraceNone)
+			require.NoError(t, err)
 			a := sm.Base(0).Extend(sm.TipGen.Sample())
 			sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
@@ -50,7 +52,8 @@ func TestSyncPair(t *testing.T) {
 func TestASyncPair(t *testing.T) {
 	t.Parallel()
 	repeatInParallel(t, ASYNC_ITERS, func(t *testing.T, repetition int) {
-		sm := sim.NewSimulation(AsyncConfig(2, repetition), GraniteConfig(), sim.TraceNone)
+		sm, err := sim.NewSimulation(AsyncConfig(2, repetition), GraniteConfig(), sim.TraceNone)
+		require.NoError(t, err)
 		a := sm.Base(0).Extend(sm.TipGen.Sample())
 		sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
@@ -77,7 +80,8 @@ func TestSyncPairDisagree(t *testing.T) {
 	for _, test := range tests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
-			sm := sim.NewSimulation(test.config, GraniteConfig(), sim.TraceNone)
+			sm, err := sim.NewSimulation(test.config, GraniteConfig(), sim.TraceNone)
+			require.NoError(t, err)
 			a := sm.Base(0).Extend(sm.TipGen.Sample())
 			b := sm.Base(0).Extend(sm.TipGen.Sample())
 			sm.SetChains(sim.ChainCount{Count: 1, Chain: a}, sim.ChainCount{Count: 1, Chain: b})
@@ -91,7 +95,8 @@ func TestSyncPairDisagree(t *testing.T) {
 
 func TestAsyncPairDisagree(t *testing.T) {
 	repeatInParallel(t, ASYNC_ITERS, func(t *testing.T, repetition int) {
-		sm := sim.NewSimulation(AsyncConfig(2, repetition), GraniteConfig(), sim.TraceNone)
+		sm, err := sim.NewSimulation(AsyncConfig(2, repetition), GraniteConfig(), sim.TraceNone)
+		require.NoError(t, err)
 		a := sm.Base(0).Extend(sm.TipGen.Sample())
 		b := sm.Base(0).Extend(sm.TipGen.Sample())
 		sm.SetChains(sim.ChainCount{Count: 1, Chain: a}, sim.ChainCount{Count: 1, Chain: b})
@@ -105,7 +110,8 @@ func TestAsyncPairDisagree(t *testing.T) {
 func TestSyncAgreement(t *testing.T) {
 	repeatInParallel(t, 50, func(t *testing.T, repetition int) {
 		honestCount := 3 + repetition
-		sm := sim.NewSimulation(SyncConfig(honestCount), GraniteConfig(), sim.TraceNone)
+		sm, err := sim.NewSimulation(SyncConfig(honestCount), GraniteConfig(), sim.TraceNone)
+		require.NoError(t, err)
 		a := sm.Base(0).Extend(sm.TipGen.Sample())
 		sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 		require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
@@ -125,7 +131,8 @@ func TestAsyncAgreement(t *testing.T) {
 		honestCount := n
 		t.Run(fmt.Sprintf("honest count %d", honestCount), func(t *testing.T) {
 			repeatInParallel(t, ASYNC_ITERS, func(t *testing.T, repetition int) {
-				sm := sim.NewSimulation(AsyncConfig(honestCount, repetition), GraniteConfig(), sim.TraceNone)
+				sm, err := sim.NewSimulation(AsyncConfig(honestCount, repetition), GraniteConfig(), sim.TraceNone)
+				require.NoError(t, err)
 				a := sm.Base(0).Extend(sm.TipGen.Sample())
 				sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
 
@@ -140,7 +147,8 @@ func TestSyncHalves(t *testing.T) {
 	t.Parallel()
 	repeatInParallel(t, 15, func(t *testing.T, repetition int) {
 		honestCount := repetition*2 + 2
-		sm := sim.NewSimulation(SyncConfig(honestCount), GraniteConfig(), sim.TraceNone)
+		sm, err := sim.NewSimulation(SyncConfig(honestCount), GraniteConfig(), sim.TraceNone)
+		require.NoError(t, err)
 		a := sm.Base(0).Extend(sm.TipGen.Sample())
 		b := sm.Base(0).Extend(sm.TipGen.Sample())
 		sm.SetChains(sim.ChainCount{Count: honestCount / 2, Chain: a}, sim.ChainCount{Count: honestCount / 2, Chain: b})
@@ -159,7 +167,8 @@ func TestSyncHalvesBLS(t *testing.T) {
 	t.Parallel()
 	repeatInParallel(t, 3, func(t *testing.T, repetition int) {
 		honestCount := repetition*2 + 2
-		sm := sim.NewSimulation(SyncConfig(honestCount).UseBLS(), GraniteConfig(), sim.TraceNone)
+		sm, err := sim.NewSimulation(SyncConfig(honestCount).UseBLS(), GraniteConfig(), sim.TraceNone)
+		require.NoError(t, err)
 		a := sm.Base(0).Extend(sm.TipGen.Sample())
 		b := sm.Base(0).Extend(sm.TipGen.Sample())
 		sm.SetChains(sim.ChainCount{Count: honestCount / 2, Chain: a}, sim.ChainCount{Count: honestCount / 2, Chain: b})
@@ -180,7 +189,8 @@ func TestAsyncHalves(t *testing.T) {
 		honestCount := n
 		t.Run(fmt.Sprintf("honest count %d", honestCount), func(t *testing.T) {
 			repeatInParallel(t, ASYNC_ITERS, func(t *testing.T, repetition int) {
-				sm := sim.NewSimulation(AsyncConfig(honestCount, repetition), GraniteConfig(), sim.TraceNone)
+				sm, err := sim.NewSimulation(AsyncConfig(honestCount, repetition), GraniteConfig(), sim.TraceNone)
+				require.NoError(t, err)
 				a := sm.Base(0).Extend(sm.TipGen.Sample())
 				b := sm.Base(0).Extend(sm.TipGen.Sample())
 				sm.SetChains(sim.ChainCount{Count: honestCount / 2, Chain: a}, sim.ChainCount{Count: honestCount / 2, Chain: b})
@@ -200,7 +210,8 @@ func TestRequireStrongQuorumToProgress(t *testing.T) {
 
 	t.Parallel()
 	repeatInParallel(t, ASYNC_ITERS, func(t *testing.T, repetition int) {
-		sm := sim.NewSimulation(AsyncConfig(30, repetition), GraniteConfig(), sim.TraceNone)
+		sm, err := sim.NewSimulation(AsyncConfig(30, repetition), GraniteConfig(), sim.TraceNone)
+		require.NoError(t, err)
 		a := sm.Base(0).Extend(sm.TipGen.Sample())
 		b := sm.Base(0).Extend(sm.TipGen.Sample())
 		// No strict > quorum.
@@ -215,7 +226,8 @@ func TestRequireStrongQuorumToProgress(t *testing.T) {
 func TestLongestCommonPrefix(t *testing.T) {
 	// This test uses a synchronous configuration to ensure timely message delivery.
 	// If async, it is possible to decide the base chain if QUALITY messages are delayed.
-	sm := sim.NewSimulation(SyncConfig(4), GraniteConfig(), sim.TraceNone)
+	sm, err := sim.NewSimulation(SyncConfig(4), GraniteConfig(), sim.TraceNone)
+	require.NoError(t, err)
 	ab := sm.Base(0).Extend(sm.TipGen.Sample())
 	abc := ab.Extend(sm.TipGen.Sample())
 	abd := ab.Extend(sm.TipGen.Sample())

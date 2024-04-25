@@ -86,7 +86,8 @@ func TestRepeat(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			for _, hc := range honestCounts {
 				repeatInParallel(t, ASYNC_ITERS, func(t *testing.T, repetition int) {
-					sm := sim.NewSimulation(AsyncConfig(hc, repetition), GraniteConfig(), sim.TraceNone)
+					sm, err := sim.NewSimulation(AsyncConfig(hc, repetition), GraniteConfig(), sim.TraceNone)
+					require.NoError(t, err)
 					dist := test.repetitionSampler(repetition)
 					repeat := adversary.NewRepeat(99, sm.HostFor(99), dist)
 					sm.SetAdversary(repeat, 1)
