@@ -15,7 +15,8 @@ func TestWitholdCommit1(t *testing.T) {
 	i := 0
 	simConfig := AsyncConfig(7, i)
 	simConfig.LatencyMean = 10 * time.Millisecond // Near-synchrony
-	sm := sim.NewSimulation(simConfig, GraniteConfig(), sim.TraceNone)
+	sm, err := sim.NewSimulation(simConfig, GraniteConfig(), sim.TraceNone)
+	require.NoError(t, err)
 	adv := adversary.NewWitholdCommit(99, sm.HostFor(99))
 	sm.SetAdversary(adv, 3) // Adversary has 30% of 10 total power.
 
@@ -31,7 +32,7 @@ func TestWitholdCommit1(t *testing.T) {
 
 	adv.Begin()
 	sm.SetChains(sim.ChainCount{Count: 4, Chain: a}, sim.ChainCount{Count: 3, Chain: b})
-	err := sm.Run(1, MAX_ROUNDS)
+	err = sm.Run(1, MAX_ROUNDS)
 	if err != nil {
 		fmt.Printf("%s", sm.Describe())
 		sm.PrintResults()

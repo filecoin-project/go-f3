@@ -73,15 +73,15 @@ func (n *Network) NetworkName() gpbft.NetworkName {
 
 func (n *Network) Broadcast(msg *gpbft.GMessage) {
 	n.log(TraceSent, "P%d ↗ %v", msg.Sender, msg)
-	for _, k := range n.participantIDs {
-		if k != msg.Sender {
-			latency := n.latency.Sample()
+	for _, dest := range n.participantIDs {
+		if dest != msg.Sender {
+			latencySample := n.latency.Sample(n.Time(), msg.Sender, dest)
 			n.queue.Insert(
 				messageInFlight{
 					source:    msg.Sender,
-					dest:      k,
+					dest:      dest,
 					payload:   *msg,
-					deliverAt: n.clock.Add(latency),
+					deliverAt: n.clock.Add(latencySample),
 				})
 		}
 	}

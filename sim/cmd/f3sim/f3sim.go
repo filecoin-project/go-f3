@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -37,15 +39,18 @@ func main() {
 			Delta:                time.Duration(*graniteDelta * float64(time.Second)),
 			DeltaBackOffExponent: *deltaBackOffExponent,
 		}
-		sm := sim.NewSimulation(simConfig, graniteConfig, *traceLevel)
+		sm, err := sim.NewSimulation(simConfig, graniteConfig, *traceLevel)
+		if err != nil {
+			log.Panicf("failed to instantiate simulation: %v\n", err)
+		}
 
 		// Same chain for everyone.
 		candidate := sm.Base(0).Extend(sm.TipGen.Sample())
 		sm.SetChains(sim.ChainCount{Count: *participantCount, Chain: candidate})
 
-		err := sm.Run(1, *maxRounds)
-		if err != nil {
+		if err := sm.Run(1, *maxRounds); err != nil {
 			sm.PrintResults()
+			os.Exit(1)
 		}
 	}
 }

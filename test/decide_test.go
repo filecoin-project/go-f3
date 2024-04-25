@@ -10,7 +10,8 @@ import (
 )
 
 func TestImmediateDecide(t *testing.T) {
-	sm := sim.NewSimulation(AsyncConfig(1, 0), GraniteConfig(), sim.TraceNone)
+	sm, err := sim.NewSimulation(AsyncConfig(1, 0), GraniteConfig(), sim.TraceNone)
+	require.NoError(t, err)
 
 	// Create adversarial node
 	value := sm.Base(0).Extend(sm.TipGen.Sample())
@@ -22,7 +23,7 @@ func TestImmediateDecide(t *testing.T) {
 	// The honest node starts with a different chain (on the same base).
 	sm.SetChains(sim.ChainCount{Count: 1, Chain: sm.Base(0).Extend(sm.TipGen.Sample())})
 	adv.Begin()
-	err := sm.Run(1, MAX_ROUNDS)
+	err = sm.Run(1, MAX_ROUNDS)
 	if err != nil {
 		fmt.Printf("%s", sm.Describe())
 		sm.PrintResults()

@@ -22,9 +22,12 @@ type Simulation struct {
 	TipGen       *TipGen
 }
 
-func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLevel int) *Simulation {
+func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLevel int) (*Simulation, error) {
 	// Create a network to deliver messages.
-	lat := latency.NewLogNormal(simConfig.LatencySeed, simConfig.LatencyMean)
+	lat, err := latency.NewLogNormal(simConfig.LatencySeed, simConfig.LatencyMean)
+	if err != nil {
+		return nil, err
+	}
 	sb := simConfig.SigningBacked
 
 	if sb == nil {
@@ -69,7 +72,7 @@ func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLev
 		Adversary:    nil,
 		Decisions:    decisions,
 		TipGen:       tipGen,
-	}
+	}, nil
 }
 
 func (s *Simulation) Base(instance uint64) gpbft.ECChain {

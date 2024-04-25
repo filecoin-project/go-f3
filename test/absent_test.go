@@ -11,7 +11,8 @@ import (
 func TestAbsent(t *testing.T) {
 	t.Parallel()
 	repeatInParallel(t, ASYNC_ITERS, func(t *testing.T, repetition int) {
-		sm := sim.NewSimulation(AsyncConfig(3, repetition), GraniteConfig(), sim.TraceNone)
+		sm, err := sim.NewSimulation(AsyncConfig(3, repetition), GraniteConfig(), sim.TraceNone)
+		require.NoError(t, err)
 		// Adversary has 1/4 of power.
 		sm.SetAdversary(adversary.NewAbsent(99, sm.HostFor(99)), 1)
 

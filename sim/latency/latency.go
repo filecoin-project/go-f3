@@ -1,28 +1,20 @@
 package latency
 
 import (
-	"math"
-	"math/rand"
 	"time"
+
+	"github.com/filecoin-project/go-f3/gpbft"
 )
 
-// A model for network latency.
+// Model represents a latency model of cross participant communication. The model
+// offers the ability for implementation of varying latency across a simulation,
+// as well as specialised latency across specific participants.
+//
+// See LogNormal.
 type Model interface {
-	Sample() time.Duration
-}
-
-type LogNormal struct {
-	rng  *rand.Rand
-	mean time.Duration
-}
-
-func NewLogNormal(seed int64, mean time.Duration) *LogNormal {
-	rng := rand.New(rand.NewSource(seed))
-	return &LogNormal{rng: rng, mean: mean}
-}
-
-func (l *LogNormal) Sample() time.Duration {
-	norm := l.rng.NormFloat64()
-	lognorm := math.Exp(norm)
-	return time.Duration(lognorm * float64(l.mean))
+	// Sample returns an artificial latency at time t for communications from a
+	// participant to another participant.
+	//
+	// See: gpbft.Host, gpbft.Clock.
+	Sample(t time.Time, from, to gpbft.ActorID) time.Duration
 }
