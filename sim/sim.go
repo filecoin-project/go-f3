@@ -3,102 +3,68 @@ package sim
 import (
 	"fmt"
 	"math"
-	"os"
 	"strings"
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim/adversary"
-	"github.com/filecoin-project/go-f3/sim/latency"
-	"github.com/filecoin-project/go-f3/sim/signing"
 )
 
 type Simulation struct {
-	Config       Config
-	Network      *Network
-	EC           *EC
-	Participants []*gpbft.Participant
-	Adversary    adversary.Receiver
-	Decisions    *DecisionLog
-	TipGen       *TipGen
+	*options
+	network      *Network
+	ec           *EC
+	participants []*gpbft.Participant
+	adversary    *adversary.Adversary
+	decisions    *DecisionLog
 }
 
-func NewSimulation(simConfig Config, graniteConfig gpbft.GraniteConfig, traceLevel int) (*Simulation, error) {
-	// Create a network to deliver messages.
-	lat, err := latency.NewLogNormal(simConfig.LatencySeed, simConfig.LatencyMean)
+func NewSimulation(o ...Option) (*Simulation, error) {
+	opts, err := newOptions(o...)
 	if err != nil {
 		return nil, err
 	}
-	sb := simConfig.SigningBacked
 
-	if sb == nil {
-		if os.Getenv("F3_TEST_USE_BLS") != "1" {
-			sb = signing.NewFakeBackend()
-		} else {
-			sb = signing.NewBLSBackend()
-		}
+	network := newNetwork(opts)
+	ec := newEC(opts)
+	decisions := newDecisionLog(opts)
+
+	s := &Simulation{
+		options:   opts,
+		network:   network,
+		ec:        ec,
+		decisions: decisions,
 	}
 
-	ntwk := NewNetwork(lat, traceLevel, sb, "sim")
-	baseChain, _ := gpbft.NewChain([]byte(("genesis")))
-	beacon := []byte("beacon")
-	ec := NewEC(baseChain, beacon)
-	tipGen := NewTipGen(0x264803e715714f95) // Seed from Drand
-	decisions := NewDecisionLog(ntwk, sb)
-
-	// Create participants.
-	participants := make([]*gpbft.Participant, simConfig.HonestCount)
-	for i := 0; i < len(participants); i++ {
-		id := gpbft.ActorID(i)
-		host := &SimHost{
-			Config:      &simConfig,
-			Network:     ntwk,
-			EC:          ec,
-			DecisionLog: decisions,
-			TipGen:      tipGen,
-			id:          id,
-		}
-		participants[i] = gpbft.NewParticipant(id, graniteConfig, host, host, 0)
-		pubKey, _ := sb.GenerateKey()
-		ntwk.AddParticipant(participants[i], pubKey)
-		ec.AddParticipant(id, gpbft.NewStoragePower(1), pubKey)
+	var nextID gpbft.ActorID
+	s.participants = make([]*gpbft.Participant, s.honestCount)
+	for i := range s.participants {
+		host := newHost(nextID, s)
+		s.participants[i] = gpbft.NewParticipant(nextID, *s.graniteConfig, host, s.network, s.initialInstance)
+		pubKey, _ := s.signingBacked.GenerateKey()
+		s.network.AddParticipant(s.participants[i])
+		s.ec.AddParticipant(nextID, gpbft.NewStoragePower(1), pubKey)
+		nextID++
 	}
 
-	decisions.BeginInstance(0, baseChain.Head(), ec.Instances[0].PowerTable)
-	return &Simulation{
-		Config:       simConfig,
-		Network:      ntwk,
-		EC:           ec,
-		Participants: participants,
-		Adversary:    nil,
-		Decisions:    decisions,
-		TipGen:       tipGen,
-	}, nil
-}
+	// TODO: expand the simulation to accommodate more than one adversary for
+	//       a more realistic simulation.
+	// Limit adversaryCount to exactly one for now to reduce LOC up for review.
+	// Future PRs will expand this to support a group of adversaries.
+	if s.adversaryGenerator != nil && s.adversaryCount == 1 {
+		host := newHost(nextID, s)
+		s.adversary = s.adversaryGenerator(nextID, host)
+		pubKey, _ := s.signingBacked.GenerateKey()
+		s.network.AddParticipant(s.adversary)
+		s.ec.AddParticipant(s.adversary.ID(), s.adversary.Power, pubKey)
+	}
 
-func (s *Simulation) Base(instance uint64) gpbft.ECChain {
-	return s.EC.Instances[instance].Base
+	s.decisions.BeginInstance(0, (*s.baseChain).Head(), s.ec.Instances[0].PowerTable)
+
+	return s, nil
 }
 
 func (s *Simulation) PowerTable(instance uint64) *gpbft.PowerTable {
-	return s.EC.Instances[instance].PowerTable
-}
-
-func (s *Simulation) SetAdversary(adv adversary.Receiver, power uint) {
-	s.Adversary = adv
-	pubKey, _ := s.Network.GenerateKey()
-	s.Network.AddParticipant(adv, pubKey)
-	s.EC.AddParticipant(adv.ID(), gpbft.NewStoragePower(int64(power)), pubKey)
-}
-
-func (s *Simulation) HostFor(id gpbft.ActorID) *SimHost {
-	return &SimHost{
-		Config:      &s.Config,
-		Network:     s.Network,
-		EC:          s.EC,
-		DecisionLog: s.Decisions,
-		TipGen:      s.TipGen,
-		id:          id,
-	}
+	return s.ec.Instances[instance].PowerTable
 }
 
 type ChainCount struct {
@@ -111,27 +77,36 @@ func (s *Simulation) SetChains(chains ...ChainCount) {
 	pidx := 0
 	for _, chain := range chains {
 		for i := 0; i < chain.Count; i++ {
-			s.EC.Instances[0].Chains[s.Participants[pidx].ID()] = chain.Chain
+			s.ec.Instances[0].Chains[s.participants[pidx].ID()] = chain.Chain
 			pidx += 1
 		}
 	}
-	if pidx != len(s.Participants) {
-		panic(fmt.Errorf("%d participants but %d chains", len(s.Participants), pidx))
+	honestParticipantsCount := len(s.network.participantIDs)
+	if pidx != s.HonestParticipantsCount() {
+		panic(fmt.Errorf("%d participants but %d chains", honestParticipantsCount, pidx))
 	}
 }
 
 // Runs simulation, and returns whether all participants decided on the same value.
 func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
+
 	// Start participants.
-	for _, p := range s.Participants {
+	for _, p := range s.participants {
 		if err := p.Start(); err != nil {
 			panic(fmt.Errorf("participant %d failed starting: %w", p.ID(), err))
 		}
 	}
 
+	// Start adversary
+	if s.adversary != nil {
+		if err := s.adversary.Start(); err != nil {
+			panic(fmt.Errorf("adversary %d failed starting: %w", s.adversary.ID(), err))
+		}
+	}
+
 	adversaryID := gpbft.ActorID(math.MaxUint64)
-	if s.Adversary != nil {
-		adversaryID = s.Adversary.ID()
+	if s.adversary != nil {
+		adversaryID = s.adversary.ID()
 	}
 	finalInstance := instanceCount - 1
 	currentInstance := uint64(0)
@@ -140,15 +115,15 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 	moreTicks := true
 	for moreTicks {
 		var err error
-		if s.Decisions.err != nil {
-			return fmt.Errorf("error in decision: %w", s.Decisions.err)
+		if s.decisions.err != nil {
+			return fmt.Errorf("error in decision: %w", s.decisions.err)
 		}
-		if s.Participants[0].CurrentRound() >= maxRounds {
+		if s.participants[0].CurrentRound() >= maxRounds {
 			return fmt.Errorf("reached maximum number of %d rounds", maxRounds)
 		}
 		// Verify the current instance as soon as it completes.
-		if s.Decisions.HasCompletedInstance(currentInstance, adversaryID) {
-			if err := s.Decisions.VerifyInstance(currentInstance, adversaryID); err != nil {
+		if s.decisions.HasCompletedInstance(currentInstance, adversaryID) {
+			if err := s.decisions.VerifyInstance(currentInstance, adversaryID); err != nil {
 				return fmt.Errorf("invalid decisions for instance %d: %w",
 					currentInstance, err)
 			}
@@ -158,7 +133,7 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 			}
 			currentInstance += 1
 		}
-		moreTicks, err = s.Network.Tick(s.Adversary)
+		moreTicks, err = s.network.Tick(s.adversary)
 		if err != nil {
 			return fmt.Errorf("error performing simulation step: %w", err)
 		}
@@ -168,7 +143,7 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 
 // Returns the decision for a participant in an instance.
 func (s *Simulation) GetDecision(instance uint64, participant gpbft.ActorID) (gpbft.ECChain, bool) {
-	v, ok := s.Decisions.Decisions[instance][participant]
+	v, ok := s.decisions.Decisions[instance][participant]
 	if ok {
 		return v.Vote.Value, ok
 	}
@@ -176,14 +151,29 @@ func (s *Simulation) GetDecision(instance uint64, participant gpbft.ActorID) (gp
 }
 
 func (s *Simulation) PrintResults() {
-	s.Decisions.PrintInstance(0)
+	s.decisions.PrintInstance(0)
 }
 
 func (s *Simulation) Describe() string {
 	b := strings.Builder{}
-	for _, p := range s.Participants {
+	for _, p := range s.participants {
 		b.WriteString(p.Describe())
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func (s *Simulation) ListParticipantIDs() []gpbft.ActorID {
+	return s.network.participantIDs
+}
+
+func (s *Simulation) HonestParticipantsCount() int {
+	return len(s.participants)
+}
+
+func (s *Simulation) GetInstance(i int) *ECInstance {
+	if i < 0 || len(s.ec.Instances) <= i {
+		return nil
+	}
+	return s.ec.Instances[i]
 }

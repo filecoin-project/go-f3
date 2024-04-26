@@ -8,31 +8,38 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/filecoin-project/go-f3/sim/adversary"
+	"github.com/filecoin-project/go-f3/sim/latency"
 	"github.com/stretchr/testify/require"
 )
 
 func TestWitholdCommit1(t *testing.T) {
-	i := 0
-	simConfig := AsyncConfig(7, i)
-	simConfig.LatencyMean = 10 * time.Millisecond // Near-synchrony
-	sm, err := sim.NewSimulation(simConfig, GraniteConfig(), sim.TraceNone)
+	nearSynchrony, err := latency.NewLogNormal(1413, 10*time.Millisecond)
 	require.NoError(t, err)
-	adv := adversary.NewWitholdCommit(99, sm.HostFor(99))
-	sm.SetAdversary(adv, 3) // Adversary has 30% of 10 total power.
-
-	a := sm.Base(0).Extend(sm.TipGen.Sample())
-	b := sm.Base(0).Extend(sm.TipGen.Sample())
-	// Of 7 nodes, 4 victims will prefer chain A, 3 others will prefer chain B.
-	// The adversary will target the first to decide, and withhold COMMIT from the rest.
-	// After the victim decides in round 0, the adversary stops participating.
-	// Now there are 3 nodes on each side (and one decided), with total power 6/10, less than quorum.
-	// The B side must be swayed to the A side by observing that some nodes on the A side reached a COMMIT.
+	tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
+	baseChain := generateECChain(t, tsg)
+	a := baseChain.Extend(tsg.Sample())
+	b := baseChain.Extend(tsg.Sample())
 	victims := []gpbft.ActorID{0, 1, 2, 3}
-	adv.SetVictim(victims, a)
+	sm, err := sim.NewSimulation(
+		sim.WithHonestParticipantCount(7),
+		sim.WithLatencyModel(nearSynchrony),
+		sim.WithECEpochDuration(EcEpochDuration),
+		sim.WitECStabilisationDelay(EcStabilisationDelay),
+		sim.WithGraniteConfig(testGraniteConfig),
+		sim.WithTipSetGenerator(tsg),
+		sim.WithBaseChain(&baseChain),
+		// Adversary has 30% of 10 total power.
+		// Of 7 nodes, 4 victims will prefer chain A, 3 others will prefer chain B.
+		// The adversary will target the first to decide, and withhold COMMIT from the rest.
+		// After the victim decides in round 0, the adversary stops participating.
+		// Now there are 3 nodes on each side (and one decided), with total power 6/10, less than quorum.
+		// The B side must be swayed to the A side by observing that some nodes on the A side reached a COMMIT.
+		sim.WithAdversary(adversary.NewWitholdCommitGenerator(gpbft.NewStoragePower(3), victims, a)),
+	)
+	require.NoError(t, err)
 
-	adv.Begin()
 	sm.SetChains(sim.ChainCount{Count: 4, Chain: a}, sim.ChainCount{Count: 3, Chain: b})
-	err = sm.Run(1, MAX_ROUNDS)
+	err = sm.Run(1, maxRounds)
 	if err != nil {
 		fmt.Printf("%s", sm.Describe())
 		sm.PrintResults()

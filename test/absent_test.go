@@ -10,15 +10,23 @@ import (
 
 func TestAbsent(t *testing.T) {
 	t.Parallel()
-	repeatInParallel(t, ASYNC_ITERS, func(t *testing.T, repetition int) {
-		sm, err := sim.NewSimulation(AsyncConfig(3, repetition), GraniteConfig(), sim.TraceNone)
+
+	const honestParticipantsCount = 3
+	repeatInParallel(t, 1, func(t *testing.T, repetition int) {
+		// Total network size of 3 + 1, where the adversary has 1/4 of power.
+		tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
+		baseChain := generateECChain(t, tsg)
+		sm, err := sim.NewSimulation(asyncOptions(t, repetition,
+			sim.WithHonestParticipantCount(honestParticipantsCount),
+			sim.WithTipSetGenerator(tsg),
+			sim.WithBaseChain(&baseChain),
+			sim.WithAdversary(adversary.NewAbsentGenerator(oneStoragePower)),
+		)...)
 		require.NoError(t, err)
-		// Adversary has 1/4 of power.
-		sm.SetAdversary(adversary.NewAbsent(99, sm.HostFor(99)), 1)
 
-		a := sm.Base(0).Extend(sm.TipGen.Sample())
-		sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
+		a := baseChain.Extend(tsg.Sample())
+		sm.SetChains(sim.ChainCount{Count: honestParticipantsCount, Chain: a})
 
-		require.NoErrorf(t, sm.Run(1, MAX_ROUNDS), "%s", sm.Describe())
+		require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 	})
 }

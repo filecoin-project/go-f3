@@ -1,6 +1,7 @@
 package adversary
 
 import (
+	"errors"
 	"sort"
 
 	"github.com/filecoin-project/go-bitfield"
@@ -28,6 +29,17 @@ func NewWitholdCommit(id gpbft.ActorID, host Host) *WithholdCommit {
 	}
 }
 
+func NewWitholdCommitGenerator(power *gpbft.StoragePower, victims []gpbft.ActorID, victimValue gpbft.ECChain) Generator {
+	return func(id gpbft.ActorID, host Host) *Adversary {
+		wc := NewWitholdCommit(id, host)
+		wc.SetVictim(victims, victimValue)
+		return &Adversary{
+			Receiver: wc,
+			Power:    power,
+		}
+	}
+}
+
 func (w *WithholdCommit) SetVictim(victims []gpbft.ActorID, victimValue gpbft.ECChain) {
 	w.victims = victims
 	w.victimValue = victimValue
@@ -38,26 +50,11 @@ func (w *WithholdCommit) ID() gpbft.ActorID {
 }
 
 func (w *WithholdCommit) Start() error {
-	return nil
-}
 
-func (w *WithholdCommit) ReceiveECChain(gpbft.ECChain) error {
-	return nil
-}
+	if len(w.victims) == 0 {
+		return errors.New("victims must be set")
+	}
 
-func (a *WithholdCommit) ValidateMessage(_ *gpbft.GMessage) (bool, error) {
-	return true, nil
-}
-
-func (a *WithholdCommit) ReceiveMessage(_ *gpbft.GMessage, _ bool) (bool, error) {
-	return true, nil
-}
-
-func (w *WithholdCommit) ReceiveAlarm() error {
-	return nil
-}
-
-func (w *WithholdCommit) Begin() {
 	_, powertable, _ := w.host.GetCanonicalChain()
 	broadcast := w.broadcastHelper(w.id, powertable)
 	// All victims need to see QUALITY and PREPARE in order to send their COMMIT,
@@ -114,6 +111,23 @@ func (w *WithholdCommit) Begin() {
 	}
 
 	broadcast(commitPayload, &justification)
+	return nil
+}
+
+func (w *WithholdCommit) ReceiveECChain(gpbft.ECChain) error {
+	return nil
+}
+
+func (a *WithholdCommit) ValidateMessage(_ *gpbft.GMessage) (bool, error) {
+	return true, nil
+}
+
+func (a *WithholdCommit) ReceiveMessage(_ *gpbft.GMessage, _ bool) (bool, error) {
+	return true, nil
+}
+
+func (w *WithholdCommit) ReceiveAlarm() error {
+	return nil
 }
 
 func (w *WithholdCommit) AllowMessage(_ gpbft.ActorID, to gpbft.ActorID, msg gpbft.GMessage) bool {

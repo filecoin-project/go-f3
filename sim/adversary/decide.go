@@ -22,31 +22,20 @@ func NewImmediateDecide(id gpbft.ActorID, host Host, value gpbft.ECChain) *Immed
 	}
 }
 
+func NewImmediateDecideGenerator(value gpbft.ECChain, power *gpbft.StoragePower) Generator {
+	return func(id gpbft.ActorID, host Host) *Adversary {
+		return &Adversary{
+			Receiver: NewImmediateDecide(id, host, value),
+			Power:    power,
+		}
+	}
+}
+
 func (i *ImmediateDecide) ID() gpbft.ActorID {
 	return i.id
 }
 
 func (i *ImmediateDecide) Start() error {
-	return nil
-}
-
-func (i *ImmediateDecide) ReceiveECChain(gpbft.ECChain) error {
-	return nil
-}
-
-func (i *ImmediateDecide) ValidateMessage(_ *gpbft.GMessage) (bool, error) {
-	return true, nil
-}
-
-func (i *ImmediateDecide) ReceiveMessage(_ *gpbft.GMessage, _ bool) (bool, error) {
-	return true, nil
-}
-
-func (i *ImmediateDecide) ReceiveAlarm() error {
-	return nil
-}
-
-func (i *ImmediateDecide) Begin() {
 	_, powertable, _ := i.host.GetCanonicalChain()
 	// Immediately send a DECIDE message
 	payload := gpbft.Payload{
@@ -82,6 +71,23 @@ func (i *ImmediateDecide) Begin() {
 	}
 
 	i.broadcast(payload, &justification, powertable)
+	return nil
+}
+
+func (i *ImmediateDecide) ReceiveECChain(gpbft.ECChain) error {
+	return nil
+}
+
+func (i *ImmediateDecide) ValidateMessage(_ *gpbft.GMessage) (bool, error) {
+	return true, nil
+}
+
+func (i *ImmediateDecide) ReceiveMessage(_ *gpbft.GMessage, _ bool) (bool, error) {
+	return true, nil
+}
+
+func (i *ImmediateDecide) ReceiveAlarm() error {
+	return nil
 }
 
 func (i *ImmediateDecide) AllowMessage(_ gpbft.ActorID, _ gpbft.ActorID, _ gpbft.GMessage) bool {

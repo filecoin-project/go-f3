@@ -9,6 +9,8 @@ import (
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim"
+	"github.com/filecoin-project/go-f3/sim/latency"
+	"github.com/filecoin-project/go-f3/sim/signing"
 )
 
 func main() {
@@ -28,24 +30,46 @@ func main() {
 		seed := *latencySeed + int64(i)
 		fmt.Printf("Iteration %d: seed=%d, mean=%f\n", i, seed, *latencyMean)
 
-		simConfig := sim.Config{
-			HonestCount:          *participantCount,
-			LatencySeed:          *latencySeed,
-			LatencyMean:          time.Duration(*latencyMean * float64(time.Second)),
-			ECEpochDuration:      30 * time.Second,
-			ECStabilisationDelay: 0,
+		latencyModel, err := latency.NewLogNormal(*latencySeed, time.Duration(*latencyMean*float64(time.Second)))
+		if err != nil {
+			log.Panicf("failed to instantiate log normal latency model: %c\n", err)
 		}
-		graniteConfig := gpbft.GraniteConfig{
+
+		tsg := sim.NewTipSetGenerator(uint64(seed))
+		baseChain, err := gpbft.NewChain(tsg.Sample())
+		if err != nil {
+			log.Fatalf("failed to generate base chain: %v\n", err)
+		}
+
+		graniteConfig := &gpbft.GraniteConfig{
 			Delta:                time.Duration(*graniteDelta * float64(time.Second)),
 			DeltaBackOffExponent: *deltaBackOffExponent,
 		}
-		sm, err := sim.NewSimulation(simConfig, graniteConfig, *traceLevel)
+		options := []sim.Option{
+			sim.WithHonestParticipantCount(*participantCount),
+			sim.WithLatencyModel(latencyModel),
+			sim.WithECEpochDuration(30 * time.Second),
+			sim.WithECStabilisationDelay(0),
+			sim.WithTipSetGenerator(tsg),
+			sim.WithBaseChain(&baseChain),
+			sim.WithTraceLevel(*traceLevel),
+			sim.WithGraniteConfig(graniteConfig),
+		}
+
+		if os.Getenv("F3_TEST_USE_BLS") == "1" {
+			options = append(options, sim.WithSigningBackend(signing.NewBLSBackend()))
+		}
+
+		sm, err := sim.NewSimulation(options...)
+		if err != nil {
+			return
+		}
 		if err != nil {
 			log.Panicf("failed to instantiate simulation: %v\n", err)
 		}
 
 		// Same chain for everyone.
-		candidate := sm.Base(0).Extend(sm.TipGen.Sample())
+		candidate := baseChain.Extend(tsg.Sample())
 		sm.SetChains(sim.ChainCount{Count: *participantCount, Chain: candidate})
 
 		if err := sm.Run(1, *maxRounds); err != nil {

@@ -29,24 +29,32 @@ func init() {
 }
 
 // Expects the decision in the first instance to be one of the given tipsets.
-func expectDecision(t *testing.T, sm *sim.Simulation, expected ...gpbft.TipSet) {
-	expectInstanceDecision(t, sm, 0, expected...)
+func requireConsensus(t *testing.T, sm *sim.Simulation, expected ...gpbft.TipSet) {
+	requireConsensusAtInstance(t, sm, 0, expected...)
 }
 
 // Expects the decision in an instance to be one of the given tipsets.
-func expectInstanceDecision(t *testing.T, sm *sim.Simulation, instance uint64, expected ...gpbft.TipSet) {
+func requireConsensusAtInstance(t *testing.T, sm *sim.Simulation, instance uint64, expected ...gpbft.TipSet) {
 nextParticipant:
-	for _, participant := range sm.Participants {
-		decision, ok := sm.GetDecision(instance, participant.ID())
-		require.True(t, ok, "no decision for participant %d in instance %d", participant.ID(), instance)
+	for _, pid := range sm.ListParticipantIDs() {
+		decision, ok := sm.GetDecision(instance, pid)
+		require.True(t, ok, "no decision for participant %d in instance %d", pid, instance)
 		for _, e := range expected {
 			if bytes.Equal(decision.Head(), e) {
 				continue nextParticipant
 			}
 		}
-		require.Fail(t, "participant %d decided %s in instance %d, expected one of %s",
-			participant.ID(), decision, instance, expected)
+		require.Fail(t, "consensus not reached", "participant %d decided %s in instance %d, expected one of %s",
+			pid, decision, instance, expected)
 	}
+}
+
+func generateECChain(t *testing.T, tsg *sim.TipSetGenerator) gpbft.ECChain {
+	t.Helper()
+	// TODO: add stochastic chain generation.
+	chain, err := gpbft.NewChain(tsg.Sample())
+	require.NoError(t, err)
+	return chain
 }
 
 // repeatInParallel repeats target for the given number of repetitions.
