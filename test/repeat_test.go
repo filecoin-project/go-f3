@@ -34,14 +34,14 @@ func TestRepeat(t *testing.T) {
 					return 1
 				}
 			},
-			maxRounds: MAX_ROUNDS,
+			maxRounds: maxRounds,
 		},
 		{
 			name: "bounded uniform random",
 			repetitionSampler: func(repetition int) adversary.RepetitionSampler {
 				return newBoundedRepeater(int64(repetition), 10, 50)
 			},
-			maxRounds: MAX_ROUNDS,
+			maxRounds: maxRounds,
 		},
 		{
 			name: "zipf",
@@ -52,7 +52,7 @@ func TestRepeat(t *testing.T) {
 					return int(zipf.Uint64())
 				}
 			},
-			maxRounds: MAX_ROUNDS,
+			maxRounds: maxRounds,
 		},
 		{
 			name: "QUALITY Repeater",
@@ -65,7 +65,7 @@ func TestRepeat(t *testing.T) {
 					return boundedRepeater(msg)
 				}
 			},
-			maxRounds: MAX_ROUNDS,
+			maxRounds: maxRounds,
 		},
 		{
 			name: "COMMIT Repeater",
@@ -85,20 +85,22 @@ func TestRepeat(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			for _, hc := range honestCounts {
-				repeatInParallel(t, ASYNC_ITERS, func(t *testing.T, repetition int) {
-					sm, err := sim.NewSimulation(AsyncConfig(hc, repetition), GraniteConfig(), sim.TraceNone)
-					require.NoError(t, err)
+				repeatInParallel(t, asyncInterations, func(t *testing.T, repetition int) {
 					dist := test.repetitionSampler(repetition)
-					repeat := adversary.NewRepeat(99, sm.HostFor(99), dist)
-					sm.SetAdversary(repeat, 1)
+					tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
+					baseChain := generateECChain(t, tsg)
+					sm, err := sim.NewSimulation(asyncOptions(t, repetition,
+						sim.WithHonestParticipantCount(hc),
+						sim.WithBaseChain(&baseChain),
+						sim.WithAdversary(adversary.NewRepeatGenerator(oneStoragePower, dist)),
+					)...)
+					require.NoError(t, err)
 
-					a := sm.Base(0).Extend(sm.TipGen.Sample())
-					sm.SetChains(sim.ChainCount{Count: len(sm.Participants), Chain: a})
-
+					a := baseChain.Extend(tsg.Sample())
+					sm.SetChains(sim.ChainCount{Count: sm.HonestParticipantsCount(), Chain: a})
 					require.NoErrorf(t, sm.Run(1, test.maxRounds), "%s", sm.Describe())
 				})
 			}
-
 		})
 	}
 }

@@ -19,6 +19,15 @@ func NewAbsent(id gpbft.ActorID, host gpbft.Host) *Absent {
 	}
 }
 
+func NewAbsentGenerator(power *gpbft.StoragePower) Generator {
+	return func(id gpbft.ActorID, host Host) *Adversary {
+		return &Adversary{
+			Receiver: NewAbsent(id, host),
+			Power:    power,
+		}
+	}
+}
+
 func (a *Absent) ID() gpbft.ActorID {
 	return a.id
 }

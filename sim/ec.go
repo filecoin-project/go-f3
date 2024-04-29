@@ -24,15 +24,15 @@ type ECInstance struct {
 	Beacon []byte
 }
 
-func NewEC(base gpbft.ECChain, beacon []byte) *EC {
+func newEC(opts *options) *EC {
 	return &EC{
 		BaseTimestamp: time.Time{},
 		Instances: []*ECInstance{
 			{
-				Base:       base,
+				Base:       *opts.baseChain,
 				Chains:     make(map[gpbft.ActorID]gpbft.ECChain),
 				PowerTable: gpbft.NewPowerTable(),
-				Beacon:     beacon,
+				Beacon:     opts.beacon,
 			},
 		},
 	}

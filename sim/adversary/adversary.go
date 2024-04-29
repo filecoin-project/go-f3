@@ -15,3 +15,10 @@ type Host interface {
 	// before messages are actually received.
 	BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.GMessage)
 }
+
+type Generator func(gpbft.ActorID, Host) *Adversary
+
+type Adversary struct {
+	Receiver
+	Power *gpbft.StoragePower
+}

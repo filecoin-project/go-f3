@@ -9,8 +9,9 @@ import (
 
 // Receives and validates finality decisions
 type DecisionLog struct {
-	Network  gpbft.Network
-	Verifier gpbft.Verifier
+	netName  gpbft.NetworkName
+	verifier gpbft.Verifier
+
 	// Base tipset for each instance.
 	Bases []gpbft.TipSet
 	// Powertable for each instance.
@@ -20,10 +21,10 @@ type DecisionLog struct {
 	err       error
 }
 
-func NewDecisionLog(ntwk gpbft.Network, verifier gpbft.Verifier) *DecisionLog {
+func newDecisionLog(opts *options) *DecisionLog {
 	return &DecisionLog{
-		Network:  ntwk,
-		Verifier: verifier,
+		netName:  opts.networkName,
+		verifier: opts.signingBacked,
 	}
 }
 
@@ -155,8 +156,8 @@ func (dl *DecisionLog) verifyDecision(decision *gpbft.Justification) error {
 		return fmt.Errorf("decision lacks strong quorum: %v", decision)
 	}
 	// Verify aggregate signature
-	payload := decision.Vote.MarshalForSigning(dl.Network.NetworkName())
-	if err := dl.Verifier.VerifyAggregate(payload, decision.Signature, signers); err != nil {
+	payload := decision.Vote.MarshalForSigning(dl.netName)
+	if err := dl.verifier.VerifyAggregate(payload, decision.Signature, signers); err != nil {
 		return xerrors.Errorf("invalid aggregate signature: %v: %w", decision, err)
 	}
 	return nil

@@ -60,6 +60,15 @@ func NewRepeat(id gpbft.ActorID, host gpbft.Host, sampler RepetitionSampler) *Re
 	}
 }
 
+func NewRepeatGenerator(power *gpbft.StoragePower, sampler RepetitionSampler) Generator {
+	return func(id gpbft.ActorID, host Host) *Adversary {
+		return &Adversary{
+			Receiver: NewRepeat(id, host, sampler),
+			Power:    power,
+		}
+	}
+}
+
 func (r *Repeat) ReceiveMessage(msg *gpbft.GMessage, _ bool) (bool, error) {
 	echoCount := r.repetitionSampler(msg)
 	if echoCount <= 0 {

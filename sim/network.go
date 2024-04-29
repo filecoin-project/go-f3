@@ -8,7 +8,6 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim/adversary"
 	"github.com/filecoin-project/go-f3/sim/latency"
-	"github.com/filecoin-project/go-f3/sim/signing"
 )
 
 const (
@@ -20,8 +19,6 @@ const (
 )
 
 type Network struct {
-	signing.Backend
-
 	// Participants by ID.
 	participants map[gpbft.ActorID]gpbft.Receiver
 	// Participant IDs for deterministic iteration
@@ -34,38 +31,26 @@ type Network struct {
 	// Whether global stabilisation time has passed, so adversary can't control network.
 	globalStabilisationElapsed bool
 	// Trace level.
-	traceLevel int
-
-	actor2PubKey map[gpbft.ActorID]gpbft.PubKey
-
+	traceLevel  int
 	networkName gpbft.NetworkName
 }
 
-func NewNetwork(latency latency.Model, traceLevel int, sb signing.Backend, nn gpbft.NetworkName) *Network {
+func newNetwork(opts *options) *Network {
 	return &Network{
-		Backend:                    sb,
-		participants:               map[gpbft.ActorID]gpbft.Receiver{},
-		participantIDs:             []gpbft.ActorID{},
-		queue:                      messageQueue{},
-		clock:                      time.Time{},
-		latency:                    latency,
-		globalStabilisationElapsed: false,
-		traceLevel:                 traceLevel,
-		actor2PubKey:               map[gpbft.ActorID]gpbft.PubKey{},
-		networkName:                nn,
+		participants: make(map[gpbft.ActorID]gpbft.Receiver),
+		latency:      opts.latencyModel,
+		traceLevel:   opts.traceLevel,
+		networkName:  opts.networkName,
 	}
 }
 
-func (n *Network) AddParticipant(p gpbft.Receiver, pubKey gpbft.PubKey) {
+func (n *Network) AddParticipant(p gpbft.Receiver) {
 	if n.participants[p.ID()] != nil {
 		panic("duplicate participant ID")
 	}
 	n.participantIDs = append(n.participantIDs, p.ID())
 	n.participants[p.ID()] = p
-	n.actor2PubKey[p.ID()] = pubKey
 }
-
-////// Network interface
 
 func (n *Network) NetworkName() gpbft.NetworkName {
 	return n.networkName
@@ -86,8 +71,6 @@ func (n *Network) Broadcast(msg *gpbft.GMessage) {
 		}
 	}
 }
-
-///// Clock interface
 
 func (n *Network) Time() time.Time {
 	return n.clock
@@ -110,8 +93,6 @@ func (n *Network) Log(format string, args ...interface{}) {
 	n.log(TraceLogic, format, args...)
 }
 
-///// Adversary network interface
-
 func (n *Network) BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.GMessage) {
 	n.log(TraceSent, "P%d ↗ %v", sender, msg)
 	for _, k := range n.participantIDs {
@@ -128,7 +109,7 @@ func (n *Network) BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.GMessage)
 }
 
 // Returns whether there are any more messages to process.
-func (n *Network) Tick(adv adversary.Receiver) (bool, error) {
+func (n *Network) Tick(adv *adversary.Adversary) (bool, error) {
 	// Find first message the adversary will allow.
 	i := 0
 	if adv != nil && !n.globalStabilisationElapsed {
