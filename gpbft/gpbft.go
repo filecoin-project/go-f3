@@ -284,7 +284,7 @@ func (i *instance) receiveOne(msg *GMessage) error {
 			i.quality.Receive(msg.Sender, prefix, msg.Signature)
 		}
 	case CONVERGE_PHASE:
-		if err := round.converged.Receive(msg.Sender, msg.Vote.Value, msg.Ticket); err != nil {
+		if err := round.converged.Receive(msg.Sender, msg.Vote.Value, msg.Ticket, msg.Justification); err != nil {
 			return fmt.Errorf("failed processing CONVERGE message: %w", err)
 		}
 	case PREPARE_PHASE:
@@ -572,23 +572,22 @@ func (i *instance) tryConverge() error {
 
 	possibleDecisionLastRound := !i.roundState(i.round - 1).committed.HasStrongQuorumFor("")
 	winner := i.roundState(i.round).converged.findMaxTicketProposal(i.powerTable)
-	if winner.IsZero() {
+	if winner.Chain.IsZero() {
 		return fmt.Errorf("no values at CONVERGE")
 	}
-	if possibleDecisionLastRound {
-		// XXX: dig out the evidence for the winner and check it is PREPAREs (not COMMIT bottom)
-		if !i.isCandidate(winner) {
-			i.log("⚠️ swaying from %s to %s by CONVERGE", &i.proposal, &winner)
-			i.candidates = append(i.candidates, winner)
-		}
+	// If the winner is not a candidate but it could possibly have been decided by another participant
+	// in the last round, consider it a candidate.
+	if !i.isCandidate(winner.Chain) && winner.Justification.Vote.Step == PREPARE_PHASE && possibleDecisionLastRound {
+		i.log("⚠️ swaying from %s to %s by CONVERGE", &i.proposal, &winner.Chain)
+		i.candidates = append(i.candidates, winner.Chain)
 	}
-	if i.isCandidate(winner) {
-		i.proposal = winner
-		i.log("adopting proposal %s after converge", &winner)
-	} else {
-		// Preserve own proposal
-		// XXX spec says to loop to next lowest ticket, rather than fall back to own proposal.
+	if i.isCandidate(winner.Chain) {
+		i.proposal = winner.Chain
+		i.log("adopting proposal %s after converge", &winner.Chain)
 	}
+	// Else preserve own proposal
+	// XXX spec says to loop to next lowest ticket, rather than fall back to own proposal.
+
 	i.value = i.proposal
 	i.beginPrepare()
 	return nil
@@ -1048,34 +1047,38 @@ func (q *quorumState) FindStrongQuorumValue() (quorumValue ECChain, foundQuorum 
 
 type convergeState struct {
 	// Chains indexed by key
-	values map[ChainKey]ECChain
+	values map[ChainKey]ConvergeValue
 	// Tickets provided by proposers of each chain.
-	tickets map[ChainKey][]ActorTicket
+	tickets map[ChainKey][]ConvergeTicket
 }
 
-type ActorTicket struct {
-	Actor  ActorID
+type ConvergeValue struct {
+	Chain         ECChain
+	Justification *Justification
+}
+
+type ConvergeTicket struct {
+	Sender ActorID
 	Ticket Ticket
 }
 
 func newConvergeState() *convergeState {
 	return &convergeState{
-		values:  map[ChainKey]ECChain{},
-		tickets: map[ChainKey][]ActorTicket{},
+		values:  map[ChainKey]ConvergeValue{},
+		tickets: map[ChainKey][]ConvergeTicket{},
 	}
 }
 
 // Receives a new CONVERGE value from a sender.
-// XXX receive and remember justifications here too
-func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket) error {
+func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket, justification *Justification) error {
 	if value.IsZero() {
 		return fmt.Errorf("bottom cannot be justified for CONVERGE")
 	}
 	key := value.Key()
 
 	// !!! TODO: Drop duplicates (see https://github.com/filecoin-project/go-f3/issues/12)
-	c.values[key] = value
-	c.tickets[key] = append(c.tickets[key], ActorTicket{Actor: sender, Ticket: ticket})
+	c.values[key] = ConvergeValue{Chain: value, Justification: justification}
+	c.tickets[key] = append(c.tickets[key], ConvergeTicket{Sender: sender, Ticket: ticket})
 
 	return nil
 }
@@ -1083,14 +1086,14 @@ func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket) er
 // I think it is ok to have non-determinism here. If the same ticket is used for two different values
 // then either we get a decision on one of them only or we go to a new round. Eventually there is a round
 // where the max ticket is held by a correct participant, who will not double vote.
-func (c *convergeState) findMaxTicketProposal(table PowerTable) ECChain {
+func (c *convergeState) findMaxTicketProposal(table PowerTable) ConvergeValue {
 	var maxTicket *big.Int
-	var maxValue ECChain
+	var maxValue ConvergeValue
 
 	for key, value := range c.values {
-		for _, actorTicket := range c.tickets[key] {
-			senderPower, _ := table.Get(actorTicket.Actor)
-			ticketAsInt := new(big.Int).SetBytes(actorTicket.Ticket)
+		for _, ticket := range c.tickets[key] {
+			senderPower, _ := table.Get(ticket.Sender)
+			ticketAsInt := new(big.Int).SetBytes(ticket.Ticket)
 			weightedTicket := new(big.Int).Mul(ticketAsInt, senderPower)
 			if maxTicket == nil || weightedTicket.Cmp(maxTicket) > 0 {
 				maxTicket = weightedTicket
