@@ -564,28 +564,33 @@ func (i *instance) tryConverge() error {
 	if i.phase != CONVERGE_PHASE {
 		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, CONVERGE_PHASE)
 	}
+	// The CONVERGE phase timeout doesn't wait to hear from >⅔ of power.
 	timeoutExpired := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
 	if !timeoutExpired {
 		return nil
 	}
 
-	i.value = i.roundState(i.round).converged.findMaxTicketProposal(i.powerTable)
-	if i.value.IsZero() {
+	possibleDecisionLastRound := !i.roundState(i.round - 1).committed.HasStrongQuorumFor("")
+	winner := i.roundState(i.round).converged.findMaxTicketProposal(i.powerTable)
+	if winner.IsZero() {
 		return fmt.Errorf("no values at CONVERGE")
 	}
-	// FIXME HERE add to candidates if evidence justifies it
-	if i.isCandidate(i.value) {
-		// Sway to proposal if the value is acceptable.
-		if !i.proposal.Eq(i.value) {
-			i.proposal = i.value
-			i.log("adopting proposal %s after converge", &i.proposal)
+	if possibleDecisionLastRound {
+		// XXX: dig out the evidence for the winner and check it is PREPAREs (not COMMIT bottom)
+		if !i.isCandidate(winner) {
+			i.log("⚠️ swaying from %s to %s by CONVERGE", &i.proposal, &winner)
+			i.candidates = append(i.candidates, winner)
 		}
-	} else {
-		// Vote for not deciding in this round
-		i.value = ECChain{}
 	}
+	if i.isCandidate(winner) {
+		i.proposal = winner
+		i.log("adopting proposal %s after converge", &winner)
+	} else {
+		// Preserve own proposal
+		// XXX spec says to loop to next lowest ticket, rather than fall back to own proposal.
+	}
+	i.value = i.proposal
 	i.beginPrepare()
-
 	return nil
 }
 
@@ -606,15 +611,15 @@ func (i *instance) tryPrepare() error {
 	prepared := i.roundState(i.round).prepared
 	// Optimisation: we could advance phase once a strong quorum on our proposal is not possible.
 	foundQuorum := prepared.HasStrongQuorumFor(i.proposal.Key())
-	timeoutExpired := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
+	timedOut := atOrAfter(i.participant.host.Time(), i.phaseTimeout) && prepared.ReceivedFromStrongQuorum()
 
 	if foundQuorum {
 		i.value = i.proposal
-	} else if timeoutExpired {
+	} else if timedOut {
 		i.value = ECChain{}
 	}
 
-	if foundQuorum || timeoutExpired {
+	if foundQuorum || timedOut {
 		i.beginCommit()
 	}
 
@@ -646,36 +651,37 @@ func (i *instance) tryCommit(round uint64) error {
 	// and the algorithm moves on to the next round.
 	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
 	committed := i.roundState(round).committed
-	quorumValue, ok := committed.FindStrongQuorumValue()
-	timeoutExpired := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
+	quorumValue, foundStrongQuorum := committed.FindStrongQuorumValue()
+	timedOut := atOrAfter(i.participant.host.Time(), i.phaseTimeout)  && committed.ReceivedFromStrongQuorum()
 
-	if ok && !quorumValue.IsZero() {
+	if foundStrongQuorum && !quorumValue.IsZero() {
 		// A participant may be forced to decide a value that's not its preferred chain.
 		// The participant isn't influencing that decision against their interest, just accepting it.
 		i.value = quorumValue
 		i.beginDecide(round)
-	} else if i.round == round && i.phase == COMMIT_PHASE &&
-		timeoutExpired && committed.ReceivedFromStrongQuorum() {
-		// Adopt any non-bottom value committed by another participant that could possibly have been
-		// decided by some other node (which observed more COMMITs).
-		// There can only be one such value since it must be justified by a strong quorum of PREPAREs.
-		for _, v := range committed.ListAllValues() {
-			if !v.IsZero() && committed.CouldHaveStrongQuorumFor(v.Key()) {
-				if !i.isCandidate(v) {
-					i.log("⚠️ swaying from %s to %s by COMMIT", &i.input, &v)
+	} else if i.round == round && i.phase == COMMIT_PHASE && timedOut {
+		if foundStrongQuorum {
+			// If there is a strong quorum for bottom, carry forward the existing proposal.
+		} else {
+			// If there is no strong quorum for bottom, there must be a COMMIT for some other value.
+			// There can only be one such value since it must be justified by a strong quorum of PREPAREs.
+			// Some other participant could possibly have observed a strong quorum for that value,
+			// since they might observe votes from ⅓ of honest power plus a ⅓ equivocating adversary.
+			// Sway to consider that value as a candidate, even if it wasn't the local proposal.
+			for _, v := range committed.ListAllValues() {
+				if !v.IsZero() {
+					if !i.isCandidate(v) {
+						i.log("⚠️ swaying from %s to %s by COMMIT", &i.input, &v)
+						i.candidates = append(i.candidates, v)
+					}
+					if !v.Eq(i.proposal) {
+						i.proposal = v
+						i.log("adopting proposal %s after commit", &i.proposal)
+					}
+					break
 				}
-				if !v.Eq(i.proposal) {
-					i.proposal = v
-					i.log("adopting proposal %s after commit", &i.proposal)
-				}
-				break
 			}
 		}
-		// If there is no such non-bottom value, this node must instead have observed a strong quorum
-		// of COMMITs for bottom.
-		// If there is some non-bottom value, but this node has evidence it could not possibly have
-		// been decided by any other node, this node must have observed ⅔ of power voting for something
-		// else (i.e. bottom).
 		i.beginNextRound()
 	}
 	return nil
@@ -920,22 +926,6 @@ func (q *quorumState) ReceivedFromStrongQuorum() bool {
 	return hasStrongQuorum(q.sendersTotalPower, q.powerTable.Total)
 }
 
-// Checks whether a chain could possibly have reached strong quorum, e.g. at another participant
-// which observed some messages not received by this one.
-// Returns false if no correct participant could have decided the key,
-// even in the presence of an equivocating adversary controlling up to ⅓ power, or true otherwise.
-func (q *quorumState) CouldHaveStrongQuorumFor(key ChainKey) bool {
-	powerForChain := new(StoragePower)
-	if support, ok := q.chainSupport[key]; ok {
-		*powerForChain = *support.power
-	}
-	unknownPower := new(StoragePower)
-	unknownPower.Sub(q.powerTable.Total, q.sendersTotalPower)
-	possiblePower := new(StoragePower)
-	possiblePower.Add(powerForChain, unknownPower)
-	return hasWeakQuorum(possiblePower, q.powerTable.Total)
-}
-
 // Checks whether a chain has reached a strong quorum.
 func (q *quorumState) HasStrongQuorumFor(key ChainKey) bool {
 	supportForChain, ok := q.chainSupport[key]
@@ -1076,6 +1066,7 @@ func newConvergeState() *convergeState {
 }
 
 // Receives a new CONVERGE value from a sender.
+// XXX receive and remember justifications here too
 func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket) error {
 	if value.IsZero() {
 		return fmt.Errorf("bottom cannot be justified for CONVERGE")
@@ -1096,8 +1087,8 @@ func (c *convergeState) findMaxTicketProposal(table PowerTable) ECChain {
 	var maxTicket *big.Int
 	var maxValue ECChain
 
-	for cid, value := range c.values {
-		for _, actorTicket := range c.tickets[cid] {
+	for key, value := range c.values {
+		for _, actorTicket := range c.tickets[key] {
 			senderPower, _ := table.Get(actorTicket.Actor)
 			ticketAsInt := new(big.Int).SetBytes(actorTicket.Ticket)
 			weightedTicket := new(big.Int).Mul(ticketAsInt, senderPower)
