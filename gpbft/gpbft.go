@@ -141,6 +141,11 @@ type instance struct {
 	// The value to be transmitted at the next phase, which may be bottom.
 	// This value may change away from the proposal between phases.
 	value ECChain
+	// The set of values that are acceptable candidates to this instance.
+	// This includes the base chain, all prefixes of proposal that found a strong quorum
+	// of support in the QUALITY phase, and any chains that could possibly have been
+	// decided by another participant.
+	candidates []ECChain
 	// The final termination value of the instance, for communication to the participant.
 	// This field is an alternative to plumbing an optional decision value out through
 	// all the method calls, or holding a callback handle to receive it here.
@@ -152,9 +157,8 @@ type instance struct {
 	// State for each round of phases.
 	// State from prior rounds must be maintained to provide justification for values in subsequent rounds.
 	rounds map[uint64]*roundState
-	// Acceptable chain
-	acceptable ECChain
-	// Decision state. Collects DECIDE messages until a decision can be made, independently of protocol phases/rounds.
+	// Decision state. Collects DECIDE messages until a decision can be made,
+	// independently of protocol phases/rounds.
 	decision *quorumState
 	// tracer traces logic logs for debugging and simulation purposes.
 	tracer Tracer
@@ -179,11 +183,11 @@ func newInstance(
 		phase:       INITIAL_PHASE,
 		proposal:    input,
 		value:       ECChain{},
+		candidates:    []ECChain{input.BaseChain()},
 		quality:     newQuorumState(powerTable),
 		rounds: map[uint64]*roundState{
 			0: newRoundState(powerTable),
 		},
-		acceptable: input,
 		decision:   newQuorumState(powerTable),
 	}, nil
 }
@@ -207,16 +211,6 @@ func (i *instance) Start() error {
 		return err
 	}
 	return i.drainInbox()
-}
-
-// ReceiveAcceptable receives a new chain, and updates the current chain of this instance if acceptable.
-// See instance.isAcceptable.
-func (i *instance) ReceiveAcceptable(chain ECChain) bool {
-	acceptable := i.isAcceptable(chain)
-	if acceptable {
-		i.acceptable = chain
-	}
-	return acceptable
 }
 
 // Checks whether a message is valid.
@@ -517,10 +511,16 @@ func (i *instance) tryQuality() error {
 		// Keep current proposal.
 	} else if timeoutExpired {
 		strongQuora := i.quality.ListStrongQuorumValues()
-		i.proposal = findFirstPrefixOf(strongQuora, i.proposal)
+		i.proposal = findFirstPrefixOf(i.proposal, strongQuora)
 	}
 
 	if foundQuorum || timeoutExpired {
+		// Add quorum prefixes to candidates (skipping base chain, which is already there).
+		for l := range i.proposal {
+			if l > 0 {
+				i.candidates = append(i.candidates, i.proposal.Prefix(l))
+			}
+		}
 		i.value = i.proposal
 		i.log("adopting proposal/value %s", &i.proposal)
 		i.beginPrepare()
@@ -573,7 +573,8 @@ func (i *instance) tryConverge() error {
 	if i.value.IsZero() {
 		return fmt.Errorf("no values at CONVERGE")
 	}
-	if i.isAcceptable(i.value) {
+	// FIXME HERE add to candidates if evidence justifies it
+	if i.isCandidate(i.value) {
 		// Sway to proposal if the value is acceptable.
 		if !i.proposal.Eq(i.value) {
 			i.proposal = i.value
@@ -655,12 +656,12 @@ func (i *instance) tryCommit(round uint64) error {
 		i.beginDecide(round)
 	} else if i.round == round && i.phase == COMMIT_PHASE &&
 		timeoutExpired && committed.ReceivedFromStrongQuorum() {
-		// Adopt any non-empty value committed by another participant (there can only be one).
-		// The received COMMIT carried justification of a strong quorum of PREPARE messages,
-		// and means that some other nodes may decide that value (if they observe more COMMITs).
+		// Adopt any non-bottom value committed by another participant that could possibly have been
+		// decided by some other node (which observed more COMMITs).
+		// There can only be one such value since it must be justified by a strong quorum of PREPAREs.
 		for _, v := range committed.ListAllValues() {
-			if !v.IsZero() {
-				if !i.isAcceptable(v) {
+			if !v.IsZero() && committed.CouldHaveStrongQuorumFor(v.Key()) {
+				if !i.isCandidate(v) {
 					i.log("⚠️ swaying from %s to %s by COMMIT", &i.input, &v)
 				}
 				if !v.Eq(i.proposal) {
@@ -670,6 +671,11 @@ func (i *instance) tryCommit(round uint64) error {
 				break
 			}
 		}
+		// If there is no such non-bottom value, this node must instead have observed a strong quorum
+		// of COMMITs for bottom.
+		// If there is some non-bottom value, but this node has evidence it could not possibly have
+		// been decided by any other node, this node must have observed ⅔ of power voting for something
+		// else (i.e. bottom).
 		i.beginNextRound()
 	}
 	return nil
@@ -727,8 +733,13 @@ func (i *instance) beginNextRound() {
 
 // Returns whether a chain is acceptable as a proposal for this instance to vote for.
 // This is "EC Compatible" in the pseudocode.
-func (i *instance) isAcceptable(c ECChain) bool {
-	return i.acceptable.HasPrefix(c)
+func (i *instance) isCandidate(c ECChain) bool {
+	for _, candidate := range i.candidates {
+		if c.Eq(candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func (i *instance) terminate(decision *Justification) {
@@ -909,10 +920,26 @@ func (q *quorumState) ReceivedFromStrongQuorum() bool {
 	return hasStrongQuorum(q.sendersTotalPower, q.powerTable.Total)
 }
 
+// Checks whether a chain could possibly have reached strong quorum, e.g. at another participant
+// which observed some messages not received by this one.
+// Returns false if no correct participant could have decided the key,
+// even in the presence of an equivocating adversary controlling up to ⅓ power, or true otherwise.
+func (q *quorumState) CouldHaveStrongQuorumFor(key ChainKey) bool {
+	powerForChain := new(StoragePower)
+	if support, ok := q.chainSupport[key]; ok {
+		*powerForChain = *support.power
+	}
+	unknownPower := new(StoragePower)
+	unknownPower.Sub(q.powerTable.Total, q.sendersTotalPower)
+	possiblePower := new(StoragePower)
+	possiblePower.Add(powerForChain, unknownPower)
+	return hasWeakQuorum(possiblePower, q.powerTable.Total)
+}
+
 // Checks whether a chain has reached a strong quorum.
 func (q *quorumState) HasStrongQuorumFor(key ChainKey) bool {
-	cp, ok := q.chainSupport[key]
-	return ok && cp.hasStrongQuorum
+	supportForChain, ok := q.chainSupport[key]
+	return ok && supportForChain.hasStrongQuorum
 }
 
 type QuorumResult struct {
@@ -1086,7 +1113,7 @@ func (c *convergeState) findMaxTicketProposal(table PowerTable) ECChain {
 ///// General helpers /////
 
 // Returns the first candidate value that is a prefix of the preferred value, or the base of preferred.
-func findFirstPrefixOf(candidates []ECChain, preferred ECChain) ECChain {
+func findFirstPrefixOf(preferred ECChain, candidates []ECChain) ECChain {
 	for _, v := range candidates {
 		if preferred.HasPrefix(v) {
 			return v

@@ -75,24 +75,6 @@ func (p *Participant) CurrentRound() uint64 {
 	return p.granite.round
 }
 
-// Receives a new EC chain, and notifies the current instance.
-// This may modify the set of valid values for the current instance.
-func (p *Participant) ReceiveECChain(chain ECChain) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = &PanicError{Err: r}
-		}
-	}()
-	if chain.IsZero() {
-		err = errors.New("cannot receive zero chain")
-	} else if err = chain.Validate(); err == nil && p.granite != nil {
-		if p.granite.ReceiveAcceptable(chain) {
-			err = ErrECChainNotAcceptable
-		}
-	}
-	return
-}
-
 // Validates a message received from another participant, if possible.
 // An invalid message can never become valid, so may be dropped.
 // A message can only be validated if it is for the currently-executing protocol instance.

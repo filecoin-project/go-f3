@@ -2,18 +2,6 @@ package gpbft
 
 import "time"
 
-// ChainReceiver defines the interface for receiving updates to an Expected Consensus (EC) chain.
-// Implementers of this interface can act upon received EC chain data, potentially considering the
-// given chain as the expected consensus chain in the current GPBFT instance.
-type ChainReceiver interface {
-	// ReceiveECChain processes an incoming EC chain update. It assesses whether the new chain
-	// extends or is compatible with the currently accepted chain maintained by the instance.
-	//
-	//Returns ErrECChainNotAcceptable error if the chain was not accepted. Otherwise, an error
-	// is returned if the chain is invalid.
-	ReceiveECChain(chain ECChain) error
-}
-
 // Receives a Granite protocol message.
 type MessageReceiver interface {
 	// Validates a message received from another participant, if possible.
@@ -31,7 +19,6 @@ type Receiver interface {
 	// Begins executing the protocol.
 	// The node will request the canonical chain to propose from the host.
 	Start() error
-	ChainReceiver
 	MessageReceiver
 }
 
