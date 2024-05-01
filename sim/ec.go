@@ -1,16 +1,12 @@
 package sim
 
 import (
-	"time"
-
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
 // Simulated EC state for each protocol instance.
 type EC struct {
-	// Timestamp of the base chain.
-	BaseTimestamp time.Time
-	Instances     []*ECInstance
+	Instances []*ECInstance
 }
 
 type ECInstance struct {
@@ -26,7 +22,6 @@ type ECInstance struct {
 
 func newEC(opts *options) *EC {
 	return &EC{
-		BaseTimestamp: time.Time{},
 		Instances: []*ECInstance{
 			{
 				Base:       *opts.baseChain,
