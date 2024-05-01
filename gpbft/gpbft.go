@@ -14,13 +14,6 @@ import (
 	"golang.org/x/xerrors"
 )
 
-type GraniteConfig struct {
-	// Expected bound on message propagation latency.
-	Delta time.Duration
-	// Delta back-off exponent for the round.
-	DeltaBackOffExponent float64
-}
-
 type Phase uint8
 
 const (
@@ -126,10 +119,8 @@ func (m GMessage) String() string {
 
 // A single Granite consensus instance.
 type instance struct {
-	config        GraniteConfig
-	host          Host
-	participantID ActorID
-	instanceID    uint64
+	participant *Participant
+	instanceID  uint64
 	// The EC chain input to this instance.
 	input ECChain
 	// The power table for the base chain, used for power in this instance.
@@ -170,36 +161,30 @@ type instance struct {
 }
 
 func newInstance(
-	config GraniteConfig,
-	host Host,
-	participantID ActorID,
+	participant *Participant,
 	instanceID uint64,
 	input ECChain,
 	powerTable PowerTable,
-	beacon []byte,
-	tracer Tracer) (*instance, error) {
+	beacon []byte) (*instance, error) {
 	if input.IsZero() {
 		return nil, fmt.Errorf("input is empty")
 	}
 	return &instance{
-		config:        config,
-		host:          host,
-		participantID: participantID,
-		instanceID:    instanceID,
-		input:         input,
-		powerTable:    powerTable,
-		beacon:        beacon,
-		round:         0,
-		phase:         INITIAL_PHASE,
-		proposal:      input,
-		value:         ECChain{},
-		quality:       newQuorumState(powerTable),
+		participant: participant,
+		instanceID:  instanceID,
+		input:       input,
+		powerTable:  powerTable,
+		beacon:      beacon,
+		round:       0,
+		phase:       INITIAL_PHASE,
+		proposal:    input,
+		value:       ECChain{},
+		quality:     newQuorumState(powerTable),
 		rounds: map[uint64]*roundState{
 			0: newRoundState(powerTable),
 		},
 		acceptable: input,
 		decision:   newQuorumState(powerTable),
-		tracer:     tracer,
 	}, nil
 }
 
@@ -269,7 +254,7 @@ func (i *instance) ReceiveAlarm() error {
 }
 
 func (i *instance) Describe() string {
-	return fmt.Sprintf("P%d{%d}, round %d, phase %s", i.participantID, i.instanceID, i.round, i.phase)
+	return fmt.Sprintf("P%d{%d}, round %d, phase %s", i.participant.id, i.instanceID, i.round, i.phase)
 }
 
 func (i *instance) enqueueInbox(msg *GMessage) {
@@ -398,7 +383,7 @@ func (i *instance) validateMessage(msg *GMessage) error {
 		if msg.Vote.Value.IsZero() {
 			return xerrors.Errorf("unexpected zero value for converge phase")
 		}
-		if !VerifyTicket(i.beacon, i.instanceID, msg.Vote.Round, senderPubKey, i.host, msg.Ticket) {
+		if !VerifyTicket(i.beacon, i.instanceID, msg.Vote.Round, senderPubKey, i.participant.host, msg.Ticket) {
 			return xerrors.Errorf("failed to verify ticket from %v", msg.Sender)
 		}
 	case DECIDE_PHASE:
@@ -415,8 +400,8 @@ func (i *instance) validateMessage(msg *GMessage) error {
 	}
 
 	// Check vote signature.
-	sigPayload := msg.Vote.MarshalForSigning(i.host.NetworkName())
-	if err := i.host.Verify(senderPubKey, sigPayload, msg.Signature); err != nil {
+	sigPayload := msg.Vote.MarshalForSigning(i.participant.host.NetworkName())
+	if err := i.participant.host.Verify(senderPubKey, sigPayload, msg.Signature); err != nil {
 		return xerrors.Errorf("invalid signature on %v, %v", msg, err)
 	}
 
@@ -495,8 +480,8 @@ func (i *instance) validateMessage(msg *GMessage) error {
 			return fmt.Errorf("message %v has justification with insufficient power: %v", msg, justificationPower)
 		}
 
-		payload := msg.Justification.Vote.MarshalForSigning(i.host.NetworkName())
-		if err := i.host.VerifyAggregate(payload, msg.Justification.Signature, signers); err != nil {
+		payload := msg.Justification.Vote.MarshalForSigning(i.participant.host.NetworkName())
+		if err := i.participant.host.VerifyAggregate(payload, msg.Justification.Signature, signers); err != nil {
 			return xerrors.Errorf("verification of the aggregate failed: %+v: %w", msg.Justification, err)
 		}
 	} else if msg.Justification != nil {
@@ -526,7 +511,7 @@ func (i *instance) tryQuality() error {
 	// Wait either for a strong quorum that agree on our proposal,
 	// or for the timeout to expire.
 	foundQuorum := i.quality.HasStrongQuorumFor(i.proposal.Key())
-	timeoutExpired := atOrAfter(i.host.Time(), i.phaseTimeout)
+	timeoutExpired := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
 
 	if foundQuorum {
 		// Keep current proposal.
@@ -564,8 +549,8 @@ func (i *instance) beginConverge() {
 			panic("beginConverge called but no justification for proposal")
 		}
 	}
-	_, pubkey := i.powerTable.Get(i.participantID)
-	ticket, err := MakeTicket(i.beacon, i.instanceID, i.round, pubkey, i.host)
+	_, pubkey := i.powerTable.Get(i.participant.id)
+	ticket, err := MakeTicket(i.beacon, i.instanceID, i.round, pubkey, i.participant.host)
 	if err != nil {
 		i.log("error while creating VRF ticket: %v", err)
 		return
@@ -579,7 +564,7 @@ func (i *instance) tryConverge() error {
 	if i.phase != CONVERGE_PHASE {
 		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, CONVERGE_PHASE)
 	}
-	timeoutExpired := atOrAfter(i.host.Time(), i.phaseTimeout)
+	timeoutExpired := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
 	if !timeoutExpired {
 		return nil
 	}
@@ -620,7 +605,7 @@ func (i *instance) tryPrepare() error {
 	prepared := i.roundState(i.round).prepared
 	// Optimisation: we could advance phase once a strong quorum on our proposal is not possible.
 	foundQuorum := prepared.HasStrongQuorumFor(i.proposal.Key())
-	timeoutExpired := atOrAfter(i.host.Time(), i.phaseTimeout)
+	timeoutExpired := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
 
 	if foundQuorum {
 		i.value = i.proposal
@@ -661,7 +646,7 @@ func (i *instance) tryCommit(round uint64) error {
 	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
 	committed := i.roundState(round).committed
 	quorumValue, ok := committed.FindStrongQuorumValue()
-	timeoutExpired := atOrAfter(i.host.Time(), i.phaseTimeout)
+	timeoutExpired := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
 
 	if ok && !quorumValue.IsZero() {
 		// A participant may be forced to decide a value that's not its preferred chain.
@@ -764,7 +749,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 		Step:     step,
 		Value:    value,
 	}
-	sp := p.MarshalForSigning(i.host.NetworkName())
+	sp := p.MarshalForSigning(i.participant.host.NetworkName())
 
 	sig, err := i.sign(sp)
 	if err != nil {
@@ -773,13 +758,13 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 	}
 
 	gmsg := &GMessage{
-		Sender:        i.participantID,
+		Sender:        i.participant.id,
 		Vote:          p,
 		Signature:     sig,
 		Ticket:        ticket,
 		Justification: justification,
 	}
-	i.host.Broadcast(gmsg)
+	i.participant.host.Broadcast(gmsg)
 	i.enqueueInbox(gmsg)
 }
 
@@ -787,16 +772,16 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 // The delay duration increases with each round.
 // Returns the absolute time at which the alarm will fire.
 func (i *instance) alarmAfterSynchrony() time.Time {
-	delta := time.Duration(float64(i.config.Delta) *
-		math.Pow(i.config.DeltaBackOffExponent, float64(i.round)))
-	timeout := i.host.Time().Add(2 * delta)
-	i.host.SetAlarm(timeout)
+	delta := time.Duration(float64(i.participant.delta) *
+		math.Pow(i.participant.deltaBackOffExponent, float64(i.round)))
+	timeout := i.participant.host.Time().Add(2 * delta)
+	i.participant.host.SetAlarm(timeout)
 	return timeout
 }
 
 // Builds a justification for a value from a quorum result.
 func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase Phase, value ECChain) *Justification {
-	aggSignature, err := quorum.Aggregate(i.host)
+	aggSignature, err := quorum.Aggregate(i.participant.host)
 	if err != nil {
 		panic(xerrors.Errorf("aggregating for phase %v: %v", phase, err))
 	}
@@ -815,14 +800,14 @@ func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase P
 func (i *instance) log(format string, args ...interface{}) {
 	if i.tracer != nil {
 		msg := fmt.Sprintf(format, args...)
-		i.tracer.Log("P%d{%d}: %s (round %d, step %s, proposal %s, value %s)", i.participantID, i.instanceID, msg,
+		i.tracer.Log("P%d{%d}: %s (round %d, step %s, proposal %s, value %s)", i.participant.id, i.instanceID, msg,
 			i.round, i.phase, &i.proposal, &i.value)
 	}
 }
 
 func (i *instance) sign(msg []byte) ([]byte, error) {
-	_, pubKey := i.powerTable.Get(i.participantID)
-	return i.host.Sign(pubKey, msg)
+	_, pubKey := i.powerTable.Get(i.participant.id)
+	return i.participant.host.Sign(pubKey, msg)
 }
 
 ///// Incremental quorum-calculation helper /////

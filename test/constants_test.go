@@ -24,13 +24,13 @@ const (
 var (
 	oneStoragePower = gpbft.NewStoragePower(1)
 
-	// testGraniteConfig is configuration constants used across most tests.
+	// testGpbftOptions is configuration constants used across most tests.
 	// These values are not intended to reflect real-world conditions.
 	// The latency and delta values are similar in order to stress "slow" message paths and interleaving.
 	// The values are not appropriate for benchmarks.
-	testGraniteConfig = &gpbft.GraniteConfig{
-		Delta:                200 * time.Millisecond,
-		DeltaBackOffExponent: 1.300,
+	testGpbftOptions = []gpbft.Option{
+		gpbft.WithDelta(200 * time.Millisecond),
+		gpbft.WithDeltaBackOffExponent(1.300),
 	}
 )
 
@@ -39,7 +39,7 @@ func syncOptions(o ...sim.Option) []sim.Option {
 		sim.WithLatencyModel(latency.None),
 		sim.WithECEpochDuration(EcEpochDuration),
 		sim.WitECStabilisationDelay(EcStabilisationDelay),
-		sim.WithGraniteConfig(testGraniteConfig),
+		sim.WithGpbftOptions(testGpbftOptions...),
 	)
 }
 
@@ -50,6 +50,6 @@ func asyncOptions(t *testing.T, latencySeed int, o ...sim.Option) []sim.Option {
 		sim.WithLatencyModel(lm),
 		sim.WithECEpochDuration(EcEpochDuration),
 		sim.WitECStabilisationDelay(EcStabilisationDelay),
-		sim.WithGraniteConfig(testGraniteConfig),
+		sim.WithGpbftOptions(testGpbftOptions...),
 	)
 }

@@ -113,53 +113,6 @@ func (_c *MockHost_Broadcast_Call) RunAndReturn(run func(*GMessage)) *MockHost_B
 	return _c
 }
 
-// GenerateKey provides a mock function with given fields:
-func (_m *MockHost) GenerateKey() PubKey {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for GenerateKey")
-	}
-
-	var r0 PubKey
-	if rf, ok := ret.Get(0).(func() PubKey); ok {
-		r0 = rf()
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(PubKey)
-		}
-	}
-
-	return r0
-}
-
-// MockHost_GenerateKey_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GenerateKey'
-type MockHost_GenerateKey_Call struct {
-	*mock.Call
-}
-
-// GenerateKey is a helper method to define mock.On call
-func (_e *MockHost_Expecter) GenerateKey() *MockHost_GenerateKey_Call {
-	return &MockHost_GenerateKey_Call{Call: _e.mock.On("GenerateKey")}
-}
-
-func (_c *MockHost_GenerateKey_Call) Run(run func()) *MockHost_GenerateKey_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockHost_GenerateKey_Call) Return(_a0 PubKey) *MockHost_GenerateKey_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockHost_GenerateKey_Call) RunAndReturn(run func() PubKey) *MockHost_GenerateKey_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetCanonicalChain provides a mock function with given fields:
 func (_m *MockHost) GetCanonicalChain() (ECChain, PowerTable, []byte) {
 	ret := _m.Called()

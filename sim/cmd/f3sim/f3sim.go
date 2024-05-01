@@ -21,7 +21,7 @@ func main() {
 	maxRounds := flag.Uint64("max-rounds", 10, "max rounds to allow before failing")
 	traceLevel := flag.Int("trace", sim.TraceNone, "trace verbosity level")
 
-	graniteDelta := flag.Float64("granite-delta", 2.000, "granite delta parameter (bound on message delay)")
+	delta := flag.Duration("delta", 2*time.Second, "bound on message delay")
 	deltaBackOffExponent := flag.Float64("delta-back-off-exponent", 1.300, "exponential factor adjusting the delta value per round")
 	flag.Parse()
 
@@ -41,10 +41,6 @@ func main() {
 			log.Fatalf("failed to generate base chain: %v\n", err)
 		}
 
-		graniteConfig := &gpbft.GraniteConfig{
-			Delta:                time.Duration(*graniteDelta * float64(time.Second)),
-			DeltaBackOffExponent: *deltaBackOffExponent,
-		}
 		options := []sim.Option{
 			sim.WithHonestParticipantCount(*participantCount),
 			sim.WithLatencyModel(latencyModel),
@@ -53,7 +49,10 @@ func main() {
 			sim.WithTipSetGenerator(tsg),
 			sim.WithBaseChain(&baseChain),
 			sim.WithTraceLevel(*traceLevel),
-			sim.WithGraniteConfig(graniteConfig),
+			sim.WithGpbftOptions(
+				gpbft.WithDelta(*delta),
+				gpbft.WithDeltaBackOffExponent(*deltaBackOffExponent),
+			),
 		}
 
 		if os.Getenv("F3_TEST_USE_BLS") == "1" {

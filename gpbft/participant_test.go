@@ -29,12 +29,12 @@ type participantTestSubject struct {
 	id             gpbft.ActorID
 	pubKey         gpbft.PubKey
 	instance       uint64
-	graniteConfig  gpbft.GraniteConfig
 	networkName    gpbft.NetworkName
 	canonicalChain gpbft.ECChain
 	powerTable     *gpbft.PowerTable
 	beacon         []byte
 	time           time.Time
+	delta          time.Duration
 }
 
 func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *participantTestSubject {
@@ -42,17 +42,19 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 	canonicalChain, err := gpbft.NewChain([]byte("genesis"))
 	require.NoError(t, err)
 
+	const (
+		delta                = 2 * time.Second
+		deltaBackOffExponent = 1.3
+	)
+
 	rng := rand.New(rand.NewSource(seed))
 	subject := participantTestSubject{
-		t:        t,
-		rng:      rng,
-		id:       gpbft.ActorID(rng.Uint64()),
-		pubKey:   generateRandomBytes(rng),
-		instance: instance,
-		graniteConfig: gpbft.GraniteConfig{
-			Delta:                2 * time.Second,
-			DeltaBackOffExponent: 1.3,
-		},
+		t:              t,
+		rng:            rng,
+		id:             gpbft.ActorID(rng.Uint64()),
+		pubKey:         generateRandomBytes(rng),
+		delta:          delta,
+		instance:       instance,
 		networkName:    "fish",
 		canonicalChain: canonicalChain,
 		powerTable:     gpbft.NewPowerTable(),
@@ -68,7 +70,11 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 	}))
 
 	subject.host = gpbft.NewMockHost(t)
-	subject.Participant = gpbft.NewParticipant(subject.id, subject.graniteConfig, subject.host, nil, subject.instance)
+	subject.Participant, err = gpbft.NewParticipant(subject.id, subject.host,
+		gpbft.WithDelta(delta),
+		gpbft.WithDeltaBackOffExponent(deltaBackOffExponent),
+		gpbft.WithInitialInstance(instance))
+	require.NoError(t, err)
 	require.EqualValues(t, subject.id, subject.ID())
 	subject.requireNotStarted()
 	return &subject
@@ -86,7 +92,7 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	pt.host.EXPECT().NetworkName()
 
 	// Expect alarm is set to 2X of configured delta.
-	pt.host.EXPECT().SetAlarm(pt.time.Add(2 * pt.graniteConfig.Delta))
+	pt.host.EXPECT().SetAlarm(pt.time.Add(2 * pt.delta))
 
 	wantSignature := generateRandomBytes(pt.rng)
 

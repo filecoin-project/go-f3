@@ -10,9 +10,9 @@ var ErrECChainNotAcceptable = errors.New("ec chain is not acceptable")
 
 // An F3 participant runs repeated instances of Granite to finalise longer chains.
 type Participant struct {
-	id     ActorID
-	config GraniteConfig
-	host   Host
+	*options
+	id   ActorID
+	host Host
 
 	// Instance identifier for the next Granite instance.
 	nextInstance uint64
@@ -29,8 +29,6 @@ type Participant struct {
 	// protocol round for which a strong quorum of COMMIT messages was observed,
 	// which may not be known to the participant.
 	terminatedDuringRound uint64
-	// tracer traces logic logs for debugging and simulation purposes.
-	tracer Tracer
 }
 
 type PanicError struct {
@@ -41,8 +39,18 @@ func (e *PanicError) Error() string {
 	return fmt.Sprintf("participant panicked: %v", e.Err)
 }
 
-func NewParticipant(id ActorID, config GraniteConfig, host Host, tracer Tracer, instance uint64) *Participant {
-	return &Participant{id: id, config: config, host: host, mqueue: map[uint64][]*GMessage{}, tracer: tracer, nextInstance: instance}
+func NewParticipant(id ActorID, host Host, o ...Option) (*Participant, error) {
+	opts, err := newOptions(o...)
+	if err != nil {
+		return nil, err
+	}
+	return &Participant{
+		options:      opts,
+		id:           id,
+		host:         host,
+		mqueue:       make(map[uint64][]*GMessage),
+		nextInstance: opts.initialInstance,
+	}, nil
 }
 
 func (p *Participant) ID() ActorID {
@@ -168,7 +176,7 @@ func (p *Participant) beginInstance() error {
 		return fmt.Errorf("invalid power table: %w", err)
 	}
 	var err error
-	if p.granite, err = newInstance(p.config, p.host, p.id, p.nextInstance, chain, power, beacon, p.tracer); err != nil {
+	if p.granite, err = newInstance(p, p.nextInstance, chain, power, beacon); err != nil {
 		return fmt.Errorf("failed creating new granite instance: %w", err)
 	}
 	p.nextInstance += 1

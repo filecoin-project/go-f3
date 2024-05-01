@@ -25,7 +25,7 @@ func TestWitholdCommit1(t *testing.T) {
 		sim.WithLatencyModel(nearSynchrony),
 		sim.WithECEpochDuration(EcEpochDuration),
 		sim.WitECStabilisationDelay(EcStabilisationDelay),
-		sim.WithGraniteConfig(testGraniteConfig),
+		sim.WithGpbftOptions(testGpbftOptions...),
 		sim.WithTipSetGenerator(tsg),
 		sim.WithBaseChain(&baseChain),
 		// Adversary has 30% of 10 total power.
