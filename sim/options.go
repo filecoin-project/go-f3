@@ -16,12 +16,8 @@ const (
 )
 
 var (
-	defaultBaseChain     gpbft.ECChain
-	defaultBeacon        = []byte("beacon")
-	defaultGraniteConfig = gpbft.GraniteConfig{
-		Delta:                2.0,
-		DeltaBackOffExponent: 1.3,
-	}
+	defaultBaseChain    gpbft.ECChain
+	defaultBeacon       = []byte("beacon")
 	defaultLatencyModel latency.Model
 )
 
@@ -52,11 +48,10 @@ type options struct {
 	ecStabilisationDelay time.Duration
 	// If nil then FakeSigningBackend is used unless overridden by F3_TEST_USE_BLS
 	signingBacked      signing.Backend
-	graniteConfig      *gpbft.GraniteConfig
+	gpbftOptions       []gpbft.Option
 	traceLevel         int
 	networkName        gpbft.NetworkName
 	tipSetGenerator    *TipSetGenerator
-	initialInstance    uint64
 	baseChain          *gpbft.ECChain
 	beacon             []byte
 	adversaryGenerator adversary.Generator
@@ -75,9 +70,6 @@ func newOptions(o ...Option) (*options, error) {
 	}
 	if opts.latencyModel == nil {
 		opts.latencyModel = defaultLatencyModel
-	}
-	if opts.graniteConfig == nil {
-		opts.graniteConfig = &defaultGraniteConfig
 	}
 	if opts.signingBacked == nil {
 		opts.signingBacked = signing.NewFakeBackend()
@@ -136,9 +128,9 @@ func WitECStabilisationDelay(d time.Duration) Option {
 	}
 }
 
-func WithGraniteConfig(c *gpbft.GraniteConfig) Option {
+func WithGpbftOptions(gOpts ...gpbft.Option) Option {
 	return func(o *options) error {
-		o.graniteConfig = c
+		o.gpbftOptions = gOpts
 		return nil
 	}
 }

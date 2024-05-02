@@ -35,11 +35,15 @@ func NewSimulation(o ...Option) (*Simulation, error) {
 		decisions: decisions,
 	}
 
+	pOpts := append(opts.gpbftOptions, gpbft.WithTracer(s.network))
 	var nextID gpbft.ActorID
 	s.participants = make([]*gpbft.Participant, s.honestCount)
 	for i := range s.participants {
 		host := newHost(nextID, s)
-		s.participants[i] = gpbft.NewParticipant(nextID, *s.graniteConfig, host, s.network, s.initialInstance)
+		s.participants[i], err = gpbft.NewParticipant(nextID, host, pOpts...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to instnatiate participant: %w", err)
+		}
 		pubKey, _ := s.signingBacked.GenerateKey()
 		s.network.AddParticipant(s.participants[i])
 		s.ec.AddParticipant(nextID, gpbft.NewStoragePower(1), pubKey)
