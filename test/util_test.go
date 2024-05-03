@@ -1,7 +1,6 @@
 package test
 
 import (
-	"bytes"
 	"os"
 	"runtime"
 	"strconv"
@@ -29,23 +28,19 @@ func init() {
 }
 
 // Expects the decision in the first instance to be one of the given tipsets.
-func requireConsensus(t *testing.T, sm *sim.Simulation, expected ...gpbft.TipSet) {
-	requireConsensusAtInstance(t, sm, 0, expected...)
+func requireConsensusAtFirstInstance(t *testing.T, sm *sim.Simulation, expectAnyOf ...gpbft.TipSet) {
+	requireConsensusAtInstance(t, sm, 0, expectAnyOf...)
 }
 
 // Expects the decision in an instance to be one of the given tipsets.
-func requireConsensusAtInstance(t *testing.T, sm *sim.Simulation, instance uint64, expected ...gpbft.TipSet) {
-nextParticipant:
+func requireConsensusAtInstance(t *testing.T, sm *sim.Simulation, instance uint64, expectAnyOf ...gpbft.TipSet) {
+	inst := sm.GetInstance(instance)
 	for _, pid := range sm.ListParticipantIDs() {
-		decision, ok := sm.GetDecision(instance, pid)
-		require.True(t, ok, "no decision for participant %d in instance %d", pid, instance)
-		for _, e := range expected {
-			if bytes.Equal(decision.Head(), e) {
-				continue nextParticipant
-			}
-		}
-		require.Fail(t, "consensus not reached", "participant %d decided %s in instance %d, expected one of %s",
-			pid, decision, instance, expected)
+		require.NotNil(t, inst, "no such instance")
+		decision := inst.GetDecision(pid)
+		require.NotNil(t, decision, "no decision for participant %d in instance %d", pid, instance)
+		require.Contains(t, expectAnyOf, decision.Head(), "consensus not reached: participant %d decided %s in instance %d, expected any of %s",
+			pid, decision.Head(), instance, expectAnyOf)
 	}
 }
 

@@ -1,7 +1,6 @@
 package sim
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -19,35 +18,33 @@ type simHost struct {
 	gpbft.Verifier
 	gpbft.Clock
 
-	sim *Simulation
 	id  gpbft.ActorID
+	sim *Simulation
+
+	// The simulation package always starts at instance zero.
+	// TODO: https://github.com/filecoin-project/go-f3/issues/195
+	instance uint64
+	ecChain  gpbft.ECChain
+	ecg      ECChainGenerator
 }
 
-func newHost(id gpbft.ActorID, sim *Simulation) *simHost {
+func newHost(id gpbft.ActorID, sim *Simulation, ecg ECChainGenerator) *simHost {
 	return &simHost{
 		Network:  sim.network,
 		Verifier: sim.signingBacked,
 		Signer:   sim.signingBacked,
 		sim:      sim,
 		id:       id,
+		ecg:      ecg,
+		ecChain:  *sim.baseChain,
 	}
 }
 
-func (v *simHost) GetCanonicalChain() (chain gpbft.ECChain, power gpbft.PowerTable, beacon []byte) {
-	// Find the instance after the last instance finalised by the participant.
-	var instance uint64
-	decisions := v.sim.decisions.Decisions
-	for i := len(decisions) - 1; i >= 0; i-- {
-		if decisions[i][v.id] != nil {
-			instance = uint64(i + 1)
-			break
-		}
-	}
-	i := v.sim.ec.Instances[instance]
-	chain = i.Chains[v.id]
-	power = *i.PowerTable
-	beacon = i.Beacon
-	return
+func (v *simHost) GetCanonicalChain() (gpbft.ECChain, gpbft.PowerTable, []byte) {
+	i := v.sim.ec.GetInstance(v.instance)
+	// Use the head of latest agreement chain as the base of next.
+	chain := v.ecg.GenerateECChain(v.instance, v.ecChain.Head(), v.id)
+	return chain, *i.PowerTable, i.Beacon
 }
 
 func (v *simHost) SetAlarm(at time.Time) {
@@ -59,27 +56,10 @@ func (v *simHost) Time() time.Time {
 }
 
 func (v *simHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
-	firstForInstance := v.sim.decisions.ReceiveDecision(v.id, decision)
-	if firstForInstance {
-		// When the first valid decision is received for an instance, prepare for the next one.
-		nextBase := decision.Vote.Value.Head()
-		// Copy the previous instance power table.
-		// The simulator doesn't have any facility to evolve the power table.
-		// See https://github.com/filecoin-project/go-f3/issues/114.
-		nextPowerTable := v.sim.ec.Instances[decision.Vote.Instance].PowerTable.Copy()
-		nextBeacon := []byte(fmt.Sprintf("beacon %d", decision.Vote.Instance+1))
-		// Create a new chain for all participants.
-		// There's no facility yet for them to observe different chains after the first instance.
-		// See https://github.com/filecoin-project/go-f3/issues/115.
-		newTip := v.sim.tipSetGenerator.Sample()
-		nextChain, _ := gpbft.NewChain(nextBase, newTip)
-
-		v.sim.ec.AddInstance(nextChain, nextPowerTable, nextBeacon)
-		v.sim.decisions.BeginInstance(decision.Vote.Instance+1, nextBase, nextPowerTable)
-	}
-	// Next instance starts some fixed time after the next EC epoch is due.
-	nextInstanceStart := v.Time().Add(v.sim.ecEpochDuration).Add(v.sim.ecStabilisationDelay)
-	return nextInstanceStart
+	v.sim.ec.NotifyDecision(v.id, decision)
+	v.instance = decision.Vote.Instance + 1
+	v.ecChain = decision.Vote.Value
+	return v.Time().Add(v.sim.ecEpochDuration).Add(v.sim.ecStabilisationDelay)
 }
 
 func (v *simHost) BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.GMessage) {
