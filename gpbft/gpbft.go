@@ -141,6 +141,11 @@ type instance struct {
 	// The value to be transmitted at the next phase, which may be bottom.
 	// This value may change away from the proposal between phases.
 	value ECChain
+	// The set of values that are acceptable candidates to this instance.
+	// This includes the base chain, all prefixes of proposal that found a strong quorum
+	// of support in the QUALITY phase, and any chains that could possibly have been
+	// decided by another participant.
+	candidates []ECChain
 	// The final termination value of the instance, for communication to the participant.
 	// This field is an alternative to plumbing an optional decision value out through
 	// all the method calls, or holding a callback handle to receive it here.
@@ -152,9 +157,8 @@ type instance struct {
 	// State for each round of phases.
 	// State from prior rounds must be maintained to provide justification for values in subsequent rounds.
 	rounds map[uint64]*roundState
-	// Acceptable chain
-	acceptable ECChain
-	// Decision state. Collects DECIDE messages until a decision can be made, independently of protocol phases/rounds.
+	// Decision state. Collects DECIDE messages until a decision can be made,
+	// independently of protocol phases/rounds.
 	decision *quorumState
 	// tracer traces logic logs for debugging and simulation purposes.
 	tracer Tracer
@@ -179,11 +183,11 @@ func newInstance(
 		phase:       INITIAL_PHASE,
 		proposal:    input,
 		value:       ECChain{},
+		candidates:    []ECChain{input.BaseChain()},
 		quality:     newQuorumState(powerTable),
 		rounds: map[uint64]*roundState{
 			0: newRoundState(powerTable),
 		},
-		acceptable: input,
 		decision:   newQuorumState(powerTable),
 	}, nil
 }
@@ -207,16 +211,6 @@ func (i *instance) Start() error {
 		return err
 	}
 	return i.drainInbox()
-}
-
-// ReceiveAcceptable receives a new chain, and updates the current chain of this instance if acceptable.
-// See instance.isAcceptable.
-func (i *instance) ReceiveAcceptable(chain ECChain) bool {
-	acceptable := i.isAcceptable(chain)
-	if acceptable {
-		i.acceptable = chain
-	}
-	return acceptable
 }
 
 // Checks whether a message is valid.
@@ -290,7 +284,7 @@ func (i *instance) receiveOne(msg *GMessage) error {
 			i.quality.Receive(msg.Sender, prefix, msg.Signature)
 		}
 	case CONVERGE_PHASE:
-		if err := round.converged.Receive(msg.Sender, msg.Vote.Value, msg.Ticket); err != nil {
+		if err := round.converged.Receive(msg.Sender, msg.Vote.Value, msg.Ticket, msg.Justification); err != nil {
 			return fmt.Errorf("failed processing CONVERGE message: %w", err)
 		}
 	case PREPARE_PHASE:
@@ -517,10 +511,16 @@ func (i *instance) tryQuality() error {
 		// Keep current proposal.
 	} else if timeoutExpired {
 		strongQuora := i.quality.ListStrongQuorumValues()
-		i.proposal = findFirstPrefixOf(strongQuora, i.proposal)
+		i.proposal = findFirstPrefixOf(i.proposal, strongQuora)
 	}
 
 	if foundQuorum || timeoutExpired {
+		// Add prefixes with quorum to candidates (skipping base chain, which is already there).
+		for l := range i.proposal {
+			if l > 0 {
+				i.candidates = append(i.candidates, i.proposal.Prefix(l))
+			}
+		}
 		i.value = i.proposal
 		i.log("adopting proposal/value %s", &i.proposal)
 		i.beginPrepare()
@@ -564,27 +564,33 @@ func (i *instance) tryConverge() error {
 	if i.phase != CONVERGE_PHASE {
 		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, CONVERGE_PHASE)
 	}
+	// The CONVERGE phase timeout doesn't wait to hear from >⅔ of power.
 	timeoutExpired := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
 	if !timeoutExpired {
 		return nil
 	}
 
-	i.value = i.roundState(i.round).converged.findMaxTicketProposal(i.powerTable)
-	if i.value.IsZero() {
+	possibleDecisionLastRound := !i.roundState(i.round - 1).committed.HasStrongQuorumFor("")
+	winner := i.roundState(i.round).converged.findMaxTicketProposal(i.powerTable)
+	if winner.Chain.IsZero() {
 		return fmt.Errorf("no values at CONVERGE")
 	}
-	if i.isAcceptable(i.value) {
-		// Sway to proposal if the value is acceptable.
-		if !i.proposal.Eq(i.value) {
-			i.proposal = i.value
-			i.log("adopting proposal %s after converge", &i.proposal)
-		}
-	} else {
-		// Vote for not deciding in this round
-		i.value = ECChain{}
+	// If the winner is not a candidate but it could possibly have been decided by another participant
+	// in the last round, consider it a candidate.
+	if !i.isCandidate(winner.Chain) && winner.Justification.Vote.Step == PREPARE_PHASE && possibleDecisionLastRound {
+		i.log("⚠️ swaying from %s to %s by CONVERGE", &i.proposal, &winner.Chain)
+		i.candidates = append(i.candidates, winner.Chain)
 	}
-	i.beginPrepare()
+	if i.isCandidate(winner.Chain) {
+		i.proposal = winner.Chain
+		i.log("adopting proposal %s after converge", &winner.Chain)
+	} // Else preserve own proposal
+	// NOTE: FIP-0086 says to loop to next lowest ticket, rather than fall back to own proposal.
+	// But using own proposal is valid (the spec can't assume any others have been received),
+	// considering others is an optimisation.
 
+	i.value = i.proposal
+	i.beginPrepare()
 	return nil
 }
 
@@ -605,15 +611,15 @@ func (i *instance) tryPrepare() error {
 	prepared := i.roundState(i.round).prepared
 	// Optimisation: we could advance phase once a strong quorum on our proposal is not possible.
 	foundQuorum := prepared.HasStrongQuorumFor(i.proposal.Key())
-	timeoutExpired := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
+	timedOut := atOrAfter(i.participant.host.Time(), i.phaseTimeout) && prepared.ReceivedFromStrongQuorum()
 
 	if foundQuorum {
 		i.value = i.proposal
-	} else if timeoutExpired {
+	} else if timedOut {
 		i.value = ECChain{}
 	}
 
-	if foundQuorum || timeoutExpired {
+	if foundQuorum || timedOut {
 		i.beginCommit()
 	}
 
@@ -645,29 +651,35 @@ func (i *instance) tryCommit(round uint64) error {
 	// and the algorithm moves on to the next round.
 	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
 	committed := i.roundState(round).committed
-	quorumValue, ok := committed.FindStrongQuorumValue()
-	timeoutExpired := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
+	quorumValue, foundStrongQuorum := committed.FindStrongQuorumValue()
+	timedOut := atOrAfter(i.participant.host.Time(), i.phaseTimeout)  && committed.ReceivedFromStrongQuorum()
 
-	if ok && !quorumValue.IsZero() {
+	if foundStrongQuorum && !quorumValue.IsZero() {
 		// A participant may be forced to decide a value that's not its preferred chain.
 		// The participant isn't influencing that decision against their interest, just accepting it.
 		i.value = quorumValue
 		i.beginDecide(round)
-	} else if i.round == round && i.phase == COMMIT_PHASE &&
-		timeoutExpired && committed.ReceivedFromStrongQuorum() {
-		// Adopt any non-empty value committed by another participant (there can only be one).
-		// The received COMMIT carried justification of a strong quorum of PREPARE messages,
-		// and means that some other nodes may decide that value (if they observe more COMMITs).
-		for _, v := range committed.ListAllValues() {
-			if !v.IsZero() {
-				if !i.isAcceptable(v) {
-					i.log("⚠️ swaying from %s to %s by COMMIT", &i.input, &v)
+	} else if i.round == round && i.phase == COMMIT_PHASE && timedOut {
+		if foundStrongQuorum {
+			// If there is a strong quorum for bottom, carry forward the existing proposal.
+		} else {
+			// If there is no strong quorum for bottom, there must be a COMMIT for some other value.
+			// There can only be one such value since it must be justified by a strong quorum of PREPAREs.
+			// Some other participant could possibly have observed a strong quorum for that value,
+			// since they might observe votes from ⅓ of honest power plus a ⅓ equivocating adversary.
+			// Sway to consider that value as a candidate, even if it wasn't the local proposal.
+			for _, v := range committed.ListAllValues() {
+				if !v.IsZero() {
+					if !i.isCandidate(v) {
+						i.log("⚠️ swaying from %s to %s by COMMIT", &i.input, &v)
+						i.candidates = append(i.candidates, v)
+					}
+					if !v.Eq(i.proposal) {
+						i.proposal = v
+						i.log("adopting proposal %s after commit", &i.proposal)
+					}
+					break
 				}
-				if !v.Eq(i.proposal) {
-					i.proposal = v
-					i.log("adopting proposal %s after commit", &i.proposal)
-				}
-				break
 			}
 		}
 		i.beginNextRound()
@@ -727,8 +739,13 @@ func (i *instance) beginNextRound() {
 
 // Returns whether a chain is acceptable as a proposal for this instance to vote for.
 // This is "EC Compatible" in the pseudocode.
-func (i *instance) isAcceptable(c ECChain) bool {
-	return i.acceptable.HasPrefix(c)
+func (i *instance) isCandidate(c ECChain) bool {
+	for _, candidate := range i.candidates {
+		if c.Eq(candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func (i *instance) terminate(decision *Justification) {
@@ -911,8 +928,8 @@ func (q *quorumState) ReceivedFromStrongQuorum() bool {
 
 // Checks whether a chain has reached a strong quorum.
 func (q *quorumState) HasStrongQuorumFor(key ChainKey) bool {
-	cp, ok := q.chainSupport[key]
-	return ok && cp.hasStrongQuorum
+	supportForChain, ok := q.chainSupport[key]
+	return ok && supportForChain.hasStrongQuorum
 }
 
 type QuorumResult struct {
@@ -1031,33 +1048,38 @@ func (q *quorumState) FindStrongQuorumValue() (quorumValue ECChain, foundQuorum 
 
 type convergeState struct {
 	// Chains indexed by key
-	values map[ChainKey]ECChain
+	values map[ChainKey]ConvergeValue
 	// Tickets provided by proposers of each chain.
-	tickets map[ChainKey][]ActorTicket
+	tickets map[ChainKey][]ConvergeTicket
 }
 
-type ActorTicket struct {
-	Actor  ActorID
+type ConvergeValue struct {
+	Chain         ECChain
+	Justification *Justification
+}
+
+type ConvergeTicket struct {
+	Sender ActorID
 	Ticket Ticket
 }
 
 func newConvergeState() *convergeState {
 	return &convergeState{
-		values:  map[ChainKey]ECChain{},
-		tickets: map[ChainKey][]ActorTicket{},
+		values:  map[ChainKey]ConvergeValue{},
+		tickets: map[ChainKey][]ConvergeTicket{},
 	}
 }
 
 // Receives a new CONVERGE value from a sender.
-func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket) error {
+func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket, justification *Justification) error {
 	if value.IsZero() {
 		return fmt.Errorf("bottom cannot be justified for CONVERGE")
 	}
 	key := value.Key()
 
 	// !!! TODO: Drop duplicates (see https://github.com/filecoin-project/go-f3/issues/12)
-	c.values[key] = value
-	c.tickets[key] = append(c.tickets[key], ActorTicket{Actor: sender, Ticket: ticket})
+	c.values[key] = ConvergeValue{Chain: value, Justification: justification}
+	c.tickets[key] = append(c.tickets[key], ConvergeTicket{Sender: sender, Ticket: ticket})
 
 	return nil
 }
@@ -1065,14 +1087,14 @@ func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket) er
 // I think it is ok to have non-determinism here. If the same ticket is used for two different values
 // then either we get a decision on one of them only or we go to a new round. Eventually there is a round
 // where the max ticket is held by a correct participant, who will not double vote.
-func (c *convergeState) findMaxTicketProposal(table PowerTable) ECChain {
+func (c *convergeState) findMaxTicketProposal(table PowerTable) ConvergeValue {
 	var maxTicket *big.Int
-	var maxValue ECChain
+	var maxValue ConvergeValue
 
-	for cid, value := range c.values {
-		for _, actorTicket := range c.tickets[cid] {
-			senderPower, _ := table.Get(actorTicket.Actor)
-			ticketAsInt := new(big.Int).SetBytes(actorTicket.Ticket)
+	for key, value := range c.values {
+		for _, ticket := range c.tickets[key] {
+			senderPower, _ := table.Get(ticket.Sender)
+			ticketAsInt := new(big.Int).SetBytes(ticket.Ticket)
 			weightedTicket := new(big.Int).Mul(ticketAsInt, senderPower)
 			if maxTicket == nil || weightedTicket.Cmp(maxTicket) > 0 {
 				maxTicket = weightedTicket
@@ -1086,7 +1108,7 @@ func (c *convergeState) findMaxTicketProposal(table PowerTable) ECChain {
 ///// General helpers /////
 
 // Returns the first candidate value that is a prefix of the preferred value, or the base of preferred.
-func findFirstPrefixOf(candidates []ECChain, preferred ECChain) ECChain {
+func findFirstPrefixOf(preferred ECChain, candidates []ECChain) ECChain {
 	for _, v := range candidates {
 		if preferred.HasPrefix(v) {
 			return v

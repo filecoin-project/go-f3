@@ -58,6 +58,7 @@ func generateECChain(t *testing.T, tsg *sim.TipSetGenerator) gpbft.ECChain {
 }
 
 // repeatInParallel repeats target for the given number of repetitions.
+// Set F3_TEST_REPETITION_PARALLELISM=1 to run repetitions sequentially.
 // See repetitionParallelism.
 func repeatInParallel(t *testing.T, repetitions int, target func(t *testing.T, repetition int)) {
 	var eg errgroup.Group
