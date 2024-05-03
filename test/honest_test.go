@@ -156,35 +156,6 @@ func TestAsyncAgreement(t *testing.T) {
 	}
 }
 
-func TestAsyncAgreementXXX(t *testing.T) {
-	n := 3
-	iters := 100
-	//for n := 3; n <= 16; n++ {
-	honestCount := n
-	t.Run(fmt.Sprintf("honest count %d", honestCount), func(t *testing.T) {
-		for repetition := 1; repetition < iters; repetition++ {
-			t.Log("iteration", repetition)
-			tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
-			baseChain := generateECChain(t, tsg)
-			sm, err := sim.NewSimulation(asyncOptions(t, repetition,
-				sim.WithTraceLevel(sim.TraceAll), // TRACE
-				sim.WithHonestParticipantCount(honestCount),
-				sim.WithTipSetGenerator(tsg),
-				sim.WithBaseChain(&baseChain),
-			)...)
-			require.NoError(t, err)
-			a := baseChain.Extend(tsg.Sample())
-			sm.SetChains(sim.ChainCount{Count: sm.HonestParticipantsCount(), Chain: a})
-
-			require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
-			requireConsensus(t, sm, baseChain.Head(), a.Head())
-		}
-		//repeatInParallel(t, iters, func(t *testing.T, repetition int) {
-		//})
-	})
-	//}
-}
-
 func TestSyncHalves(t *testing.T) {
 	t.Parallel()
 

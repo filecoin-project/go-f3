@@ -5,9 +5,6 @@ import (
 	"fmt"
 )
 
-// ErrECChainNotAcceptable signals that ECChain is not acceptable by gpbft instance, due to mismatching prefix.
-var ErrECChainNotAcceptable = errors.New("ec chain is not acceptable")
-
 // An F3 participant runs repeated instances of Granite to finalise longer chains.
 type Participant struct {
 	*options

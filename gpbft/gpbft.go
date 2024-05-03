@@ -515,7 +515,7 @@ func (i *instance) tryQuality() error {
 	}
 
 	if foundQuorum || timeoutExpired {
-		// Add quorum prefixes to candidates (skipping base chain, which is already there).
+		// Add prefixes with quorum to candidates (skipping base chain, which is already there).
 		for l := range i.proposal {
 			if l > 0 {
 				i.candidates = append(i.candidates, i.proposal.Prefix(l))
@@ -584,9 +584,10 @@ func (i *instance) tryConverge() error {
 	if i.isCandidate(winner.Chain) {
 		i.proposal = winner.Chain
 		i.log("adopting proposal %s after converge", &winner.Chain)
-	}
-	// Else preserve own proposal
-	// XXX spec says to loop to next lowest ticket, rather than fall back to own proposal.
+	} // Else preserve own proposal
+	// NOTE: FIP-0086 says to loop to next lowest ticket, rather than fall back to own proposal.
+	// But using own proposal is valid (the spec can't assume any others have been received),
+	// considering others is an optimisation.
 
 	i.value = i.proposal
 	i.beginPrepare()
