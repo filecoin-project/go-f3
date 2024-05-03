@@ -100,7 +100,7 @@ func TestMultiAsyncAgreement(t *testing.T) {
 		honestCount := repetition + 3
 		tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
 		baseChain := generateECChain(t, tsg)
-		sm, err := sim.NewSimulation(asyncOptions(t, 1413,
+		sm, err := sim.NewSimulation(asyncOptions(t, 1414,
 			sim.WithHonestParticipantCount(honestCount),
 			sim.WithTipSetGenerator(tsg),
 			sim.WithBaseChain(&baseChain))...)
