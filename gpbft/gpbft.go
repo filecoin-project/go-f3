@@ -183,12 +183,12 @@ func newInstance(
 		phase:       INITIAL_PHASE,
 		proposal:    input,
 		value:       ECChain{},
-		candidates:    []ECChain{input.BaseChain()},
+		candidates:  []ECChain{input.BaseChain()},
 		quality:     newQuorumState(powerTable),
 		rounds: map[uint64]*roundState{
 			0: newRoundState(powerTable),
 		},
-		decision:   newQuorumState(powerTable),
+		decision: newQuorumState(powerTable),
 	}, nil
 }
 
@@ -299,10 +299,12 @@ func (i *instance) receiveOne(msg *GMessage) error {
 		}
 	case DECIDE_PHASE:
 		i.decision.Receive(msg.Sender, msg.Vote.Value, msg.Signature)
+		if i.phase != DECIDE_PHASE {
+			i.skipToDecide(msg.Vote.Value, msg.Justification)
+		}
 		if err := i.tryDecide(); err != nil {
 			return fmt.Errorf("failed to decide: %w", err)
 		}
-
 	default:
 		i.log("unexpected message %v", msg)
 	}
@@ -652,7 +654,7 @@ func (i *instance) tryCommit(round uint64) error {
 	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
 	committed := i.roundState(round).committed
 	quorumValue, foundStrongQuorum := committed.FindStrongQuorumValue()
-	timedOut := atOrAfter(i.participant.host.Time(), i.phaseTimeout)  && committed.ReceivedFromStrongQuorum()
+	timedOut := atOrAfter(i.participant.host.Time(), i.phaseTimeout) && committed.ReceivedFromStrongQuorum()
 
 	if foundStrongQuorum && !quorumValue.IsZero() {
 		// A participant may be forced to decide a value that's not its preferred chain.
@@ -705,6 +707,16 @@ func (i *instance) beginDecide(round uint64) {
 	// in different rounds (but for the same value).
 	// Since each node sends only one DECIDE message, they must share the same vote
 	// in order to be aggregated.
+	i.broadcast(0, DECIDE_PHASE, i.value, nil, justification)
+}
+
+// Skips immediately to the DECIDE phase and sends a DECIDE message
+// without waiting for a strong quorum of COMMITs in any round.
+// The provided justification must justify the value being decided.
+func (i *instance) skipToDecide(value ECChain, justification *Justification) {
+	i.phase = DECIDE_PHASE
+	i.proposal = value
+	i.value = i.proposal
 	i.broadcast(0, DECIDE_PHASE, i.value, nil, justification)
 }
 
