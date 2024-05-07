@@ -74,10 +74,6 @@ func (i *ImmediateDecide) Start() error {
 	return nil
 }
 
-func (i *ImmediateDecide) ReceiveECChain(gpbft.ECChain) error {
-	return nil
-}
-
 func (i *ImmediateDecide) ValidateMessage(_ *gpbft.GMessage) (bool, error) {
 	return true, nil
 }

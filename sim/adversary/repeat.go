@@ -107,7 +107,6 @@ func (r *Repeat) ReceiveMessage(msg *gpbft.GMessage, _ bool) (bool, error) {
 
 func (r *Repeat) ID() gpbft.ActorID                                              { return r.id }
 func (r *Repeat) Start() error                                                   { return nil }
-func (r *Repeat) ReceiveECChain(gpbft.ECChain) error                             { return nil }
 func (r *Repeat) ValidateMessage(*gpbft.GMessage) (bool, error)                  { return true, nil }
 func (r *Repeat) ReceiveAlarm() error                                            { return nil }
 func (r *Repeat) AllowMessage(gpbft.ActorID, gpbft.ActorID, gpbft.GMessage) bool { return true }
