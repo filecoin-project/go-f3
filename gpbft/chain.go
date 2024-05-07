@@ -27,6 +27,9 @@ type ECChain []TipSet
 // A map key for a chain. The zero value means "bottom".
 type ChainKey string
 
+// Maximum length of a chain value.
+const CHAIN_MAX_LEN = 100
+
 // Creates a new chain.
 func NewChain(base TipSet, suffix ...TipSet) (ECChain, error) {
 	var chain ECChain = []TipSet{base}
@@ -141,14 +144,17 @@ func (c ECChain) HasTipset(t TipSet) bool {
 	return false
 }
 
-// Validate verifies the integrity of the chain, returning an error if it finds any issues.
+// Validates a chain value, returning an error if it finds any issues.
 // A chain is valid if it meets the following criteria:
-// 1) All contained elements have non-zero values. Use TipSet.IsZero to check for zero-valued elements.
-// 2) TipSets are arranged in strictly increasing order by their epochs, without any repetitions.
+// 1) All contained tipsets are non-empty.
+// 2) The chain is not longer than CHAIN_MAX_LEN.
 // An entirely zero-valued chain itself is deemed valid. See ECChain.IsZero.
 func (c ECChain) Validate() error {
 	if c.IsZero() {
 		return nil
+	}
+	if len(c) > CHAIN_MAX_LEN {
+		return errors.New("chain too long")
 	}
 	for _, tipSet := range c {
 		if len(tipSet) == 0 {
