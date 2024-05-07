@@ -105,7 +105,7 @@ func (pt *participantTestSubject) expectBeginInstance() {
 		},
 	}
 	pt.host.EXPECT().RequestBroadcast(mock.MatchedBy(func(mt *gpbft.MessageTemplate) bool {
-		return assert.ObjectsExportedFieldsAreEqual(mt, wantQualityPhaseBroadcastTemplate)
+		return assert.ObjectsExportedFieldsAreEqual(mt, wantQualityPhaseBroadcastTemplate) //nolint
 	}))
 }
 
