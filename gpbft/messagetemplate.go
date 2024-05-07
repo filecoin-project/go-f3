@@ -1,9 +1,13 @@
 package gpbft
 
-import xerrors "golang.org/x/xerrors"
+import (
+	"math/big"
+
+	xerrors "golang.org/x/xerrors"
+)
 
 type MessageTemplate struct {
-	powerTable *PowerTable
+	powerTable powerTableAccess
 
 	NetworkName NetworkName
 	Payload     Payload
@@ -11,6 +15,10 @@ type MessageTemplate struct {
 	BeaconForTicket []byte
 
 	Justification *Justification
+}
+
+type powerTableAccess interface {
+	Get(ActorID) (*big.Int, PubKey)
 }
 
 // Build uses the template and a signer interface to build GMessage

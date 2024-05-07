@@ -71,12 +71,11 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 	}))
 
 	subject.host = gpbft.NewMockHost(t)
-	subject.Participant, err = gpbft.NewParticipant(subject.id, subject.host,
+	subject.Participant, err = gpbft.NewParticipant(subject.host,
 		gpbft.WithDelta(delta),
 		gpbft.WithDeltaBackOffExponent(deltaBackOffExponent),
 		gpbft.WithInitialInstance(instance))
 	require.NoError(t, err)
-	require.EqualValues(t, subject.id, subject.ID())
 	subject.requireNotStarted()
 	return &subject
 }
@@ -118,7 +117,7 @@ func (pt *participantTestSubject) requireNotStarted() {
 
 func (pt *participantTestSubject) requireInstanceRoundPhase(wantInstance, wantRound uint64, wantPhase gpbft.Phase) {
 	pt.t.Helper()
-	require.Equal(pt.t, fmt.Sprintf("P%d{%d}, round %d, phase %s", pt.ID(), wantInstance, wantRound, wantPhase), pt.Describe())
+	require.Equal(pt.t, fmt.Sprintf("{%d}, round %d, phase %s", wantInstance, wantRound, wantPhase), pt.Describe())
 }
 
 func (pt *participantTestSubject) requireStart() {

@@ -13,9 +13,18 @@ type Simulation struct {
 	*options
 	network      *Network
 	ec           *EC
-	participants []*gpbft.Participant
+	participants []Participant
 	adversary    *adversary.Adversary
 	decisions    *DecisionLog
+}
+
+type Participant struct {
+	ParticipantID gpbft.ActorID
+	*gpbft.Participant
+}
+
+func (p Participant) ID() gpbft.ActorID {
+	return p.ParticipantID
 }
 
 func NewSimulation(o ...Option) (*Simulation, error) {
@@ -37,13 +46,14 @@ func NewSimulation(o ...Option) (*Simulation, error) {
 
 	pOpts := append(opts.gpbftOptions, gpbft.WithTracer(s.network))
 	var nextID gpbft.ActorID
-	s.participants = make([]*gpbft.Participant, s.honestCount)
+	s.participants = make([]Participant, s.honestCount)
 	for i := range s.participants {
 		host := newHost(nextID, s)
-		s.participants[i], err = gpbft.NewParticipant(nextID, host, pOpts...)
+		gparti, err := gpbft.NewParticipant(host, pOpts...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to instnatiate participant: %w", err)
 		}
+		s.participants[i] = Participant{nextID, gparti}
 		pubKey, _ := s.signingBacked.GenerateKey()
 		s.network.AddParticipant(s.participants[i])
 		s.ec.AddParticipant(nextID, gpbft.NewStoragePower(1), pubKey)

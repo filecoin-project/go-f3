@@ -35,6 +35,11 @@ type Network struct {
 	networkName gpbft.NetworkName
 }
 
+type Receiver interface {
+	gpbft.Receiver
+	ID() gpbft.ActorID
+}
+
 func newNetwork(opts *options) *Network {
 	return &Network{
 		participants: make(map[gpbft.ActorID]gpbft.Receiver),
@@ -44,7 +49,7 @@ func newNetwork(opts *options) *Network {
 	}
 }
 
-func (n *Network) AddParticipant(p gpbft.Receiver) {
+func (n *Network) AddParticipant(p Receiver) {
 	if n.participants[p.ID()] != nil {
 		panic("duplicate participant ID")
 	}
@@ -66,6 +71,11 @@ type NetworkFor struct {
 	ParticipantID gpbft.ActorID
 	Signer        gpbft.Signer
 	*Network
+}
+
+// Implement tagging Tracer interface
+func (nf *NetworkFor) Log(format string, args ...interface{}) {
+	nf.Network.log(TraceLogic, "P%d "+format, append([]any{nf.ParticipantID}, args...)...)
 }
 
 func (nf *NetworkFor) RequestBroadcast(mt *gpbft.MessageTemplate) {
