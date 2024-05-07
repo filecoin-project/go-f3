@@ -69,12 +69,26 @@ type NetworkFor struct {
 }
 
 func (nf *NetworkFor) RequestBroadcast(mt *gpbft.MessageTemplate) {
-	gmsg, err := mt.Build(nf.Signer, nf.ParticipantID)
+	msg, err := mt.Build(nf.Signer, nf.ParticipantID)
 	if err != nil {
 		nf.Log("building message for: %d: %+v", nf.ParticipantID, err)
 		return
 	}
-	nf.Broadcast(gmsg)
+	nf.log(TraceSent, "P%d ↗ %v", msg.Sender, msg)
+	for _, dest := range nf.participantIDs {
+		latencySample := time.Duration(0)
+		if dest != msg.Sender {
+			latencySample = nf.latency.Sample(nf.Time(), msg.Sender, dest)
+		}
+
+		nf.queue.Insert(
+			messageInFlight{
+				source:    msg.Sender,
+				dest:      dest,
+				payload:   *msg,
+				deliverAt: nf.clock.Add(latencySample),
+			})
+	}
 }
 
 func (n *Network) NetworkName() gpbft.NetworkName {
@@ -84,11 +98,10 @@ func (n *Network) NetworkName() gpbft.NetworkName {
 func (n *Network) Broadcast(msg *gpbft.GMessage) {
 	n.log(TraceSent, "P%d ↗ %v", msg.Sender, msg)
 	for _, dest := range n.participantIDs {
-		// FIXME: something in gpbft assumes that we will immediately recieve message from ourselves
-		latencySample := time.Duration(0)
-		if dest != msg.Sender {
-			latencySample = n.latency.Sample(n.Time(), msg.Sender, dest)
+		if dest == msg.Sender {
+			continue
 		}
+		latencySample := n.latency.Sample(n.Time(), msg.Sender, dest)
 
 		n.queue.Insert(
 			messageInFlight{
