@@ -23,8 +23,14 @@ type Receiver interface {
 }
 
 type Chain interface {
-	// Returns the best EC chain, and the power table and beacon value for its base.
+	// Returns inputs to the next GPBFT instance.
+	// These are:
+	// - the EC chain to propose,
+	// - the power table specifying the participants,
+	// - the beacon value for generating tickets.
 	// These will be used as input to a subsequent instance of the protocol.
+	// The chain should be a suffix of the last chain notified to the host via
+	// ReceiveDecision (or known to be final via some other channel).
 	GetCanonicalChain() (chain ECChain, power PowerTable, beacon []byte)
 }
 
