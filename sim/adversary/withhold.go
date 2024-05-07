@@ -114,10 +114,6 @@ func (w *WithholdCommit) Start() error {
 	return nil
 }
 
-func (w *WithholdCommit) ReceiveECChain(gpbft.ECChain) error {
-	return nil
-}
-
 func (a *WithholdCommit) ValidateMessage(_ *gpbft.GMessage) (bool, error) {
 	return true, nil
 }
