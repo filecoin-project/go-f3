@@ -401,6 +401,14 @@ func (i *instance) validateMessage(msg *GMessage) error {
 		return xerrors.Errorf("invalid signature on %v, %v", msg, err)
 	}
 
+	// Checks that message is not from self.
+	// This panics rather than returning a simple error, since it represents
+	// a serious misconfiguration and may violate assumptions made by this algorithm.
+	// This check must come after the signature is verified, to avoid a simple denial attack.
+	if msg.Sender == i.participant.id {
+		panic("received message from self")
+	}
+
 	// Check justification
 	needsJustification := !(msg.Vote.Step == QUALITY_PHASE ||
 		(msg.Vote.Step == PREPARE_PHASE && msg.Vote.Round == 0) ||

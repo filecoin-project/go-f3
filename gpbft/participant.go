@@ -82,7 +82,6 @@ func (p *Participant) ValidateMessage(msg *GMessage) (checked bool, err error) {
 			err = &PanicError{Err: r}
 		}
 	}()
-
 	if p.granite != nil && msg.Vote.Instance == p.granite.instanceID {
 		return true, p.granite.Validate(msg)
 	}
