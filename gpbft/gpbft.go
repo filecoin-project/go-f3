@@ -183,12 +183,12 @@ func newInstance(
 		phase:       INITIAL_PHASE,
 		proposal:    input,
 		value:       ECChain{},
-		candidates:    []ECChain{input.BaseChain()},
+		candidates:  []ECChain{input.BaseChain()},
 		quality:     newQuorumState(powerTable),
 		rounds: map[uint64]*roundState{
 			0: newRoundState(powerTable),
 		},
-		decision:   newQuorumState(powerTable),
+		decision: newQuorumState(powerTable),
 	}, nil
 }
 
@@ -337,7 +337,7 @@ func (i *instance) tryCompletePhase() error {
 	}
 }
 
-// Checks message validity, includng justification and signatures.
+// Checks message validity, including justification and signatures.
 func (i *instance) validateMessage(msg *GMessage) error {
 	// Check the message is for this instance.
 	// The caller should ensure this is always the case.
@@ -401,7 +401,7 @@ func (i *instance) validateMessage(msg *GMessage) error {
 
 	// Check justification
 	needsJustification := !(msg.Vote.Step == QUALITY_PHASE ||
-		msg.Vote.Step == PREPARE_PHASE ||
+		(msg.Vote.Step == PREPARE_PHASE && msg.Vote.Round == 0) ||
 		(msg.Vote.Step == COMMIT_PHASE && msg.Vote.Value.IsZero()))
 	if needsJustification {
 		if msg.Justification == nil {
@@ -418,7 +418,7 @@ func (i *instance) validateMessage(msg *GMessage) error {
 
 		// Check every remaining field of the justification, according to the phase requirements.
 		// This map goes from the message phase to the expected justification phase(s),
-		// to the required vote values.
+		// to the required vote values for justification by that phase.
 		// Anything else is disallowed.
 		expectations := map[Phase]map[Phase]struct {
 			Round uint64
@@ -427,6 +427,11 @@ func (i *instance) validateMessage(msg *GMessage) error {
 			// CONVERGE is justified by a strong quorum of COMMIT for bottom,
 			// or a strong quorum of PREPARE for the same value, from the previous round.
 			CONVERGE_PHASE: {
+				COMMIT_PHASE:  {msg.Vote.Round - 1, ECChain{}},
+				PREPARE_PHASE: {msg.Vote.Round - 1, msg.Vote.Value},
+			},
+			// PREPARE is justified by the same rules as CONVERGE (in rounds > 0).
+			PREPARE_PHASE: {
 				COMMIT_PHASE:  {msg.Vote.Round - 1, ECChain{}},
 				PREPARE_PHASE: {msg.Vote.Round - 1, msg.Vote.Value},
 			},
@@ -523,7 +528,7 @@ func (i *instance) tryQuality() error {
 		}
 		i.value = i.proposal
 		i.log("adopting proposal/value %s", &i.proposal)
-		i.beginPrepare()
+		i.beginPrepare(nil)
 	}
 
 	return nil
@@ -571,10 +576,11 @@ func (i *instance) tryConverge() error {
 	}
 
 	possibleDecisionLastRound := !i.roundState(i.round - 1).committed.HasStrongQuorumFor("")
-	winner := i.roundState(i.round).converged.findMaxTicketProposal(i.powerTable)
+	winner := i.roundState(i.round).converged.FindMaxTicketProposal(i.powerTable)
 	if winner.Chain.IsZero() {
 		return fmt.Errorf("no values at CONVERGE")
 	}
+	justification := winner.Justification
 	// If the winner is not a candidate but it could possibly have been decided by another participant
 	// in the last round, consider it a candidate.
 	if !i.isCandidate(winner.Chain) && winner.Justification.Vote.Step == PREPARE_PHASE && possibleDecisionLastRound {
@@ -584,22 +590,29 @@ func (i *instance) tryConverge() error {
 	if i.isCandidate(winner.Chain) {
 		i.proposal = winner.Chain
 		i.log("adopting proposal %s after converge", &winner.Chain)
-	} // Else preserve own proposal
+	} else {
+		// Else preserve own proposal.
+		fallback, ok := i.roundState(i.round).converged.FindProposalFor(i.proposal)
+		if !ok {
+			panic("own proposal not found at CONVERGE")
+		}
+		justification = fallback.Justification
+	}
 	// NOTE: FIP-0086 says to loop to next lowest ticket, rather than fall back to own proposal.
 	// But using own proposal is valid (the spec can't assume any others have been received),
 	// considering others is an optimisation.
 
 	i.value = i.proposal
-	i.beginPrepare()
+	i.beginPrepare(justification)
 	return nil
 }
 
 // Sends this node's PREPARE message and begins the PREPARE phase.
-func (i *instance) beginPrepare() {
+func (i *instance) beginPrepare(justification *Justification) {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony()
-	i.broadcast(i.round, PREPARE_PHASE, i.value, nil, nil)
+	i.broadcast(i.round, PREPARE_PHASE, i.value, nil, justification)
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -652,7 +665,7 @@ func (i *instance) tryCommit(round uint64) error {
 	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
 	committed := i.roundState(round).committed
 	quorumValue, foundStrongQuorum := committed.FindStrongQuorumValue()
-	timedOut := atOrAfter(i.participant.host.Time(), i.phaseTimeout)  && committed.ReceivedFromStrongQuorum()
+	timedOut := atOrAfter(i.participant.host.Time(), i.phaseTimeout) && committed.ReceivedFromStrongQuorum()
 
 	if foundStrongQuorum && !quorumValue.IsZero() {
 		// A participant may be forced to decide a value that's not its preferred chain.
@@ -1084,10 +1097,12 @@ func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket, ju
 	return nil
 }
 
-// I think it is ok to have non-determinism here. If the same ticket is used for two different values
-// then either we get a decision on one of them only or we go to a new round. Eventually there is a round
-// where the max ticket is held by a correct participant, who will not double vote.
-func (c *convergeState) findMaxTicketProposal(table PowerTable) ConvergeValue {
+// Returns the value with the highest ticket, weighted by sender power.
+// Non-determinism here (in case of matching tickets from equivocation) is ok.
+// If the same ticket is used for two different values then either we get a decision on one of them
+// only or we go to a new round. Eventually there is a round where the max ticket is held by a
+// correct participant, who will not double vote.
+func (c *convergeState) FindMaxTicketProposal(table PowerTable) ConvergeValue {
 	var maxTicket *big.Int
 	var maxValue ConvergeValue
 
@@ -1103,6 +1118,16 @@ func (c *convergeState) findMaxTicketProposal(table PowerTable) ConvergeValue {
 		}
 	}
 	return maxValue
+}
+
+// Finds some proposal which matches a specific value.
+func (c *convergeState) FindProposalFor(chain ECChain) (ConvergeValue, bool) {
+	for _, value := range c.values {
+		if value.Chain.Eq(chain) {
+			return value, true
+		}
+	}
+	return ConvergeValue{}, false
 }
 
 ///// General helpers /////
