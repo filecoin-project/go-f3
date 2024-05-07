@@ -31,8 +31,7 @@ type Chain interface {
 type Network interface {
 	// Returns the network's name (for signature separation)
 	NetworkName() NetworkName
-	Broadcast(*GMessage)
-	// Requests that the message is signed and broadcasted
+	// Requests that the message is signed and broadcasted, it should also be delivered locally
 	RequestBroadcast(mt *MessageTemplate)
 }
 

@@ -14,7 +14,7 @@ var _ adversary.Host = (*simHost)(nil)
 // One participant's host
 // This provides methods that know the caller's participant ID and can provide its view of the world.
 type simHost struct {
-	gpbft.Network
+	SimNetwork
 	gpbft.Signer
 	gpbft.Verifier
 	gpbft.Clock
@@ -23,13 +23,20 @@ type simHost struct {
 	id  gpbft.ActorID
 }
 
+type SimNetwork interface {
+	gpbft.Network
+	BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.GMessage)
+	// Sends a message to all other participants.
+	Broadcast(*gpbft.GMessage)
+}
+
 func newHost(id gpbft.ActorID, sim *Simulation) *simHost {
 	return &simHost{
-		Network:  sim.network.NetworkFor(sim.signingBacked, id),
-		Verifier: sim.signingBacked,
-		Signer:   sim.signingBacked,
-		sim:      sim,
-		id:       id,
+		SimNetwork: sim.network.NetworkFor(sim.signingBacked, id),
+		Verifier:   sim.signingBacked,
+		Signer:     sim.signingBacked,
+		sim:        sim,
+		id:         id,
 	}
 }
 
@@ -80,8 +87,4 @@ func (v *simHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 	// Next instance starts some fixed time after the next EC epoch is due.
 	nextInstanceStart := v.Time().Add(v.sim.ecEpochDuration).Add(v.sim.ecStabilisationDelay)
 	return nextInstanceStart
-}
-
-func (v *simHost) BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.GMessage) {
-	v.sim.network.BroadcastSynchronous(sender, msg)
 }
