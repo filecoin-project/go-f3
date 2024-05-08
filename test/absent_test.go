@@ -14,7 +14,10 @@ func TestAbsent(t *testing.T) {
 	repeatInParallel(t, 1, func(t *testing.T, repetition int) {
 		// Total network size of 3 + 1, where the adversary has 1/4 of power.
 		sm, err := sim.NewSimulation(asyncOptions(t, repetition,
-			sim.AddHonestParticipants(3, sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10)),
+			sim.AddHonestParticipants(
+				3,
+				sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10),
+				uniformOneStoragePower),
 			sim.WithAdversary(adversary.NewAbsentGenerator(oneStoragePower)),
 		)...)
 		require.NoError(t, err)

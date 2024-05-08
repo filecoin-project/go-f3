@@ -55,7 +55,7 @@ func TestHonest_ChainAgreement(t *testing.T) {
 			targetChain := baseChain.Extend(tsg.Sample())
 			test.options = append(test.options,
 				sim.WithBaseChain(&baseChain),
-				sim.AddHonestParticipants(test.participantCount, sim.NewFixedECChainGenerator(targetChain)))
+				sim.AddHonestParticipants(test.participantCount, sim.NewFixedECChainGenerator(targetChain), uniformOneStoragePower))
 			sm, err := sim.NewSimulation(test.options...)
 			require.NoError(t, err)
 
@@ -97,8 +97,8 @@ func TestHonest_ChainDisagreement(t *testing.T) {
 			anotherChain := baseChain.Extend(tsg.Sample())
 			test.options = append(test.options,
 				sim.WithBaseChain(&baseChain),
-				sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(oneChain)),
-				sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(anotherChain)),
+				sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(oneChain), uniformOneStoragePower),
+				sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(anotherChain), uniformOneStoragePower),
 			)
 			sm, err := sim.NewSimulation(test.options...)
 			require.NoError(t, err)
@@ -116,7 +116,7 @@ func TestSync_AgreementWithRepetition(t *testing.T) {
 		someChain := baseChain.Extend(tsg.Sample())
 		sm, err := sim.NewSimulation(syncOptions(
 			sim.WithBaseChain(&baseChain),
-			sim.AddHonestParticipants(honestCount, sim.NewFixedECChainGenerator(someChain)),
+			sim.AddHonestParticipants(honestCount, sim.NewFixedECChainGenerator(someChain), uniformOneStoragePower),
 		)...)
 		require.NoError(t, err)
 
@@ -142,7 +142,10 @@ func TestAsyncAgreement(t *testing.T) {
 				someChain := baseChain.Extend(tsg.Sample())
 				sm, err := sim.NewSimulation(asyncOptions(t, repetition,
 					sim.WithBaseChain(&baseChain),
-					sim.AddHonestParticipants(honestCount, sim.NewFixedECChainGenerator(someChain)),
+					sim.AddHonestParticipants(
+						honestCount,
+						sim.NewFixedECChainGenerator(someChain),
+						uniformOneStoragePower),
 				)...)
 				require.NoError(t, err)
 				require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
@@ -163,8 +166,8 @@ func TestSyncHalves(t *testing.T) {
 		anotherChain := baseChain.Extend(tsg.Sample())
 		sm, err := sim.NewSimulation(syncOptions(
 			sim.WithBaseChain(&baseChain),
-			sim.AddHonestParticipants(honestCount/2, sim.NewFixedECChainGenerator(oneChain)),
-			sim.AddHonestParticipants(honestCount/2, sim.NewFixedECChainGenerator(anotherChain)),
+			sim.AddHonestParticipants(honestCount/2, sim.NewFixedECChainGenerator(oneChain), uniformOneStoragePower),
+			sim.AddHonestParticipants(honestCount/2, sim.NewFixedECChainGenerator(anotherChain), uniformOneStoragePower),
 		)...)
 		require.NoError(t, err)
 		require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
@@ -188,8 +191,8 @@ func TestSyncHalvesBLS(t *testing.T) {
 		sm, err := sim.NewSimulation(syncOptions(
 			sim.WithSigningBackend(signing.NewBLSBackend()),
 			sim.WithBaseChain(&baseChain),
-			sim.AddHonestParticipants(honestCount/2, sim.NewFixedECChainGenerator(oneChain)),
-			sim.AddHonestParticipants(honestCount/2, sim.NewFixedECChainGenerator(anotherChain)),
+			sim.AddHonestParticipants(honestCount/2, sim.NewFixedECChainGenerator(oneChain), uniformOneStoragePower),
+			sim.AddHonestParticipants(honestCount/2, sim.NewFixedECChainGenerator(anotherChain), uniformOneStoragePower),
 		)...)
 		require.NoError(t, err)
 		require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
@@ -214,8 +217,8 @@ func TestAsyncHalves(t *testing.T) {
 				anotherChain := baseChain.Extend(tsg.Sample())
 				sm, err := sim.NewSimulation(asyncOptions(t, repetition,
 					sim.WithBaseChain(&baseChain),
-					sim.AddHonestParticipants(honestCount/2, sim.NewFixedECChainGenerator(oneChain)),
-					sim.AddHonestParticipants(honestCount/2, sim.NewFixedECChainGenerator(anotherChain)),
+					sim.AddHonestParticipants(honestCount/2, sim.NewFixedECChainGenerator(oneChain), uniformOneStoragePower),
+					sim.AddHonestParticipants(honestCount/2, sim.NewFixedECChainGenerator(anotherChain), uniformOneStoragePower),
 				)...)
 				require.NoError(t, err)
 				require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
@@ -239,8 +242,8 @@ func TestRequireStrongQuorumToProgress(t *testing.T) {
 		anotherChain := baseChain.Extend(tsg.Sample())
 		sm, err := sim.NewSimulation(asyncOptions(t, repetition,
 			sim.WithBaseChain(&baseChain),
-			sim.AddHonestParticipants(10, sim.NewFixedECChainGenerator(oneChain)),
-			sim.AddHonestParticipants(20, sim.NewFixedECChainGenerator(anotherChain)),
+			sim.AddHonestParticipants(10, sim.NewFixedECChainGenerator(oneChain), uniformOneStoragePower),
+			sim.AddHonestParticipants(20, sim.NewFixedECChainGenerator(anotherChain), uniformOneStoragePower),
 		)...)
 		require.NoError(t, err)
 		require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
@@ -261,10 +264,10 @@ func TestHonest_FixedLongestCommonPrefix(t *testing.T) {
 	abf := commonPrefix.Extend(tsg.Sample())
 	sm, err := sim.NewSimulation(syncOptions(
 		sim.WithBaseChain(&baseChain),
-		sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(abc)),
-		sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(abd)),
-		sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(abe)),
-		sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(abf)),
+		sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(abc), uniformOneStoragePower),
+		sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(abd), uniformOneStoragePower),
+		sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(abe), uniformOneStoragePower),
+		sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(abf), uniformOneStoragePower),
 	)...)
 	require.NoError(t, err)
 	require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
@@ -282,15 +285,15 @@ func TestHonest_MajorityCommonPrefix(t *testing.T) {
 		sim.AddHonestParticipants(20, sim.NewAppendingECChainGenerator(
 			majorityCommonPrefixGenerator,
 			sim.NewRandomECChainGenerator(23002354, 1, 8),
-		)),
+		), uniformOneStoragePower),
 		sim.AddHonestParticipants(5, sim.NewAppendingECChainGenerator(
 			sim.NewUniformECChainGenerator(84154, 1, 20),
 			sim.NewRandomECChainGenerator(8965741, 5, 8),
-		)),
+		), uniformOneStoragePower),
 		sim.AddHonestParticipants(1, sim.NewAppendingECChainGenerator(
 			sim.NewUniformECChainGenerator(2158, 10, 20),
 			sim.NewRandomECChainGenerator(154787878, 2, 8),
-		)),
+		), uniformOneStoragePower),
 	)...)
 	require.NoError(t, err)
 	require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())

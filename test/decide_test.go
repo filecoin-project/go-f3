@@ -15,7 +15,10 @@ func TestImmediateDecide(t *testing.T) {
 	baseChain := generateECChain(t, tsg)
 	adversaryValue := baseChain.Extend(tsg.Sample())
 	sm, err := sim.NewSimulation(asyncOptions(t, 1413,
-		sim.AddHonestParticipants(1, sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10)),
+		sim.AddHonestParticipants(
+			1,
+			sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10),
+			uniformOneStoragePower),
 		sim.WithBaseChain(&baseChain),
 		// Add the adversary to the simulation with 3/4 of total power.
 		sim.WithAdversary(adversary.NewImmediateDecideGenerator(adversaryValue, gpbft.NewStoragePower(3))),

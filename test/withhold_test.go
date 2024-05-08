@@ -33,8 +33,8 @@ func TestWitholdCommit1(t *testing.T) {
 		// Now there are 3 nodes on each side (and one decided), with total power 6/10, less than quorum.
 		// The B side must be swayed to the A side by observing that some nodes on the A side reached a COMMIT.
 		sim.WithAdversary(adversary.NewWitholdCommitGenerator(gpbft.NewStoragePower(3), victims, a)),
-		sim.AddHonestParticipants(4, sim.NewFixedECChainGenerator(a)),
-		sim.AddHonestParticipants(3, sim.NewFixedECChainGenerator(b)),
+		sim.AddHonestParticipants(4, sim.NewFixedECChainGenerator(a), uniformOneStoragePower),
+		sim.AddHonestParticipants(3, sim.NewFixedECChainGenerator(b), uniformOneStoragePower),
 	)
 	require.NoError(t, err)
 

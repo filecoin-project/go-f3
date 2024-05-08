@@ -22,7 +22,8 @@ const (
 )
 
 var (
-	oneStoragePower = gpbft.NewStoragePower(1)
+	oneStoragePower        = gpbft.NewStoragePower(1)
+	uniformOneStoragePower = sim.UniformStoragePower(oneStoragePower)
 
 	// testGpbftOptions is configuration constants used across most tests.
 	// These values are not intended to reflect real-world conditions.

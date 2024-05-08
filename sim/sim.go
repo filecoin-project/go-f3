@@ -12,6 +12,7 @@ type Simulation struct {
 	*options
 	network      *Network
 	ec           *simEC
+	hosts        []*simHost
 	participants []*gpbft.Participant
 	adversary    *adversary.Adversary
 }
@@ -33,11 +34,10 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 	if err := s.initParticipants(); err != nil {
 		return err
 	}
-	pt, err := s.initPowerTable()
+	pt, err := s.getPowerTable()
 	if err != nil {
 		return err
 	}
-
 	currentInstance := s.ec.BeginInstance(*s.baseChain, pt, s.beacon)
 	s.startParticipants()
 
@@ -65,13 +65,14 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 				return fmt.Errorf("concensus was not reached at instance %d", currentInstance.Instance)
 			}
 
+			pt, err := s.getPowerTable()
+			if err != nil {
+				return err
+			}
+
 			// Instantiate the next instance even if it goes beyond finalInstance.
 			// The last incomplete instance is used for testing assertions.
-			currentInstance = s.ec.BeginInstance(*decidedChain,
-				// Copy the previous instance power table.
-				// The simulator doesn't have any facility to evolve the power table.
-				// See https://github.com/filecoin-project/go-f3/issues/114.
-				currentInstance.PowerTable.Copy(),
+			currentInstance = s.ec.BeginInstance(*decidedChain, pt,
 				[]byte(fmt.Sprintf("beacon %d", currentInstance.Instance+1)),
 			)
 
@@ -105,33 +106,19 @@ func (s *Simulation) startParticipants() {
 	}
 }
 
-func (s *Simulation) initPowerTable() (*gpbft.PowerTable, error) {
+func (s *Simulation) getPowerTable() (*gpbft.PowerTable, error) {
 	pEntries := make([]gpbft.PowerEntry, 0, len(s.participants))
 	// Set chains for first instance
-	for _, p := range s.participants {
-		pubKey, _ := s.signingBacked.GenerateKey()
+	for _, h := range s.hosts {
 		pEntries = append(pEntries, gpbft.PowerEntry{
-			ID: p.ID(),
-			// TODO: support varying power distribution across participants.
-			//       See: https://github.com/filecoin-project/go-f3/issues/114.
-			Power:  gpbft.NewStoragePower(1),
-			PubKey: pubKey,
+			ID:     h.ID(),
+			Power:  h.StoragePower(),
+			PubKey: h.PublicKey(),
 		})
 	}
 	pt := gpbft.NewPowerTable()
 	if err := pt.Add(pEntries...); err != nil {
 		return nil, fmt.Errorf("failed to set up power table at first instance: %w", err)
-	}
-	if s.adversary != nil {
-		aPubKey, _ := s.signingBacked.GenerateKey()
-		err := pt.Add(gpbft.PowerEntry{
-			ID:     s.adversary.ID(),
-			Power:  s.adversary.Power,
-			PubKey: aPubKey,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to set up adversary power entry at first instance: %w", err)
-		}
 	}
 	return pt, nil
 }
@@ -141,28 +128,28 @@ func (s *Simulation) initParticipants() error {
 	var nextID gpbft.ActorID
 	for _, archetype := range s.honestParticipantArchetypes {
 		for i := 0; i < archetype.count; i++ {
-			host := newHost(nextID, s, archetype.ecChainGenerator)
+			host := newHost(nextID, s, archetype.ecChainGenerator, archetype.storagePowerGenerator)
 			participant, err := gpbft.NewParticipant(nextID, host, pOpts...)
 			if err != nil {
 				return fmt.Errorf("failed to instnatiate participant: %w", err)
 			}
 			s.participants = append(s.participants, participant)
+			s.hosts = append(s.hosts, host)
 			s.network.AddParticipant(participant)
 			nextID++
 		}
 	}
 
-	// TODO: expand the simulation to accommodate more than one adversary for
-	//       a more realistic simulation.
-	// Limit adversaryCount to exactly one for now to reduce LOC up for review.
-	// Future PRs will expand this to support a group of adversaries.
+	// There is at most one adversary but with arbitrary power.
 	if s.adversaryGenerator != nil && s.adversaryCount == 1 {
+		host := newHost(nextID, s, NewFixedECChainGenerator(*s.baseChain), nil)
 		// Adversary implementations currently ignore the canonical chain.
 		// Set to a fixed ec chain generator and expand later for possibility
 		// of implementing adversaries that adapt based on ec chain.
-		// TODO: expand adversary archetypes.
-		host := newHost(nextID, s, NewFixedECChainGenerator(*s.baseChain))
 		s.adversary = s.adversaryGenerator(nextID, host)
+		// Adversary power does not evolve.
+		host.spg = UniformStoragePower(s.adversary.Power)
+		s.hosts = append(s.hosts, host)
 		s.network.AddParticipant(s.adversary)
 	}
 	return nil
