@@ -433,7 +433,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					},
 				}
 			},
-			wantErr: "invalid vote step: INITIAL",
+			wantErr: "invalid vote step: 0",
 		},
 		{
 			name: "unknown vote step is error",
@@ -446,7 +446,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					},
 				}
 			},
-			wantErr: "unknown vote step: 42",
+			wantErr: "invalid vote step: 42",
 		},
 		{
 			name: "QUALITY with non-zero vote round is error",
