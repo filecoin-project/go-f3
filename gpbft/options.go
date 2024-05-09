@@ -7,7 +7,7 @@ import (
 
 var (
 	defaultDelta                = 3 * time.Second
-	defaultDeltaBackOffExponent = 1.3
+	defaultDeltaBackOffExponent = 2.0
 )
 
 // Option represents a configurable parameter.
