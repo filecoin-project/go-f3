@@ -1,7 +1,8 @@
 all: generate test lint
 
+test: GOGC ?= 1000 # Reduce the GC frequency, default to 1000 if unset.
 test:
-	go test ./...
+	GOGC=$(GOGC) go test ./...
 .PHONY: test
 
 lint:
