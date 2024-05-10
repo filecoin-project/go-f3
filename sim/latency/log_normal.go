@@ -32,7 +32,12 @@ func NewLogNormal(seed int64, mean time.Duration) (*LogNormal, error) {
 // with the configured mean. The samples returned disregard time and
 // participants, i.e. all the samples returned correspond to a fixed log normal
 // distribution.
-func (l *LogNormal) Sample(time.Time, gpbft.ActorID, gpbft.ActorID) time.Duration {
+//
+// Note, here from and to are the same the latency sample will always be zero.
+func (l *LogNormal) Sample(_ time.Time, from gpbft.ActorID, to gpbft.ActorID) time.Duration {
+	if from == to {
+		return 0
+	}
 	norm := l.rng.NormFloat64()
 	lognorm := math.Exp(norm)
 	return time.Duration(lognorm * float64(l.mean))
