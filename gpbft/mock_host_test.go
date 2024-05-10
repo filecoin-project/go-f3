@@ -271,7 +271,7 @@ func (_c *MockHost_ReceiveDecision_Call) RunAndReturn(run func(*Justification) t
 }
 
 // RequestBroadcast provides a mock function with given fields: mt
-func (_m *MockHost) RequestBroadcast(mt *MessageTemplate) {
+func (_m *MockHost) RequestBroadcast(mt *MessageBuilder) {
 	_m.Called(mt)
 }
 
@@ -286,9 +286,9 @@ func (_e *MockHost_Expecter) RequestBroadcast(mt interface{}) *MockHost_RequestB
 	return &MockHost_RequestBroadcast_Call{Call: _e.mock.On("RequestBroadcast", mt)}
 }
 
-func (_c *MockHost_RequestBroadcast_Call) Run(run func(mt *MessageTemplate)) *MockHost_RequestBroadcast_Call {
+func (_c *MockHost_RequestBroadcast_Call) Run(run func(mt *MessageBuilder)) *MockHost_RequestBroadcast_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*MessageTemplate))
+		run(args[0].(*MessageBuilder))
 	})
 	return _c
 }
@@ -298,7 +298,7 @@ func (_c *MockHost_RequestBroadcast_Call) Return() *MockHost_RequestBroadcast_Ca
 	return _c
 }
 
-func (_c *MockHost_RequestBroadcast_Call) RunAndReturn(run func(*MessageTemplate)) *MockHost_RequestBroadcast_Call {
+func (_c *MockHost_RequestBroadcast_Call) RunAndReturn(run func(*MessageBuilder)) *MockHost_RequestBroadcast_Call {
 	_c.Call.Return(run)
 	return _c
 }

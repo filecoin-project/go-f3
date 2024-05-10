@@ -784,7 +784,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, justificat
 		Step:     step,
 		Value:    value,
 	}
-	messageTemplate := MessageTemplate{
+	messageTemplate := MessageBuilder{
 		powerTable:    &i.powerTable,
 		NetworkName:   i.participant.host.NetworkName(),
 		Payload:       p,

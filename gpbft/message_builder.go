@@ -6,7 +6,7 @@ import (
 	xerrors "golang.org/x/xerrors"
 )
 
-type MessageTemplate struct {
+type MessageBuilder struct {
 	powerTable powerTableAccess
 
 	NetworkName NetworkName
@@ -23,7 +23,7 @@ type powerTableAccess interface {
 
 // Build uses the template and a signer interface to build GMessage
 // It is a shortcut for when separated flow is not required
-func (mt MessageTemplate) Build(signer Signer, id ActorID) (*GMessage, error) {
+func (mt MessageBuilder) Build(signer Signer, id ActorID) (*GMessage, error) {
 	st, err := mt.PrepareSigningInputs(id)
 	if err != nil {
 		return nil, xerrors.Errorf("preparing signing inputs: %w", err)
@@ -37,7 +37,7 @@ func (mt MessageTemplate) Build(signer Signer, id ActorID) (*GMessage, error) {
 	return st.Complete(payloadSig, vrf), nil
 }
 
-type SigningTemplate struct {
+type SignatureBuilder struct {
 	ParticipantID ActorID
 	NetworkName   NetworkName
 	Payload       Payload
@@ -48,12 +48,12 @@ type SigningTemplate struct {
 	VRFToSign     []byte
 }
 
-func (mt MessageTemplate) PrepareSigningInputs(id ActorID) (SigningTemplate, error) {
+func (mt MessageBuilder) PrepareSigningInputs(id ActorID) (SignatureBuilder, error) {
 	_, pubKey := mt.powerTable.Get(id)
 	if pubKey == nil {
-		return SigningTemplate{}, xerrors.Errorf("could not find pubkey for actor %d", id)
+		return SignatureBuilder{}, xerrors.Errorf("could not find pubkey for actor %d", id)
 	}
-	signingTemplate := SigningTemplate{
+	signingTemplate := SignatureBuilder{
 		ParticipantID: id,
 		NetworkName:   mt.NetworkName,
 		Payload:       mt.Payload,
@@ -69,7 +69,7 @@ func (mt MessageTemplate) PrepareSigningInputs(id ActorID) (SigningTemplate, err
 }
 
 // Sign creates signatures for the SigningTemplate, it could live across RPC boundry
-func (st SigningTemplate) Sign(signer Signer) ([]byte, []byte, error) {
+func (st SignatureBuilder) Sign(signer Signer) ([]byte, []byte, error) {
 	payloadSignature, err := signer.Sign(st.PubKey, st.PayloadToSign)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("signing payload: %w", err)
@@ -85,7 +85,7 @@ func (st SigningTemplate) Sign(signer Signer) ([]byte, []byte, error) {
 }
 
 // Complete takes the template and signautres and builds GMessage out of them
-func (st SigningTemplate) Complete(payloadSignature []byte, vrf []byte) *GMessage {
+func (st SignatureBuilder) Complete(payloadSignature []byte, vrf []byte) *GMessage {
 	gmsg := &GMessage{
 		Sender:        st.ParticipantID,
 		Vote:          st.Payload,

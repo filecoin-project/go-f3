@@ -78,7 +78,7 @@ func (nf *NetworkFor) Log(format string, args ...interface{}) {
 	nf.Network.log(TraceLogic, "P%d "+format, append([]any{nf.ParticipantID}, args...)...)
 }
 
-func (nf *NetworkFor) RequestBroadcast(mt *gpbft.MessageTemplate) {
+func (nf *NetworkFor) RequestBroadcast(mt *gpbft.MessageBuilder) {
 	msg, err := mt.Build(nf.Signer, nf.ParticipantID)
 	if err != nil {
 		nf.Log("building message for: %d: %+v", nf.ParticipantID, err)

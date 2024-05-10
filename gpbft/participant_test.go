@@ -95,7 +95,7 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	pt.host.EXPECT().SetAlarm(pt.time.Add(2 * pt.delta))
 
 	// Expect a broadcast occurs with quality phase message, and the expected chain, signature.
-	wantQualityPhaseBroadcastTemplate := &gpbft.MessageTemplate{
+	wantQualityPhaseBroadcastTemplate := &gpbft.MessageBuilder{
 		NetworkName: pt.networkName,
 
 		Payload: gpbft.Payload{
@@ -104,7 +104,7 @@ func (pt *participantTestSubject) expectBeginInstance() {
 			Value:    pt.canonicalChain,
 		},
 	}
-	pt.host.EXPECT().RequestBroadcast(mock.MatchedBy(func(mt *gpbft.MessageTemplate) bool {
+	pt.host.EXPECT().RequestBroadcast(mock.MatchedBy(func(mt *gpbft.MessageBuilder) bool {
 		return assert.ObjectsExportedFieldsAreEqual(mt, wantQualityPhaseBroadcastTemplate) //nolint
 	}))
 }
