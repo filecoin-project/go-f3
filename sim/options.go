@@ -16,9 +16,8 @@ const (
 )
 
 var (
-	defaultBaseChain    gpbft.ECChain
-	defaultBeacon       = []byte("beacon")
-	defaultLatencyModel latency.Model
+	defaultBaseChain gpbft.ECChain
+	defaultBeacon    = []byte("beacon")
 )
 
 func init() {
@@ -26,10 +25,6 @@ func init() {
 	defaultBaseChain, err = gpbft.NewChain([]byte(("genesis")))
 	if err != nil {
 		panic("failed to instantiate default simulation base chain")
-	}
-	defaultLatencyModel, err = latency.NewLogNormal(time.Now().UnixMilli(), time.Second*5)
-	if err != nil {
-		panic("failed to instantiate default simulation latency model")
 	}
 }
 
@@ -69,7 +64,7 @@ func newOptions(o ...Option) (*options, error) {
 		opts.honestCount = defaultHonestCount
 	}
 	if opts.latencyModel == nil {
-		opts.latencyModel = defaultLatencyModel
+		opts.latencyModel = latency.None
 	}
 	if opts.signingBacked == nil {
 		opts.signingBacked = signing.NewFakeBackend()
