@@ -71,8 +71,8 @@ func (c ECChain) BaseChain() ECChain {
 	return ECChain{c[0]}
 }
 
-func (c ECChain) Extend(tip TipSet) ECChain {
-	return append(c, tip)
+func (c ECChain) Extend(tip ...TipSet) ECChain {
+	return append(c, tip...)
 }
 
 // Returns a chain with suffix (after the base) truncated to a maximum length.

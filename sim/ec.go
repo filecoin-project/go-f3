@@ -1,58 +1,218 @@
 package sim
 
 import (
+	"errors"
+	"fmt"
+	"strings"
+
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/sim/signing"
 )
 
-// Simulated EC state for each protocol instance.
-type EC struct {
-	Instances []*ECInstance
+// simEC captures the complete simulated EC state for all instances performed in
+// the lifetime of a simulation. It includes:
+// - EC instances performed by the simulation.
+// - base chain, power table and beacon at each instance.
+// - decisions made by each participant at each instance.
+//
+// Additionally, it captures errors that may occur as a result if invalid
+// decisions made by participants.
+type simEC struct {
+	instances   []*ECInstance
+	networkName gpbft.NetworkName
+	verifier    signing.Backend
+	errors      errGroup
 }
 
 type ECInstance struct {
+	Instance uint64
 	// The base of all chains, which participants must agree on.
-	Base gpbft.ECChain
-	// EC chains visible to participants.
-	Chains map[gpbft.ActorID]gpbft.ECChain
+	BaseChain gpbft.ECChain
 	// The power table at the base chain head.
 	PowerTable *gpbft.PowerTable
 	// The beacon value of the base chain head.
 	Beacon []byte
+
+	ec        *simEC
+	decisions map[gpbft.ActorID]*gpbft.Justification
 }
 
-func newEC(opts *options) *EC {
-	return &EC{
-		Instances: []*ECInstance{
-			{
-				Base:       *opts.baseChain,
-				Chains:     make(map[gpbft.ActorID]gpbft.ECChain),
-				PowerTable: gpbft.NewPowerTable(),
-				Beacon:     opts.beacon,
-			},
-		},
+type errGroup []error
+
+func (e errGroup) Error() string {
+	var msg strings.Builder
+	msg.WriteString(fmt.Sprintf("total of %d error(s)", len(e)))
+	for _, err := range e {
+		msg.WriteString(fmt.Sprintln())
+		msg.WriteString(err.Error())
+	}
+	return msg.String()
+}
+
+func newEC(opts *options) *simEC {
+	return &simEC{
+		networkName: opts.networkName,
+		verifier:    opts.signingBacked,
 	}
 }
 
-// Adds a participant to the first instance.
-func (ec *EC) AddParticipant(id gpbft.ActorID, power *gpbft.StoragePower, pubkey []byte) {
-	entry := gpbft.PowerEntry{ID: id, Power: power, PubKey: pubkey}
-	if err := ec.Instances[0].PowerTable.Add(entry); err != nil {
-		panic("failed to add participant")
-	}
-}
-
-// Adds a new instance to the EC state, with a new chain shared by all participants.
-// The power table and beacon correspond to the base of the new chain.
-func (ec *EC) AddInstance(chain gpbft.ECChain, power *gpbft.PowerTable, beacon []byte) {
-	newInstance := &ECInstance{
-		Base:       chain.BaseChain(),
-		Chains:     make(map[gpbft.ActorID]gpbft.ECChain),
-		PowerTable: power,
+func (ec *simEC) BeginInstance(baseChain gpbft.ECChain, pt *gpbft.PowerTable, beacon []byte) *ECInstance {
+	instance := &ECInstance{
+		Instance:   uint64(ec.Len()),
+		BaseChain:  baseChain,
+		PowerTable: pt,
 		Beacon:     beacon,
+		ec:         ec,
+		decisions:  make(map[gpbft.ActorID]*gpbft.Justification),
 	}
-	// Set the chain for each participant with power.
-	for _, entry := range power.Entries {
-		newInstance.Chains[entry.ID] = chain
+	ec.instances = append(ec.instances, instance)
+	return instance
+}
+
+func (ec *simEC) GetInstance(instance uint64) *ECInstance {
+	if !ec.HasInstance(instance) {
+		return nil
 	}
-	ec.Instances = append(ec.Instances, newInstance)
+	return ec.instances[instance]
+}
+
+func (ec *simEC) Len() int {
+	return len(ec.instances)
+}
+
+func (ec *simEC) Err() error {
+	if len(ec.errors) > 0 {
+		return ec.errors
+	}
+	return nil
+}
+
+func (ec *simEC) NotifyDecision(participant gpbft.ActorID, decision *gpbft.Justification) {
+	switch i := ec.GetInstance(decision.Vote.Instance); {
+	case i != nil:
+		i.NotifyDecision(participant, decision)
+	default:
+		err := fmt.Errorf("participant %d decided at non-existing instance %d", participant, decision.Vote.Instance)
+		ec.errors = append(ec.errors, err)
+	}
+}
+
+func (eci *ECInstance) validateDecision(decision *gpbft.Justification) error {
+	switch {
+	case eci.Instance != decision.Vote.Instance:
+		return fmt.Errorf("instance mismatch: expected %d but got %d", eci.Instance, decision.Vote.Instance)
+	case decision.Vote.Step != gpbft.DECIDE_PHASE:
+		return fmt.Errorf("decision for wrong phase: %s", decision.Vote.Step)
+	case decision.Vote.Round != 0:
+		return fmt.Errorf("decision for wrong round: %d", decision.Vote.Round)
+	case decision.Vote.Value.IsZero():
+		return errors.New("decided empty tipset")
+	case !decision.Vote.Value.HasBase(eci.BaseChain.Head()): // Assert that the base of decision is the head of previously agreed upon chain in the instance, i.e. instance.BaseChain.
+		return fmt.Errorf("decided tipset with wrong base: %v", decision.Vote.Value.Base())
+	}
+
+	// Extract signers.
+	justificationPower := gpbft.NewStoragePower(0)
+	signers := make([]gpbft.PubKey, 0)
+	powerTable := eci.PowerTable
+	if err := decision.Signers.ForEach(func(bit uint64) error {
+		if int(bit) >= len(powerTable.Entries) {
+			return fmt.Errorf("invalid signer index: %d", bit)
+		}
+		justificationPower.Add(justificationPower, powerTable.Entries[bit].Power)
+		signers = append(signers, powerTable.Entries[bit].PubKey)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to iterate over signers: %w", err)
+	}
+	// Check signers have strong quorum
+	strongQuorum := gpbft.NewStoragePower(0)
+	strongQuorum = strongQuorum.Mul(strongQuorum, gpbft.NewStoragePower(2))
+	strongQuorum = strongQuorum.Div(strongQuorum, gpbft.NewStoragePower(3))
+	if justificationPower.Cmp(strongQuorum) < 0 {
+		return fmt.Errorf("decision lacks strong quorum: %v", decision)
+	}
+	// Verify aggregate signature
+	payload := decision.Vote.MarshalForSigning(eci.ec.networkName)
+	if err := eci.ec.verifier.VerifyAggregate(payload, decision.Signature, signers); err != nil {
+		return fmt.Errorf("invalid aggregate signature: %v: %w", decision, err)
+	}
+
+	return nil
+}
+
+// HasReachedConsensus checks that all participants (except any adversary) for an
+// instance decided on the same value.
+func (eci *ECInstance) HasReachedConsensus(exclude ...gpbft.ActorID) (*gpbft.ECChain, bool) {
+
+	exclusions := make(map[gpbft.ActorID]struct{})
+	for _, id := range exclude {
+		exclusions[id] = struct{}{}
+	}
+
+	// Check each actor in the power table decided, and their decisions matched.
+	var consensus *gpbft.ECChain
+	for _, powerEntry := range eci.PowerTable.Entries {
+		if _, found := exclusions[powerEntry.ID]; found {
+			continue
+		}
+		decision, ok := eci.decisions[powerEntry.ID]
+		if !ok {
+			return nil, false
+		}
+		if consensus == nil {
+			consensus = &decision.Vote.Value
+		}
+		if !decision.Vote.Value.Eq(*consensus) {
+			return nil, false
+		}
+	}
+	return consensus, true
+}
+
+// HasCompleted checks whether all participants (except any adversary)
+// have decided on a value for an instance.
+func (eci *ECInstance) HasCompleted(exclude ...gpbft.ActorID) bool {
+	expectedDecisionCount := len(eci.PowerTable.Entries)
+	for _, id := range exclude {
+		if eci.PowerTable.Has(id) {
+			expectedDecisionCount -= 1
+		}
+	}
+	return len(eci.decisions) == expectedDecisionCount
+}
+
+func (eci *ECInstance) GetDecision(participant gpbft.ActorID) *gpbft.ECChain {
+	justification, ok := eci.decisions[participant]
+	if !ok {
+		return nil
+	}
+	return &justification.Vote.Value
+}
+
+func (ec *simEC) HasInstance(instance uint64) bool {
+	return ec.Len() > int(instance)
+}
+
+func (eci *ECInstance) Print() {
+	var first *gpbft.ECChain
+	for _, powerEntry := range eci.PowerTable.Entries {
+		switch decision, ok := eci.decisions[powerEntry.ID]; {
+		case !ok:
+			fmt.Printf("‼️ Participant %d did not decide\n", powerEntry.ID)
+		case first == nil:
+			first = &decision.Vote.Value
+		case !decision.Vote.Value.Eq(*first):
+			fmt.Printf("‼️ Participant %d decided %v, but %d decided %v\n",
+				powerEntry.ID, decision.Vote, eci.PowerTable.Entries[0].ID, first)
+		}
+	}
+}
+
+func (eci *ECInstance) NotifyDecision(participant gpbft.ActorID, decision *gpbft.Justification) {
+	if err := eci.validateDecision(decision); err != nil {
+		err := fmt.Errorf("invalid decision by participant %d: %w", participant, err)
+		eci.ec.errors = append(eci.ec.errors, err)
+	}
+	eci.decisions[participant] = decision
 }

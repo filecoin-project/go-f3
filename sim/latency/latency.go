@@ -10,7 +10,7 @@ import (
 // offers the ability for implementation of varying latency across a simulation,
 // as well as specialised latency across specific participants.
 //
-// See LogNormal.
+// See LogNormal, Zipf, None.
 type Model interface {
 	// Sample returns an artificial latency at time t for communications from a
 	// participant to another participant.

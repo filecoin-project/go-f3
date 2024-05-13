@@ -16,7 +16,7 @@ const (
 
 	latencyAsync         = 100 * time.Millisecond
 	maxRounds            = 30
-	asyncInterations     = 5000
+	asyncIterations      = 5000
 	EcEpochDuration      = 30 * time.Second
 	EcStabilisationDelay = 3 * time.Second
 )

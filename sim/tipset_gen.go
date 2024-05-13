@@ -12,7 +12,7 @@ type TipSetGenerator struct {
 }
 
 func NewTipSetGenerator(seed uint64) *TipSetGenerator {
-	return &TipSetGenerator{seed}
+	return &TipSetGenerator{xorshiftState: seed}
 }
 
 func (c *TipSetGenerator) Sample() gpbft.TipSet {

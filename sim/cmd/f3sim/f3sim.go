@@ -35,19 +35,11 @@ func main() {
 			log.Panicf("failed to instantiate log normal latency model: %c\n", err)
 		}
 
-		tsg := sim.NewTipSetGenerator(uint64(seed))
-		baseChain, err := gpbft.NewChain(tsg.Sample())
-		if err != nil {
-			log.Fatalf("failed to generate base chain: %v\n", err)
-		}
-
 		options := []sim.Option{
-			sim.WithHonestParticipantCount(*participantCount),
 			sim.WithLatencyModel(latencyModel),
 			sim.WithECEpochDuration(30 * time.Second),
 			sim.WithECStabilisationDelay(0),
-			sim.WithTipSetGenerator(tsg),
-			sim.WithBaseChain(&baseChain),
+			sim.AddHonestParticipants(*participantCount, sim.NewUniformECChainGenerator(uint64(seed), 1, 10)),
 			sim.WithTraceLevel(*traceLevel),
 			sim.WithGpbftOptions(
 				gpbft.WithDelta(*delta),
@@ -61,18 +53,11 @@ func main() {
 
 		sm, err := sim.NewSimulation(options...)
 		if err != nil {
-			return
-		}
-		if err != nil {
 			log.Panicf("failed to instantiate simulation: %v\n", err)
 		}
 
-		// Same chain for everyone.
-		candidate := baseChain.Extend(tsg.Sample())
-		sm.SetChains(sim.ChainCount{Count: *participantCount, Chain: candidate})
-
 		if err := sm.Run(1, *maxRounds); err != nil {
-			sm.PrintResults()
+			sm.GetInstance(0).Print()
 			os.Exit(1)
 		}
 	}

@@ -85,19 +85,14 @@ func TestRepeat(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			for _, hc := range honestCounts {
-				repeatInParallel(t, asyncInterations, func(t *testing.T, repetition int) {
+				repeatInParallel(t, asyncIterations, func(t *testing.T, repetition int) {
 					dist := test.repetitionSampler(repetition)
-					tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
-					baseChain := generateECChain(t, tsg)
 					sm, err := sim.NewSimulation(asyncOptions(t, repetition,
-						sim.WithHonestParticipantCount(hc),
-						sim.WithBaseChain(&baseChain),
+						sim.AddHonestParticipants(hc, sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10)),
 						sim.WithAdversary(adversary.NewRepeatGenerator(oneStoragePower, dist)),
 					)...)
 					require.NoError(t, err)
 
-					a := baseChain.Extend(tsg.Sample())
-					sm.SetChains(sim.ChainCount{Count: sm.HonestParticipantsCount(), Chain: a})
 					require.NoErrorf(t, sm.Run(1, test.maxRounds), "%s", sm.Describe())
 				})
 			}

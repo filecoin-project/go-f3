@@ -12,38 +12,39 @@ import (
 func TestHonest_ChainAgreement(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name    string
-		options []sim.Option
+		name             string
+		options          []sim.Option
+		participantCount int
 	}{
 		{
-			name:    "sync singleton no signing",
-			options: syncOptions(sim.WithHonestParticipantCount(1)),
+			name:             "sync singleton no signing",
+			options:          syncOptions(),
+			participantCount: 1,
 		},
 		{
-			name: "sync singleton bls",
-			options: syncOptions(
-				sim.WithHonestParticipantCount(1),
-				sim.WithSigningBackend(signing.NewBLSBackend())),
+			name:             "sync singleton bls",
+			options:          syncOptions(sim.WithSigningBackend(signing.NewBLSBackend())),
+			participantCount: 1,
 		},
 		{
-			name:    "sync pair no signing",
-			options: syncOptions(sim.WithHonestParticipantCount(2)),
+			name:             "sync pair no signing",
+			options:          syncOptions(),
+			participantCount: 2,
 		},
 		{
-			name: "sync pair bls",
-			options: syncOptions(
-				sim.WithHonestParticipantCount(2),
-				sim.WithSigningBackend(signing.NewBLSBackend())),
+			name:             "sync pair bls",
+			options:          syncOptions(sim.WithSigningBackend(signing.NewBLSBackend())),
+			participantCount: 2,
 		},
 		{
-			name:    "async pair no signing",
-			options: asyncOptions(t, 1413, sim.WithHonestParticipantCount(2)),
+			name:             "async pair no signing",
+			options:          asyncOptions(t, 1413),
+			participantCount: 2,
 		},
 		{
-			name: "async pair bls",
-			options: asyncOptions(t, 1413,
-				sim.WithHonestParticipantCount(2),
-				sim.WithSigningBackend(signing.NewBLSBackend())),
+			name:             "async pair bls",
+			options:          asyncOptions(t, 1413, sim.WithSigningBackend(signing.NewBLSBackend())),
+			participantCount: 2,
 		},
 	}
 	for _, test := range tests {
@@ -52,13 +53,14 @@ func TestHonest_ChainAgreement(t *testing.T) {
 			tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
 			baseChain := generateECChain(t, tsg)
 			targetChain := baseChain.Extend(tsg.Sample())
-			test.options = append(test.options, sim.WithBaseChain(&baseChain), sim.WithTipSetGenerator(tsg))
+			test.options = append(test.options,
+				sim.WithBaseChain(&baseChain),
+				sim.AddHonestParticipants(test.participantCount, sim.NewFixedECChainGenerator(targetChain)))
 			sm, err := sim.NewSimulation(test.options...)
 			require.NoError(t, err)
-			sm.SetChains(sim.ChainCount{Count: sm.HonestParticipantsCount(), Chain: targetChain})
 
 			require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
-			requireConsensus(t, sm, targetChain.Head())
+			requireConsensusAtFirstInstance(t, sm, targetChain.Head())
 		})
 	}
 }
@@ -71,23 +73,19 @@ func TestHonest_ChainDisagreement(t *testing.T) {
 	}{
 		{
 			name:    "sync pair no signing",
-			options: syncOptions(sim.WithHonestParticipantCount(2)),
+			options: syncOptions(),
 		},
 		{
-			name: "sync pair bls",
-			options: syncOptions(
-				sim.WithHonestParticipantCount(2),
-				sim.WithSigningBackend(signing.NewBLSBackend())),
+			name:    "sync pair bls",
+			options: syncOptions(sim.WithSigningBackend(signing.NewBLSBackend())),
 		},
 		{
 			name:    "async pair no signing",
-			options: asyncOptions(t, 1413, sim.WithHonestParticipantCount(2)),
+			options: asyncOptions(t, 1413),
 		},
 		{
-			name: "async pair bls",
-			options: asyncOptions(t, 1413,
-				sim.WithHonestParticipantCount(2),
-				sim.WithSigningBackend(signing.NewBLSBackend())),
+			name:    "async pair bls",
+			options: asyncOptions(t, 1413, sim.WithSigningBackend(signing.NewBLSBackend())),
 		},
 	}
 	for _, test := range tests {
@@ -95,16 +93,17 @@ func TestHonest_ChainDisagreement(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
 			baseChain := generateECChain(t, tsg)
-			test.options = append(test.options, sim.WithBaseChain(&baseChain), sim.WithTipSetGenerator(tsg))
-			sm, err := sim.NewSimulation(test.options...)
-			require.NoError(t, err)
 			oneChain := baseChain.Extend(tsg.Sample())
 			anotherChain := baseChain.Extend(tsg.Sample())
-			participantsCount := sm.HonestParticipantsCount()
-			sm.SetChains(sim.ChainCount{Count: participantsCount / 2, Chain: oneChain}, sim.ChainCount{Count: participantsCount / 2, Chain: anotherChain})
-
+			test.options = append(test.options,
+				sim.WithBaseChain(&baseChain),
+				sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(oneChain)),
+				sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(anotherChain)),
+			)
+			sm, err := sim.NewSimulation(test.options...)
+			require.NoError(t, err)
 			require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
-			requireConsensus(t, sm, baseChain...)
+			requireConsensusAtFirstInstance(t, sm, baseChain...)
 		})
 	}
 }
@@ -114,16 +113,16 @@ func TestSync_AgreementWithRepetition(t *testing.T) {
 		honestCount := 3 + repetition
 		tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
 		baseChain := generateECChain(t, tsg)
+		someChain := baseChain.Extend(tsg.Sample())
 		sm, err := sim.NewSimulation(syncOptions(
-			sim.WithHonestParticipantCount(honestCount),
-			sim.WithTipSetGenerator(tsg),
-			sim.WithBaseChain(&baseChain))...)
+			sim.WithBaseChain(&baseChain),
+			sim.AddHonestParticipants(honestCount, sim.NewFixedECChainGenerator(someChain)),
+		)...)
 		require.NoError(t, err)
-		a := baseChain.Extend(tsg.Sample())
-		sm.SetChains(sim.ChainCount{Count: sm.HonestParticipantsCount(), Chain: a})
+
 		require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 		// Synchronous, agreeing groups always decide the candidate.
-		requireConsensus(t, sm, a.Head())
+		requireConsensusAtFirstInstance(t, sm, someChain.Head())
 	})
 }
 
@@ -137,20 +136,17 @@ func TestAsyncAgreement(t *testing.T) {
 	for n := 3; n <= 16; n++ {
 		honestCount := n
 		t.Run(fmt.Sprintf("honest count %d", honestCount), func(t *testing.T) {
-			repeatInParallel(t, asyncInterations, func(t *testing.T, repetition int) {
+			repeatInParallel(t, asyncIterations, func(t *testing.T, repetition int) {
 				tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
 				baseChain := generateECChain(t, tsg)
+				someChain := baseChain.Extend(tsg.Sample())
 				sm, err := sim.NewSimulation(asyncOptions(t, repetition,
-					sim.WithHonestParticipantCount(honestCount),
-					sim.WithTipSetGenerator(tsg),
 					sim.WithBaseChain(&baseChain),
+					sim.AddHonestParticipants(honestCount, sim.NewFixedECChainGenerator(someChain)),
 				)...)
 				require.NoError(t, err)
-				a := baseChain.Extend(tsg.Sample())
-				sm.SetChains(sim.ChainCount{Count: sm.HonestParticipantsCount(), Chain: a})
-
 				require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
-				requireConsensus(t, sm, baseChain.Head(), a.Head())
+				requireConsensusAtFirstInstance(t, sm, baseChain.Head(), someChain.Head())
 			})
 		})
 	}
@@ -163,18 +159,17 @@ func TestSyncHalves(t *testing.T) {
 		honestCount := repetition*2 + 2
 		tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
 		baseChain := generateECChain(t, tsg)
+		oneChain := baseChain.Extend(tsg.Sample())
+		anotherChain := baseChain.Extend(tsg.Sample())
 		sm, err := sim.NewSimulation(syncOptions(
-			sim.WithHonestParticipantCount(honestCount),
-			sim.WithTipSetGenerator(tsg),
-			sim.WithBaseChain(&baseChain))...)
+			sim.WithBaseChain(&baseChain),
+			sim.AddHonestParticipants(honestCount/2, sim.NewFixedECChainGenerator(oneChain)),
+			sim.AddHonestParticipants(honestCount/2, sim.NewFixedECChainGenerator(anotherChain)),
+		)...)
 		require.NoError(t, err)
-		a := baseChain.Extend(tsg.Sample())
-		b := baseChain.Extend(tsg.Sample())
-		sm.SetChains(sim.ChainCount{Count: honestCount / 2, Chain: a}, sim.ChainCount{Count: honestCount / 2, Chain: b})
-
 		require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 		// Groups split 50/50 always decide the base.
-		requireConsensus(t, sm, baseChain.Head())
+		requireConsensusAtFirstInstance(t, sm, baseChain.Head())
 	})
 }
 
@@ -188,19 +183,18 @@ func TestSyncHalvesBLS(t *testing.T) {
 		honestCount := repetition*2 + 2
 		tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
 		baseChain := generateECChain(t, tsg)
+		oneChain := baseChain.Extend(tsg.Sample())
+		anotherChain := baseChain.Extend(tsg.Sample())
 		sm, err := sim.NewSimulation(syncOptions(
-			sim.WithHonestParticipantCount(honestCount),
-			sim.WithTipSetGenerator(tsg),
 			sim.WithSigningBackend(signing.NewBLSBackend()),
-			sim.WithBaseChain(&baseChain))...)
+			sim.WithBaseChain(&baseChain),
+			sim.AddHonestParticipants(honestCount/2, sim.NewFixedECChainGenerator(oneChain)),
+			sim.AddHonestParticipants(honestCount/2, sim.NewFixedECChainGenerator(anotherChain)),
+		)...)
 		require.NoError(t, err)
-		a := baseChain.Extend(tsg.Sample())
-		b := baseChain.Extend(tsg.Sample())
-		sm.SetChains(sim.ChainCount{Count: honestCount / 2, Chain: a}, sim.ChainCount{Count: honestCount / 2, Chain: b})
-
 		require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 		// Groups split 50/50 always decide the base.
-		requireConsensus(t, sm, baseChain.Head())
+		requireConsensusAtFirstInstance(t, sm, baseChain.Head())
 	})
 }
 
@@ -213,21 +207,20 @@ func TestAsyncHalves(t *testing.T) {
 	for n := 4; n <= 20; n += 2 {
 		honestCount := n
 		t.Run(fmt.Sprintf("honest count %d", honestCount), func(t *testing.T) {
-			repeatInParallel(t, asyncInterations, func(t *testing.T, repetition int) {
+			repeatInParallel(t, asyncIterations, func(t *testing.T, repetition int) {
 				tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
 				baseChain := generateECChain(t, tsg)
+				oneChain := baseChain.Extend(tsg.Sample())
+				anotherChain := baseChain.Extend(tsg.Sample())
 				sm, err := sim.NewSimulation(asyncOptions(t, repetition,
-					sim.WithHonestParticipantCount(honestCount),
-					sim.WithTipSetGenerator(tsg),
-					sim.WithBaseChain(&baseChain))...)
+					sim.WithBaseChain(&baseChain),
+					sim.AddHonestParticipants(honestCount/2, sim.NewFixedECChainGenerator(oneChain)),
+					sim.AddHonestParticipants(honestCount/2, sim.NewFixedECChainGenerator(anotherChain)),
+				)...)
 				require.NoError(t, err)
-				a := baseChain.Extend(tsg.Sample())
-				b := baseChain.Extend(tsg.Sample())
-				sm.SetChains(sim.ChainCount{Count: honestCount / 2, Chain: a}, sim.ChainCount{Count: honestCount / 2, Chain: b})
-
 				require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 				// Groups split 50/50 always decide the base.
-				requireConsensus(t, sm, baseChain.Head())
+				requireConsensusAtFirstInstance(t, sm, baseChain.Head())
 			})
 		})
 	}
@@ -239,49 +232,74 @@ func TestRequireStrongQuorumToProgress(t *testing.T) {
 	}
 
 	t.Parallel()
-	repeatInParallel(t, asyncInterations, func(t *testing.T, repetition int) {
+	repeatInParallel(t, asyncIterations, func(t *testing.T, repetition int) {
 		tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
 		baseChain := generateECChain(t, tsg)
+		oneChain := baseChain.Extend(tsg.Sample())
+		anotherChain := baseChain.Extend(tsg.Sample())
 		sm, err := sim.NewSimulation(asyncOptions(t, repetition,
-			sim.WithHonestParticipantCount(30),
-			sim.WithTipSetGenerator(tsg),
-			sim.WithBaseChain(&baseChain))...)
+			sim.WithBaseChain(&baseChain),
+			sim.AddHonestParticipants(10, sim.NewFixedECChainGenerator(oneChain)),
+			sim.AddHonestParticipants(20, sim.NewFixedECChainGenerator(anotherChain)),
+		)...)
 		require.NoError(t, err)
-		a := baseChain.Extend(tsg.Sample())
-		b := baseChain.Extend(tsg.Sample())
-		// No strict > quorum.
-		sm.SetChains(sim.ChainCount{Count: 20, Chain: a}, sim.ChainCount{Count: 10, Chain: b})
-
 		require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 		// Must decide base.
-		requireConsensus(t, sm, baseChain.Head())
+		requireConsensusAtFirstInstance(t, sm, baseChain.Head())
 	})
 }
 
-func TestLongestCommonPrefix(t *testing.T) {
+func TestHonest_FixedLongestCommonPrefix(t *testing.T) {
 	// This test uses a synchronous configuration to ensure timely message delivery.
 	// If async, it is possible to decide the base chain if QUALITY messages are delayed.
 	tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
 	baseChain := generateECChain(t, tsg)
+	commonPrefix := baseChain.Extend(tsg.Sample())
+	abc := commonPrefix.Extend(tsg.Sample())
+	abd := commonPrefix.Extend(tsg.Sample())
+	abe := commonPrefix.Extend(tsg.Sample())
+	abf := commonPrefix.Extend(tsg.Sample())
 	sm, err := sim.NewSimulation(syncOptions(
-		sim.WithHonestParticipantCount(4),
-		sim.WithTipSetGenerator(tsg),
 		sim.WithBaseChain(&baseChain),
+		sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(abc)),
+		sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(abd)),
+		sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(abe)),
+		sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(abf)),
 	)...)
 	require.NoError(t, err)
-	ab := baseChain.Extend(tsg.Sample())
-	abc := ab.Extend(tsg.Sample())
-	abd := ab.Extend(tsg.Sample())
-	abe := ab.Extend(tsg.Sample())
-	abf := ab.Extend(tsg.Sample())
-	sm.SetChains(
-		sim.ChainCount{Count: 1, Chain: abc},
-		sim.ChainCount{Count: 1, Chain: abd},
-		sim.ChainCount{Count: 1, Chain: abe},
-		sim.ChainCount{Count: 1, Chain: abf},
-	)
-
 	require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 	// Must decide ab, the longest common prefix.
-	requireConsensus(t, sm, ab.Head())
+	requireConsensusAtFirstInstance(t, sm, commonPrefix.Head())
+}
+
+// TestHonest_MajorityCommonPrefix tests that in a network of honest participants, where there is a majority
+// that vote for a chain with un-identical but some common prefix, the common prefix of the chain proposed by
+// the majority is decided.
+func TestHonest_MajorityCommonPrefix(t *testing.T) {
+	const instanceCount = 10
+	majorityCommonPrefixGenerator := sim.NewUniformECChainGenerator(8484, 10, 20)
+	sm, err := sim.NewSimulation(syncOptions(
+		sim.AddHonestParticipants(20, sim.NewAppendingECChainGenerator(
+			majorityCommonPrefixGenerator,
+			sim.NewRandomECChainGenerator(23002354, 1, 8),
+		)),
+		sim.AddHonestParticipants(5, sim.NewAppendingECChainGenerator(
+			sim.NewUniformECChainGenerator(84154, 1, 20),
+			sim.NewRandomECChainGenerator(8965741, 5, 8),
+		)),
+		sim.AddHonestParticipants(1, sim.NewAppendingECChainGenerator(
+			sim.NewUniformECChainGenerator(2158, 10, 20),
+			sim.NewRandomECChainGenerator(154787878, 2, 8),
+		)),
+	)...)
+	require.NoError(t, err)
+	require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
+
+	// Must decide the longest common prefix proposed by the majority at every instance.
+	for i := 0; i < instanceCount; i++ {
+		ii := uint64(i)
+		instance := sm.GetInstance(ii)
+		commonPrefix := majorityCommonPrefixGenerator.GenerateECChain(ii, instance.BaseChain.Base(), 0)
+		requireConsensusAtInstance(t, sm, ii, commonPrefix.Head())
+	}
 }

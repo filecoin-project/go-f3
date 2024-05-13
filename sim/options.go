@@ -1,6 +1,8 @@
 package sim
 
 import (
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -10,9 +12,7 @@ import (
 )
 
 const (
-	defaultSimNetworkName      = "sim"
-	defaultTipSetGeneratorSeed = 0x264803e715714f95 // Seed from Drand.
-	defaultHonestCount         = 3
+	defaultSimNetworkName = "sim"
 )
 
 var (
@@ -34,10 +34,10 @@ type options struct {
 	// latencyModel models the cross participant communication latencyModel throughout a
 	// simulation.
 	latencyModel latency.Model
-	// honestCount is the honest participant count. Honest participants have one unit
-	// of power each.
-	honestCount int
-	// Duration of EC epochs.
+	// honestParticipantArchetypes is the honest participant count and ec chain
+	// generator. Honest participants have one unit of power each.
+	honestParticipantArchetypes []participantArchetype
+	// Duration of simEC epochs.
 	ecEpochDuration time.Duration
 	// Time to wait after EC epoch before starting next instance.
 	ecStabilisationDelay time.Duration
@@ -46,11 +46,15 @@ type options struct {
 	gpbftOptions       []gpbft.Option
 	traceLevel         int
 	networkName        gpbft.NetworkName
-	tipSetGenerator    *TipSetGenerator
 	baseChain          *gpbft.ECChain
 	beacon             []byte
 	adversaryGenerator adversary.Generator
 	adversaryCount     uint64
+}
+
+type participantArchetype struct {
+	count            int
+	ecChainGenerator ECChainGenerator
 }
 
 func newOptions(o ...Option) (*options, error) {
@@ -60,8 +64,8 @@ func newOptions(o ...Option) (*options, error) {
 			return nil, err
 		}
 	}
-	if opts.honestCount == 0 {
-		opts.honestCount = defaultHonestCount
+	if len(opts.honestParticipantArchetypes) == 0 {
+		return nil, errors.New("at least one honest participant must be added")
 	}
 	if opts.latencyModel == nil {
 		opts.latencyModel = latency.None
@@ -72,9 +76,6 @@ func newOptions(o ...Option) (*options, error) {
 	if opts.networkName == "" {
 		opts.networkName = defaultSimNetworkName
 	}
-	if opts.tipSetGenerator == nil {
-		opts.tipSetGenerator = NewTipSetGenerator(defaultTipSetGeneratorSeed)
-	}
 	if opts.baseChain == nil {
 		opts.baseChain = &defaultBaseChain
 	}
@@ -82,13 +83,6 @@ func newOptions(o ...Option) (*options, error) {
 		opts.beacon = defaultBeacon
 	}
 	return &opts, nil
-}
-
-func WithHonestParticipantCount(i int) Option {
-	return func(o *options) error {
-		o.honestCount = i
-		return nil
-	}
 }
 
 // WithSigningBackend sets the signing backend to be used by all participants in
@@ -149,9 +143,16 @@ func WithBaseChain(base *gpbft.ECChain) Option {
 	}
 }
 
-func WithTipSetGenerator(tsg *TipSetGenerator) Option {
+func AddHonestParticipants(count int, generator ECChainGenerator) Option {
 	return func(o *options) error {
-		o.tipSetGenerator = tsg
+		if count <= 0 {
+			return fmt.Errorf("honest participant count must be larger than zero; got: %d", count)
+		}
+		o.honestParticipantArchetypes = append(o.honestParticipantArchetypes,
+			participantArchetype{
+				count:            count,
+				ecChainGenerator: generator,
+			})
 		return nil
 	}
 }
