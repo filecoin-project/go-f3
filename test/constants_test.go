@@ -15,7 +15,7 @@ const (
 	tipSetGeneratorSeed = 0x264803e715714f95
 
 	latencyAsync         = 100 * time.Millisecond
-	maxRounds            = 30
+	maxRounds            = 10
 	asyncIterations      = 5000
 	EcEpochDuration      = 30 * time.Second
 	EcStabilisationDelay = 3 * time.Second
