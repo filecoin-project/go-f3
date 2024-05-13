@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -15,9 +16,12 @@ var _ Model = (*LogNormal)(nil)
 // mean latency. This latency model does not specialise based on host clock time
 // nor participants.
 type LogNormal struct {
-	rng           *rand.Rand
-	mean          time.Duration
-	latencyFromTo map[gpbft.ActorID]map[gpbft.ActorID]time.Duration
+	rng  *rand.Rand
+	mean time.Duration
+
+	// latencyFromToLock protects concurrent access to latencyFromTo map.
+	latencyFromToLock sync.Mutex
+	latencyFromTo     map[gpbft.ActorID]map[gpbft.ActorID]time.Duration
 }
 
 // NewLogNormal instantiates a new latency model of log normal latency
@@ -44,6 +48,10 @@ func (l *LogNormal) Sample(_ time.Time, from gpbft.ActorID, to gpbft.ActorID) ti
 	if from == to {
 		return 0
 	}
+
+	l.latencyFromToLock.Lock()
+	defer l.latencyFromToLock.Unlock()
+
 	latencyFrom, latencyFromFound := l.latencyFromTo[from]
 	if !latencyFromFound {
 		latencyFrom = make(map[gpbft.ActorID]time.Duration)
