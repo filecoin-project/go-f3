@@ -122,7 +122,7 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 		if s.decisions.err != nil {
 			return fmt.Errorf("error in decision: %w", s.decisions.err)
 		}
-		if s.participants[0].CurrentRound() >= maxRounds {
+		if s.getMaxRound() > maxRounds {
 			return fmt.Errorf("reached maximum number of %d rounds", maxRounds)
 		}
 		// Verify the current instance as soon as it completes.
@@ -180,4 +180,15 @@ func (s *Simulation) GetInstance(i int) *ECInstance {
 		return nil
 	}
 	return s.ec.Instances[i]
+}
+
+func (s *Simulation) getMaxRound() uint64 {
+	var maxRound uint64
+	for _, participant := range s.participants {
+		currentRound := participant.CurrentRound()
+		if currentRound > maxRound {
+			maxRound = currentRound
+		}
+	}
+	return maxRound
 }
