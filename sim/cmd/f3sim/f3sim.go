@@ -39,7 +39,10 @@ func main() {
 			sim.WithLatencyModel(latencyModel),
 			sim.WithECEpochDuration(30 * time.Second),
 			sim.WithECStabilisationDelay(0),
-			sim.AddHonestParticipants(*participantCount, sim.NewUniformECChainGenerator(uint64(seed), 1, 10)),
+			sim.AddHonestParticipants(
+				*participantCount,
+				sim.NewUniformECChainGenerator(uint64(seed), 1, 10),
+				sim.UniformStoragePower(gpbft.NewStoragePower(1))),
 			sim.WithTraceLevel(*traceLevel),
 			sim.WithGpbftOptions(
 				gpbft.WithDelta(*delta),

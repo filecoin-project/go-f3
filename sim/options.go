@@ -53,8 +53,9 @@ type options struct {
 }
 
 type participantArchetype struct {
-	count            int
-	ecChainGenerator ECChainGenerator
+	count                 int
+	ecChainGenerator      ECChainGenerator
+	storagePowerGenerator StoragePowerGenerator
 }
 
 func newOptions(o ...Option) (*options, error) {
@@ -143,15 +144,16 @@ func WithBaseChain(base *gpbft.ECChain) Option {
 	}
 }
 
-func AddHonestParticipants(count int, generator ECChainGenerator) Option {
+func AddHonestParticipants(count int, ecg ECChainGenerator, spg StoragePowerGenerator) Option {
 	return func(o *options) error {
 		if count <= 0 {
 			return fmt.Errorf("honest participant count must be larger than zero; got: %d", count)
 		}
 		o.honestParticipantArchetypes = append(o.honestParticipantArchetypes,
 			participantArchetype{
-				count:            count,
-				ecChainGenerator: generator,
+				count:                 count,
+				ecChainGenerator:      ecg,
+				storagePowerGenerator: spg,
 			})
 		return nil
 	}

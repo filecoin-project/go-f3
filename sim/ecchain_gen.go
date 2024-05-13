@@ -147,3 +147,14 @@ func (u *AggregateECChainGenerator) GenerateECChain(instance uint64, base gpbft.
 	}
 	return chain
 }
+
+var _ ECChainGenerator = (*BaseECChainGenerator)(nil)
+
+// BaseECChainGenerator always return the given base as the EC chain for all participants and instances.
+type BaseECChainGenerator struct{}
+
+func NewBaseECChainGenerator() *BaseECChainGenerator { return &BaseECChainGenerator{} }
+
+func (u *BaseECChainGenerator) GenerateECChain(_ uint64, base gpbft.TipSet, _ gpbft.ActorID) gpbft.ECChain {
+	return gpbft.ECChain{base}
+}

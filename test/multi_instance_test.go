@@ -13,7 +13,7 @@ const instanceCount = 4000
 
 func TestMultiSingleton(t *testing.T) {
 	sm, err := sim.NewSimulation(syncOptions(
-		sim.AddHonestParticipants(1, sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10)),
+		sim.AddHonestParticipants(1, sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10), uniformOneStoragePower),
 	)...)
 	require.NoError(t, err)
 	require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
@@ -25,7 +25,7 @@ func TestMultiSingleton(t *testing.T) {
 
 func TestMultiSyncPair(t *testing.T) {
 	sm, err := sim.NewSimulation(syncOptions(
-		sim.AddHonestParticipants(2, sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10)),
+		sim.AddHonestParticipants(2, sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10), uniformOneStoragePower),
 	)...)
 	require.NoError(t, err)
 	require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
@@ -37,7 +37,7 @@ func TestMultiSyncPair(t *testing.T) {
 
 func TestMultiASyncPair(t *testing.T) {
 	sm, err := sim.NewSimulation(asyncOptions(t, 1413,
-		sim.AddHonestParticipants(2, sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10)),
+		sim.AddHonestParticipants(2, sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10), uniformOneStoragePower),
 	)...)
 	require.NoError(t, err)
 
@@ -60,7 +60,10 @@ func TestMultiSyncAgreement(t *testing.T) {
 	repeatInParallel(t, 9, func(t *testing.T, repetition int) {
 		honestCount := repetition + 3
 		sm, err := sim.NewSimulation(syncOptions(
-			sim.AddHonestParticipants(honestCount, sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10)),
+			sim.AddHonestParticipants(
+				honestCount,
+				sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10),
+				uniformOneStoragePower),
 		)...)
 		require.NoError(t, err)
 		// All nodes start with the same chain and will observe the same extensions of that chain
@@ -83,7 +86,10 @@ func TestMultiAsyncAgreement(t *testing.T) {
 	repeatInParallel(t, 9, func(t *testing.T, repetition int) {
 		honestCount := repetition + 3
 		sm, err := sim.NewSimulation(asyncOptions(t, 1414,
-			sim.AddHonestParticipants(honestCount, sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10)),
+			sim.AddHonestParticipants(
+				honestCount,
+				sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10),
+				uniformOneStoragePower),
 		)...)
 		require.NoError(t, err)
 		require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())

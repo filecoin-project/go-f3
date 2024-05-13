@@ -88,7 +88,10 @@ func TestRepeat(t *testing.T) {
 				repeatInParallel(t, asyncIterations, func(t *testing.T, repetition int) {
 					dist := test.repetitionSampler(repetition)
 					sm, err := sim.NewSimulation(asyncOptions(t, repetition,
-						sim.AddHonestParticipants(hc, sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10)),
+						sim.AddHonestParticipants(
+							hc,
+							sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10),
+							uniformOneStoragePower),
 						sim.WithAdversary(adversary.NewRepeatGenerator(oneStoragePower, dist)),
 					)...)
 					require.NoError(t, err)
