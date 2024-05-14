@@ -79,7 +79,7 @@ func (c ECChain) Extend(tip TipSet) ECChain {
 // Prefix(0) returns the base chain.
 // Invalid for a zero value.
 func (c ECChain) Prefix(to int) ECChain {
-	return c[:to+1]
+	return c[: to+1 : to+1]
 }
 
 // Compares two ECChains for equality.

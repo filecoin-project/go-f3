@@ -118,4 +118,12 @@ func TestECChain(t *testing.T) {
 		subject := gpbft.ECChain{zeroTipSet, []byte{1}}
 		require.Error(t, subject.Validate())
 	})
+
+	t.Run("truncate and extend don't mutate", func(t *testing.T) {
+		subject := gpbft.ECChain{[]byte{0}, []byte{1}}
+		dup := append(gpbft.ECChain{}, subject...)
+		after := subject.Prefix(0).Extend([]byte{2})
+		require.True(t, subject.Eq(dup))
+		require.True(t, after.Eq(gpbft.ECChain{[]byte{0}, []byte{2}}))
+	})
 }
