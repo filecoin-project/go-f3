@@ -79,4 +79,22 @@ func TestECChain(t *testing.T) {
 		subject := gpbft.ECChain{zeroTipSet, oneTipSet}
 		require.Error(t, subject.Validate())
 	})
+
+	t.Run("prefix and extend don't mutate", func(t *testing.T) {
+		subject := gpbft.ECChain{gpbft.TipSet{Epoch: 0, TipSet: []byte{0}}, gpbft.TipSet{Epoch: 1, TipSet: []byte{1}}}
+		dup := append(gpbft.ECChain{}, subject...)
+		after := subject.Prefix(0).Extend([]byte{2})
+		require.True(t, subject.Eq(dup))
+		require.True(t, after.Eq(gpbft.ECChain{gpbft.TipSet{Epoch: 0, TipSet: []byte{0}}, gpbft.TipSet{Epoch: 1, TipSet: []byte{2}}}))
+	})
+
+	t.Run("extending multiple times doesn't clobber", func(t *testing.T) {
+		// simulate over-allocation
+		initial := gpbft.ECChain{gpbft.TipSet{Epoch: 0, TipSet: []byte{0}}, gpbft.TipSet{}}[:1]
+
+		first := initial.Extend([]byte{1})
+		second := initial.Extend([]byte{2})
+		require.Equal(t, first[1], gpbft.TipSet{Epoch: 1, TipSet: []byte{1}})
+		require.Equal(t, second[1], gpbft.TipSet{Epoch: 1, TipSet: []byte{2}})
+	})
 }

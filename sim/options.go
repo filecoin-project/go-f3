@@ -40,7 +40,8 @@ type options struct {
 	// Duration of simEC epochs.
 	ecEpochDuration time.Duration
 	// Time to wait after EC epoch before starting next instance.
-	ecStabilisationDelay time.Duration
+	ecStabilisationDelay    time.Duration
+	globalStabilizationTime time.Duration
 	// If nil then FakeSigningBackend is used unless overridden by F3_TEST_USE_BLS
 	signingBacked      signing.Backend
 	gpbftOptions       []gpbft.Option
@@ -169,6 +170,13 @@ func WithECStabilisationDelay(d time.Duration) Option {
 func WithTraceLevel(i int) Option {
 	return func(o *options) error {
 		o.traceLevel = i
+		return nil
+	}
+}
+
+func WithGlobalStabilizationTime(d time.Duration) Option {
+	return func(o *options) error {
+		o.globalStabilizationTime = d
 		return nil
 	}
 }

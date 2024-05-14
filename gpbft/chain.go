@@ -132,6 +132,7 @@ func (c ECChain) BaseChain() ECChain {
 }
 
 func (c ECChain) Extend(tips ...TipSetKey) ECChain {
+	c = c[:len(c):len(c)]
 	offset := c.Head().Epoch + 1
 	for i, tip := range tips {
 		c = append(c, TipSet{
@@ -146,7 +147,7 @@ func (c ECChain) Extend(tips ...TipSetKey) ECChain {
 // Prefix(0) returns the base chain.
 // Invalid for a zero value.
 func (c ECChain) Prefix(to int) ECChain {
-	return c[:to+1]
+	return c[: to+1 : to+1]
 }
 
 // Compares two ECChains for equality.
