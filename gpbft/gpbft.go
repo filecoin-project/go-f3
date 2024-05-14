@@ -238,7 +238,7 @@ func (i *instance) Receive(msg *GMessage) error {
 }
 
 func (i *instance) ReceiveAlarm() error {
-	if err := i.tryCompletePhase(); err != nil {
+	if err := i.tryCurrentPhase(); err != nil {
 		return fmt.Errorf("failed completing protocol phase: %w", err)
 	}
 
@@ -274,8 +274,16 @@ func (i *instance) receiveOne(msg *GMessage) error {
 	if i.phase == TERMINATED_PHASE {
 		return nil // No-op
 	}
-	round := i.roundState(msg.Vote.Round)
+	// Ignore QUALITY messages after exiting the QUALITY phase.
+	// Ignore CONVERGE and PREPARE messages for prior rounds.
+	forPriorRound := msg.Vote.Round < i.round
+	if (msg.Vote.Step == QUALITY_PHASE && i.phase != QUALITY_PHASE) ||
+		(forPriorRound && msg.Vote.Step == CONVERGE_PHASE) ||
+		(forPriorRound && msg.Vote.Step == PREPARE_PHASE) {
+		return nil
+	}
 
+	round := i.roundState(msg.Vote.Round)
 	switch msg.Vote.Step {
 	case QUALITY_PHASE:
 		// Receive each prefix of the proposal independently.
@@ -306,17 +314,18 @@ func (i *instance) receiveOne(msg *GMessage) error {
 		i.log("unexpected message %v", msg)
 	}
 
-	// Try to complete the current phase.
 	// Every COMMIT phase stays open to new messages even after the protocol moves on to
 	// a new round. Late-arriving COMMITS can still (must) cause a local decision, *in that round*.
+	// Try to complete the COMMIT phase for the round specified by the message.
 	if msg.Vote.Step == COMMIT_PHASE && i.phase != DECIDE_PHASE {
 		return i.tryCommit(msg.Vote.Round)
 	}
-	return i.tryCompletePhase()
+	// Try to complete the current phase in the current round.
+	return i.tryCurrentPhase()
 }
 
 // Attempts to complete the current phase and round.
-func (i *instance) tryCompletePhase() error {
+func (i *instance) tryCurrentPhase() error {
 	i.log("try step %s", i.phase)
 	switch i.phase {
 	case QUALITY_PHASE:
@@ -360,8 +369,6 @@ func (i *instance) validateMessage(msg *GMessage) error {
 
 	// Check phase-specific constraints.
 	switch msg.Vote.Step {
-	case INITIAL_PHASE:
-		return xerrors.Errorf("invalid vote step: %v", INITIAL_PHASE)
 	case QUALITY_PHASE:
 		if msg.Vote.Round != 0 {
 			return xerrors.Errorf("unexpected round %d for quality phase", msg.Vote.Round)
@@ -389,7 +396,7 @@ func (i *instance) validateMessage(msg *GMessage) error {
 	case PREPARE_PHASE, COMMIT_PHASE:
 		// No additional checks for PREPARE and COMMIT.
 	default:
-		return xerrors.Errorf("unknown vote step: %d", msg.Vote.Step)
+		return xerrors.Errorf("invalid vote step: %d", msg.Vote.Step)
 	}
 
 	// Check vote signature.
