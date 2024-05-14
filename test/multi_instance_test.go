@@ -20,7 +20,7 @@ func TestMultiSingleton(t *testing.T) {
 	instance := sm.GetInstance(instanceCount)
 	require.NotNil(t, instance)
 	expected := instance.BaseChain
-	requireConsensusAtInstance(t, sm, instanceCount-1, expected.Head())
+	requireConsensusAtInstance(t, sm, instanceCount-1, *expected.Head())
 }
 
 func TestMultiSyncPair(t *testing.T) {
@@ -32,7 +32,7 @@ func TestMultiSyncPair(t *testing.T) {
 	instance := sm.GetInstance(instanceCount)
 	require.NotNil(t, instance)
 	expected := instance.BaseChain
-	requireConsensusAtInstance(t, sm, instanceCount-1, expected.Head())
+	requireConsensusAtInstance(t, sm, instanceCount-1, *expected.Head())
 }
 
 func TestMultiASyncPair(t *testing.T) {

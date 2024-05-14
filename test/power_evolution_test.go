@@ -68,7 +68,7 @@ func TestStoragePower_IncreaseMidSimulation(t *testing.T) {
 
 				// Assert that the chains agreed upon belong to group 1 before instance 4 and
 				// to group 2 after that.
-				base := baseChain.Head()
+				base := *baseChain.Head()
 				for i := uint64(0); i < instanceCount-1; i++ {
 					instance := sm.GetInstance(i + 1)
 					require.NotNil(t, instance, "instance %d", i)
@@ -90,7 +90,7 @@ func TestStoragePower_IncreaseMidSimulation(t *testing.T) {
 
 					// Assert the consensus is reached on the chain with most power.
 					requireConsensusAtInstance(t, sm, i, chainBackedByMostPower...)
-					base = instance.BaseChain.Head()
+					base = *instance.BaseChain.Head()
 				}
 			})
 		})
@@ -161,7 +161,7 @@ func TestStoragePower_DecreaseRevertsToBase(t *testing.T) {
 
 					// Assert that the head tipset of all decisions made by participants is the base
 					// of instance's base-chain.
-					requireConsensusAtInstance(t, sm, i, instance.BaseChain.Base())
+					requireConsensusAtInstance(t, sm, i, *instance.BaseChain.Base())
 				}
 			})
 		})

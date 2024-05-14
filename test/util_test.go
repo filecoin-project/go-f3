@@ -39,7 +39,7 @@ func requireConsensusAtInstance(t *testing.T, sm *sim.Simulation, instance uint6
 		require.NotNil(t, inst, "no such instance")
 		decision := inst.GetDecision(pid)
 		require.NotNil(t, decision, "no decision for participant %d in instance %d", pid, instance)
-		require.Contains(t, expectAnyOf, decision.Head(), "consensus not reached: participant %d decided %s in instance %d, expected any of %s",
+		require.Contains(t, expectAnyOf, *decision.Head(), "consensus not reached: participant %d decided %s in instance %d, expected any of %s",
 			pid, decision.Head(), instance, expectAnyOf)
 	}
 }
@@ -47,7 +47,7 @@ func requireConsensusAtInstance(t *testing.T, sm *sim.Simulation, instance uint6
 func generateECChain(t *testing.T, tsg *sim.TipSetGenerator) gpbft.ECChain {
 	t.Helper()
 	// TODO: add stochastic chain generation.
-	chain, err := gpbft.NewChain(tsg.Sample())
+	chain, err := gpbft.NewChain(gpbft.TipSet{Epoch: 0, TipSet: tsg.Sample()})
 	require.NoError(t, err)
 	return chain
 }

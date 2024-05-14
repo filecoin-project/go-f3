@@ -5,8 +5,30 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
+
+	cbg "github.com/whyrusleeping/cbor-gen"
+	"golang.org/x/crypto/blake2b"
 )
+
+// TipSetKey is a
+type TipSetKey = []byte
+
+type CID = []byte
+
+var cidPrefix = []byte{0x01, 0x71, 0xA0, 0xE4, 0x02, 0x20}
+
+// Hashes the given data and returns a CBOR + blake2b-256 CID.
+func MakeCid(data []byte) []byte {
+	// TODO: Consider just using go-cid? We implicitly depend on it through cbor-gen anyways.
+	digest := blake2b.Sum256(data)
+
+	out := make([]byte, 0, 38)
+	out = append(out, cidPrefix...)
+	out = append(out, digest[:]...)
+	return out
+}
 
 // Opaque type representing a tipset.
 // This is expected to be:
@@ -14,7 +36,45 @@ import (
 // - a commitment to the resulting power table,
 // - a commitment to additional derived values.
 // However, GossipPBFT doesn't need to know anything about that structure.
-type TipSet = []byte
+type TipSet struct {
+	Epoch       int64
+	TipSet      TipSetKey
+	PowerTable  CID
+	Commitments [32]byte
+}
+
+func (ts *TipSet) IsZero() bool {
+	return len(ts.TipSet) == 0
+}
+
+func (ts *TipSet) Equal(b *TipSet) bool {
+	return ts.Epoch == b.Epoch &&
+		bytes.Equal(ts.TipSet, b.TipSet) &&
+		bytes.Equal(ts.PowerTable, b.PowerTable) &&
+		ts.Commitments == b.Commitments
+}
+
+func (ts *TipSet) MarshalForSigning() []byte {
+	var buf bytes.Buffer
+	_ = cbg.WriteByteArray(&buf, ts.TipSet)
+	tsCid := MakeCid(buf.Bytes())
+	buf.Reset()
+	buf.Grow(len(tsCid) + len(ts.PowerTable) + 32 + 8)
+	// epoch || commitments || tipset || powertable
+	_ = binary.Write(&buf, binary.BigEndian, ts.Epoch)
+	_, _ = buf.Write(ts.Commitments[:])
+	_, _ = buf.Write(tsCid)
+	_, _ = buf.Write(ts.PowerTable)
+	return buf.Bytes()
+}
+
+func (ts *TipSet) String() string {
+	if ts == nil {
+		return "<nil>"
+	}
+
+	return fmt.Sprintf("%d@%s", ts.Epoch, hex.EncodeToString(ts.TipSet))
+}
 
 // A chain of tipsets comprising a base (the last finalised tipset from which the chain extends).
 // and (possibly empty) suffix.
@@ -45,8 +105,8 @@ func (c ECChain) IsZero() bool {
 }
 
 // Returns the base tipset.
-func (c ECChain) Base() TipSet {
-	return c[0]
+func (c ECChain) Base() *TipSet {
+	return &c[0]
 }
 
 // Returns the suffix of the chain after the base.
@@ -61,8 +121,8 @@ func (c ECChain) Suffix() []TipSet {
 // Returns the last tipset in the chain.
 // This could be the base tipset if there is no suffix.
 // This will panic on a zero value.
-func (c ECChain) Head() TipSet {
-	return c[len(c)-1]
+func (c ECChain) Head() *TipSet {
+	return &c[len(c)-1]
 }
 
 // Returns a new chain with the same base and no suffix.
@@ -71,8 +131,15 @@ func (c ECChain) BaseChain() ECChain {
 	return ECChain{c[0]}
 }
 
-func (c ECChain) Extend(tip ...TipSet) ECChain {
-	return append(c, tip...)
+func (c ECChain) Extend(tips ...TipSetKey) ECChain {
+	offset := c.Head().Epoch + 1
+	for i, tip := range tips {
+		c = append(c, TipSet{
+			Epoch:  offset + int64(i),
+			TipSet: tip,
+		})
+	}
+	return c
 }
 
 // Returns a chain with suffix (after the base) truncated to a maximum length.
@@ -88,9 +155,7 @@ func (c ECChain) Eq(other ECChain) bool {
 		return false
 	}
 	for i := range c {
-		if !bytes.Equal(c[i], other[i]) {
-			return false
-		}
+		c[i].Equal(&other[i])
 	}
 	return true
 }
@@ -101,16 +166,13 @@ func (c ECChain) SameBase(other ECChain) bool {
 	if c.IsZero() || other.IsZero() {
 		return false
 	}
-	return bytes.Equal(c.Base(), other.Base())
+	return c.Base().Equal(other.Base())
 }
 
 // Check whether a chain has a specific base tipset.
 // Always false for a zero value.
-func (c ECChain) HasBase(t TipSet) bool {
-	if c.IsZero() || len(t) == 0 {
-		return false
-	}
-	return bytes.Equal(c[0], t)
+func (c ECChain) HasBase(t *TipSet) bool {
+	return !t.IsZero() && !c.IsZero() && c.Base().Equal(t)
 }
 
 // Checks whether a chain has some prefix (including the base).
@@ -123,7 +185,7 @@ func (c ECChain) HasPrefix(other ECChain) bool {
 		return false
 	}
 	for i := range other {
-		if !bytes.Equal(c[i], other[i]) {
+		if !c[i].Equal(&other[i]) {
 			return false
 		}
 	}
@@ -131,13 +193,13 @@ func (c ECChain) HasPrefix(other ECChain) bool {
 }
 
 // Checks whether a chain has some tipset (including as its base).
-func (c ECChain) HasTipset(t TipSet) bool {
-	if len(t) == 0 {
+func (c ECChain) HasTipset(t *TipSet) bool {
+	if t.IsZero() {
 		// Chain can never contain zero-valued TipSet.
 		return false
 	}
-	for _, t2 := range c {
-		if bytes.Equal(t, t2) {
+	for i := range c {
+		if c[i].Equal(t) {
 			return true
 		}
 	}
@@ -147,7 +209,8 @@ func (c ECChain) HasTipset(t TipSet) bool {
 // Validates a chain value, returning an error if it finds any issues.
 // A chain is valid if it meets the following criteria:
 // 1) All contained tipsets are non-empty.
-// 2) The chain is not longer than CHAIN_MAX_LEN.
+// 2) All epochs are >= 0 and increasing.
+// 3) The chain is not longer than CHAIN_MAX_LEN.
 // An entirely zero-valued chain itself is deemed valid. See ECChain.IsZero.
 func (c ECChain) Validate() error {
 	if c.IsZero() {
@@ -156,10 +219,16 @@ func (c ECChain) Validate() error {
 	if len(c) > CHAIN_MAX_LEN {
 		return errors.New("chain too long")
 	}
-	for _, tipSet := range c {
-		if len(tipSet) == 0 {
+	var lastEpoch int64 = -1
+	for i := range c {
+		ts := &c[i]
+		if ts.IsZero() {
 			return errors.New("chain cannot contain zero-valued tip sets")
 		}
+		if ts.Epoch <= lastEpoch {
+			return errors.New("chain must have increasing epochs")
+		}
+		lastEpoch = ts.Epoch
 	}
 	return nil
 }
@@ -167,16 +236,19 @@ func (c ECChain) Validate() error {
 // Returns an identifier for the chain suitable for use as a map key.
 // This must completely determine the sequence of tipsets in the chain.
 func (c ECChain) Key() ChainKey {
-	var ln int
-	for _, t := range c {
-		ln += 4      // for length
-		ln += len(t) // for data
+	ln := len(c) * (8 + 32 + 4) // epoch + commitement + ts length
+	for i := range c {
+		ln += len(c[i].TipSet) + len(c[i].PowerTable)
 	}
 	var buf bytes.Buffer
 	buf.Grow(ln)
-	for _, t := range c {
-		_ = binary.Write(&buf, binary.BigEndian, uint32(len(t)))
-		buf.Write(t)
+	for i := range c {
+		ts := &c[i]
+		_ = binary.Write(&buf, binary.BigEndian, ts.Epoch)
+		_, _ = buf.Write(ts.Commitments[:])
+		_ = binary.Write(&buf, binary.BigEndian, uint32(len(ts.TipSet)))
+		buf.Write(ts.TipSet)
+		_, _ = buf.Write(ts.PowerTable)
 	}
 	return ChainKey(buf.String())
 }
@@ -184,8 +256,8 @@ func (c ECChain) Key() ChainKey {
 func (c ECChain) String() string {
 	var b strings.Builder
 	b.WriteString("[")
-	for i, t := range c {
-		b.WriteString(hex.EncodeToString(t))
+	for i := range c {
+		b.WriteString(c[i].String())
 		if i < len(c)-1 {
 			b.WriteString(", ")
 		}

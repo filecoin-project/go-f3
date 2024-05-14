@@ -22,7 +22,7 @@ var (
 
 func init() {
 	var err error
-	defaultBaseChain, err = gpbft.NewChain([]byte(("genesis")))
+	defaultBaseChain, err = gpbft.NewChain(gpbft.TipSet{Epoch: 0, TipSet: []byte("genesis")})
 	if err != nil {
 		panic("failed to instantiate default simulation base chain")
 	}

@@ -18,6 +18,188 @@ var _ = cid.Undef
 var _ = math.E
 var _ = sort.Sort
 
+var lengthBufTipSet = []byte{132}
+
+func (t *TipSet) MarshalCBOR(w io.Writer) error {
+	if t == nil {
+		_, err := w.Write(cbg.CborNull)
+		return err
+	}
+
+	cw := cbg.NewCborWriter(w)
+
+	if _, err := cw.Write(lengthBufTipSet); err != nil {
+		return err
+	}
+
+	// t.Epoch (int64) (int64)
+	if t.Epoch >= 0 {
+		if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.Epoch)); err != nil {
+			return err
+		}
+	} else {
+		if err := cw.WriteMajorTypeHeader(cbg.MajNegativeInt, uint64(-t.Epoch-1)); err != nil {
+			return err
+		}
+	}
+
+	// t.TipSet ([]uint8) (slice)
+	if len(t.TipSet) > 2097152 {
+		return xerrors.Errorf("Byte array in field t.TipSet was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.TipSet))); err != nil {
+		return err
+	}
+
+	if _, err := cw.Write(t.TipSet); err != nil {
+		return err
+	}
+
+	// t.PowerTable ([]uint8) (slice)
+	if len(t.PowerTable) > 2097152 {
+		return xerrors.Errorf("Byte array in field t.PowerTable was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.PowerTable))); err != nil {
+		return err
+	}
+
+	if _, err := cw.Write(t.PowerTable); err != nil {
+		return err
+	}
+
+	// t.Commitments ([32]uint8) (array)
+	if len(t.Commitments) > 2097152 {
+		return xerrors.Errorf("Byte array in field t.Commitments was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.Commitments))); err != nil {
+		return err
+	}
+
+	if _, err := cw.Write(t.Commitments[:]); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (t *TipSet) UnmarshalCBOR(r io.Reader) (err error) {
+	*t = TipSet{}
+
+	cr := cbg.NewCborReader(r)
+
+	maj, extra, err := cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err == io.EOF {
+			err = io.ErrUnexpectedEOF
+		}
+	}()
+
+	if maj != cbg.MajArray {
+		return fmt.Errorf("cbor input should be of type array")
+	}
+
+	if extra != 4 {
+		return fmt.Errorf("cbor input had wrong number of fields")
+	}
+
+	// t.Epoch (int64) (int64)
+	{
+		maj, extra, err := cr.ReadHeader()
+		if err != nil {
+			return err
+		}
+		var extraI int64
+		switch maj {
+		case cbg.MajUnsignedInt:
+			extraI = int64(extra)
+			if extraI < 0 {
+				return fmt.Errorf("int64 positive overflow")
+			}
+		case cbg.MajNegativeInt:
+			extraI = int64(extra)
+			if extraI < 0 {
+				return fmt.Errorf("int64 negative overflow")
+			}
+			extraI = -1 - extraI
+		default:
+			return fmt.Errorf("wrong type for int64 field: %d", maj)
+		}
+
+		t.Epoch = int64(extraI)
+	}
+	// t.TipSet ([]uint8) (slice)
+
+	maj, extra, err = cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+
+	if extra > 2097152 {
+		return fmt.Errorf("t.TipSet: byte array too large (%d)", extra)
+	}
+	if maj != cbg.MajByteString {
+		return fmt.Errorf("expected byte array")
+	}
+
+	if extra > 0 {
+		t.TipSet = make([]uint8, extra)
+	}
+
+	if _, err := io.ReadFull(cr, t.TipSet); err != nil {
+		return err
+	}
+
+	// t.PowerTable ([]uint8) (slice)
+
+	maj, extra, err = cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+
+	if extra > 2097152 {
+		return fmt.Errorf("t.PowerTable: byte array too large (%d)", extra)
+	}
+	if maj != cbg.MajByteString {
+		return fmt.Errorf("expected byte array")
+	}
+
+	if extra > 0 {
+		t.PowerTable = make([]uint8, extra)
+	}
+
+	if _, err := io.ReadFull(cr, t.PowerTable); err != nil {
+		return err
+	}
+
+	// t.Commitments ([32]uint8) (array)
+
+	maj, extra, err = cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+
+	if extra > 2097152 {
+		return fmt.Errorf("t.Commitments: byte array too large (%d)", extra)
+	}
+	if maj != cbg.MajByteString {
+		return fmt.Errorf("expected byte array")
+	}
+	if extra != 32 {
+		return fmt.Errorf("expected array to have 32 elements")
+	}
+
+	t.Commitments = [32]uint8{}
+	if _, err := io.ReadFull(cr, t.Commitments[:]); err != nil {
+		return err
+	}
+	return nil
+}
+
 var lengthBufGMessage = []byte{133}
 
 func (t *GMessage) MarshalCBOR(w io.Writer) error {
@@ -228,15 +410,7 @@ func (t *Payload) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 	for _, v := range t.Value {
-		if len(v) > 2097152 {
-			return xerrors.Errorf("Byte array in field v was too long")
-		}
-
-		if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(v))); err != nil {
-			return err
-		}
-
-		if _, err := cw.Write(v); err != nil {
+		if err := v.MarshalCBOR(cw); err != nil {
 			return err
 		}
 
@@ -324,7 +498,7 @@ func (t *Payload) UnmarshalCBOR(r io.Reader) (err error) {
 	}
 
 	if extra > 0 {
-		t.Value = make([][]uint8, extra)
+		t.Value = make([]TipSet, extra)
 	}
 
 	for i := 0; i < int(extra); i++ {
@@ -336,24 +510,12 @@ func (t *Payload) UnmarshalCBOR(r io.Reader) (err error) {
 			_ = extra
 			_ = err
 
-			maj, extra, err = cr.ReadHeader()
-			if err != nil {
-				return err
-			}
+			{
 
-			if extra > 2097152 {
-				return fmt.Errorf("t.Value[i]: byte array too large (%d)", extra)
-			}
-			if maj != cbg.MajByteString {
-				return fmt.Errorf("expected byte array")
-			}
+				if err := t.Value[i].UnmarshalCBOR(cr); err != nil {
+					return xerrors.Errorf("unmarshaling t.Value[i]: %w", err)
+				}
 
-			if extra > 0 {
-				t.Value[i] = make([]uint8, extra)
-			}
-
-			if _, err := io.ReadFull(cr, t.Value[i]); err != nil {
-				return err
 			}
 
 		}
