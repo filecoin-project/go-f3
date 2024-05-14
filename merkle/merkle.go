@@ -1,6 +1,7 @@
 package merkle
 
 import (
+	"io"
 	"math"
 	"math/bits"
 
@@ -67,7 +68,9 @@ func hash(values ...[]byte) (out Digest) {
 	for _, value := range values {
 		_, _ = hash.Write(value)
 	}
-	copy(out[:], hash.Sum(out[:0]))
+	// Call `Read` instead of `Sum` to avoid some copying and allocations. Idea borrowed from
+	// go-ethereum.
+	_, _ = hash.(io.Reader).Read(out[:])
 	return out
 }
 
