@@ -41,3 +41,26 @@ func TestPayloadMarshalForSigning(t *testing.T) {
 
 	assert.Equal(t, expected, encoded)
 }
+
+func BenchmarkPayloadMarshalForSigning(b *testing.B) {
+	nn := gpbft.NetworkName("filecoin")
+	maxChain := make([]gpbft.TipSet, gpbft.CHAIN_MAX_LEN)
+	for i := range maxChain {
+		ts := make([]byte, 38*5)
+		binary.BigEndian.PutUint64(ts, uint64(i))
+		maxChain[i] = gpbft.TipSet{
+			Epoch:      int64(i),
+			TipSet:     ts,
+			PowerTable: make([]byte, 38),
+		}
+	}
+	payload := &gpbft.Payload{
+		Instance: 1,
+		Round:    2,
+		Step:     3,
+		Value:    maxChain,
+	}
+	for i := 0; i < b.N; i++ {
+		payload.MarshalForSigning(nn)
+	}
+}
