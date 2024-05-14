@@ -30,13 +30,8 @@ func main() {
 		seed := *latencySeed + int64(i)
 		fmt.Printf("Iteration %d: seed=%d, mean=%f\n", i, seed, *latencyMean)
 
-		latencyModel, err := latency.NewLogNormal(*latencySeed, time.Duration(*latencyMean*float64(time.Second)))
-		if err != nil {
-			log.Panicf("failed to instantiate log normal latency model: %c\n", err)
-		}
-
 		options := []sim.Option{
-			sim.WithLatencyModel(latencyModel),
+			sim.WithLatencyModel(latency.NewLogNormal(*latencySeed, time.Duration(*latencyMean*float64(time.Second)))),
 			sim.WithECEpochDuration(30 * time.Second),
 			sim.WithECStabilisationDelay(0),
 			sim.AddHonestParticipants(
