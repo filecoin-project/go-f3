@@ -2,7 +2,6 @@ package sim
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -24,15 +23,17 @@ type Network struct {
 	// Participant IDs for deterministic iteration
 	participantIDs []gpbft.ActorID
 	// Messages received by the network but not yet delivered to all participants.
-	queue   messageQueue
+	queue   *messageQueue
 	latency latency.Model
 	// Timestamp of last event.
 	clock time.Time
-	// Whether global stabilisation time has passed, so adversary can't control network.
+	// globalStabilisationElapsed signals whether global stabilisation time has
+	// passed, beyond which messages are guaranteed to be delivered.
 	globalStabilisationElapsed bool
 	// Trace level.
 	traceLevel  int
 	networkName gpbft.NetworkName
+	gst         time.Time
 }
 
 func newNetwork(opts *options) *Network {
@@ -41,7 +42,15 @@ func newNetwork(opts *options) *Network {
 		latency:      opts.latencyModel,
 		traceLevel:   opts.traceLevel,
 		networkName:  opts.networkName,
+		gst:          time.Time{}.Add(opts.globalStabilizationTime),
+		queue:        newMessagePriorityQueue(),
 	}
+}
+
+// hasGlobalStabilizationTimeElapsed checks whether global stabilisation time has
+// passed, beyond which messages are guaranteed to be delivered.
+func (n *Network) hasGlobalStabilizationTimeElapsed() bool {
+	return n.Time().After(n.gst)
 }
 
 func (n *Network) AddParticipant(p gpbft.Receiver) {
@@ -60,13 +69,14 @@ func (n *Network) Broadcast(msg *gpbft.GMessage) {
 	n.log(TraceSent, "P%d ↗ %v", msg.Sender, msg)
 	for _, dest := range n.participantIDs {
 		if dest != msg.Sender {
-			latencySample := n.latency.Sample(n.Time(), msg.Sender, dest)
+			now := n.Time()
+			delay := n.latency.Sample(now, msg.Sender, dest)
 			n.queue.Insert(
-				messageInFlight{
+				&messageInFlight{
 					source:    msg.Sender,
 					dest:      dest,
 					payload:   *msg,
-					deliverAt: n.clock.Add(latencySample),
+					deliverAt: now.Add(delay),
 				})
 		}
 	}
@@ -77,16 +87,18 @@ func (n *Network) Time() time.Time {
 }
 
 func (n *Network) SetAlarm(sender gpbft.ActorID, at time.Time) {
-	// Remove any existing alarm for the same sender.
-	n.queue.RemoveWhere(func(m messageInFlight) bool {
-		return m.dest == sender && m.payload == "ALARM"
-	})
-	n.queue.Insert(messageInFlight{
-		source:    sender,
-		dest:      sender,
-		payload:   "ALARM",
-		deliverAt: at,
-	})
+	// There must be at most one alarm per participant at any given point in time.
+	// Update any existing alarm or insert if no such alarm exists.
+	n.queue.UpsertFirstWhere(
+		func(m *messageInFlight) bool {
+			return m.dest == sender && m.payload == "ALARM"
+		}, &messageInFlight{
+			source:    sender,
+			dest:      sender,
+			payload:   "ALARM",
+			deliverAt: at,
+		},
+	)
 }
 
 func (n *Network) Log(format string, args ...interface{}) {
@@ -98,7 +110,7 @@ func (n *Network) BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.GMessage)
 	for _, k := range n.participantIDs {
 		if k != sender {
 			n.queue.Insert(
-				messageInFlight{
+				&messageInFlight{
 					source:    sender,
 					dest:      k,
 					payload:   msg,
@@ -108,49 +120,49 @@ func (n *Network) BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.GMessage)
 	}
 }
 
-// Returns whether there are any more messages to process.
+// Tick disseminates one message among participants and returns whether there are
+// any more messages to process.
 func (n *Network) Tick(adv *adversary.Adversary) (bool, error) {
-	// Find first message the adversary will allow.
-	i := 0
-	if adv != nil && !n.globalStabilisationElapsed {
-		for ; i < len(n.queue); i++ {
-			msg := n.queue[i]
-			gmsg, ok := msg.payload.(gpbft.GMessage)
-			if !ok || adv.AllowMessage(msg.source, msg.dest, gmsg) {
-				break
+	msg := n.queue.Remove()
+	n.clock = msg.deliverAt
+
+	receiver, found := n.participants[msg.dest]
+	if !found {
+		return false, fmt.Errorf("message destined to unknown participant ID: %d", msg.dest)
+	}
+	switch payload := msg.payload.(type) {
+	case string:
+		if payload != "ALARM" {
+			return false, fmt.Errorf("unknwon string message payload: %s", payload)
+		}
+		n.log(TraceRecvd, "P%d %s", msg.source, payload)
+		if err := receiver.ReceiveAlarm(); err != nil {
+			return false, fmt.Errorf("failed to deliver alarm from %d to %d: %w", msg.source, msg.dest, err)
+		}
+	case gpbft.GMessage:
+		// If GST has not elapsed, check if adversary allows the propagation of message.
+		if adv != nil && !n.globalStabilisationElapsed {
+			if n.hasGlobalStabilizationTimeElapsed() {
+				n.Log("GST elapsed")
+				n.globalStabilisationElapsed = true
+			} else if !adv.AllowMessage(msg.source, msg.dest, payload) {
+				// GST has not passed and adversary blocks the delivery of message; proceed to
+				// next tick.
+				return n.queue.Len() > 0, nil
 			}
 		}
-		// If adversary blocks everything, assume GST has passed.
-		if i == len(n.queue) {
-			n.Log("GST elapsed")
-			n.globalStabilisationElapsed = true
-			i = 0
-		}
-	}
-
-	msg := n.queue.Remove(i)
-	if msg.deliverAt.After(n.clock) {
-		n.clock = msg.deliverAt
-	}
-	payloadStr, ok := msg.payload.(string)
-	receiver := n.participants[msg.dest]
-	if ok && strings.HasPrefix(payloadStr, "ALARM") {
-		n.log(TraceRecvd, "P%d %s", msg.source, payloadStr)
-		if err := receiver.ReceiveAlarm(); err != nil {
-			return false, fmt.Errorf("failed receiving alarm: %w", err)
-		}
-	} else {
-		gmsg := msg.payload.(gpbft.GMessage)
-		validated, err := receiver.ValidateMessage(&gmsg)
+		validated, err := receiver.ValidateMessage(&payload)
 		if err != nil {
-			return false, fmt.Errorf("invalid message: %w", err)
+			return false, fmt.Errorf("invalid message from %d to %d: %w", msg.source, msg.dest, err)
 		}
 		n.log(TraceRecvd, "P%d ← P%d: %v", msg.dest, msg.source, msg.payload)
-		if _, err := receiver.ReceiveMessage(&gmsg, validated); err != nil {
-			return false, fmt.Errorf("error receiving message: %w", err)
+		if _, err := receiver.ReceiveMessage(&payload, validated); err != nil {
+			return false, fmt.Errorf("failed to deliver message from %d to %d: %w", msg.source, msg.dest, err)
 		}
+	default:
+		return false, fmt.Errorf("unknown message payload: %v", payload)
 	}
-	return len(n.queue) > 0, nil
+	return n.queue.Len() > 0, nil
 }
 
 func (n *Network) log(level int, format string, args ...interface{}) {
