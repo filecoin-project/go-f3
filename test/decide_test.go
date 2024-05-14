@@ -10,19 +10,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestImmediateDecide(t *testing.T) {
-	tsg := sim.NewTipSetGenerator(984615)
+func TestImmediateDecideAdversary(t *testing.T) {
+	immediateDecideAdversaryTest(t, 98562314)
+}
+
+func FuzzImmediateDecideAdversary(f *testing.F) {
+	f.Fuzz(immediateDecideAdversaryTest)
+}
+
+func immediateDecideAdversaryTest(t *testing.T, seed int) {
+	tsg := sim.NewTipSetGenerator(uint64(seed))
 	baseChain := generateECChain(t, tsg)
 	adversaryValue := baseChain.Extend(tsg.Sample())
-	sm, err := sim.NewSimulation(asyncOptions(t, 1413,
-		sim.AddHonestParticipants(
-			1,
-			sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10),
-			uniformOneStoragePower),
-		sim.WithBaseChain(&baseChain),
-		// Add the adversary to the simulation with 3/4 of total power.
-		sim.WithAdversary(adversary.NewImmediateDecideGenerator(adversaryValue, gpbft.NewStoragePower(3))),
-	)...)
+	sm, err := sim.NewSimulation(
+		asyncOptions(seed*23,
+			sim.AddHonestParticipants(
+				1,
+				sim.NewUniformECChainGenerator(uint64(seed*29), 1, 10),
+				uniformOneStoragePower),
+			sim.WithBaseChain(&baseChain),
+			// Add the adversary to the simulation with 3/4 of total power.
+			sim.WithAdversary(adversary.NewImmediateDecideGenerator(adversaryValue, gpbft.NewStoragePower(3))),
+		)...)
 	require.NoError(t, err)
 
 	err = sm.Run(1, maxRounds)

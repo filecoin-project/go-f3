@@ -8,19 +8,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAbsent(t *testing.T) {
-	t.Parallel()
+func TestAbsentAdversary(t *testing.T) {
+	absentAdversaryTest(t, 98465230)
+}
 
-	repeatInParallel(t, 1, func(t *testing.T, repetition int) {
-		// Total network size of 3 + 1, where the adversary has 1/4 of power.
-		sm, err := sim.NewSimulation(asyncOptions(t, repetition,
+func FuzzAbsentAdversary(f *testing.F) {
+	f.Fuzz(absentAdversaryTest)
+}
+
+func absentAdversaryTest(t *testing.T, latencySeed int) {
+	sm, err := sim.NewSimulation(
+		asyncOptions(latencySeed,
 			sim.AddHonestParticipants(
 				3,
 				sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10),
 				uniformOneStoragePower),
 			sim.WithAdversary(adversary.NewAbsentGenerator(oneStoragePower)),
 		)...)
-		require.NoError(t, err)
-		require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
-	})
+	require.NoError(t, err)
+	require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 }

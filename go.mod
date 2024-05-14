@@ -14,7 +14,6 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/whyrusleeping/cbor-gen v0.1.0
 	go.uber.org/multierr v1.11.0
-	golang.org/x/sync v0.3.0
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028
 )
 

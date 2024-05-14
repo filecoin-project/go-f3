@@ -1,13 +1,11 @@
 package test
 
 import (
-	"testing"
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/filecoin-project/go-f3/sim/latency"
-	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -16,7 +14,6 @@ const (
 
 	latencyAsync         = 100 * time.Millisecond
 	maxRounds            = 10
-	asyncIterations      = 5000
 	EcEpochDuration      = 30 * time.Second
 	EcStabilisationDelay = 3 * time.Second
 )
@@ -44,11 +41,9 @@ func syncOptions(o ...sim.Option) []sim.Option {
 	)
 }
 
-func asyncOptions(t *testing.T, latencySeed int, o ...sim.Option) []sim.Option {
-	lm, err := latency.NewLogNormal(int64(latencySeed), latencyAsync)
-	require.NoError(t, err)
+func asyncOptions(latencySeed int, o ...sim.Option) []sim.Option {
 	return append(o,
-		sim.WithLatencyModel(lm),
+		sim.WithLatencyModel(latency.NewLogNormal(int64(latencySeed), latencyAsync)),
 		sim.WithECEpochDuration(EcEpochDuration),
 		sim.WitECStabilisationDelay(EcStabilisationDelay),
 		sim.WithGpbftOptions(testGpbftOptions...),
