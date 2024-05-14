@@ -145,9 +145,11 @@ func (p *Participant) ReceiveAlarm() (err error) {
 
 func (p *Participant) beginInstance() error {
 	chain, power, beacon := p.host.GetCanonicalChain()
+	// Limit length of the chain to be proposed.
 	if chain.IsZero() {
 		return errors.New("canonical chain cannot be zero-valued")
 	}
+	chain = chain.Prefix(CHAIN_MAX_LEN - 1)
 	if err := chain.Validate(); err != nil {
 		return fmt.Errorf("invalid canonical chain: %w", err)
 	}
