@@ -17,6 +17,7 @@ func FuzzAbsentAdversary(f *testing.F) {
 }
 
 func absentAdversaryTest(t *testing.T, latencySeed int) {
+	t.Parallel()
 	sm, err := sim.NewSimulation(
 		asyncOptions(latencySeed,
 			sim.AddHonestParticipants(

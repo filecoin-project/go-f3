@@ -94,6 +94,7 @@ func FuzzMultiAsyncAgreement(f *testing.F) {
 }
 
 func multiAgreementTest(t *testing.T, seed int, honestCount int, opts ...sim.Option) {
+	t.Parallel()
 	sm, err := sim.NewSimulation(append(opts,
 		sim.AddHonestParticipants(
 			honestCount,

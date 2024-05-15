@@ -89,6 +89,7 @@ func TestRepeatAdversary(t *testing.T) {
 
 func FuzzRepeatAdversary(f *testing.F) {
 	f.Fuzz(func(t *testing.T, seed int) {
+		t.Parallel()
 		for _, hc := range repeatAdversaryTestHonestCounts {
 			repeatAdversaryTest(t, seed, hc, maxRounds, repeatOnce)
 			repeatAdversaryTest(t, seed, hc, maxRounds, repeatZipF)

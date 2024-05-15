@@ -140,6 +140,7 @@ func FuzzHonest_RequireStrongQuorumToProgress(f *testing.F) {
 }
 
 func requireStrongQuorumToProgressTest(t *testing.T, seed int) {
+	t.Parallel()
 	tsg := sim.NewTipSetGenerator(uint64(seed * 3))
 	baseChain := generateECChain(t, tsg)
 	oneChain := baseChain.Extend(tsg.Sample())

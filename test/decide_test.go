@@ -19,6 +19,7 @@ func FuzzImmediateDecideAdversary(f *testing.F) {
 }
 
 func immediateDecideAdversaryTest(t *testing.T, seed int) {
+	t.Parallel()
 	tsg := sim.NewTipSetGenerator(uint64(seed))
 	baseChain := generateECChain(t, tsg)
 	adversaryValue := baseChain.Extend(tsg.Sample())
