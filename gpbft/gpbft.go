@@ -405,7 +405,7 @@ func (i *instance) validateMessage(msg *GMessage) error {
 	}
 
 	// Check vote signature.
-	sigPayload := msg.Vote.MarshalForSigning(i.participant.host.NetworkName())
+	sigPayload := i.participant.host.MarshalPayloadForSigning(&msg.Vote)
 	if err := i.participant.host.Verify(senderPubKey, sigPayload, msg.Signature); err != nil {
 		return xerrors.Errorf("invalid signature on %v, %v", msg, err)
 	}
@@ -490,7 +490,7 @@ func (i *instance) validateMessage(msg *GMessage) error {
 			return fmt.Errorf("message %v has justification with insufficient power: %v", msg, justificationPower)
 		}
 
-		payload := msg.Justification.Vote.MarshalForSigning(i.participant.host.NetworkName())
+		payload := i.participant.host.MarshalPayloadForSigning(&msg.Justification.Vote)
 		if err := i.participant.host.VerifyAggregate(payload, msg.Justification.Signature, signers); err != nil {
 			return xerrors.Errorf("verification of the aggregate failed: %+v: %w", msg.Justification, err)
 		}
@@ -800,7 +800,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 		Step:     step,
 		Value:    value,
 	}
-	sp := p.MarshalForSigning(i.participant.host.NetworkName())
+	sp := i.participant.host.MarshalPayloadForSigning(&p)
 
 	sig, err := i.sign(sp)
 	if err != nil {

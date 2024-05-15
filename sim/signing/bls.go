@@ -46,3 +46,7 @@ func (b *BLSBackend) GenerateKey() (gpbft.PubKey, any) {
 	b.signersByPubKey[string(pubKeyB)] = blssig.SignerWithKeyOnG1(pubKeyB, priv)
 	return pubKeyB, priv
 }
+
+func (b *BLSBackend) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Payload) []byte {
+	return p.MarshalForSigning(nn)
+}

@@ -84,12 +84,13 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	// Prepare the test host.
 	pt.host.On("GetCanonicalChain").Return(pt.canonicalChain, *pt.powerTable, pt.beacon)
 	pt.host.On("Time").Return(pt.time)
-	pt.host.On("NetworkName").Return(pt.networkName)
+	pt.host.On("NetworkName").Return(pt.networkName).Maybe()
+	pt.host.On("MarshalPayloadForSigning", mock.AnythingOfType("*gpbft.Payload")).
+		Return([]byte(gpbft.DOMAIN_SEPARATION_TAG + ":" + pt.networkName))
 
 	// Expect calls to get the host state prior to beginning of an instance.
 	pt.host.EXPECT().GetCanonicalChain()
 	pt.host.EXPECT().Time()
-	pt.host.EXPECT().NetworkName()
 
 	// Expect alarm is set to 2X of configured delta.
 	pt.host.EXPECT().SetAlarm(pt.time.Add(2 * pt.delta))
@@ -135,7 +136,8 @@ func (pt *participantTestSubject) assertHostExpectations() bool {
 }
 
 func (pt *participantTestSubject) mockValidSignature(target gpbft.PubKey, sig []byte) *mock.Call {
-	return pt.host.On("Verify", target, pt.matchMessageSigningPayload(), sig).
+	return pt.host.
+		On("Verify", target, pt.matchMessageSigningPayload(), sig).
 		Return(nil)
 }
 

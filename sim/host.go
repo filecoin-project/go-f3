@@ -75,6 +75,10 @@ func (v *simHost) StoragePower() *gpbft.StoragePower {
 	return v.spg(v.instance, v.id)
 }
 
+func (v *simHost) MarshalPayloadForSigning(p *gpbft.Payload) []byte {
+	return v.sim.signingBacked.MarshalPayloadForSigning(v.NetworkName(), p)
+}
+
 func (v *simHost) PublicKey() gpbft.PubKey {
 	return v.pubkey
 }

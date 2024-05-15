@@ -92,4 +92,6 @@ type Host interface {
 	Signer
 	Verifier
 	DecisionReceiver
+
+	MarshalPayloadForSigning(*Payload) []byte
 }
