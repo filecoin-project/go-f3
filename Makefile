@@ -6,7 +6,7 @@ test:
 .PHONY: test
 
 test/cover: test
-test/cover: GOTEST_ARGS=-coverprofile=coverage.txt -covermode=atomic
+test/cover: GOTEST_ARGS=-coverprofile=coverage.txt -covermode=atomic -coverpkg=./...
 .PHONY: test/cover
 
 
