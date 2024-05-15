@@ -12,16 +12,22 @@ import (
 	"golang.org/x/crypto/blake2b"
 )
 
-// TipSetKey is a
+// TipSetKey is the canonically ordered concatenation of the block CIDs in a tipset.
 type TipSetKey = []byte
 
 type CID = []byte
 
+// This the CID "prefix" of a v1-DagCBOR-Blake2b256-32 CID. That is:
+//
+// - 0x01     CIDv1
+// - 0x71     DagCBOR
+// - 0xA0E402 LEB128 encoded Blake2b256 multicodec
+// - 0x20     32 (length of the digest)
 var cidPrefix = []byte{0x01, 0x71, 0xA0, 0xE4, 0x02, 0x20}
 
 // Hashes the given data and returns a CBOR + blake2b-256 CID.
 func MakeCid(data []byte) []byte {
-	// TODO: Consider just using go-cid? We implicitly depend on it through cbor-gen anyways.
+	// We construct this CID manually to avoid depending on go-cid (it's also a _bit_ faster).
 	digest := blake2b.Sum256(data)
 
 	out := make([]byte, 0, 38)
@@ -30,33 +36,32 @@ func MakeCid(data []byte) []byte {
 	return out
 }
 
-// Opaque type representing a tipset.
-// This is expected to be:
-// - a canonical sequence of CIDs of block headers identifying a tipset,
-// - a commitment to the resulting power table,
-// - a commitment to additional derived values.
-// However, GossipPBFT doesn't need to know anything about that structure.
+// TipSet represents a single EC tipset.
 type TipSet struct {
-	Epoch       int64
-	TipSet      TipSetKey
-	PowerTable  CID
+	// The EC epoch (strictly increasing).
+	Epoch int64
+	// The tipset's key (canonically ordered concatenated block-header CIDs).
+	Key TipSetKey
+	// Blake2b256-32 CID of the CBOR-encoded power table.
+	PowerTable CID // []PowerEntry
+	// Keccak256 root hash of the commitments merkle tree.
 	Commitments [32]byte
 }
 
 func (ts *TipSet) IsZero() bool {
-	return len(ts.TipSet) == 0
+	return len(ts.Key) == 0
 }
 
 func (ts *TipSet) Equal(b *TipSet) bool {
 	return ts.Epoch == b.Epoch &&
-		bytes.Equal(ts.TipSet, b.TipSet) &&
+		bytes.Equal(ts.Key, b.Key) &&
 		bytes.Equal(ts.PowerTable, b.PowerTable) &&
 		ts.Commitments == b.Commitments
 }
 
 func (ts *TipSet) MarshalForSigning() []byte {
 	var buf bytes.Buffer
-	_ = cbg.WriteByteArray(&buf, ts.TipSet)
+	_ = cbg.WriteByteArray(&buf, ts.Key)
 	tsCid := MakeCid(buf.Bytes())
 	buf.Reset()
 	buf.Grow(len(tsCid) + len(ts.PowerTable) + 32 + 8)
@@ -73,7 +78,7 @@ func (ts *TipSet) String() string {
 		return "<nil>"
 	}
 
-	return fmt.Sprintf("%d@%s", ts.Epoch, hex.EncodeToString(ts.TipSet))
+	return fmt.Sprintf("%d@%s", ts.Epoch, hex.EncodeToString(ts.Key))
 }
 
 // A chain of tipsets comprising a base (the last finalised tipset from which the chain extends).
@@ -136,8 +141,8 @@ func (c ECChain) Extend(tips ...TipSetKey) ECChain {
 	offset := c.Head().Epoch + 1
 	for i, tip := range tips {
 		c = append(c, TipSet{
-			Epoch:  offset + int64(i),
-			TipSet: tip,
+			Epoch: offset + int64(i),
+			Key:   tip,
 		})
 	}
 	return c
@@ -239,7 +244,7 @@ func (c ECChain) Validate() error {
 func (c ECChain) Key() ChainKey {
 	ln := len(c) * (8 + 32 + 4) // epoch + commitement + ts length
 	for i := range c {
-		ln += len(c[i].TipSet) + len(c[i].PowerTable)
+		ln += len(c[i].Key) + len(c[i].PowerTable)
 	}
 	var buf bytes.Buffer
 	buf.Grow(ln)
@@ -247,8 +252,8 @@ func (c ECChain) Key() ChainKey {
 		ts := &c[i]
 		_ = binary.Write(&buf, binary.BigEndian, ts.Epoch)
 		_, _ = buf.Write(ts.Commitments[:])
-		_ = binary.Write(&buf, binary.BigEndian, uint32(len(ts.TipSet)))
-		buf.Write(ts.TipSet)
+		_ = binary.Write(&buf, binary.BigEndian, uint32(len(ts.Key)))
+		buf.Write(ts.Key)
 		_, _ = buf.Write(ts.PowerTable)
 	}
 	return ChainKey(buf.String())

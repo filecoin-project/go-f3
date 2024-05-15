@@ -11,7 +11,7 @@ func TestECChain(t *testing.T) {
 	t.Parallel()
 
 	zeroTipSet := gpbft.TipSet{}
-	oneTipSet := gpbft.TipSet{Epoch: 0, TipSet: []byte{1}}
+	oneTipSet := gpbft.TipSet{Epoch: 0, Key: []byte{1}}
 	t.Run("zero-value is zero", func(t *testing.T) {
 		var subject gpbft.ECChain
 		require.True(t, subject.IsZero())
@@ -33,7 +33,7 @@ func TestECChain(t *testing.T) {
 		require.Nil(t, subject)
 	})
 	t.Run("extended chain is as expected", func(t *testing.T) {
-		wantBase := gpbft.TipSet{Epoch: 0, TipSet: []byte("fish")}
+		wantBase := gpbft.TipSet{Epoch: 0, Key: []byte("fish")}
 		subject, err := gpbft.NewChain(wantBase)
 		require.NoError(t, err)
 		require.Len(t, subject, 1)
@@ -41,8 +41,8 @@ func TestECChain(t *testing.T) {
 		require.Equal(t, &wantBase, subject.Head())
 		require.NoError(t, subject.Validate())
 
-		wantNext := gpbft.TipSet{Epoch: 1, TipSet: []byte("lobster")}
-		subjectExtended := subject.Extend(wantNext.TipSet)
+		wantNext := gpbft.TipSet{Epoch: 1, Key: []byte("lobster")}
+		subjectExtended := subject.Extend(wantNext.Key)
 		require.Len(t, subjectExtended, 2)
 		require.NoError(t, subjectExtended.Validate())
 		require.Equal(t, &wantBase, subjectExtended.Base())
@@ -53,7 +53,7 @@ func TestECChain(t *testing.T) {
 		require.False(t, subject.HasPrefix(subjectExtended))
 		require.True(t, subjectExtended.HasPrefix(subject))
 
-		require.False(t, subject.Extend(wantBase.TipSet).HasPrefix(subjectExtended.Extend(wantNext.TipSet)))
+		require.False(t, subject.Extend(wantBase.Key).HasPrefix(subjectExtended.Extend(wantNext.Key)))
 	})
 	t.Run("SameBase is false when either chain is zero", func(t *testing.T) {
 		var zeroChain gpbft.ECChain
@@ -81,20 +81,20 @@ func TestECChain(t *testing.T) {
 	})
 
 	t.Run("prefix and extend don't mutate", func(t *testing.T) {
-		subject := gpbft.ECChain{gpbft.TipSet{Epoch: 0, TipSet: []byte{0}}, gpbft.TipSet{Epoch: 1, TipSet: []byte{1}}}
+		subject := gpbft.ECChain{gpbft.TipSet{Epoch: 0, Key: []byte{0}}, gpbft.TipSet{Epoch: 1, Key: []byte{1}}}
 		dup := append(gpbft.ECChain{}, subject...)
 		after := subject.Prefix(0).Extend([]byte{2})
 		require.True(t, subject.Eq(dup))
-		require.True(t, after.Eq(gpbft.ECChain{gpbft.TipSet{Epoch: 0, TipSet: []byte{0}}, gpbft.TipSet{Epoch: 1, TipSet: []byte{2}}}))
+		require.True(t, after.Eq(gpbft.ECChain{gpbft.TipSet{Epoch: 0, Key: []byte{0}}, gpbft.TipSet{Epoch: 1, Key: []byte{2}}}))
 	})
 
 	t.Run("extending multiple times doesn't clobber", func(t *testing.T) {
 		// simulate over-allocation
-		initial := gpbft.ECChain{gpbft.TipSet{Epoch: 0, TipSet: []byte{0}}, gpbft.TipSet{}}[:1]
+		initial := gpbft.ECChain{gpbft.TipSet{Epoch: 0, Key: []byte{0}}, gpbft.TipSet{}}[:1]
 
 		first := initial.Extend([]byte{1})
 		second := initial.Extend([]byte{2})
-		require.Equal(t, first[1], gpbft.TipSet{Epoch: 1, TipSet: []byte{1}})
-		require.Equal(t, second[1], gpbft.TipSet{Epoch: 1, TipSet: []byte{2}})
+		require.Equal(t, first[1], gpbft.TipSet{Epoch: 1, Key: []byte{1}})
+		require.Equal(t, second[1], gpbft.TipSet{Epoch: 1, Key: []byte{2}})
 	})
 }

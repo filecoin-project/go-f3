@@ -39,7 +39,7 @@ type participantTestSubject struct {
 
 func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *participantTestSubject {
 	// Generate some canonical chain.
-	canonicalChain, err := gpbft.NewChain(gpbft.TipSet{Epoch: 0, TipSet: []byte("genesis")})
+	canonicalChain, err := gpbft.NewChain(gpbft.TipSet{Epoch: 0, Key: []byte("genesis")})
 	require.NoError(t, err)
 
 	const (
@@ -404,7 +404,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance: initialInstanceNumber,
-						Value:    gpbft.ECChain{gpbft.TipSet{Epoch: 0, TipSet: []byte("fish")}},
+						Value:    gpbft.ECChain{gpbft.TipSet{Epoch: 0, Key: []byte("fish")}},
 					},
 				}
 			},

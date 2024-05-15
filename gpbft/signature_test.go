@@ -50,7 +50,7 @@ func BenchmarkPayloadMarshalForSigning(b *testing.B) {
 		binary.BigEndian.PutUint64(ts, uint64(i))
 		maxChain[i] = gpbft.TipSet{
 			Epoch:      int64(i),
-			TipSet:     ts,
+			Key:        ts,
 			PowerTable: make([]byte, 38),
 		}
 	}
