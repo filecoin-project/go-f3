@@ -152,7 +152,11 @@ func (c ECChain) Extend(tips ...TipSetKey) ECChain {
 // Prefix(0) returns the base chain.
 // Invalid for a zero value.
 func (c ECChain) Prefix(to int) ECChain {
-	return c[: to+1 : to+1]
+	if c.IsZero() {
+		panic("can't get prefix from zero-valued chain")
+	}
+	length := min(to+1, len(c))
+	return c[:length : length]
 }
 
 // Compares two ECChains for equality.

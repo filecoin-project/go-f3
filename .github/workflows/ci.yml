@@ -42,7 +42,15 @@ jobs:
           # Override test repetition parallelism, since the default runner seem to have a single core.
           # This shaves ~30 seconds off the CI test duration. 
           F3_TEST_REPETITION_PARALLELISM: 2
-        run: make test
+        run: make test/cover
+      - name: Upload coverage to Codecov
+        # Commit SHA corresponds to version v4.4.0
+        # See: https://github.com/codecov/codecov-action/releases/tag/v4.4.0
+        uses: codecov/codecov-action@6d798873df2b1b8e5846dba6fb86631229fbcb17
+        with:
+          files: coverage.txt
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
 
   generate:
     name: Generate

@@ -1,2 +1,5 @@
 # IDE project files
 .idea/
+
+# Test coverage output; see `test` target in Makefile.
+coverage.txt

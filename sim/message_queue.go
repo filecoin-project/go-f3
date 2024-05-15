@@ -66,7 +66,7 @@ func (pq *messageQueue) Push(x any) {
 	pq.mailbox = append(pq.mailbox, item)
 }
 
-// Pop removes and returns the highest priority message from the queue.
+// Pop removes and returns the Len() - 1 element.
 //
 // This function is part of heap.Interface and must not be called externally.
 // See: Remove.
