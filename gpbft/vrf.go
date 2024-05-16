@@ -8,10 +8,6 @@ import (
 // A ticket is a signature over some common payload.
 type Ticket []byte
 
-func (t Ticket) Compare(other Ticket) int {
-	return bytes.Compare(t, other)
-}
-
 type VRFHost interface {
 	Network
 	Signer
