@@ -61,6 +61,7 @@ func (ts *TipSet) Equal(b *TipSet) bool {
 
 func (ts *TipSet) MarshalForSigning() []byte {
 	var buf bytes.Buffer
+	buf.Grow(len(ts.Key) + 4) // slight over-estimation
 	_ = cbg.WriteByteArray(&buf, ts.Key)
 	tsCid := MakeCid(buf.Bytes())
 	buf.Reset()
