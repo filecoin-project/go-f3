@@ -47,6 +47,11 @@ jobs:
         # Commit SHA corresponds to version v4.4.0
         # See: https://github.com/codecov/codecov-action/releases/tag/v4.4.0
         uses: codecov/codecov-action@6d798873df2b1b8e5846dba6fb86631229fbcb17
+        # Don't run coverage on merge queue CI to avoid duplicating reports to codecov.
+        # Otherwise base coverage from main branch does not render properly.
+        #
+        # See: https://github.com/matplotlib/napari-matplotlib/issues/155#issuecomment-1589377119
+        if: github.event_name != 'merge_group'
         with:
           files: coverage.txt
           token: ${{ secrets.CODECOV_TOKEN }}
