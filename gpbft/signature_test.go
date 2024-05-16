@@ -1,12 +1,14 @@
 package gpbft_test
 
 import (
+	"bytes"
 	"encoding/binary"
 	"testing"
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	cbg "github.com/whyrusleeping/cbor-gen"
 )
 
 func TestPayloadMarshalForSigning(t *testing.T) {
@@ -63,4 +65,34 @@ func BenchmarkPayloadMarshalForSigning(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		payload.MarshalForSigning(nn)
 	}
+}
+
+func TestTipSetMarshalForSigning(t *testing.T) {
+	const expectedLen = 8 + // epoch
+		32 + // commitments
+		38 + // tispset cid
+		38 // power table cid
+
+	tsk := make([]byte, 38*5)
+	tsk[0] = 110
+	pt := make([]byte, 38)
+	pt[0] = 123
+	comm := [32]byte{0x42}
+	ts := gpbft.TipSet{
+		Epoch:       1,
+		Key:         tsk,
+		PowerTable:  pt,
+		Commitments: comm,
+	}
+
+	var buf bytes.Buffer
+	require.NoError(t, cbg.WriteByteArray(&buf, ts.Key))
+	tsCid := gpbft.MakeCid(buf.Bytes())
+
+	encoded := ts.MarshalForSigning()
+	require.Len(t, encoded, expectedLen)
+	assert.Equal(t, binary.BigEndian.Uint64(encoded[:8]), uint64(ts.Epoch))
+	assert.Equal(t, encoded[8:40], ts.Commitments[:])
+	assert.Equal(t, encoded[40:78], tsCid)
+	assert.Equal(t, encoded[78:], ts.PowerTable)
 }
