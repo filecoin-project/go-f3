@@ -68,6 +68,16 @@ type Verifier interface {
 	VerifyAggregate(payload, aggSig []byte, signers []PubKey) error
 }
 
+type Signatures interface {
+	Signer
+	Verifier
+
+	// MarshalPayloadForSigning marshals the given payload into the bytes that should be signed.
+	// This should usually call `Payload.MarshalForSigning(NetworkName)` except when testing as
+	// that method is slow (computes a merkle tree that's necessary for testing).
+	MarshalPayloadForSigning(*Payload) []byte
+}
+
 type DecisionReceiver interface {
 	// Receives a finality decision from the instance, with signatures from a strong quorum
 	// of participants justifying it.
@@ -89,9 +99,6 @@ type Host interface {
 	Chain
 	Network
 	Clock
-	Signer
-	Verifier
+	Signatures
 	DecisionReceiver
-
-	MarshalPayloadForSigning(*Payload) []byte
 }
