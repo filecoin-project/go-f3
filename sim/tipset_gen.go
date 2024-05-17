@@ -15,7 +15,7 @@ func NewTipSetGenerator(seed uint64) *TipSetGenerator {
 	return &TipSetGenerator{xorshiftState: seed}
 }
 
-func (c *TipSetGenerator) Sample() gpbft.TipSet {
+func (c *TipSetGenerator) Sample() gpbft.TipSetKey {
 	b := make([]byte, 8)
 	for i := range b {
 		b[i] = alphanum[c.nextN(len(alphanum))]

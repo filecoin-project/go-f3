@@ -133,7 +133,7 @@ func (eci *ECInstance) validateDecision(decision *gpbft.Justification) error {
 		return fmt.Errorf("decision lacks strong quorum: %v", decision)
 	}
 	// Verify aggregate signature
-	payload := decision.Vote.MarshalForSigning(eci.ec.networkName)
+	payload := eci.ec.verifier.MarshalPayloadForSigning(eci.ec.networkName, &decision.Vote)
 	if err := eci.ec.verifier.VerifyAggregate(payload, decision.Signature, signers); err != nil {
 		return fmt.Errorf("invalid aggregate signature: %v: %w", decision, err)
 	}

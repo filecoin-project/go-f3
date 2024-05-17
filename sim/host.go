@@ -48,7 +48,7 @@ func newHost(id gpbft.ActorID, sim *Simulation, ecg ECChainGenerator, spg Storag
 func (v *simHost) GetCanonicalChain() (gpbft.ECChain, gpbft.PowerTable, []byte) {
 	i := v.sim.ec.GetInstance(v.instance)
 	// Use the head of latest agreement chain as the base of next.
-	chain := v.ecg.GenerateECChain(v.instance, v.ecChain.Head(), v.id)
+	chain := v.ecg.GenerateECChain(v.instance, *v.ecChain.Head(), v.id)
 	return chain, *i.PowerTable, i.Beacon
 }
 
@@ -73,6 +73,10 @@ func (v *simHost) BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.GMessage)
 
 func (v *simHost) StoragePower() *gpbft.StoragePower {
 	return v.spg(v.instance, v.id)
+}
+
+func (v *simHost) MarshalPayloadForSigning(p *gpbft.Payload) []byte {
+	return v.sim.signingBacked.MarshalPayloadForSigning(v.NetworkName(), p)
 }
 
 func (v *simHost) PublicKey() gpbft.PubKey {

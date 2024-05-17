@@ -3,6 +3,7 @@ package signing
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 
@@ -83,4 +84,38 @@ func (s *FakeBackend) VerifyAggregate(payload, aggSig []byte, signers []gpbft.Pu
 		return errors.New("signature is not valid")
 	}
 	return nil
+}
+
+func (v *FakeBackend) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Payload) []byte {
+	length := len(gpbft.DOMAIN_SEPARATION_TAG) + 2 + len(nn)
+	length += 1 + 8 + 8 // step + round + instance
+	length += 4         // len(p.Value)
+	for i := range p.Value {
+		ts := &p.Value[i]
+		length += 8 // epoch
+		length += len(ts.Key)
+		length += len(ts.Commitments)
+		length += len(ts.PowerTable)
+	}
+
+	var buf bytes.Buffer
+	buf.Grow(length)
+	buf.WriteString(gpbft.DOMAIN_SEPARATION_TAG)
+	buf.WriteString(":")
+	buf.WriteString(string(nn))
+	buf.WriteString(":")
+
+	_ = binary.Write(&buf, binary.BigEndian, p.Step)
+	_ = binary.Write(&buf, binary.BigEndian, p.Round)
+	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
+	_ = binary.Write(&buf, binary.BigEndian, uint32(len(p.Value)))
+	for i := range p.Value {
+		ts := &p.Value[i]
+
+		_ = binary.Write(&buf, binary.BigEndian, ts.Epoch)
+		_, _ = buf.Write(ts.Commitments[:])
+		_, _ = buf.Write(ts.PowerTable)
+		_, _ = buf.Write(ts.Key)
+	}
+	return buf.Bytes()
 }

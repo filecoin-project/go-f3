@@ -141,9 +141,7 @@ func NewAppendingECChainGenerator(g ...ECChainGenerator) *AggregateECChainGenera
 func (u *AggregateECChainGenerator) GenerateECChain(instance uint64, base gpbft.TipSet, participant gpbft.ActorID) gpbft.ECChain {
 	chain := gpbft.ECChain{base}
 	for _, generator := range u.generators {
-		chain = chain.Extend(
-			generator.GenerateECChain(instance, chain.Head(), participant).
-				Suffix()...)
+		chain = append(chain, generator.GenerateECChain(instance, *chain.Head(), participant).Suffix()...)
 	}
 	return chain
 }

@@ -6,4 +6,5 @@ type Backend interface {
 	gpbft.Signer
 	gpbft.Verifier
 	GenerateKey() (gpbft.PubKey, any)
+	MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Payload) []byte
 }

@@ -39,7 +39,7 @@ type participantTestSubject struct {
 
 func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *participantTestSubject {
 	// Generate some canonical chain.
-	canonicalChain, err := gpbft.NewChain([]byte("genesis"))
+	canonicalChain, err := gpbft.NewChain(gpbft.TipSet{Epoch: 0, Key: []byte("genesis")})
 	require.NoError(t, err)
 
 	const (
@@ -84,12 +84,13 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	// Prepare the test host.
 	pt.host.On("GetCanonicalChain").Return(pt.canonicalChain, *pt.powerTable, pt.beacon)
 	pt.host.On("Time").Return(pt.time)
-	pt.host.On("NetworkName").Return(pt.networkName)
+	pt.host.On("NetworkName").Return(pt.networkName).Maybe()
+	pt.host.On("MarshalPayloadForSigning", mock.AnythingOfType("*gpbft.Payload")).
+		Return([]byte(gpbft.DOMAIN_SEPARATION_TAG + ":" + pt.networkName))
 
 	// Expect calls to get the host state prior to beginning of an instance.
 	pt.host.EXPECT().GetCanonicalChain()
 	pt.host.EXPECT().Time()
-	pt.host.EXPECT().NetworkName()
 
 	// Expect alarm is set to 2X of configured delta.
 	pt.host.EXPECT().SetAlarm(pt.time.Add(2 * pt.delta))
@@ -135,7 +136,8 @@ func (pt *participantTestSubject) assertHostExpectations() bool {
 }
 
 func (pt *participantTestSubject) mockValidSignature(target gpbft.PubKey, sig []byte) *mock.Call {
-	return pt.host.On("Verify", target, pt.matchMessageSigningPayload(), sig).
+	return pt.host.
+		On("Verify", target, pt.matchMessageSigningPayload(), sig).
 		Return(nil)
 }
 
@@ -258,7 +260,7 @@ func TestParticipant(t *testing.T) {
 			})
 			t.Run("on invalid canonical chain", func(t *testing.T) {
 				subject := newParticipantTestSubject(t, seed, 0)
-				invalidChain := gpbft.ECChain{nil}
+				invalidChain := gpbft.ECChain{gpbft.TipSet{}}
 				subject.host.On("GetCanonicalChain").Return(invalidChain, *subject.powerTable, subject.beacon)
 				require.ErrorContains(t, subject.Start(), "invalid canonical chain")
 				subject.assertHostExpectations()
@@ -291,7 +293,7 @@ func TestParticipant(t *testing.T) {
 							Sender: somePowerEntry.ID,
 							Vote: gpbft.Payload{
 								Instance: initialInstance,
-								Value:    gpbft.ECChain{nil},
+								Value:    gpbft.ECChain{gpbft.TipSet{}},
 							},
 						}, false
 					},
@@ -404,11 +406,11 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance: initialInstanceNumber,
-						Value:    gpbft.ECChain{[]byte("fish")},
+						Value:    gpbft.ECChain{gpbft.TipSet{Epoch: 0, Key: []byte("fish")}},
 					},
 				}
 			},
-			wantErr: "unexpected base [66697368]",
+			wantErr: "unexpected base [0@66697368]",
 		},
 		{
 			name: "invalid value chain is error",
@@ -417,7 +419,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance: initialInstanceNumber,
-						Value:    gpbft.ECChain{subject.canonicalChain.Base(), nil},
+						Value:    gpbft.ECChain{*subject.canonicalChain.Base(), gpbft.TipSet{}},
 					},
 				}
 			},
@@ -511,7 +513,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Instance: initialInstanceNumber,
 						Step:     gpbft.CONVERGE_PHASE,
 						Round:    42,
-						Value:    gpbft.ECChain{subject.canonicalChain.Base(), nil},
+						Value:    gpbft.ECChain{*subject.canonicalChain.Base(), gpbft.TipSet{}},
 					},
 				}
 			},
@@ -808,7 +810,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Justification: &gpbft.Justification{
 						Vote: gpbft.Payload{
 							Instance: initialInstanceNumber,
-							Value:    gpbft.ECChain{subject.canonicalChain.Base(), nil},
+							Value:    gpbft.ECChain{*subject.canonicalChain.Base(), gpbft.TipSet{}},
 						},
 					},
 				}

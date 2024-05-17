@@ -60,7 +60,7 @@ func TestHonest_ChainAgreement(t *testing.T) {
 			require.NoError(t, err)
 
 			require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
-			requireConsensusAtFirstInstance(t, sm, targetChain.Head())
+			requireConsensusAtFirstInstance(t, sm, *targetChain.Head())
 		})
 	}
 }
@@ -122,7 +122,7 @@ func TestSync_AgreementWithRepetition(t *testing.T) {
 
 		require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 		// Synchronous, agreeing groups always decide the candidate.
-		requireConsensusAtFirstInstance(t, sm, someChain.Head())
+		requireConsensusAtFirstInstance(t, sm, *someChain.Head())
 	})
 }
 
@@ -149,7 +149,7 @@ func TestAsyncAgreement(t *testing.T) {
 				)...)
 				require.NoError(t, err)
 				require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
-				requireConsensusAtFirstInstance(t, sm, baseChain.Head(), someChain.Head())
+				requireConsensusAtFirstInstance(t, sm, *baseChain.Head(), *someChain.Head())
 			})
 		})
 	}
@@ -172,7 +172,7 @@ func TestSyncHalves(t *testing.T) {
 		require.NoError(t, err)
 		require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 		// Groups split 50/50 always decide the base.
-		requireConsensusAtFirstInstance(t, sm, baseChain.Head())
+		requireConsensusAtFirstInstance(t, sm, *baseChain.Head())
 	})
 }
 
@@ -197,7 +197,7 @@ func TestSyncHalvesBLS(t *testing.T) {
 		require.NoError(t, err)
 		require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 		// Groups split 50/50 always decide the base.
-		requireConsensusAtFirstInstance(t, sm, baseChain.Head())
+		requireConsensusAtFirstInstance(t, sm, *baseChain.Head())
 	})
 }
 
@@ -223,7 +223,7 @@ func TestAsyncHalves(t *testing.T) {
 				require.NoError(t, err)
 				require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 				// Groups split 50/50 always decide the base.
-				requireConsensusAtFirstInstance(t, sm, baseChain.Head())
+				requireConsensusAtFirstInstance(t, sm, *baseChain.Head())
 			})
 		})
 	}
@@ -248,7 +248,7 @@ func TestRequireStrongQuorumToProgress(t *testing.T) {
 		require.NoError(t, err)
 		require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 		// Must decide base.
-		requireConsensusAtFirstInstance(t, sm, baseChain.Head())
+		requireConsensusAtFirstInstance(t, sm, *baseChain.Head())
 	})
 }
 
@@ -272,7 +272,7 @@ func TestHonest_FixedLongestCommonPrefix(t *testing.T) {
 	require.NoError(t, err)
 	require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 	// Must decide ab, the longest common prefix.
-	requireConsensusAtFirstInstance(t, sm, commonPrefix.Head())
+	requireConsensusAtFirstInstance(t, sm, *commonPrefix.Head())
 }
 
 // TestHonest_MajorityCommonPrefix tests that in a network of honest participants, where there is a majority
@@ -302,7 +302,7 @@ func TestHonest_MajorityCommonPrefix(t *testing.T) {
 	for i := 0; i < instanceCount; i++ {
 		ii := uint64(i)
 		instance := sm.GetInstance(ii)
-		commonPrefix := majorityCommonPrefixGenerator.GenerateECChain(ii, instance.BaseChain.Base(), 0)
-		requireConsensusAtInstance(t, sm, ii, commonPrefix.Head())
+		commonPrefix := majorityCommonPrefixGenerator.GenerateECChain(ii, *instance.BaseChain.Base(), 0)
+		requireConsensusAtInstance(t, sm, ii, *commonPrefix.Head())
 	}
 }

@@ -75,7 +75,7 @@ func (r *Repeat) ReceiveMessage(msg *gpbft.GMessage, _ bool) (bool, error) {
 		return true, nil
 	}
 
-	sigPayload := msg.Vote.MarshalForSigning(r.host.NetworkName())
+	sigPayload := r.host.MarshalPayloadForSigning(&msg.Vote)
 	_, power, beacon := r.host.GetCanonicalChain()
 	_, pubkey := power.Get(r.id)
 

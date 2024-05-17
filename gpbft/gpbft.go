@@ -11,6 +11,7 @@ import (
 
 	"github.com/filecoin-project/go-bitfield"
 	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
+	"github.com/filecoin-project/go-f3/merkle"
 	"golang.org/x/xerrors"
 )
 
@@ -90,26 +91,30 @@ type Payload struct {
 	Value ECChain
 }
 
-func (p Payload) Eq(other *Payload) bool {
+func (p *Payload) Eq(other *Payload) bool {
 	return p.Instance == other.Instance &&
 		p.Round == other.Round &&
 		p.Step == other.Step &&
 		p.Value.Eq(other.Value)
 }
 
-func (p Payload) MarshalForSigning(nn NetworkName) []byte {
+func (p *Payload) MarshalForSigning(nn NetworkName) []byte {
+	values := make([][]byte, len(p.Value))
+	for i := range p.Value {
+		values[i] = p.Value[i].MarshalForSigning()
+	}
+	root := merkle.Tree(values)
+
 	var buf bytes.Buffer
 	buf.WriteString(DOMAIN_SEPARATION_TAG)
 	buf.WriteString(":")
 	buf.WriteString(string(nn))
 	buf.WriteString(":")
-	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
-	_ = binary.Write(&buf, binary.BigEndian, p.Round)
+
 	_ = binary.Write(&buf, binary.BigEndian, p.Step)
-	for _, t := range p.Value {
-		_ = binary.Write(&buf, binary.BigEndian, uint32(len(t)))
-		buf.Write(t)
-	}
+	_ = binary.Write(&buf, binary.BigEndian, p.Round)
+	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
+	_, _ = buf.Write(root[:])
 	return buf.Bytes()
 }
 
@@ -400,7 +405,7 @@ func (i *instance) validateMessage(msg *GMessage) error {
 	}
 
 	// Check vote signature.
-	sigPayload := msg.Vote.MarshalForSigning(i.participant.host.NetworkName())
+	sigPayload := i.participant.host.MarshalPayloadForSigning(&msg.Vote)
 	if err := i.participant.host.Verify(senderPubKey, sigPayload, msg.Signature); err != nil {
 		return xerrors.Errorf("invalid signature on %v, %v", msg, err)
 	}
@@ -485,7 +490,7 @@ func (i *instance) validateMessage(msg *GMessage) error {
 			return fmt.Errorf("message %v has justification with insufficient power: %v", msg, justificationPower)
 		}
 
-		payload := msg.Justification.Vote.MarshalForSigning(i.participant.host.NetworkName())
+		payload := i.participant.host.MarshalPayloadForSigning(&msg.Justification.Vote)
 		if err := i.participant.host.VerifyAggregate(payload, msg.Justification.Signature, signers); err != nil {
 			return xerrors.Errorf("verification of the aggregate failed: %+v: %w", msg.Justification, err)
 		}
@@ -795,7 +800,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 		Step:     step,
 		Value:    value,
 	}
-	sp := p.MarshalForSigning(i.participant.host.NetworkName())
+	sp := i.participant.host.MarshalPayloadForSigning(&p)
 
 	sig, err := i.sign(sp)
 	if err != nil {
