@@ -2,6 +2,7 @@ package test
 
 import (
 	"fmt"
+	"math/rand"
 	"testing"
 
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -10,19 +11,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestImmediateDecide(t *testing.T) {
-	tsg := sim.NewTipSetGenerator(984615)
+func FuzzImmediateDecideAdversary(f *testing.F) {
+	f.Add(98562314)
+	f.Add(8)
+	f.Add(-9554)
+	f.Add(95)
+	f.Add(65)
+	f.Fuzz(immediateDecideAdversaryTest)
+}
+
+func immediateDecideAdversaryTest(t *testing.T, seed int) {
+	rng := rand.New(rand.NewSource(int64(seed)))
+	tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
 	baseChain := generateECChain(t, tsg)
 	adversaryValue := baseChain.Extend(tsg.Sample())
-	sm, err := sim.NewSimulation(asyncOptions(t, 1413,
-		sim.AddHonestParticipants(
-			1,
-			sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10),
-			uniformOneStoragePower),
-		sim.WithBaseChain(&baseChain),
-		// Add the adversary to the simulation with 3/4 of total power.
-		sim.WithAdversary(adversary.NewImmediateDecideGenerator(adversaryValue, gpbft.NewStoragePower(3))),
-	)...)
+	sm, err := sim.NewSimulation(
+		asyncOptions(rng.Int(),
+			sim.AddHonestParticipants(
+				1,
+				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 10),
+				uniformOneStoragePower),
+			sim.WithBaseChain(&baseChain),
+			// Add the adversary to the simulation with 3/4 of total power.
+			sim.WithAdversary(adversary.NewImmediateDecideGenerator(adversaryValue, gpbft.NewStoragePower(3))),
+		)...)
 	require.NoError(t, err)
 
 	err = sm.Run(1, maxRounds)

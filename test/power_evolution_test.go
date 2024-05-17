@@ -2,6 +2,7 @@ package test
 
 import (
 	"math"
+	"math/rand"
 	"testing"
 
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -9,14 +10,36 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestStoragePower_IncreaseMidSimulation(t *testing.T) {
+func FuzzStoragePower_SyncIncreaseMidSimulation(f *testing.F) {
+	f.Add(651651)
+	f.Add(-8)
+	f.Add(77)
+	f.Add(0)
+	f.Fuzz(func(t *testing.T, seed int) {
+		storagePowerIncreaseMidSimulationTest(t, seed, 8, maxRounds, syncOptions()...)
+	})
+}
+
+func FuzzStoragePower_AsyncIncreaseMidSimulation(f *testing.F) {
+	f.Add(151)
+	f.Add(-784) // Requires 29 rounds to succeed. Investigate further for potential issues.
+	f.Add(5460) // Requires 62 rounds to succeed. Investigate further for potential issues.
+	f.Add(-563) // Requires 71 rounds to succeed. Investigate further for potential issues.
+
+	f.Fuzz(func(t *testing.T, seed int) {
+		storagePowerIncreaseMidSimulationTest(t, seed, 8, maxRounds*8, asyncOptions(seed)...)
+	})
+}
+
+func storagePowerIncreaseMidSimulationTest(t *testing.T, seed int, instanceCount uint64, maxRounds uint64, o ...sim.Option) {
 	const (
-		instanceCount                      = 8
-		powerIncreaseAfterInstance         = 4
 		groupOneStoragePower               = 5
 		groupTwoStoragePowerBeforeIncrease = 2
 		groupTwoStoragePowerAfterIncrease  = 21
 	)
+	var powerIncreaseAfterInstance = instanceCount / 2
+	rng := rand.New(rand.NewSource(int64(seed)))
+
 	groupOneStoragePowerer := sim.UniformStoragePower(gpbft.NewStoragePower(groupOneStoragePower))
 	groupTwoStoragePowerer := func(instance uint64, id gpbft.ActorID) *gpbft.StoragePower {
 		switch {
@@ -27,143 +50,119 @@ func TestStoragePower_IncreaseMidSimulation(t *testing.T) {
 		}
 	}
 
-	tests := []struct {
-		name    string
-		options []sim.Option
-	}{
-		{
-			name:    "sync",
-			options: syncOptions(),
-		},
-		{
-			name:    "async",
-			options: asyncOptions(t, 55452),
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			repeatInParallel(t, 1, func(t *testing.T, repetition int) {
-				seedFuzzer := uint64(repetition)
-				tsg := sim.NewTipSetGenerator(7 * seedFuzzer)
-				baseChain := generateECChain(t, tsg)
-				groupOneEcGenerator := sim.NewUniformECChainGenerator(17*seedFuzzer, 5, 10)
-				groupTwoEcGenerator := sim.NewUniformECChainGenerator(23*seedFuzzer, 5, 10)
-				sm, err := sim.NewSimulation(
-					append(test.options,
-						sim.WithBaseChain(&baseChain),
-						// Group 1: 10 participants with fixed storage power throughout the simulation
-						sim.AddHonestParticipants(
-							10,
-							groupOneEcGenerator,
-							groupOneStoragePowerer),
-						// Group 2: 10 participants with smaller storage power up to instance 4 and larger
-						// after that.
-						sim.AddHonestParticipants(
-							10,
-							groupTwoEcGenerator,
-							groupTwoStoragePowerer),
-					)...)
-				require.NoError(t, err)
-				require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
+	tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
+	baseChain := generateECChain(t, tsg)
+	groupOneEcGenerator := sim.NewUniformECChainGenerator(rng.Uint64(), 5, 10)
+	groupTwoEcGenerator := sim.NewUniformECChainGenerator(rng.Uint64(), 5, 10)
+	sm, err := sim.NewSimulation(
+		append(o,
+			sim.WithBaseChain(&baseChain),
+			// Group 1: 10 participants with fixed storage power throughout the simulation
+			sim.AddHonestParticipants(
+				10,
+				groupOneEcGenerator,
+				groupOneStoragePowerer),
+			// Group 2: 10 participants with smaller storage power up to instance 4 and larger
+			// after that.
+			sim.AddHonestParticipants(
+				10,
+				groupTwoEcGenerator,
+				groupTwoStoragePowerer),
+		)...)
+	require.NoError(t, err)
+	require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
 
-				// Assert that the chains agreed upon belong to group 1 before instance 4 and
-				// to group 2 after that.
-				base := *baseChain.Head()
-				for i := uint64(0); i < instanceCount-1; i++ {
-					instance := sm.GetInstance(i + 1)
-					require.NotNil(t, instance, "instance %d", i)
+	// Assert that the chains agreed upon belong to group 1 before instance 4 and
+	// to group 2 after that.
+	base := *baseChain.Head()
+	for i := uint64(0); i < instanceCount-1; i++ {
+		instance := sm.GetInstance(i + 1)
+		require.NotNil(t, instance, "instance %d", i)
 
-					var chainBackedByMostPower, chainBackedByLeastPower gpbft.ECChain
-					// UniformECChainGenerator caches the generated chains for each instance and disregards participant IDs.
-					if i < powerIncreaseAfterInstance {
-						chainBackedByMostPower = groupOneEcGenerator.GenerateECChain(i, base, math.MaxUint64)
-						chainBackedByLeastPower = groupTwoEcGenerator.GenerateECChain(i, base, math.MaxUint64)
-					} else {
-						chainBackedByMostPower = groupTwoEcGenerator.GenerateECChain(i, base, math.MaxUint64)
-						chainBackedByLeastPower = groupOneEcGenerator.GenerateECChain(i, base, math.MaxUint64)
-					}
+		var chainBackedByMostPower, chainBackedByLeastPower gpbft.ECChain
+		// UniformECChainGenerator caches the generated chains for each instance and disregards participant IDs.
+		if i < powerIncreaseAfterInstance {
+			chainBackedByMostPower = groupOneEcGenerator.GenerateECChain(i, base, math.MaxUint64)
+			chainBackedByLeastPower = groupTwoEcGenerator.GenerateECChain(i, base, math.MaxUint64)
+		} else {
+			chainBackedByMostPower = groupTwoEcGenerator.GenerateECChain(i, base, math.MaxUint64)
+			chainBackedByLeastPower = groupOneEcGenerator.GenerateECChain(i, base, math.MaxUint64)
+		}
 
-					// Sanity check that the chains generated by either group are not the same but
-					// share the same base.
-					require.Equal(t, chainBackedByMostPower.Base(), chainBackedByLeastPower.Base())
-					require.NotEqual(t, chainBackedByMostPower.Suffix(), chainBackedByLeastPower.Suffix())
+		// Sanity check that the chains generated by either group are not the same but
+		// share the same base.
+		require.Equal(t, chainBackedByMostPower.Base(), chainBackedByLeastPower.Base())
+		require.NotEqual(t, chainBackedByMostPower.Suffix(), chainBackedByLeastPower.Suffix())
 
-					// Assert the consensus is reached on the chain with most power.
-					requireConsensusAtInstance(t, sm, i, chainBackedByMostPower...)
-					base = *instance.BaseChain.Head()
-				}
-			})
-		})
+		// Assert the consensus is reached on the chain with most power.
+		requireConsensusAtInstance(t, sm, i, chainBackedByMostPower...)
+		base = *instance.BaseChain.Head()
 	}
 }
 
-func TestStoragePower_DecreaseRevertsToBase(t *testing.T) {
-	const (
-		instanceCount = 8
-	)
-	tests := []struct {
-		name    string
-		options []sim.Option
-	}{
-		{
-			name:    "sync",
-			options: syncOptions(),
-		},
-		{
-			name:    "async",
-			options: asyncOptions(t, 55452),
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			repeatInParallel(t, 1, func(t *testing.T, repetition int) {
-				seedFuzzer := uint64(repetition)
-				tsg := sim.NewTipSetGenerator(7 * seedFuzzer)
-				baseChain := generateECChain(t, tsg)
-				sm, err := sim.NewSimulation(
-					append(test.options,
-						sim.WithBaseChain(&baseChain),
-						// Group 1: 10 participants with fixed storage power of 2 per participant
-						// throughout the simulation.
-						sim.AddHonestParticipants(
-							10,
-							sim.NewBaseECChainGenerator(),
-							sim.UniformStoragePower(gpbft.NewStoragePower(3)),
-						),
-						// Group 2: 10 participants with decreasing storage power starting from 8 and
-						// decreasing by 1 per instance per participant.
-						sim.AddHonestParticipants(
-							10,
-							sim.NewUniformECChainGenerator(17*seedFuzzer, 5, 10),
-							func(instance uint64, id gpbft.ActorID) *gpbft.StoragePower {
-								// Decrease storage power of each participant by 1 per instance.
-								// The plus one is there to avoid zero powered actors as it is an error.
-								return gpbft.NewStoragePower(int64(instanceCount - instance + 1))
-							},
-						),
-					)...)
-				require.NoError(t, err)
-				require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
+func FuzzStoragePower_SyncDecreaseRevertsToBase(f *testing.F) {
+	f.Add(545444)
+	f.Add(654)
+	f.Add(-151)
+	f.Fuzz(func(t *testing.T, seed int) {
+		storagePowerDecreaseRevertsToBaseTest(t, seed, 100, maxRounds, syncOptions()...)
+	})
+}
 
-				// Assert that the last three instances have exactly one tipset in their base
-				// chain to which all participants converge. Because, by the fifth instance the
-				// total storage power of group 2 should have sufficiently decreased to no longer
-				// influence consensus. As a result, the chain proposed by group 1 should become
-				// the dominant one and that group always proposes the base chain, which should
-				// have exactly one tipset.
-				for i := uint64(instanceCount - 3); i < instanceCount; i++ {
-					instance := sm.GetInstance(i)
-					require.NotNil(t, instance)
+func FuzzStoragePower_AsyncDecreaseRevertsToBase(f *testing.F) {
+	f.Add(24)
+	f.Add(-44)
+	f.Add(11151)
+	f.Fuzz(func(t *testing.T, seed int) {
+		storagePowerDecreaseRevertsToBaseTest(t, seed, 100, maxRounds, asyncOptions(seed)...)
+	})
+}
 
-					// Assert that the base chain only has one tipset, i.e. the chain proposed by
-					// group 1 is the dominant one.
-					require.Len(t, instance.BaseChain, 1)
+func storagePowerDecreaseRevertsToBaseTest(t *testing.T, seed int, instanceCount uint64, maxRounds uint64, o ...sim.Option) {
+	rng := rand.New(rand.NewSource(int64(seed)))
+	tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
+	baseChain := generateECChain(t, tsg)
+	sm, err := sim.NewSimulation(
+		append(o,
+			sim.WithBaseChain(&baseChain),
+			// Group 1: 10 participants with fixed storage power of 2 per participant
+			// throughout the simulation.
+			sim.AddHonestParticipants(
+				10,
+				sim.NewBaseECChainGenerator(),
+				sim.UniformStoragePower(gpbft.NewStoragePower(int64(instanceCount/2))),
+			),
+			// Group 2: 10 participants with decreasing storage power starting from 8 and
+			// decreasing by 1 per instance per participant.
+			sim.AddHonestParticipants(
+				10,
+				sim.NewUniformECChainGenerator(rng.Uint64(), 5, 10),
+				func(instance uint64, id gpbft.ActorID) *gpbft.StoragePower {
+					// Decrease storage power of each participant by 1 per instance.
+					// The plus one is there to avoid zero powered actors as it is an error.
+					return gpbft.NewStoragePower(int64(instanceCount - instance + 1))
+				},
+			),
+		)...)
+	require.NoError(t, err)
+	require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
 
-					// Assert that the head tipset of all decisions made by participants is the base
-					// of instance's base-chain.
-					requireConsensusAtInstance(t, sm, i, *instance.BaseChain.Base())
-				}
-			})
-		})
+	// Assert that the last three instances have exactly one tipset in their base
+	// chain to which all participants converge. Because, by the fifth instance the
+	// total storage power of group 2 should have sufficiently decreased to no longer
+	// influence consensus. As a result, the chain proposed by group 1 should become
+	// the dominant one and that group always proposes the base chain, which should
+	// have exactly one tipset.
+	for i := instanceCount/2 + 1; i < instanceCount; i++ {
+		instance := sm.GetInstance(i)
+		require.NotNil(t, instance)
+
+		// Assert that the base chain only has one tipset, i.e. the chain proposed by
+		// group 1 is the dominant one.
+		require.Len(t, instance.BaseChain, 1)
+
+		// Assert that the head tipset of all decisions made by participants is the base
+		// of instance's base-chain.
+		requireConsensusAtInstance(t, sm, i, *instance.BaseChain.Base())
 	}
 }

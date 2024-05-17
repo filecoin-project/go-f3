@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestWitholdCommit1(t *testing.T) {
+func TestWitholdCommitAdversary(t *testing.T) {
 	tests := []struct {
 		name string
 		gst  time.Duration
@@ -37,8 +37,7 @@ func TestWitholdCommit1(t *testing.T) {
 	for _, test := range tests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
-			nearSynchrony, err := latency.NewLogNormal(1413, 10*time.Millisecond)
-			require.NoError(t, err)
+			nearSynchrony := latency.NewLogNormal(1413, 10*time.Millisecond)
 			tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
 			baseChain := generateECChain(t, tsg)
 			a := baseChain.Extend(tsg.Sample())

@@ -1,7 +1,6 @@
 package latency
 
 import (
-	"errors"
 	"math"
 	"math/rand"
 	"sync"
@@ -25,16 +24,14 @@ type LogNormal struct {
 }
 
 // NewLogNormal instantiates a new latency model of log normal latency
-// distribution with the given mean.
-func NewLogNormal(seed int64, mean time.Duration) (*LogNormal, error) {
-	if mean < 0 {
-		return nil, errors.New("mean duration cannot be negative")
-	}
+// distribution with the given mean. This model will always return zero if mean
+// latency duration is less than or equal to zero.
+func NewLogNormal(seed int64, mean time.Duration) *LogNormal {
 	return &LogNormal{
 		rng:           rand.New(rand.NewSource(seed)),
 		mean:          mean,
 		latencyFromTo: make(map[gpbft.ActorID]map[gpbft.ActorID]time.Duration),
-	}, nil
+	}
 }
 
 // Sample returns latency samples that correspond to the log normal distribution
@@ -43,9 +40,10 @@ func NewLogNormal(seed int64, mean time.Duration) (*LogNormal, error) {
 // distribution. Latency from one participant to another may be asymmetric and
 // once generated remains constant for the lifetime of a simulation.
 //
-// Note, here from and to are the same the latency sample will always be zero.
+// Note, where from and to are the same or mean configured latency is not larger
+// than zero the latency sample will always be zero.
 func (l *LogNormal) Sample(_ time.Time, from gpbft.ActorID, to gpbft.ActorID) time.Duration {
-	if from == to {
+	if from == to || l.mean <= 0 {
 		return 0
 	}
 
