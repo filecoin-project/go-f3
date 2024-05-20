@@ -37,11 +37,8 @@ func newOptions(o ...Option) (*options, error) {
 // WithDelta sets the expected bound on message propagation latency. Defaults to
 // 3 seconds if unspecified. Delta must be larger than zero.
 //
-// The default of 3 seconds for the value of Dela is based on the current EC
-// propagation time (i.e. round-trip time of 6 seconds) as the initial
-// propagation timeout. The actual propagation time may be significantly lower.
-// However, until further measurements confirm it a 3 second value for delta
-// seems reasonable.
+// The default of 3 seconds for the value of Dela is based previous observations of
+// the upper bound on the GossipSub network-wide propagation time in Filecoin network.
 //
 // See: https://github.com/filecoin-project/FIPs/blob/master/FIPS/fip-0086.md#synchronization-of-participants-in-the-current-instance
 func WithDelta(d time.Duration) Option {
