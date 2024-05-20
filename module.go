@@ -1,6 +1,7 @@
 package f3
 
 import (
+	"bytes"
 	"context"
 
 	"github.com/filecoin-project/go-f3/certs"
@@ -17,9 +18,10 @@ import (
 )
 
 type Module struct {
-	NetworkName gpbft.NetworkName
-	CertStore   *certs.Store
+	Manifest  Manifest
+	CertStore *certs.Store
 
+	id     gpbft.ActorID
 	ds     datastore.Datastore
 	host   host.Host
 	pubsub *pubsub.PubSub
@@ -34,18 +36,19 @@ type Module struct {
 
 // NewModule creates and setups new libp2p f3 module
 // The context is used for initialization not runtime.
-func NewModule(ctx context.Context, nn gpbft.NetworkName, ds datastore.Datastore, h host.Host,
+func NewModule(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.Datastore, h host.Host,
 	ps *pubsub.PubSub, sigs gpbft.Signer, verif gpbft.Verifier, ec ECBackend, log Logger) (*Module, error) {
-	ds = namespace.Wrap(ds, nn.DatastorePrefix())
+	ds = namespace.Wrap(ds, manifest.NetworkName.DatastorePrefix())
 	cs, err := certs.NewStore(ctx, ds)
 	if err != nil {
 		return nil, xerrors.Errorf("creating CertStore: %w", err)
 	}
 
 	m := Module{
-		NetworkName: nn,
-		CertStore:   cs,
+		Manifest:  manifest,
+		CertStore: cs,
 
+		id:     id,
 		ds:     ds,
 		host:   h,
 		pubsub: ps,
@@ -58,8 +61,7 @@ func NewModule(ctx context.Context, nn gpbft.NetworkName, ds datastore.Datastore
 	return &m, nil
 }
 func (m *Module) setupPubsub() error {
-	// pubsub will probably move to separate file/struct
-	pubsubTopicName := m.NetworkName.PubSubTopic()
+	pubsubTopicName := m.Manifest.NetworkName.PubSubTopic()
 	err := m.pubsub.RegisterTopicValidator(pubsubTopicName, m.pubsubTopicValidator)
 	if err != nil {
 		return xerrors.Errorf("registering topic validator: %w", err)
@@ -75,7 +77,7 @@ func (m *Module) setupPubsub() error {
 
 func (m *Module) teardownPubsub() error {
 	return multierr.Combine(
-		m.pubsub.UnregisterTopicValidator(m.NetworkName.PubSubTopic()),
+		m.pubsub.UnregisterTopicValidator(m.Manifest.NetworkName.PubSubTopic()),
 		m.topic.Close(),
 	)
 }
@@ -91,14 +93,30 @@ func (m *Module) Run(ctx context.Context) error {
 		return xerrors.Errorf("subscribing to topic: %w", err)
 	}
 
+	h, err := newHost(m.id, m.Manifest, func(ctx context.Context, b []byte) error {
+		return m.topic.Publish(ctx, b)
+	}, m.sigs, m.verif, m.log)
+	if err != nil {
+		return xerrors.Errorf("creating gpbft host: %w", err)
+	}
+
+	go func() {
+		err := h.Run(ctx)
+		m.log.Errorf("starting host: %+v", err)
+	}()
 	for {
 		msg, err := sub.Next(ctx)
 		if err != nil {
 			m.log.Errorf("pubsub subscription.Next() returned an error: %+v", err)
 			break
 		}
-		_ = msg
-		// TODO: pubsub integration
+		var gmsg gpbft.GMessage
+		err = gmsg.UnmarshalCBOR(bytes.NewReader(msg.Data))
+		if err != nil {
+			m.log.Info("bad pubsub message: %w", err)
+			continue
+		}
+		h.MessageQueue <- &gmsg
 	}
 
 	sub.Cancel()
@@ -116,23 +134,6 @@ func (m *Module) pubsubTopicValidator(ctx context.Context, pID peer.ID, msg *pub
 }
 
 type ECBackend interface{}
-
-type TODOVerifier struct{}
-
-// Verifies a signature for the given sender ID.
-func (v *TODOVerifier) Verify(pubKey gpbft.PubKey, msg []byte, sig []byte) bool {
-	panic("not implemented")
-}
-
-// Aggregates signatures from a participant to an existing signature.
-func (v *TODOVerifier) Aggregate(sig [][]byte, aggSignature []byte) []byte {
-	panic("not implemented")
-}
-
-// VerifyAggregate verifies an aggregate signature.
-func (v *TODOVerifier) VerifyAggregate(payload []byte, aggSig []byte, signers []gpbft.PubKey) bool {
-	panic("not implemented")
-}
 
 type Logger interface {
 	Debug(args ...interface{})

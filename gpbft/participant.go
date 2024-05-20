@@ -167,6 +167,7 @@ func (p *Participant) beginInstance() error {
 	if p.granite, err = newInstance(p, p.nextInstance, chain, *power, beacon); err != nil {
 		return fmt.Errorf("failed creating new granite instance: %w", err)
 	}
+	p.granite.tracer = p.tracer
 	p.nextInstance += 1
 	if err := p.granite.Start(); err != nil {
 		return fmt.Errorf("failed starting granite instance: %w", err)

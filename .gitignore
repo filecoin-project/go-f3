@@ -3,3 +3,8 @@
 
 # Test coverage output; see `test` target in Makefile.
 coverage.txt
+
+# f3 binary
+/f3
+# f3 manifest
+/manifest.json

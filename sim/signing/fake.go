@@ -13,20 +13,16 @@ import (
 var _ Backend = (*FakeBackend)(nil)
 
 type FakeBackend struct {
-	i        int
-	keyPairs map[string]string
+	i int
 }
 
 func NewFakeBackend() *FakeBackend {
-	return &FakeBackend{
-		keyPairs: make(map[string]string),
-	}
+	return &FakeBackend{}
 }
 
 func (s *FakeBackend) GenerateKey() (gpbft.PubKey, any) {
-	pubKey := gpbft.PubKey(fmt.Sprintf("pubkey:%08x", s.i))
+	pubKey := gpbft.PubKey(fmt.Sprintf("pubkey::%08x", s.i))
 	privKey := fmt.Sprintf("privkey:%08x", s.i)
-	s.keyPairs[string(pubKey)] = privKey
 	s.i++
 	return pubKey, privKey
 }
@@ -36,10 +32,8 @@ func (s *FakeBackend) Sign(signer gpbft.PubKey, msg []byte) ([]byte, error) {
 }
 
 func (s *FakeBackend) generateSignature(signer gpbft.PubKey, msg []byte) ([]byte, error) {
-	priv, known := s.keyPairs[string(signer)]
-	if !known {
-		return nil, errors.New("unknown signer")
-	}
+	priv := "privkey" + string(signer[7:])
+
 	hasher := sha256.New()
 	hasher.Write(signer)
 	hasher.Write([]byte(priv))

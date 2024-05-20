@@ -31,3 +31,7 @@ lint:
 generate:
 	go generate ./...
 .PHONY: generate
+
+f3:
+	go build ./cmd/f3
+.PHONY: f3
