@@ -13,7 +13,7 @@ var _ adversary.Host = (*simHost)(nil)
 // One participant's host
 // This provides methods that know the caller's participant ID and can provide its view of the world.
 type simHost struct {
-	gpbft.Network
+	SimNetwork
 	gpbft.Signer
 	gpbft.Verifier
 	gpbft.Clock
@@ -30,18 +30,24 @@ type simHost struct {
 	spg      StoragePowerGenerator
 }
 
+type SimNetwork interface {
+	gpbft.Network
+	// Sends a message to all other participants.
+	Broadcast(sender gpbft.ActorID, msg *gpbft.GMessage, synchronouos bool)
+}
+
 func newHost(id gpbft.ActorID, sim *Simulation, ecg ECChainGenerator, spg StoragePowerGenerator) *simHost {
 	pubKey, _ := sim.signingBacked.GenerateKey()
 	return &simHost{
-		Network:  sim.network,
-		Verifier: sim.signingBacked,
-		Signer:   sim.signingBacked,
-		sim:      sim,
-		id:       id,
-		ecg:      ecg,
-		spg:      spg,
-		pubkey:   pubKey,
-		ecChain:  *sim.baseChain,
+		SimNetwork: sim.network.NetworkFor(sim.signingBacked, id),
+		Verifier:   sim.signingBacked,
+		Signer:     sim.signingBacked,
+		sim:        sim,
+		id:         id,
+		ecg:        ecg,
+		spg:        spg,
+		pubkey:     pubKey,
+		ecChain:    *sim.baseChain,
 	}
 }
 
@@ -65,10 +71,6 @@ func (v *simHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 	v.instance = decision.Vote.Instance + 1
 	v.ecChain = decision.Vote.Value
 	return v.Time().Add(v.sim.ecEpochDuration).Add(v.sim.ecStabilisationDelay)
-}
-
-func (v *simHost) BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.GMessage) {
-	v.sim.network.BroadcastSynchronous(sender, msg)
 }
 
 func (v *simHost) StoragePower() *gpbft.StoragePower {

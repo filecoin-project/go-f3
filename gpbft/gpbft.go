@@ -815,7 +815,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 		Ticket:        ticket,
 		Justification: justification,
 	}
-	i.participant.host.Broadcast(gmsg)
+	i.participant.host.RequestBroadcast(gmsg)
 	i.enqueueInbox(gmsg)
 }
 

@@ -61,24 +61,68 @@ func (n *Network) AddParticipant(p gpbft.Receiver) {
 	n.participants[p.ID()] = p
 }
 
+////// Network interface
+
+func (n *Network) NetworkFor(signer gpbft.Signer, id gpbft.ActorID) *NetworkFor {
+	return &NetworkFor{
+		ParticipantID: id,
+		Signer:        signer,
+		Network:       n,
+	}
+}
+
+type NetworkFor struct {
+	ParticipantID gpbft.ActorID
+	Signer        gpbft.Signer
+	*Network
+}
+
+// Log implements tagging Tracer interface
+func (nf *NetworkFor) Log(format string, args ...interface{}) {
+	nf.Network.log(TraceLogic, "P%d "+format, append([]any{nf.ParticipantID}, args...)...)
+}
+
+func (nf *NetworkFor) RequestBroadcast(msg *gpbft.GMessage) {
+	nf.log(TraceSent, "P%d ↗ %v", msg.Sender, msg)
+	for _, dest := range nf.participantIDs {
+		latencySample := time.Duration(0)
+		if dest != msg.Sender {
+			latencySample = nf.latency.Sample(nf.Time(), msg.Sender, dest)
+		}
+
+		nf.queue.Insert(
+			&messageInFlight{
+				source:    msg.Sender,
+				dest:      dest,
+				payload:   *msg,
+				deliverAt: nf.clock.Add(latencySample),
+			})
+	}
+}
+
 func (n *Network) NetworkName() gpbft.NetworkName {
 	return n.networkName
 }
 
-func (n *Network) Broadcast(msg *gpbft.GMessage) {
-	n.log(TraceSent, "P%d ↗ %v", msg.Sender, msg)
+func (n *Network) Broadcast(sender gpbft.ActorID, msg *gpbft.GMessage, synchronous bool) {
+	n.log(TraceSent, "P%d ↗ %v", sender, msg)
 	for _, dest := range n.participantIDs {
-		if dest != msg.Sender {
-			now := n.Time()
-			delay := n.latency.Sample(now, msg.Sender, dest)
-			n.queue.Insert(
-				&messageInFlight{
-					source:    msg.Sender,
-					dest:      dest,
-					payload:   *msg,
-					deliverAt: now.Add(delay),
-				})
+		if dest == sender {
+			continue
 		}
+
+		latencySample := time.Duration(0)
+		if !synchronous {
+			latencySample = n.latency.Sample(n.Time(), msg.Sender, dest)
+		}
+
+		n.queue.Insert(
+			&messageInFlight{
+				source:    sender,
+				dest:      dest,
+				payload:   *msg,
+				deliverAt: n.clock.Add(latencySample),
+			})
 	}
 }
 
@@ -103,21 +147,6 @@ func (n *Network) SetAlarm(sender gpbft.ActorID, at time.Time) {
 
 func (n *Network) Log(format string, args ...interface{}) {
 	n.log(TraceLogic, format, args...)
-}
-
-func (n *Network) BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.GMessage) {
-	n.log(TraceSent, "P%d ↗ %v", sender, msg)
-	for _, k := range n.participantIDs {
-		if k != sender {
-			n.queue.Insert(
-				&messageInFlight{
-					source:    sender,
-					dest:      k,
-					payload:   msg,
-					deliverAt: n.clock,
-				})
-		}
-	}
 }
 
 // Tick disseminates one message among participants and returns whether there are

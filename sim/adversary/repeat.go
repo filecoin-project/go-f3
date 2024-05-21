@@ -24,7 +24,7 @@ var _ Receiver = (*Repeat)(nil)
 // See RepetitionSampler.
 type Repeat struct {
 	id   gpbft.ActorID
-	host gpbft.Host
+	host Host
 
 	// repetitionSampler determines the number of times each message is echoed by this adversary.
 	repetitionSampler RepetitionSampler
@@ -52,7 +52,7 @@ type RepetitionSampler func(*gpbft.GMessage) int
 // signed and optionally includes a new ticket if the original message had one. Note, this adversary does not modify the
 // received messages. Instead, it resigns them as its own and broadcasts them effectively mimicking the behavior of other
 // participants in the network.
-func NewRepeat(id gpbft.ActorID, host gpbft.Host, sampler RepetitionSampler) *Repeat {
+func NewRepeat(id gpbft.ActorID, host Host, sampler RepetitionSampler) *Repeat {
 	return &Repeat{
 		id:                id,
 		host:              host,
@@ -100,7 +100,7 @@ func (r *Repeat) ReceiveMessage(msg *gpbft.GMessage, _ bool) (bool, error) {
 		Ticket:        ticket,
 	}
 	for i := 0; i < echoCount; i++ {
-		r.host.Broadcast(echo)
+		r.host.Broadcast(echo.Sender, echo, false)
 	}
 	return true, nil
 }

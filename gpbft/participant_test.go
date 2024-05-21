@@ -110,7 +110,7 @@ func (pt *participantTestSubject) expectBeginInstance() {
 		},
 		Signature: wantSignature,
 	}
-	pt.host.EXPECT().Broadcast(wantQualityPhaseBroadcastMessage)
+	pt.host.EXPECT().RequestBroadcast(wantQualityPhaseBroadcastMessage)
 }
 
 func (pt *participantTestSubject) requireNotStarted() {

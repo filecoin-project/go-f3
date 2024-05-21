@@ -13,7 +13,8 @@ type Host interface {
 	// Sends a message to all other participants, immediately.
 	// Note that the adversary can subsequently delay delivery to some participants,
 	// before messages are actually received.
-	BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.GMessage)
+	// The sync flag can be used to determine how the message is broadcast.
+	Broadcast(sender gpbft.ActorID, msg *gpbft.GMessage, synchronouos bool)
 }
 
 type Generator func(gpbft.ActorID, Host) *Adversary
