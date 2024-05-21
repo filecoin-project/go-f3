@@ -113,68 +113,127 @@ func (_c *MockHost_Broadcast_Call) RunAndReturn(run func(*GMessage)) *MockHost_B
 	return _c
 }
 
-// GetCanonicalChain provides a mock function with given fields:
-func (_m *MockHost) GetCanonicalChain() (ECChain, PowerTable, []byte) {
-	ret := _m.Called()
+// GetChainForInstance provides a mock function with given fields: instance
+func (_m *MockHost) GetChainForInstance(instance uint64) (ECChain, error) {
+	ret := _m.Called(instance)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetCanonicalChain")
+		panic("no return value specified for GetChainForInstance")
 	}
 
 	var r0 ECChain
-	var r1 PowerTable
-	var r2 []byte
-	if rf, ok := ret.Get(0).(func() (ECChain, PowerTable, []byte)); ok {
-		return rf()
+	var r1 error
+	if rf, ok := ret.Get(0).(func(uint64) (ECChain, error)); ok {
+		return rf(instance)
 	}
-	if rf, ok := ret.Get(0).(func() ECChain); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(uint64) ECChain); ok {
+		r0 = rf(instance)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(ECChain)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func() PowerTable); ok {
-		r1 = rf()
+	if rf, ok := ret.Get(1).(func(uint64) error); ok {
+		r1 = rf(instance)
 	} else {
-		r1 = ret.Get(1).(PowerTable)
+		r1 = ret.Error(1)
 	}
 
-	if rf, ok := ret.Get(2).(func() []byte); ok {
-		r2 = rf()
+	return r0, r1
+}
+
+// MockHost_GetChainForInstance_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetChainForInstance'
+type MockHost_GetChainForInstance_Call struct {
+	*mock.Call
+}
+
+// GetChainForInstance is a helper method to define mock.On call
+//   - instance uint64
+func (_e *MockHost_Expecter) GetChainForInstance(instance interface{}) *MockHost_GetChainForInstance_Call {
+	return &MockHost_GetChainForInstance_Call{Call: _e.mock.On("GetChainForInstance", instance)}
+}
+
+func (_c *MockHost_GetChainForInstance_Call) Run(run func(instance uint64)) *MockHost_GetChainForInstance_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(uint64))
+	})
+	return _c
+}
+
+func (_c *MockHost_GetChainForInstance_Call) Return(chain ECChain, err error) *MockHost_GetChainForInstance_Call {
+	_c.Call.Return(chain, err)
+	return _c
+}
+
+func (_c *MockHost_GetChainForInstance_Call) RunAndReturn(run func(uint64) (ECChain, error)) *MockHost_GetChainForInstance_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetCommitteeForInstance provides a mock function with given fields: instance
+func (_m *MockHost) GetCommitteeForInstance(instance uint64) (*PowerTable, []byte, error) {
+	ret := _m.Called(instance)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetCommitteeForInstance")
+	}
+
+	var r0 *PowerTable
+	var r1 []byte
+	var r2 error
+	if rf, ok := ret.Get(0).(func(uint64) (*PowerTable, []byte, error)); ok {
+		return rf(instance)
+	}
+	if rf, ok := ret.Get(0).(func(uint64) *PowerTable); ok {
+		r0 = rf(instance)
 	} else {
-		if ret.Get(2) != nil {
-			r2 = ret.Get(2).([]byte)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*PowerTable)
 		}
+	}
+
+	if rf, ok := ret.Get(1).(func(uint64) []byte); ok {
+		r1 = rf(instance)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(2).(func(uint64) error); ok {
+		r2 = rf(instance)
+	} else {
+		r2 = ret.Error(2)
 	}
 
 	return r0, r1, r2
 }
 
-// MockHost_GetCanonicalChain_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCanonicalChain'
-type MockHost_GetCanonicalChain_Call struct {
+// MockHost_GetCommitteeForInstance_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCommitteeForInstance'
+type MockHost_GetCommitteeForInstance_Call struct {
 	*mock.Call
 }
 
-// GetCanonicalChain is a helper method to define mock.On call
-func (_e *MockHost_Expecter) GetCanonicalChain() *MockHost_GetCanonicalChain_Call {
-	return &MockHost_GetCanonicalChain_Call{Call: _e.mock.On("GetCanonicalChain")}
+// GetCommitteeForInstance is a helper method to define mock.On call
+//   - instance uint64
+func (_e *MockHost_Expecter) GetCommitteeForInstance(instance interface{}) *MockHost_GetCommitteeForInstance_Call {
+	return &MockHost_GetCommitteeForInstance_Call{Call: _e.mock.On("GetCommitteeForInstance", instance)}
 }
 
-func (_c *MockHost_GetCanonicalChain_Call) Run(run func()) *MockHost_GetCanonicalChain_Call {
+func (_c *MockHost_GetCommitteeForInstance_Call) Run(run func(instance uint64)) *MockHost_GetCommitteeForInstance_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(uint64))
 	})
 	return _c
 }
 
-func (_c *MockHost_GetCanonicalChain_Call) Return(chain ECChain, power PowerTable, beacon []byte) *MockHost_GetCanonicalChain_Call {
-	_c.Call.Return(chain, power, beacon)
+func (_c *MockHost_GetCommitteeForInstance_Call) Return(power *PowerTable, beacon []byte, err error) *MockHost_GetCommitteeForInstance_Call {
+	_c.Call.Return(power, beacon, err)
 	return _c
 }
 
-func (_c *MockHost_GetCanonicalChain_Call) RunAndReturn(run func() (ECChain, PowerTable, []byte)) *MockHost_GetCanonicalChain_Call {
+func (_c *MockHost_GetCommitteeForInstance_Call) RunAndReturn(run func(uint64) (*PowerTable, []byte, error)) *MockHost_GetCommitteeForInstance_Call {
 	_c.Call.Return(run)
 	return _c
 }

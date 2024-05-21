@@ -28,9 +28,9 @@ type ECInstance struct {
 	Instance uint64
 	// The base of all chains, which participants must agree on.
 	BaseChain gpbft.ECChain
-	// The power table at the base chain head.
+	// The power table to be used for this instance.
 	PowerTable *gpbft.PowerTable
-	// The beacon value of the base chain head.
+	// The beacon value to use for this instance.
 	Beacon []byte
 
 	ec        *simEC
@@ -56,7 +56,10 @@ func newEC(opts *options) *simEC {
 	}
 }
 
-func (ec *simEC) BeginInstance(baseChain gpbft.ECChain, pt *gpbft.PowerTable, beacon []byte) *ECInstance {
+func (ec *simEC) BeginInstance(baseChain gpbft.ECChain, pt *gpbft.PowerTable) *ECInstance {
+	// Take beacon value from the head of the base chain.
+	// Note a real beacon value will come from a finalised chain with some lookback.
+	beacon := baseChain.Head().Key
 	instance := &ECInstance{
 		Instance:   uint64(ec.Len()),
 		BaseChain:  baseChain,
