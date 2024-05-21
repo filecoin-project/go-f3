@@ -38,7 +38,7 @@ jobs:
         with:
           go-version: '1.21'
       - name: Build
-        run: make f3
+        run: make build
       - name: Test
         run: make test/cover
       - name: Upload coverage to Codecov

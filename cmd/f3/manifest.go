@@ -30,7 +30,7 @@ var manifestGenCmd = cli.Command{
 	},
 	Action: func(c *cli.Context) error {
 		path := c.String("manifest")
-		m := f3.Manifest{}
+		var m f3.Manifest
 		m.NetworkName = "localnet"
 		fsig := signing.NewFakeBackend()
 		for i := 0; i < c.Int("N"); i++ {

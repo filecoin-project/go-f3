@@ -104,16 +104,22 @@ func (m *Module) Run(ctx context.Context) error {
 		err := h.Run(ctx)
 		m.log.Errorf("running host: %+v", err)
 	}()
+
 	for {
-		msg, err := sub.Next(ctx)
+		var msg *pubsub.Message
+		msg, err = sub.Next(ctx)
 		if err != nil {
+			if ctx.Err() != nil {
+				err = nil
+				break
+			}
 			m.log.Errorf("pubsub subscription.Next() returned an error: %+v", err)
 			break
 		}
 		var gmsg gpbft.GMessage
 		err = gmsg.UnmarshalCBOR(bytes.NewReader(msg.Data))
 		if err != nil {
-			m.log.Info("bad pubsub message: %w", err)
+			m.log.Info("bad pubsub message: %+v", err)
 			continue
 		}
 		select {
@@ -124,10 +130,10 @@ func (m *Module) Run(ctx context.Context) error {
 	}
 
 	sub.Cancel()
-	if err := m.teardownPubsub(); err != nil {
-		return xerrors.Errorf("shutting down pubsub: %w", err)
+	if err2 := m.teardownPubsub(); err2 != nil {
+		err = multierr.Append(err, xerrors.Errorf("shutting down pubsub: %w", err2))
 	}
-	return ctx.Err()
+	return multierr.Append(err, ctx.Err())
 }
 
 var _ pubsub.ValidatorEx = (*Module)(nil).pubsubTopicValidator

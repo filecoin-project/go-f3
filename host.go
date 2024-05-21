@@ -132,8 +132,8 @@ func (h *gpbfthost) NetworkName() gpbft.NetworkName {
 func (h *gpbfthost) Broadcast(msg *gpbft.GMessage) {
 	h.log.Info("broadcast")
 
-	bw := &bytes.Buffer{}
-	err := msg.MarshalCBOR(bw)
+	var bw bytes.Buffer
+	err := msg.MarshalCBOR(&bw)
 	if err != nil {
 		h.log.Errorf("marshalling GMessage: %+v", err)
 	}

@@ -32,6 +32,9 @@ generate:
 	go generate ./...
 .PHONY: generate
 
+build: f3
+.PHONY: build
+
 f3:
 	go build ./cmd/f3
 .PHONY: f3

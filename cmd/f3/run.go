@@ -42,7 +42,7 @@ var runCmd = cli.Command{
 			return xerrors.Errorf("creating gossipsub: %w", err)
 		}
 
-		err = setupDiscovery(h)
+		err = setupDiscovery(ctx, h)
 		if err != nil {
 			return xerrors.Errorf("setting up discovery: %w", err)
 		}
@@ -89,8 +89,12 @@ func (n *discoveryNotifee) HandlePeerFound(pi peer.AddrInfo) {
 	}
 }
 
-func setupDiscovery(h host.Host) error {
+func setupDiscovery(ctx context.Context, h host.Host) error {
 	// setup mDNS discovery to find local peers
 	s := mdns.NewMdnsService(h, DiscoveryTag, &discoveryNotifee{h: h})
+	go func() {
+		<-ctx.Done()
+		s.Close()
+	}()
 	return s.Start()
 }
