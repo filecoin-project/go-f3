@@ -101,7 +101,8 @@ func FuzzHonestMultiInstance_AsyncAgreement(f *testing.F) {
 }
 
 func multiAgreementTest(t *testing.T, seed int, honestCount int, instanceCount uint64, maxRounds uint64, opts ...sim.Option) {
-	t.Parallel()
+	// TODO: t.Parallel() here after https://github.com/filecoin-project/builtin-actors/issues/1541
+	//t.Parallel()
 	rng := rand.New(rand.NewSource(int64(seed)))
 	sm, err := sim.NewSimulation(append(opts,
 		sim.AddHonestParticipants(
