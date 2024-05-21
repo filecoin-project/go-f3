@@ -10,6 +10,7 @@ import (
 )
 
 func TestEcDivergence_AbsoluteDivergenceConvergesOnBase(t *testing.T) {
+	t.Parallel()
 	const (
 		instanceCount     = 14
 		divergeAtInstance = 9
@@ -30,6 +31,7 @@ func TestEcDivergence_AbsoluteDivergenceConvergesOnBase(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			seedFuzzer := uint64(985623)
 
 			// uniformECChainGenerator generates different EC chain per instance but the same
@@ -98,6 +100,7 @@ func TestEcDivergence_AbsoluteDivergenceConvergesOnBase(t *testing.T) {
 }
 
 func TestEcDivergence_PartitionedNetworkConvergesOnChainWithMostPower(t *testing.T) {
+	t.Parallel()
 	const (
 		instanceCount       = 23
 		partitionAtInstance = 13
@@ -118,6 +121,7 @@ func TestEcDivergence_PartitionedNetworkConvergesOnChainWithMostPower(t *testing
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			seedFuzzer := uint64(784523)
 
 			chainGeneratorBeforePartition := sim.NewUniformECChainGenerator(17*seedFuzzer, 5, 10)

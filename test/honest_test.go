@@ -34,6 +34,7 @@ func TestHonest_Agreement(t *testing.T) {
 	tests := []struct {
 		name                 string
 		options              []sim.Option
+		useBLS               bool
 		participantCounts    []int
 		wantConsensusOnAnyOf []gpbft.TipSet
 	}{
@@ -45,7 +46,8 @@ func TestHonest_Agreement(t *testing.T) {
 		},
 		{
 			name:                 "sync bls",
-			options:              syncOptions(sim.WithSigningBackend(signing.NewBLSBackend())),
+			options:              syncOptions(),
+			useBLS:               true,
 			participantCounts:    blsParticipantCount,
 			wantConsensusOnAnyOf: []gpbft.TipSet{*targetChain.Head()},
 		},
@@ -57,7 +59,8 @@ func TestHonest_Agreement(t *testing.T) {
 		},
 		{
 			name:                 "async pair bls",
-			options:              asyncOptions(1413, sim.WithSigningBackend(signing.NewBLSBackend())),
+			options:              asyncOptions(1413),
+			useBLS:               true,
 			wantConsensusOnAnyOf: []gpbft.TipSet{*baseChain.Head(), *targetChain.Head()},
 		},
 	}
@@ -67,9 +70,14 @@ func TestHonest_Agreement(t *testing.T) {
 			participantCount := participantCount
 			name := fmt.Sprintf("%s %d", test.name, participantCount)
 			t.Run(name, func(t *testing.T) {
+				t.Parallel()
 				test.options = append(test.options,
 					sim.WithBaseChain(&baseChain),
 					sim.AddHonestParticipants(participantCount, sim.NewFixedECChainGenerator(targetChain), uniformOneStoragePower))
+				if test.useBLS {
+					// Initialise a new BLS backend for each test since it's not concurrent-safe.
+					test.options = append(test.options, sim.WithSigningBackend(signing.NewBLSBackend()))
+				}
 				sm, err := sim.NewSimulation(test.options...)
 				require.NoError(t, err)
 				require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
@@ -133,7 +141,7 @@ func TestHonest_Disagreement(t *testing.T) {
 			participantCount := participantCount
 			name := fmt.Sprintf("%s %d", test.name, participantCount)
 			t.Run(name, func(t *testing.T) {
-
+				t.Parallel()
 				test.options = append(test.options,
 					sim.WithBaseChain(&baseChain),
 					sim.AddHonestParticipants(participantCount/2, sim.NewFixedECChainGenerator(oneChain), uniformOneStoragePower),
@@ -206,6 +214,7 @@ func FuzzHonest_SyncMajorityCommonPrefix(f *testing.F) {
 	f.Add(-955846)
 	f.Add(28)
 	f.Fuzz(func(t *testing.T, seed int) {
+		t.Parallel()
 		rng := rand.New(rand.NewSource(int64(seed)))
 		majorityCommonPrefixGenerator := sim.NewUniformECChainGenerator(rng.Uint64(), 10, 20)
 		sm, err := sim.NewSimulation(append(syncOptions(),
@@ -247,6 +256,7 @@ func FuzzHonest_AsyncMajorityCommonPrefix(f *testing.F) {
 	f.Add(-7)
 	f.Add(5)
 	f.Fuzz(func(t *testing.T, seed int) {
+		t.Parallel()
 		rng := rand.New(rand.NewSource(int64(seed)))
 		majorityCommonPrefixGenerator := sim.NewUniformECChainGenerator(rng.Uint64(), 10, 20)
 		sm, err := sim.NewSimulation(append(asyncOptions(rng.Int()),
