@@ -145,7 +145,7 @@ func (n *Network) SetAlarm(sender gpbft.ActorID, at time.Time) {
 	)
 }
 
-func (n *Network) Log(format string, args ...interface{}) {
+func (n *Network) Log(format string, args ...any) {
 	n.log(TraceLogic, format, args...)
 }
 
