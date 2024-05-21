@@ -78,7 +78,7 @@ type networkFor struct {
 }
 
 // Log implements tagging Tracer interface
-func (nf *networkFor) Log(format string, args ...interface{}) {
+func (nf *networkFor) Log(format string, args ...any) {
 	nf.Network.log(TraceLogic, "P%d "+format, append([]any{nf.ParticipantID}, args...)...)
 }
 
