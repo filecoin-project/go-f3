@@ -8,26 +8,38 @@ import (
 	"fmt"
 
 	"github.com/filecoin-project/go-f3/gpbft"
+	"golang.org/x/xerrors"
 )
 
 var _ Backend = (*FakeBackend)(nil)
 
 type FakeBackend struct {
-	i int
+	allowed map[string]struct{}
+	i       int
 }
 
 func NewFakeBackend() *FakeBackend {
-	return &FakeBackend{}
+	return &FakeBackend{allowed: make(map[string]struct{})}
 }
 
 func (s *FakeBackend) GenerateKey() (gpbft.PubKey, any) {
 	pubKey := gpbft.PubKey(fmt.Sprintf("pubkey::%08x", s.i))
 	privKey := fmt.Sprintf("privkey:%08x", s.i)
+	s.allowed[string(pubKey)] = struct{}{}
 	s.i++
 	return pubKey, privKey
 }
 
+func (s *FakeBackend) Allow(i int) gpbft.PubKey {
+	pubKey := gpbft.PubKey(fmt.Sprintf("pubkey::%08x", i))
+	s.allowed[string(pubKey)] = struct{}{}
+	return pubKey
+}
+
 func (s *FakeBackend) Sign(signer gpbft.PubKey, msg []byte) ([]byte, error) {
+	if _, ok := s.allowed[string(signer)]; !ok {
+		return nil, xerrors.Errorf("cannot sign: unknown sender")
+	}
 	return s.generateSignature(signer, msg)
 }
 

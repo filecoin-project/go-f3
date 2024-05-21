@@ -66,8 +66,9 @@ var runCmd = cli.Command{
 		_ = logging.SetLogLevel("f3", "debug")
 
 		signingBackend := signing.NewFakeBackend()
-		module, err := f3.NewModule(ctx, gpbft.ActorID(c.Uint64("id")), m, ds, h, ps,
-			signingBackend, signingBackend, nil, log)
+		id := c.Uint64("id")
+		signingBackend.Allow(int(id))
+		module, err := f3.NewModule(ctx, gpbft.ActorID(id), m, ds, h, ps, signingBackend, signingBackend, nil, log)
 		if err != nil {
 			return xerrors.Errorf("creating module: %w", err)
 		}
