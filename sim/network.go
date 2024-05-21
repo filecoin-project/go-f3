@@ -63,26 +63,26 @@ func (n *Network) AddParticipant(p gpbft.Receiver) {
 
 ////// Network interface
 
-func (n *Network) NetworkFor(signer gpbft.Signer, id gpbft.ActorID) *NetworkFor {
-	return &NetworkFor{
+func (n *Network) NetworkFor(signer gpbft.Signer, id gpbft.ActorID) *networkFor {
+	return &networkFor{
 		ParticipantID: id,
 		Signer:        signer,
 		Network:       n,
 	}
 }
 
-type NetworkFor struct {
+type networkFor struct {
 	ParticipantID gpbft.ActorID
 	Signer        gpbft.Signer
 	*Network
 }
 
 // Log implements tagging Tracer interface
-func (nf *NetworkFor) Log(format string, args ...interface{}) {
+func (nf *networkFor) Log(format string, args ...interface{}) {
 	nf.Network.log(TraceLogic, "P%d "+format, append([]any{nf.ParticipantID}, args...)...)
 }
 
-func (nf *NetworkFor) RequestBroadcast(msg *gpbft.GMessage) {
+func (nf *networkFor) RequestBroadcast(msg *gpbft.GMessage) {
 	nf.log(TraceSent, "P%d ↗ %v", msg.Sender, msg)
 	for _, dest := range nf.participantIDs {
 		latencySample := time.Duration(0)
