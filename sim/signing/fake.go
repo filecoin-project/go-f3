@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/filecoin-project/go-f3/gpbft"
+	"slices"
 )
 
 var _ Backend = (*FakeBackend)(nil)
@@ -58,29 +59,38 @@ func (s *FakeBackend) Verify(signer gpbft.PubKey, msg, sig []byte) error {
 	}
 }
 
-func (_ *FakeBackend) Aggregate(signers []gpbft.PubKey, sigs [][]byte) ([]byte, error) {
+func (*FakeBackend) Aggregate(signers []gpbft.PubKey, sigs [][]byte) ([]byte, error) {
 	if len(signers) != len(sigs) {
 		return nil, errors.New("public keys and signatures length mismatch")
 	}
+	order := make([]int, len(signers))
+	for i := range order {
+		order[i] = i
+	}
+	slices.SortFunc(order, func(a, b int) int {
+		return bytes.Compare(sigs[a], sigs[b])
+	})
+
 	hasher := sha256.New()
-	for i, signer := range signers {
-		hasher.Write(signer)
+	for _, i := range order {
+		hasher.Write(signers[i])
 		hasher.Write(sigs[i])
 	}
 	return hasher.Sum(nil), nil
 }
 
 func (s *FakeBackend) VerifyAggregate(payload, aggSig []byte, signers []gpbft.PubKey) error {
-	hasher := sha256.New()
-	for _, signer := range signers {
+	sigs := make([][]byte, len(signers))
+	for i, signer := range signers {
 		sig, err := s.Sign(signer, payload)
 		if err != nil {
 			return err
 		}
-		hasher.Write(signer)
-		hasher.Write(sig)
+		sigs[i] = sig
 	}
-	if !bytes.Equal(aggSig, hasher.Sum(nil)) {
+	if expAggSig, err := s.Aggregate(signers, sigs); err != nil {
+		return err
+	} else if !bytes.Equal(aggSig, expAggSig) {
 		return errors.New("signature is not valid")
 	}
 	return nil
