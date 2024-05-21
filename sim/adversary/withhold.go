@@ -55,7 +55,7 @@ func (w *WithholdCommit) Start() error {
 		return errors.New("victims must be set")
 	}
 
-	_, powertable, _ := w.host.GetCanonicalChain()
+	powertable, _, _ := w.host.GetCommitteeForInstance(0)
 	broadcast := w.broadcastHelper(w.id, powertable)
 	// All victims need to see QUALITY and PREPARE in order to send their COMMIT,
 	// but only the one victim will see our COMMIT.
@@ -165,7 +165,7 @@ func (w *WithholdCommit) sign(pubkey gpbft.PubKey, msg []byte) []byte {
 	return sig
 }
 
-func (w *WithholdCommit) broadcastHelper(sender gpbft.ActorID, powertable gpbft.PowerTable) func(gpbft.Payload, *gpbft.Justification) {
+func (w *WithholdCommit) broadcastHelper(sender gpbft.ActorID, powertable *gpbft.PowerTable) func(gpbft.Payload, *gpbft.Justification) {
 	return func(payload gpbft.Payload, justification *gpbft.Justification) {
 		pS := w.host.MarshalPayloadForSigning(&payload)
 		_, pubkey := powertable.Get(sender)
