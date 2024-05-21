@@ -102,7 +102,7 @@ func (m *Module) Run(ctx context.Context) error {
 
 	go func() {
 		err := h.Run(ctx)
-		m.log.Errorf("starting host: %+v", err)
+		m.log.Errorf("running host: %+v", err)
 	}()
 	for {
 		msg, err := sub.Next(ctx)
@@ -116,7 +116,11 @@ func (m *Module) Run(ctx context.Context) error {
 			m.log.Info("bad pubsub message: %w", err)
 			continue
 		}
-		h.MessageQueue <- &gmsg
+		select {
+		case h.MessageQueue <- &gmsg:
+		case <-ctx.Done():
+			break
+		}
 	}
 
 	sub.Cancel()
