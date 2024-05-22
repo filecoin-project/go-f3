@@ -100,10 +100,10 @@ func (i *ImmediateDecide) broadcast(payload gpbft.Payload, justification *gpbft.
 		panic(err)
 	}
 
-	i.host.Broadcast(i.id, &gpbft.GMessage{
+	i.host.BroadcastSynchronous(i.id, &gpbft.GMessage{
 		Sender:        i.id,
 		Vote:          payload,
 		Signature:     sig,
 		Justification: justification,
-	}, true)
+	})
 }
