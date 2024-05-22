@@ -75,6 +75,9 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 		gpbft.WithDeltaBackOffExponent(deltaBackOffExponent),
 		gpbft.WithInitialInstance(instance))
 	require.NoError(t, err)
+	subject.host.
+		On("ID").
+		Return(subject.id)
 	require.EqualValues(t, subject.id, subject.host.ID())
 	subject.requireNotStarted()
 	return &subject
