@@ -163,8 +163,14 @@ func (s *Simulation) Describe() string {
 	return b.String()
 }
 
+// ListParticipantIDs lists the ID of honest participants in simulation. Note
+// that the adversary ID is not included in the list.
 func (s *Simulation) ListParticipantIDs() []gpbft.ActorID {
-	return s.network.participantIDs
+	pids := make([]gpbft.ActorID, len(s.participants))
+	for i, participant := range s.participants {
+		pids[i] = participant.ID()
+	}
+	return pids
 }
 
 func (s *Simulation) GetInstance(i uint64) *ECInstance {
