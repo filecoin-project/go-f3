@@ -253,6 +253,28 @@ func (i *instance) receiveOne(msg *GMessage) error {
 		return nil
 	}
 
+	// Drop message that:
+	//  * belong to future rounds, beyond the configured max lookahead threshold, and
+	//  * carry no justification, i.e. are spammable.
+	//
+	// The only messages that are spammable are COMMIT for bottom. QUALITY and
+	// PREPARE messages may also not carry justification, but they are not
+	// spammable. Because:
+	//  * QUALITY is only valid for round zero.
+	//  * PREPARE must carry justification for non-zero rounds.
+	//
+	// Therefore, we are only left with COMMIT for bottom messages as potentially
+	// spammable for rounds beyond zero.
+	//
+	// To drop such messages, the implementation below defensively uses a stronger
+	// condition of "nil justification with round larger than zero" to determine
+	// whether a message is "spammable".
+	beyondMaxLookaheadRounds := msg.Vote.Round > i.round+i.participant.maxLookaheadRounds
+	spammable := msg.Justification == nil && msg.Vote.Round > 0
+	if beyondMaxLookaheadRounds && spammable {
+		return nil
+	}
+
 	round := i.roundState(msg.Vote.Round)
 	switch msg.Vote.Step {
 	case QUALITY_PHASE:

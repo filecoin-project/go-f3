@@ -55,11 +55,11 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 	if err := s.initParticipants(); err != nil {
 		return err
 	}
-	pt, err := s.getPowerTable()
+	pt, err := s.getPowerTable(0)
 	if err != nil {
 		return err
 	}
-	currentInstance := s.ec.BeginInstance(*s.baseChain, pt, s.beacon)
+	currentInstance := s.ec.BeginInstance(*s.baseChain, pt)
 	s.startParticipants()
 
 	finalInstance := instanceCount - 1
@@ -86,16 +86,14 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 				return fmt.Errorf("concensus was not reached at instance %d", currentInstance.Instance)
 			}
 
-			pt, err := s.getPowerTable()
+			pt, err := s.getPowerTable(currentInstance.Instance + 1)
 			if err != nil {
 				return err
 			}
 
 			// Instantiate the next instance even if it goes beyond finalInstance.
 			// The last incomplete instance is used for testing assertions.
-			currentInstance = s.ec.BeginInstance(*decidedChain, pt,
-				[]byte(fmt.Sprintf("beacon %d", currentInstance.Instance+1)),
-			)
+			currentInstance = s.ec.BeginInstance(*decidedChain, pt)
 
 			// Stop after currentInstance is larger than finalInstance, which means we will
 			// instantiate one extra instance that will not complete.
@@ -127,14 +125,15 @@ func (s *Simulation) startParticipants() {
 	}
 }
 
-func (s *Simulation) getPowerTable() (*gpbft.PowerTable, error) {
+// Gets the power table to be used for an instance.
+func (s *Simulation) getPowerTable(instance uint64) (*gpbft.PowerTable, error) {
 	pEntries := make([]gpbft.PowerEntry, 0, len(s.participants))
 	// Set chains for first instance
 	for _, h := range s.hosts {
 		pEntries = append(pEntries, gpbft.PowerEntry{
 			ID:     h.ID(),
-			Power:  h.StoragePower(),
-			PubKey: h.PublicKey(),
+			Power:  h.StoragePower(instance),
+			PubKey: h.PublicKey(instance),
 		})
 	}
 	pt := gpbft.NewPowerTable()
@@ -185,8 +184,14 @@ func (s *Simulation) Describe() string {
 	return b.String()
 }
 
+// ListParticipantIDs lists the ID of honest participants in simulation. Note
+// that the adversary ID is not included in the list.
 func (s *Simulation) ListParticipantIDs() []gpbft.ActorID {
-	return s.network.participantIDs
+	pids := make([]gpbft.ActorID, len(s.participants))
+	for i, participant := range s.participants {
+		pids[i] = participant.ID()
+	}
+	return pids
 }
 
 func (s *Simulation) GetInstance(i uint64) *ECInstance {

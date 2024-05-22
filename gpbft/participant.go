@@ -138,7 +138,10 @@ func (p *Participant) ReceiveAlarm() (err error) {
 }
 
 func (p *Participant) beginInstance() error {
-	chain, power, beacon := p.host.GetCanonicalChain()
+	chain, err := p.host.GetChainForInstance(p.nextInstance)
+	if err != nil {
+		return fmt.Errorf("failed fetching chain for instance %d: %w", p.nextInstance, err)
+	}
 	// Limit length of the chain to be proposed.
 	if chain.IsZero() {
 		return errors.New("canonical chain cannot be zero-valued")
@@ -147,11 +150,15 @@ func (p *Participant) beginInstance() error {
 	if err := chain.Validate(); err != nil {
 		return fmt.Errorf("invalid canonical chain: %w", err)
 	}
+
+	power, beacon, err := p.host.GetCommitteeForInstance(p.nextInstance)
+	if err != nil {
+		return fmt.Errorf("failed fetching power table for instance %d: %w", p.nextInstance, err)
+	}
 	if err := power.Validate(); err != nil {
 		return fmt.Errorf("invalid power table: %w", err)
 	}
-	var err error
-	if p.granite, err = newInstance(p, p.nextInstance, chain, power, beacon); err != nil {
+	if p.granite, err = newInstance(p, p.nextInstance, chain, *power, beacon); err != nil {
 		return fmt.Errorf("failed creating new granite instance: %w", err)
 	}
 	p.nextInstance += 1
