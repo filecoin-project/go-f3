@@ -14,6 +14,7 @@ func main() {
 	err := gen.WriteTupleEncodersToFile("../gpbft/gen.go", "gpbft",
 		gpbft.TipSet{},
 		gpbft.GMessage{},
+		gpbft.InstanceData{},
 		gpbft.Payload{},
 		gpbft.Justification{},
 	)

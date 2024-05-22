@@ -170,7 +170,11 @@ func (p *Participant) beginInstance() error {
 	if err != nil {
 		return err
 	}
-	if p.gpbft, err = newInstance(p, p.currentInstance, chain, *comm.power, comm.beacon); err != nil {
+
+	// XXX: Need the the power table for the next instance after this one:
+	// GetCommitteeForInstance(p.nextInstance + 1)
+	data := new(InstanceData)
+	if p.gpbft, err = newInstance(p, p.currentInstance, chain, data, *comm.power, comm.beacon); err != nil {
 		return fmt.Errorf("failed creating new gpbft instance: %w", err)
 	}
 	if err := p.gpbft.Start(); err != nil {

@@ -78,6 +78,20 @@ type Justification struct {
 	Signature []byte
 }
 
+type InstanceData struct {
+	// The blake2b hash of the power table used to validate the next instance, taking lookback
+	// into account.
+	PowerTable [32]byte
+	// Merkle-tree of instance-specific commitments. Currently empty but this will eventually
+	// include things like snark-friendly power-table commitments.
+	Commitments [32]byte
+}
+
+func (d *InstanceData) Eq(other *InstanceData) bool {
+	return d.Commitments == other.Commitments &&
+		d.PowerTable == other.PowerTable
+}
+
 // Fields of the message that make up the signature payload.
 type Payload struct {
 	// GossiPBFT instance (epoch) number.
@@ -86,8 +100,9 @@ type Payload struct {
 	Round uint64
 	// GossiPBFT step name.
 	Step Phase
-	// Chain of tipsets proposed/voted for finalisation.
-	// Always non-empty; the first entry is the base tipset finalised in the previous instance.
+	// The common data.
+	Data InstanceData
+	// The value agreed-upon in a single instance.
 	Value ECChain
 }
 
@@ -95,6 +110,7 @@ func (p *Payload) Eq(other *Payload) bool {
 	return p.Instance == other.Instance &&
 		p.Round == other.Round &&
 		p.Step == other.Step &&
+		p.Data.Eq(&other.Data) &&
 		p.Value.Eq(other.Value)
 }
 
@@ -114,6 +130,8 @@ func (p *Payload) MarshalForSigning(nn NetworkName) []byte {
 	_ = binary.Write(&buf, binary.BigEndian, p.Step)
 	_ = binary.Write(&buf, binary.BigEndian, p.Round)
 	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
+	_, _ = buf.Write(p.Data.Commitments[:])
+	_, _ = buf.Write(p.Data.PowerTable[:])
 	_, _ = buf.Write(root[:])
 	return buf.Bytes()
 }
@@ -163,6 +181,8 @@ type instance struct {
 	// Decision state. Collects DECIDE messages until a decision can be made,
 	// independently of protocol phases/rounds.
 	decision *quorumState
+	// Instance data that all participants must agree on.
+	instanceData *InstanceData
 	// tracer traces logic logs for debugging and simulation purposes.
 	tracer Tracer
 }
@@ -171,6 +191,7 @@ func newInstance(
 	participant *Participant,
 	instanceID uint64,
 	input ECChain,
+	data *InstanceData,
 	powerTable PowerTable,
 	beacon []byte) (*instance, error) {
 	if input.IsZero() {
@@ -191,8 +212,9 @@ func newInstance(
 		rounds: map[uint64]*roundState{
 			0: newRoundState(powerTable),
 		},
-		decision: newQuorumState(powerTable),
-		tracer:   participant.tracer,
+		instanceData: data,
+		decision:     newQuorumState(powerTable),
+		tracer:       participant.tracer,
 	}, nil
 }
 
@@ -223,6 +245,11 @@ func (i *instance) Receive(msg *GMessage) error {
 		// passed this message here.
 		return fmt.Errorf("message for instance %d, expected %d: %w",
 			msg.Vote.Instance, i.instanceID, ErrReceivedWrongInstance)
+	}
+	// Ensure all participants are proposing the same instance data. This data is based on the
+	// _base_, so everyone should agree.
+	if !msg.Vote.Data.Eq(i.instanceData) {
+		return xerrors.Errorf("message for instance %d disagrees on the instance data", msg.Vote.Instance)
 	}
 	// Perform validation that could not be done until the instance started.
 	if !(msg.Vote.Value.IsZero() || msg.Vote.Value.HasBase(i.input.Base())) {
