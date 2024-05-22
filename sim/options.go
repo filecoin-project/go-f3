@@ -17,7 +17,6 @@ const (
 
 var (
 	defaultBaseChain gpbft.ECChain
-	defaultBeacon    = []byte("beacon")
 )
 
 func init() {
@@ -48,7 +47,6 @@ type options struct {
 	traceLevel         int
 	networkName        gpbft.NetworkName
 	baseChain          *gpbft.ECChain
-	beacon             []byte
 	adversaryGenerator adversary.Generator
 	adversaryCount     uint64
 }
@@ -80,9 +78,6 @@ func newOptions(o ...Option) (*options, error) {
 	}
 	if opts.baseChain == nil {
 		opts.baseChain = &defaultBaseChain
-	}
-	if opts.beacon == nil {
-		opts.beacon = defaultBeacon
 	}
 	return &opts, nil
 }
