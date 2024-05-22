@@ -236,7 +236,7 @@ func (i *instance) ReceiveAlarm() error {
 }
 
 func (i *instance) Describe() string {
-	return fmt.Sprintf("P%d{%d}, round %d, phase %s", i.participant.id, i.instanceID, i.round, i.phase)
+	return fmt.Sprintf("P%d{%d}, round %d, phase %s", i.participant.host.ID(), i.instanceID, i.round, i.phase)
 }
 
 // Processes a single message.
@@ -530,7 +530,7 @@ func (i *instance) beginConverge() {
 			panic("beginConverge called but no justification for proposal")
 		}
 	}
-	_, pubkey := i.powerTable.Get(i.participant.id)
+	_, pubkey := i.powerTable.Get(i.participant.host.ID())
 	ticket, err := MakeTicket(i.beacon, i.instanceID, i.round, pubkey, i.participant.host)
 	if err != nil {
 		i.log("error while creating VRF ticket: %v", err)
@@ -774,7 +774,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 	}
 
 	gmsg := &GMessage{
-		Sender:        i.participant.id,
+		Sender:        i.participant.host.ID(),
 		Vote:          p,
 		Signature:     sig,
 		Ticket:        ticket,
@@ -815,13 +815,13 @@ func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase P
 func (i *instance) log(format string, args ...interface{}) {
 	if i.tracer != nil {
 		msg := fmt.Sprintf(format, args...)
-		i.tracer.Log("P%d{%d}: %s (round %d, step %s, proposal %s, value %s)", i.participant.id, i.instanceID, msg,
+		i.tracer.Log("P%d{%d}: %s (round %d, step %s, proposal %s, value %s)", i.participant.host.ID(), i.instanceID, msg,
 			i.round, i.phase, &i.proposal, &i.value)
 	}
 }
 
 func (i *instance) sign(msg []byte) ([]byte, error) {
-	_, pubKey := i.powerTable.Get(i.participant.id)
+	_, pubKey := i.powerTable.Get(i.participant.host.ID())
 	return i.participant.host.Sign(pubKey, msg)
 }
 

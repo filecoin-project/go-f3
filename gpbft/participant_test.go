@@ -70,12 +70,12 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 	}))
 
 	subject.host = gpbft.NewMockHost(t)
-	subject.Participant, err = gpbft.NewParticipant(subject.id, subject.host,
+	subject.Participant, err = gpbft.NewParticipant(subject.host,
 		gpbft.WithDelta(delta),
 		gpbft.WithDeltaBackOffExponent(deltaBackOffExponent),
 		gpbft.WithInitialInstance(instance))
 	require.NoError(t, err)
-	require.EqualValues(t, subject.id, subject.ID())
+	require.EqualValues(t, subject.id, subject.host.ID())
 	subject.requireNotStarted()
 	return &subject
 }
@@ -98,7 +98,10 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	wantSignature := generateRandomBytes(pt.rng)
 
 	// Expect message is signed with expected payload.
-	pt.host.On("Sign", pt.pubKey, pt.matchMessageSigningPayload()).Return(wantSignature, nil)
+	pt.host.
+		On("ID").
+		Return(pt.id).
+		On("Sign", pt.pubKey, pt.matchMessageSigningPayload()).Return(wantSignature, nil)
 
 	// Expect a broadcast occurs with quality phase message, and the expected chain, signature.
 	wantQualityPhaseBroadcastMessage := &gpbft.GMessage{
@@ -121,7 +124,7 @@ func (pt *participantTestSubject) requireNotStarted() {
 
 func (pt *participantTestSubject) requireInstanceRoundPhase(wantInstance, wantRound uint64, wantPhase gpbft.Phase) {
 	pt.t.Helper()
-	require.Equal(pt.t, fmt.Sprintf("P%d{%d}, round %d, phase %s", pt.ID(), wantInstance, wantRound, wantPhase), pt.Describe())
+	require.Equal(pt.t, fmt.Sprintf("P%d{%d}, round %d, phase %s", pt.host.ID(), wantInstance, wantRound, wantPhase), pt.Describe())
 }
 
 func (pt *participantTestSubject) requireStart() {
@@ -137,6 +140,8 @@ func (pt *participantTestSubject) assertHostExpectations() bool {
 
 func (pt *participantTestSubject) mockValidSignature(target gpbft.PubKey, sig []byte) *mock.Call {
 	return pt.host.
+		On("ID").
+		Return(pt.id).
 		On("Verify", target, pt.matchMessageSigningPayload(), sig).
 		Return(nil)
 }

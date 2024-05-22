@@ -8,7 +8,6 @@ import (
 // An F3 participant runs repeated instances of Granite to finalise longer chains.
 type Participant struct {
 	*options
-	id   ActorID
 	host Host
 
 	// Instance identifier for the next Granite instance.
@@ -36,22 +35,17 @@ func (e *PanicError) Error() string {
 	return fmt.Sprintf("participant panicked: %v", e.Err)
 }
 
-func NewParticipant(id ActorID, host Host, o ...Option) (*Participant, error) {
+func NewParticipant(host Host, o ...Option) (*Participant, error) {
 	opts, err := newOptions(o...)
 	if err != nil {
 		return nil, err
 	}
 	return &Participant{
 		options:      opts,
-		id:           id,
 		host:         host,
 		mqueue:       make(map[uint64][]*GMessage),
 		nextInstance: opts.initialInstance,
 	}, nil
-}
-
-func (p *Participant) ID() ActorID {
-	return p.id
 }
 
 // Fetches the preferred EC chain for the instance and begins the GPBFT protocol.
@@ -170,7 +164,7 @@ func (p *Participant) beginInstance() error {
 			break
 		}
 		if p.tracer != nil {
-			p.tracer.Log("Delivering queued P%d{%d} ← P%d: %v", p.id, p.granite.instanceID, msg.Sender, msg)
+			p.tracer.Log("Delivering queued P%d{%d} ← P%d: %v", p.host.ID(), p.granite.instanceID, msg.Sender, msg)
 		}
 		if err := p.granite.Receive(msg); err != nil {
 			return fmt.Errorf("delivering queued message: %w", err)

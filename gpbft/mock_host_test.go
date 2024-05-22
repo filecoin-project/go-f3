@@ -146,6 +146,51 @@ func (_c *MockHost_GetCanonicalChain_Call) RunAndReturn(run func() (ECChain, Pow
 	return _c
 }
 
+// ID provides a mock function with given fields:
+func (_m *MockHost) ID() ActorID {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for ID")
+	}
+
+	var r0 ActorID
+	if rf, ok := ret.Get(0).(func() ActorID); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(ActorID)
+	}
+
+	return r0
+}
+
+// MockHost_ID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ID'
+type MockHost_ID_Call struct {
+	*mock.Call
+}
+
+// ID is a helper method to define mock.On call
+func (_e *MockHost_Expecter) ID() *MockHost_ID_Call {
+	return &MockHost_ID_Call{Call: _e.mock.On("ID")}
+}
+
+func (_c *MockHost_ID_Call) Run(run func()) *MockHost_ID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockHost_ID_Call) Return(_a0 ActorID) *MockHost_ID_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockHost_ID_Call) RunAndReturn(run func() ActorID) *MockHost_ID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // MarshalPayloadForSigning provides a mock function with given fields: _a0
 func (_m *MockHost) MarshalPayloadForSigning(_a0 *Payload) []byte {
 	ret := _m.Called(_a0)

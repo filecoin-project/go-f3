@@ -13,8 +13,29 @@ type Simulation struct {
 	network      *Network
 	ec           *simEC
 	hosts        []*simHost
-	participants []*gpbft.Participant
+	participants []Participant
 	adversary    *adversary.Adversary
+}
+
+// Participant is a wrapper around gpbft.Participant that implements the Receiver interface
+type Participant struct {
+	id gpbft.ActorID
+	*gpbft.Participant
+}
+
+func newParticipant(host gpbft.Host, pOpts ...gpbft.Option) (Participant, error) {
+	participant, err := gpbft.NewParticipant(host, pOpts...)
+	if err != nil {
+		return Participant{}, fmt.Errorf("failed to instantiate participant: %w", err)
+	}
+	return Participant{
+		id:          host.ID(),
+		Participant: participant,
+	}, nil
+}
+
+func (p Participant) ID() gpbft.ActorID {
+	return p.id
 }
 
 func NewSimulation(o ...Option) (*Simulation, error) {
@@ -129,9 +150,9 @@ func (s *Simulation) initParticipants() error {
 	for _, archetype := range s.honestParticipantArchetypes {
 		for i := 0; i < archetype.count; i++ {
 			host := newHost(nextID, s, archetype.ecChainGenerator, archetype.storagePowerGenerator)
-			participant, err := gpbft.NewParticipant(nextID, host, pOpts...)
+			participant, err := newParticipant(host, pOpts...)
 			if err != nil {
-				return fmt.Errorf("failed to instnatiate participant: %w", err)
+				return err
 			}
 			s.participants = append(s.participants, participant)
 			s.hosts = append(s.hosts, host)

@@ -95,6 +95,7 @@ type Tracer interface {
 
 // Participant interface to the host system resources.
 type Host interface {
+	ID() ActorID
 	Chain
 	Network
 	Clock
