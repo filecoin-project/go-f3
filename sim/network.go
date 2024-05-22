@@ -104,7 +104,15 @@ func (n *Network) NetworkName() gpbft.NetworkName {
 	return n.networkName
 }
 
-func (n *Network) Broadcast(sender gpbft.ActorID, msg *gpbft.GMessage, synchronous bool) {
+func (n *Network) Broadcast(sender gpbft.ActorID, msg *gpbft.GMessage) {
+	n.broadcast(sender, msg, false)
+}
+
+func (n *Network) BroadcastSynchronous(sender gpbft.ActorID, msg *gpbft.GMessage) {
+	n.broadcast(sender, msg, true)
+}
+
+func (n *Network) broadcast(sender gpbft.ActorID, msg *gpbft.GMessage, synchronous bool) {
 	n.log(TraceSent, "P%d ↗ %v", sender, msg)
 	for _, dest := range n.participantIDs {
 		if dest == sender {

@@ -174,11 +174,11 @@ func (w *WithholdCommit) broadcastHelper(sender gpbft.ActorID, powertable gpbft.
 			panic(err)
 		}
 
-		w.host.Broadcast(sender, &gpbft.GMessage{
+		w.host.BroadcastSynchronous(sender, &gpbft.GMessage{
 			Sender:        sender,
 			Vote:          payload,
 			Signature:     sig,
 			Justification: justification,
-		}, true)
+		})
 	}
 }

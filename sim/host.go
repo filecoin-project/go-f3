@@ -33,7 +33,9 @@ type simHost struct {
 type SimNetwork interface {
 	gpbft.Network
 	// Sends a message to all other participants.
-	Broadcast(sender gpbft.ActorID, msg *gpbft.GMessage, synchronouos bool)
+	Broadcast(sender gpbft.ActorID, msg *gpbft.GMessage)
+	// sends a message to all other participants immediately.
+	BroadcastSynchronous(sender gpbft.ActorID, msg *gpbft.GMessage)
 }
 
 func newHost(id gpbft.ActorID, sim *Simulation, ecg ECChainGenerator, spg StoragePowerGenerator) *simHost {
