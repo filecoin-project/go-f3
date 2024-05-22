@@ -67,7 +67,7 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 	// Exclude adversary ID when checking for decision or instance completion.
 	var excludedParticipants []gpbft.ActorID
 	if s.adversary != nil {
-		excludedParticipants = append(excludedParticipants, s.adversary.host.ID())
+		excludedParticipants = append(excludedParticipants, s.adversary.ID())
 	}
 
 	// Run until there are no more messages, meaning termination or deadlock.

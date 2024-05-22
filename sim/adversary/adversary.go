@@ -4,6 +4,7 @@ import "github.com/filecoin-project/go-f3/gpbft"
 
 type Receiver interface {
 	gpbft.Receiver
+	ID() gpbft.ActorID
 	AllowMessage(from gpbft.ActorID, to gpbft.ActorID, msg gpbft.GMessage) bool
 }
 
