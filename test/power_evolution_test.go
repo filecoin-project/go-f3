@@ -32,6 +32,7 @@ func FuzzStoragePower_AsyncIncreaseMidSimulation(f *testing.F) {
 }
 
 func storagePowerIncreaseMidSimulationTest(t *testing.T, seed int, instanceCount uint64, maxRounds uint64, o ...sim.Option) {
+	t.Parallel()
 	const (
 		groupOneStoragePower               = 5
 		groupTwoStoragePowerBeforeIncrease = 2
@@ -119,6 +120,7 @@ func FuzzStoragePower_AsyncDecreaseRevertsToBase(f *testing.F) {
 }
 
 func storagePowerDecreaseRevertsToBaseTest(t *testing.T, seed int, instanceCount uint64, maxRounds uint64, o ...sim.Option) {
+	t.Parallel()
 	rng := rand.New(rand.NewSource(int64(seed)))
 	tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
 	baseChain := generateECChain(t, tsg)
