@@ -330,9 +330,9 @@ func (_c *MockHost_ReceiveDecision_Call) RunAndReturn(run func(*Justification) t
 	return _c
 }
 
-// RequestBroadcast provides a mock function with given fields: msg
-func (_m *MockHost) RequestBroadcast(msg *GMessage) {
-	_m.Called(msg)
+// RequestBroadcast provides a mock function with given fields: mb
+func (_m *MockHost) RequestBroadcast(mb *MessageBuilder) {
+	_m.Called(mb)
 }
 
 // MockHost_RequestBroadcast_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RequestBroadcast'
@@ -341,14 +341,14 @@ type MockHost_RequestBroadcast_Call struct {
 }
 
 // RequestBroadcast is a helper method to define mock.On call
-//   - msg *GMessage
-func (_e *MockHost_Expecter) RequestBroadcast(msg interface{}) *MockHost_RequestBroadcast_Call {
-	return &MockHost_RequestBroadcast_Call{Call: _e.mock.On("RequestBroadcast", msg)}
+//   - mb *MessageBuilder
+func (_e *MockHost_Expecter) RequestBroadcast(mb interface{}) *MockHost_RequestBroadcast_Call {
+	return &MockHost_RequestBroadcast_Call{Call: _e.mock.On("RequestBroadcast", mb)}
 }
 
-func (_c *MockHost_RequestBroadcast_Call) Run(run func(msg *GMessage)) *MockHost_RequestBroadcast_Call {
+func (_c *MockHost_RequestBroadcast_Call) Run(run func(mb *MessageBuilder)) *MockHost_RequestBroadcast_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*GMessage))
+		run(args[0].(*MessageBuilder))
 	})
 	return _c
 }
@@ -358,7 +358,7 @@ func (_c *MockHost_RequestBroadcast_Call) Return() *MockHost_RequestBroadcast_Ca
 	return _c
 }
 
-func (_c *MockHost_RequestBroadcast_Call) RunAndReturn(run func(*GMessage)) *MockHost_RequestBroadcast_Call {
+func (_c *MockHost_RequestBroadcast_Call) RunAndReturn(run func(*MessageBuilder)) *MockHost_RequestBroadcast_Call {
 	_c.Call.Return(run)
 	return _c
 }
