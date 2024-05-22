@@ -14,7 +14,8 @@ test/cover: GOTEST_ARGS=-coverprofile=coverage.txt -covermode=atomic -coverpkg=.
 
 fuzz: FUZZTIME ?= 10s # The duration to run fuzz testing, default to 10s if unset.
 fuzz: # List all fuzz tests across the repo, and run them one at a time with the configured fuzztime.
-	@go list ./... | while read -r package; do \
+	@set -e; \
+	go list ./... | while read -r package; do \
 		go test -list '^Fuzz' "$$package" | grep '^Fuzz' | while read -r func; do \
 			echo "Running $$package $$func for $(FUZZTIME)..."; \
 			GOGC=$(GOGC) go test "$$package" -run '^$$' -fuzz="$$func" -fuzztime=$(FUZZTIME) || exit 1; \

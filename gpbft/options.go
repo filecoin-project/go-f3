@@ -16,9 +16,12 @@ type Option func(*options) error
 type options struct {
 	delta                time.Duration
 	deltaBackOffExponent float64
+
+	initialInstance    uint64
+	maxLookaheadRounds uint64
+
 	// tracer traces logic logs for debugging and simulation purposes.
-	tracer          Tracer
-	initialInstance uint64
+	tracer Tracer
 }
 
 func newOptions(o ...Option) (*options, error) {
@@ -79,6 +82,18 @@ func WithInitialInstance(i uint64) Option {
 func WithTracer(t Tracer) Option {
 	return func(o *options) error {
 		o.tracer = t
+		return nil
+	}
+}
+
+// WithMaxLookaheadRounds sets the maximum number of rounds ahead of the current
+// round for which messages without justification are buffered. Setting a max
+// value of larger than zero would aid gPBFT to potentially reach consensus in
+// fewer rounds during periods of asynchronous broadcast as well as re-broadcast.
+// Defaults to zero if unset.
+func WithMaxLookaheadRounds(r uint64) Option {
+	return func(o *options) error {
+		o.maxLookaheadRounds = r
 		return nil
 	}
 }

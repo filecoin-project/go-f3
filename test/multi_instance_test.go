@@ -11,7 +11,8 @@ import (
 
 // TestHonestMultiInstance_Agreement tests for multiple chained instances of the protocol with no adversaries.
 func TestHonestMultiInstance_Agreement(t *testing.T) {
-	t.Parallel()
+	// TODO: t.Parallel() here after https://github.com/filecoin-project/builtin-actors/issues/1541
+	//t.Parallel()
 	const (
 		instanceCount  = 4000
 		testRNGSeed    = 8965130
@@ -62,6 +63,7 @@ func FuzzHonestMultiInstance_AsyncDisagreement(f *testing.F) {
 	)
 	f.Add(981)
 	f.Fuzz(func(t *testing.T, seed int) {
+		t.Parallel()
 		tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
 		baseChain := generateECChain(t, tsg)
 		sm, err := sim.NewSimulation(asyncOptions(seed,
@@ -99,6 +101,8 @@ func FuzzHonestMultiInstance_AsyncAgreement(f *testing.F) {
 }
 
 func multiAgreementTest(t *testing.T, seed int, honestCount int, instanceCount uint64, maxRounds uint64, opts ...sim.Option) {
+	// TODO: t.Parallel() here after https://github.com/filecoin-project/builtin-actors/issues/1541
+	//t.Parallel()
 	rng := rand.New(rand.NewSource(int64(seed)))
 	sm, err := sim.NewSimulation(append(opts,
 		sim.AddHonestParticipants(

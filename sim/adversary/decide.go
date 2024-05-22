@@ -36,7 +36,7 @@ func (i *ImmediateDecide) ID() gpbft.ActorID {
 }
 
 func (i *ImmediateDecide) Start() error {
-	_, powertable, _ := i.host.GetCanonicalChain()
+	powertable, _, _ := i.host.GetCommitteeForInstance(0)
 	// Immediately send a DECIDE message
 	payload := gpbft.Payload{
 		Instance: 0,
@@ -91,7 +91,7 @@ func (i *ImmediateDecide) AllowMessage(_ gpbft.ActorID, _ gpbft.ActorID, _ gpbft
 	return true
 }
 
-func (i *ImmediateDecide) broadcast(payload gpbft.Payload, justification *gpbft.Justification, powertable gpbft.PowerTable) {
+func (i *ImmediateDecide) broadcast(payload gpbft.Payload, justification *gpbft.Justification, powertable *gpbft.PowerTable) {
 
 	pS := i.host.MarshalPayloadForSigning(&payload)
 	_, pubkey := powertable.Get(i.id)

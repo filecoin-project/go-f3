@@ -23,15 +23,17 @@ type Receiver interface {
 }
 
 type Chain interface {
-	// Returns inputs to the next GPBFT instance.
-	// These are:
-	// - the EC chain to propose,
-	// - the power table specifying the participants,
-	// - the beacon value for generating tickets.
-	// These will be used as input to a subsequent instance of the protocol.
-	// The chain should be a suffix of the last chain notified to the host via
-	// ReceiveDecision (or known to be final via some other channel).
-	GetCanonicalChain() (chain ECChain, power PowerTable, beacon []byte)
+	// Returns the chain to propose for a new GPBFT instance.
+	// This should be a suffix of the chain finalised by the immediately prior instance.
+	// Returns an error if the chain for the instance is not available.
+	GetChainForInstance(instance uint64) (chain ECChain, err error)
+
+	// Returns the power table and beacon value to be used for a GPBFT instance.
+	// These values should be derived from a chain previously received as final by the host,
+	// or known to be final via some other channel (e.g. when bootstrapping the protocol).
+	// The offset (how many instances to look back) is determined by the host.
+	// Returns an error if the committee for the instance is not available.
+	GetCommitteeForInstance(instance uint64) (power *PowerTable, beacon []byte, err error)
 }
 
 // Endpoint to which participants can send messages.
