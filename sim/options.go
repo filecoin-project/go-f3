@@ -93,10 +93,11 @@ func WithSigningBackend(sb signing.Backend) Option {
 	}
 }
 
-func WithLatencyModel(lm latency.Model) Option {
+func WithLatencyModeler(lm latency.Modeler) Option {
 	return func(o *options) error {
-		o.latencyModel = lm
-		return nil
+		var err error
+		o.latencyModel, err = lm()
+		return err
 	}
 }
 
