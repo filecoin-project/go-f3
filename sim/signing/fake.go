@@ -44,10 +44,17 @@ func (s *FakeBackend) generateSignature(signer gpbft.PubKey, msg []byte) ([]byte
 	hasher.Write(signer)
 	hasher.Write([]byte(priv))
 	hasher.Write(msg)
-	return hasher.Sum(nil), nil
+	sig := hasher.Sum(nil)
+	fmt.Println(">>>>> signer", signer)
+	fmt.Println(">>>>> msg", msg)
+	fmt.Println(">>>>> sig", sig)
+	return sig, nil
 }
 
 func (s *FakeBackend) Verify(signer gpbft.PubKey, msg, sig []byte) error {
+	fmt.Println(">>>>> signer", signer)
+	fmt.Println(">>>>> msg", msg)
+	fmt.Println(">>>>> sig", sig)
 	switch wantSig, err := s.generateSignature(signer, msg); {
 	case err != nil:
 		return fmt.Errorf("cannot verify: %w", err)
