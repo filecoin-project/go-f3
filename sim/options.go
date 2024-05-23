@@ -49,6 +49,7 @@ type options struct {
 	baseChain          *gpbft.ECChain
 	adversaryGenerator adversary.Generator
 	adversaryCount     uint64
+	ignoreConsensusFor []gpbft.ActorID
 }
 
 type participantArchetype struct {
@@ -173,6 +174,16 @@ func WithTraceLevel(i int) Option {
 func WithGlobalStabilizationTime(d time.Duration) Option {
 	return func(o *options) error {
 		o.globalStabilizationTime = d
+		return nil
+	}
+}
+
+// WithIgnoreConsensusFor sets the participant IDs for which the simulation will
+// not error if they do not reach consensus at the end of each instance. Defaults
+// to none.
+func WithIgnoreConsensusFor(id ...gpbft.ActorID) Option {
+	return func(o *options) error {
+		o.ignoreConsensusFor = id
 		return nil
 	}
 }
