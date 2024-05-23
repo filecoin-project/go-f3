@@ -14,12 +14,12 @@ type VRFHost interface {
 	Verifier
 }
 
-func MakeTicket(beacon []byte, instance uint64, round uint64, source PubKey, host VRFHost) (Ticket, error) {
-	return host.Sign(source, vrfSerializeSigInput(beacon, instance, round, host.NetworkName()))
+func MakeTicket(nn NetworkName, beacon []byte, instance uint64, round uint64, source PubKey, host VRFHost) (Ticket, error) {
+	return host.Sign(source, vrfSerializeSigInput(beacon, instance, round, nn))
 }
 
-func VerifyTicket(beacon []byte, instance uint64, round uint64, source PubKey, host VRFHost, ticket Ticket) bool {
-	return host.Verify(source, vrfSerializeSigInput(beacon, instance, round, host.NetworkName()), ticket) == nil
+func VerifyTicket(nn NetworkName, beacon []byte, instance uint64, round uint64, source PubKey, host VRFHost, ticket Ticket) bool {
+	return host.Verify(source, vrfSerializeSigInput(beacon, instance, round, nn), ticket) == nil
 }
 
 const DOMAIN_SEPARATION_TAG_VRF = "VRF"

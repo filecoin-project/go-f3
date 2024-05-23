@@ -9,8 +9,7 @@ import (
 type MessageBuilder struct {
 	powerTable powerTableAccess
 
-	NetworkName NetworkName
-	Payload     Payload
+	Payload Payload
 
 	BeaconForTicket []byte
 
@@ -23,8 +22,8 @@ type powerTableAccess interface {
 
 // Build uses the template and a signer interface to build GMessage
 // It is a shortcut for when separated flow is not required
-func (mt MessageBuilder) Build(signer Signer, id ActorID) (*GMessage, error) {
-	st, err := mt.PrepareSigningInputs(id)
+func (mt MessageBuilder) Build(networkName NetworkName, signer Signer, id ActorID) (*GMessage, error) {
+	st, err := mt.PrepareSigningInputs(networkName, id)
 	if err != nil {
 		return nil, xerrors.Errorf("preparing signing inputs: %w", err)
 	}
@@ -48,22 +47,22 @@ type SignatureBuilder struct {
 	VRFToSign     []byte
 }
 
-func (mt MessageBuilder) PrepareSigningInputs(id ActorID) (SignatureBuilder, error) {
+func (mt MessageBuilder) PrepareSigningInputs(networkName NetworkName, id ActorID) (SignatureBuilder, error) {
 	_, pubKey := mt.powerTable.Get(id)
 	if pubKey == nil {
 		return SignatureBuilder{}, xerrors.Errorf("could not find pubkey for actor %d", id)
 	}
 	signingTemplate := SignatureBuilder{
 		ParticipantID: id,
-		NetworkName:   mt.NetworkName,
+		NetworkName:   networkName,
 		Payload:       mt.Payload,
 		Justification: mt.Justification,
 
 		PubKey: pubKey,
 	}
-	signingTemplate.PayloadToSign = mt.Payload.MarshalForSigning(mt.NetworkName)
+	signingTemplate.PayloadToSign = mt.Payload.MarshalForSigning(networkName)
 	if mt.BeaconForTicket != nil {
-		signingTemplate.VRFToSign = vrfSerializeSigInput(mt.BeaconForTicket, mt.Payload.Instance, mt.Payload.Round, mt.NetworkName)
+		signingTemplate.VRFToSign = vrfSerializeSigInput(mt.BeaconForTicket, mt.Payload.Instance, mt.Payload.Round, networkName)
 	}
 	return signingTemplate, nil
 }

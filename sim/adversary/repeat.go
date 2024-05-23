@@ -87,7 +87,7 @@ func (r *Repeat) ReceiveMessage(msg *gpbft.GMessage, _ bool) (bool, error) {
 	var ticket gpbft.Ticket
 	if len(msg.Ticket) != 0 {
 		var err error
-		ticket, err = gpbft.MakeTicket(beacon, msg.Vote.Instance, msg.Vote.Round, pubkey, r.host)
+		ticket, err = gpbft.MakeTicket(r.host.NetworkName(), beacon, msg.Vote.Instance, msg.Vote.Round, pubkey, r.host)
 		if err != nil {
 			panic(err)
 		}

@@ -85,9 +85,9 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	pt.host.On("GetChainForInstance", pt.instance).Return(pt.canonicalChain, nil)
 	pt.host.On("GetCommitteeForInstance", pt.instance).Return(pt.powerTable, pt.beacon, nil)
 	pt.host.On("Time").Return(pt.time)
-	pt.host.On("NetworkName").Return(pt.networkName)
+	pt.host.On("NetworkName").Return(pt.networkName).Maybe()
 	pt.host.On("MarshalPayloadForSigning", mock.AnythingOfType("*gpbft.Payload")).
-		Return([]byte(gpbft.DOMAIN_SEPARATION_TAG + ":" + pt.networkName))
+		Return([]byte(gpbft.DOMAIN_SEPARATION_TAG + ":" + pt.networkName)).Maybe()
 
 	// Expect calls to get the host state prior to beginning of an instance.
 	pt.host.EXPECT().GetChainForInstance(pt.instance)
@@ -99,8 +99,6 @@ func (pt *participantTestSubject) expectBeginInstance() {
 
 	// Expect a broadcast occurs with quality phase message, and the expected chain, signature.
 	wantQualityPhaseBroadcastTemplate := &gpbft.MessageBuilder{
-		NetworkName: pt.networkName,
-
 		Payload: gpbft.Payload{
 			Instance: pt.instance,
 			Step:     gpbft.QUALITY_PHASE,

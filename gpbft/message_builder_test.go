@@ -27,16 +27,16 @@ func TestMessageTemplate(t *testing.T) {
 		Instance: 1,
 		Round:    0,
 	}
+	nn := NetworkName("test")
 
 	mt := MessageBuilder{
-		powerTable:  pt,
-		NetworkName: "test",
-		Payload:     payload,
+		powerTable: pt,
+		Payload:    payload,
 	}
-	_, err = mt.PrepareSigningInputs(2)
+	_, err = mt.PrepareSigningInputs(nn, 2)
 	require.Error(t, err, "unknown ID should return an error")
 
-	st, err := mt.PrepareSigningInputs(0)
+	st, err := mt.PrepareSigningInputs(nn, 0)
 	require.NoError(t, err)
 
 	require.Equal(t, st.Payload, payload)
@@ -45,7 +45,7 @@ func TestMessageTemplate(t *testing.T) {
 	require.NotNil(t, st.PayloadToSign)
 	require.Nil(t, st.VRFToSign)
 
-	st, err = mt.PrepareSigningInputs(1)
+	st, err = mt.PrepareSigningInputs(nn, 1)
 	require.NoError(t, err)
 
 	require.Equal(t, st.Payload, payload)
@@ -75,13 +75,13 @@ func TestMessageTemplateWithVRF(t *testing.T) {
 		Round:    0,
 	}
 
+	nn := NetworkName("test")
 	mt := MessageBuilder{
 		powerTable:      pt,
-		NetworkName:     "test",
 		Payload:         payload,
 		BeaconForTicket: []byte{0xbe, 0xac, 0x04},
 	}
-	st, err := mt.PrepareSigningInputs(0)
+	st, err := mt.PrepareSigningInputs(nn, 0)
 	require.NoError(t, err)
 
 	require.Equal(t, st.Payload, payload)
@@ -90,7 +90,7 @@ func TestMessageTemplateWithVRF(t *testing.T) {
 	require.NotNil(t, st.PayloadToSign)
 	require.NotNil(t, st.VRFToSign)
 
-	st, err = mt.PrepareSigningInputs(1)
+	st, err = mt.PrepareSigningInputs(nn, 1)
 	require.NoError(t, err)
 
 	require.Equal(t, st.Payload, payload)

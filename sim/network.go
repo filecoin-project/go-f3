@@ -83,7 +83,7 @@ func (nf *networkFor) Log(format string, args ...any) {
 }
 
 func (nf *networkFor) RequestBroadcast(mb *gpbft.MessageBuilder) {
-	msg, err := mb.Build(nf.Signer, nf.ParticipantID)
+	msg, err := mb.Build(nf.networkName, nf.Signer, nf.ParticipantID)
 	if err != nil {
 		nf.Log("building message for: %d: %+v", nf.ParticipantID, err)
 		return

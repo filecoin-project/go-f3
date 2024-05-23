@@ -375,7 +375,7 @@ func (i *instance) validateMessage(msg *GMessage) error {
 		if msg.Vote.Value.IsZero() {
 			return xerrors.Errorf("unexpected zero value for converge phase")
 		}
-		if !VerifyTicket(i.beacon, i.instanceID, msg.Vote.Round, senderPubKey, i.participant.host, msg.Ticket) {
+		if !VerifyTicket(i.participant.host.NetworkName(), i.beacon, i.instanceID, msg.Vote.Round, senderPubKey, i.participant.host, msg.Ticket) {
 			return xerrors.Errorf("failed to verify ticket from %v", msg.Sender)
 		}
 	case DECIDE_PHASE:
@@ -782,7 +782,6 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, createTick
 	}
 	messageTemplate := MessageBuilder{
 		powerTable:    &i.powerTable,
-		NetworkName:   i.participant.host.NetworkName(),
 		Payload:       p,
 		Justification: justification,
 	}
