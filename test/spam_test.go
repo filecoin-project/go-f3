@@ -44,7 +44,9 @@ func TestSpamAdversary(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				ecChainGenerator := sim.NewUniformECChainGenerator(651651, 1, 10)
 				sm, err := sim.NewSimulation(
-					sim.WithLatencyModel(latency.NewLogNormal(455454, time.Second)),
+					sim.WithLatencyModeler(func() (latency.Model, error) {
+						return latency.NewLogNormal(455454, time.Second), nil
+					}),
 					sim.WithECEpochDuration(EcEpochDuration),
 					sim.WitECStabilisationDelay(EcStabilisationDelay),
 					sim.WithGpbftOptions(testGpbftOptions...),

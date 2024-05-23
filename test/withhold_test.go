@@ -37,14 +37,16 @@ func TestWitholdCommitAdversary(t *testing.T) {
 	for _, test := range tests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
-			nearSynchrony := latency.NewLogNormal(1413, 10*time.Millisecond)
+			nearSynchrony := func() (latency.Model, error) {
+				return latency.NewLogNormal(1413, 10*time.Millisecond), nil
+			}
 			tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
 			baseChain := generateECChain(t, tsg)
 			a := baseChain.Extend(tsg.Sample())
 			b := baseChain.Extend(tsg.Sample())
 			victims := []gpbft.ActorID{0, 1, 2, 3}
 			sm, err := sim.NewSimulation(
-				sim.WithLatencyModel(nearSynchrony),
+				sim.WithLatencyModeler(nearSynchrony),
 				sim.WithECEpochDuration(EcEpochDuration),
 				sim.WitECStabilisationDelay(EcStabilisationDelay),
 				sim.WithGpbftOptions(testGpbftOptions...),

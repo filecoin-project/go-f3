@@ -34,7 +34,7 @@ var (
 
 func syncOptions(o ...sim.Option) []sim.Option {
 	return append(o,
-		sim.WithLatencyModel(latency.None),
+		sim.WithLatencyModeler(func() (latency.Model, error) { return latency.None, nil }),
 		sim.WithECEpochDuration(EcEpochDuration),
 		sim.WitECStabilisationDelay(EcStabilisationDelay),
 		sim.WithGpbftOptions(testGpbftOptions...),
@@ -43,7 +43,9 @@ func syncOptions(o ...sim.Option) []sim.Option {
 
 func asyncOptions(latencySeed int, o ...sim.Option) []sim.Option {
 	return append(o,
-		sim.WithLatencyModel(latency.NewLogNormal(int64(latencySeed), latencyAsync)),
+		sim.WithLatencyModeler(func() (latency.Model, error) {
+			return latency.NewLogNormal(int64(latencySeed), latencyAsync), nil
+		}),
 		sim.WithECEpochDuration(EcEpochDuration),
 		sim.WitECStabilisationDelay(EcStabilisationDelay),
 		sim.WithGpbftOptions(testGpbftOptions...),
