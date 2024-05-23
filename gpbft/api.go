@@ -15,7 +15,6 @@ type MessageReceiver interface {
 
 // Interface which network participants must implement.
 type Receiver interface {
-	ID() ActorID
 	// Begins executing the protocol.
 	// The node will request the canonical chain to propose from the host.
 	Start() error

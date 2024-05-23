@@ -155,7 +155,7 @@ func (s *Simulation) initParticipants() error {
 			}
 			s.participants = append(s.participants, participant)
 			s.hosts = append(s.hosts, host)
-			s.network.AddParticipant(participant)
+			s.network.AddParticipant(nextID, participant)
 			nextID++
 		}
 	}
@@ -170,7 +170,7 @@ func (s *Simulation) initParticipants() error {
 		// Adversary power does not evolve.
 		host.spg = UniformStoragePower(s.adversary.Power)
 		s.hosts = append(s.hosts, host)
-		s.network.AddParticipant(s.adversary)
+		s.network.AddParticipant(nextID, s.adversary)
 	}
 	return nil
 }

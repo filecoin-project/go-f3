@@ -53,12 +53,12 @@ func (n *Network) hasGlobalStabilizationTimeElapsed() bool {
 	return n.Time().After(n.gst)
 }
 
-func (n *Network) AddParticipant(p gpbft.Receiver) {
-	if n.participants[p.ID()] != nil {
+func (n *Network) AddParticipant(id gpbft.ActorID, p gpbft.Receiver) {
+	if n.participants[id] != nil {
 		panic("duplicate participant ID")
 	}
-	n.participantIDs = append(n.participantIDs, p.ID())
-	n.participants[p.ID()] = p
+	n.participantIDs = append(n.participantIDs, id)
+	n.participants[id] = p
 }
 
 ////// Network interface
