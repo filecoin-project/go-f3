@@ -163,27 +163,27 @@ func FuzzHonest_AsyncRequireStrongQuorumToProgress(f *testing.F) {
 	f.Add(565)
 	f.Add(4)
 	f.Add(-88)
-	f.Fuzz(requireStrongQuorumToProgressTest)
-}
+	f.Fuzz(func(t *testing.T, seed int) {
+		t.Parallel()
+		tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
+		baseChain := generateECChain(t, tsg)
+		oneChain := baseChain.Extend(tsg.Sample())
+		anotherChain := baseChain.Extend(tsg.Sample())
+		sm, err := sim.NewSimulation(asyncOptions(seed,
+			sim.WithBaseChain(&baseChain),
+			sim.AddHonestParticipants(10, sim.NewFixedECChainGenerator(oneChain), uniformOneStoragePower),
+			sim.AddHonestParticipants(20, sim.NewFixedECChainGenerator(anotherChain), uniformOneStoragePower),
+		)...)
+		require.NoError(t, err)
+		require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 
-func requireStrongQuorumToProgressTest(t *testing.T, seed int) {
-	tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
-	baseChain := generateECChain(t, tsg)
-	oneChain := baseChain.Extend(tsg.Sample())
-	anotherChain := baseChain.Extend(tsg.Sample())
-	sm, err := sim.NewSimulation(asyncOptions(seed,
-		sim.WithBaseChain(&baseChain),
-		sim.AddHonestParticipants(10, sim.NewFixedECChainGenerator(oneChain), uniformOneStoragePower),
-		sim.AddHonestParticipants(20, sim.NewFixedECChainGenerator(anotherChain), uniformOneStoragePower),
-	)...)
-	require.NoError(t, err)
-	require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
-
-	// Must decide baseChain's head, i.e. the longest common prefix since there is no strong quorum.
-	requireConsensusAtFirstInstance(t, sm, *baseChain.Head())
+		// Must decide baseChain's head, i.e. the longest common prefix since there is no strong quorum.
+		requireConsensusAtFirstInstance(t, sm, *baseChain.Head())
+	})
 }
 
 func TestHonest_FixedLongestCommonPrefix(t *testing.T) {
+	t.Parallel()
 	// This test uses a synchronous configuration to ensure timely message delivery.
 	// If async, it is possible to decide the base chain if QUALITY messages are delayed.
 	tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
