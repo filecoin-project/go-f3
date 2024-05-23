@@ -105,6 +105,7 @@ func (m *Module) Run(ctx context.Context) error {
 		m.log.Errorf("running host: %+v", err)
 	}()
 
+loop:
 	for {
 		var msg *pubsub.Message
 		msg, err = sub.Next(ctx)
@@ -125,7 +126,7 @@ func (m *Module) Run(ctx context.Context) error {
 		select {
 		case h.MessageQueue <- &gmsg:
 		case <-ctx.Done():
-			break
+			break loop
 		}
 	}
 

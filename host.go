@@ -22,7 +22,7 @@ type gpbfthost struct {
 
 	log Logger
 
-	timer      *time.Timer
+	alertTimer *time.Timer
 	runningCtx context.Context
 }
 
@@ -39,10 +39,10 @@ func newHost(id gpbft.ActorID, m Manifest, broadcast func(context.Context, []byt
 		log: log,
 	}
 
-	// create a stopped timer
-	h.timer = time.NewTimer(100 * time.Hour)
-	if !h.timer.Stop() {
-		<-h.timer.C
+	// create a stopped timer to facilitate alerts requested from gpbft
+	h.alertTimer = time.NewTimer(100 * time.Hour)
+	if !h.alertTimer.Stop() {
+		<-h.alertTimer.C
 	}
 
 	log.Infof("starting host for P%d", id)
@@ -55,8 +55,13 @@ func newHost(id gpbft.ActorID, m Manifest, broadcast func(context.Context, []byt
 }
 
 func (h *gpbfthost) Run(ctx context.Context) error {
-	h.runningCtx = ctx
+	var cancel func()
+	h.runningCtx, cancel = context.WithCancel(ctx)
+	defer cancel()
+
+	// temporary hack until re-broadcast and/or booststrap synchronisation are implemented
 	time.Sleep(2 * time.Second)
+
 	err := h.participant.Start()
 	if err != nil {
 		return xerrors.Errorf("starting a participant: %w", err)
@@ -74,7 +79,7 @@ loop:
 		}
 
 		select {
-		case <-h.timer.C:
+		case <-h.alertTimer.C:
 			h.log.Infof("alarm fired")
 			err = h.participant.ReceiveAlarm()
 		case msg := <-h.SelfMessageQueue:
@@ -82,7 +87,7 @@ loop:
 		case msg := <-h.MessageQueue:
 			_, err = h.participant.ReceiveMessage(msg, false)
 		case <-ctx.Done():
-			err = ctx.Err()
+			return nil
 		}
 		if err != nil {
 			break loop
@@ -156,8 +161,8 @@ func (h *gpbfthost) Time() time.Time {
 func (h *gpbfthost) SetAlarm(at time.Time) {
 	h.log.Infof("set alarm for %v", at)
 	// we cannot reuse the timer because we don't know if it was read or not
-	h.timer.Stop()
-	h.timer = time.NewTimer(time.Until(at))
+	h.alertTimer.Stop()
+	h.alertTimer = time.NewTimer(time.Until(at))
 }
 
 // Receives a finality decision from the instance, with signatures from a strong quorum

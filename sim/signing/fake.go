@@ -79,7 +79,7 @@ func (_ *FakeBackend) Aggregate(signers []gpbft.PubKey, sigs [][]byte) ([]byte, 
 func (s *FakeBackend) VerifyAggregate(payload, aggSig []byte, signers []gpbft.PubKey) error {
 	hasher := sha256.New()
 	for _, signer := range signers {
-		sig, err := s.Sign(signer, payload)
+		sig, err := s.generateSignature(signer, payload)
 		if err != nil {
 			return err
 		}

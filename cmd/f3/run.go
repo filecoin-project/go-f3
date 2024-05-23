@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 
 	"github.com/filecoin-project/go-f3"
@@ -20,6 +19,8 @@ import (
 )
 
 const DiscoveryTag = "f3-standalone"
+
+var log = logging.Logger("f3")
 
 var runCmd = cli.Command{
 	Name:  "run",
@@ -42,10 +43,11 @@ var runCmd = cli.Command{
 			return xerrors.Errorf("creating gossipsub: %w", err)
 		}
 
-		err = setupDiscovery(ctx, h)
+		closer, err := setupDiscovery(h)
 		if err != nil {
 			return xerrors.Errorf("setting up discovery: %w", err)
 		}
+		defer closer()
 
 		tmpdir, err := os.MkdirTemp("", "f3-*")
 		if err != nil {
@@ -62,7 +64,6 @@ var runCmd = cli.Command{
 			return xerrors.Errorf("loading manifest: %w", err)
 		}
 
-		log := logging.Logger("f3")
 		_ = logging.SetLogLevel("f3", "debug")
 
 		signingBackend := signing.NewFakeBackend()
@@ -82,19 +83,15 @@ type discoveryNotifee struct {
 }
 
 func (n *discoveryNotifee) HandlePeerFound(pi peer.AddrInfo) {
-	fmt.Printf("discovered new peer %s\n", pi.ID)
+	log.Infof("discovered new peer %s\n", pi.ID)
 	err := n.h.Connect(context.Background(), pi)
 	if err != nil {
-		fmt.Printf("error connecting to peer %s: %s\n", pi.ID, err)
+		log.Infof("error connecting to peer %s: %s\n", pi.ID, err)
 	}
 }
 
-func setupDiscovery(ctx context.Context, h host.Host) error {
+func setupDiscovery(h host.Host) (closer func() error, err error) {
 	// setup mDNS discovery to find local peers
 	s := mdns.NewMdnsService(h, DiscoveryTag, &discoveryNotifee{h: h})
-	go func() {
-		<-ctx.Done()
-		s.Close()
-	}()
-	return s.Start()
+	return s.Close, s.Start()
 }

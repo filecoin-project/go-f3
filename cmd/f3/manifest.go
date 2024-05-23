@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"os"
 
@@ -30,8 +32,10 @@ var manifestGenCmd = cli.Command{
 	},
 	Action: func(c *cli.Context) error {
 		path := c.String("manifest")
+		rng := make([]byte, 4)
+		rand.Read(rng)
 		var m f3.Manifest
-		m.NetworkName = "localnet"
+		m.NetworkName = gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng))
 		fsig := signing.NewFakeBackend()
 		for i := 0; i < c.Int("N"); i++ {
 			pubkey, _ := fsig.GenerateKey()
