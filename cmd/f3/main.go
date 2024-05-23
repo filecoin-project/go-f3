@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/urfave/cli/v2"
 )
@@ -24,8 +27,19 @@ func main() {
 		},
 	}
 
-	if err := app.Run(os.Args); err != nil {
-		fmt.Printf("runtime error: +%v\n", err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT)
+
+	go func() {
+		<-sigChan
+		cancel()
+	}()
+
+	if err := app.RunContext(ctx, os.Args); err != nil {
+		fmt.Fprintf(os.Stderr, "runtime error: %+v\n", err)
 		os.Exit(1)
 	}
 }

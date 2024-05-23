@@ -10,33 +10,34 @@ import (
 	"golang.org/x/xerrors"
 )
 
-type gpbfthost struct {
-	participant *gpbft.Participant
-	manifest    Manifest
+type client interface {
 	gpbft.Signer
 	gpbft.Verifier
-	broadcast func(context.Context, []byte) error
+	gpbft.Tracer
 
-	MessageQueue     chan *gpbft.GMessage
-	SelfMessageQueue chan *gpbft.GMessage //for the future when self messages are async
+	BroadcastMessage(context.Context, []byte) error
+	IncommingMessages() <-chan *gpbft.GMessage
+	Logger() Logger
+}
 
-	log Logger
+type gpbfthost struct {
+	client
+	participant *gpbft.Participant
+	manifest    Manifest
+
+	selfMessageQueue chan *gpbft.GMessage //for the future when self messages are async
 
 	alertTimer *time.Timer
 	runningCtx context.Context
+	log        Logger
 }
 
-func newHost(id gpbft.ActorID, m Manifest, broadcast func(context.Context, []byte) error,
-	s gpbft.Signer, v gpbft.Verifier, log Logger) (*gpbfthost, error) {
+func newHost(id gpbft.ActorID, m Manifest, client client) (*gpbfthost, error) {
 	h := &gpbfthost{
+		client:           client,
 		manifest:         m,
-		Signer:           s,
-		Verifier:         v,
-		MessageQueue:     make(chan *gpbft.GMessage, 20),
-		SelfMessageQueue: make(chan *gpbft.GMessage, 20),
-		broadcast:        broadcast,
-
-		log: log,
+		selfMessageQueue: make(chan *gpbft.GMessage, 20),
+		log:              client.Logger(),
 	}
 
 	// create a stopped timer to facilitate alerts requested from gpbft
@@ -45,8 +46,8 @@ func newHost(id gpbft.ActorID, m Manifest, broadcast func(context.Context, []byt
 		<-h.alertTimer.C
 	}
 
-	log.Infof("starting host for P%d", id)
-	p, err := gpbft.NewParticipant(id, h, gpbft.WithTracer(tracer{log}))
+	h.log.Infof("starting host for P%d", id)
+	p, err := gpbft.NewParticipant(id, h, gpbft.WithTracer(client))
 	if err != nil {
 		return nil, xerrors.Errorf("creating participant: %w", err)
 	}
@@ -67,10 +68,11 @@ func (h *gpbfthost) Run(ctx context.Context) error {
 		return xerrors.Errorf("starting a participant: %w", err)
 	}
 
+	messageQueue := h.client.IncommingMessages()
 loop:
 	for {
 		select {
-		case msg := <-h.SelfMessageQueue:
+		case msg := <-h.selfMessageQueue:
 			_, err = h.participant.ReceiveMessage(msg, true)
 		default:
 		}
@@ -82,9 +84,13 @@ loop:
 		case <-h.alertTimer.C:
 			h.log.Infof("alarm fired")
 			err = h.participant.ReceiveAlarm()
-		case msg := <-h.SelfMessageQueue:
+		case msg := <-h.selfMessageQueue:
 			_, err = h.participant.ReceiveMessage(msg, true)
-		case msg := <-h.MessageQueue:
+		case msg, ok := <-messageQueue:
+			if !ok {
+				err = xerrors.Errorf("incoming messsage queue closed")
+				break loop
+			}
 			_, err = h.participant.ReceiveMessage(msg, false)
 		case <-ctx.Done():
 			return nil
@@ -109,22 +115,26 @@ loop:
 // These will be used as input to a subsequent instance of the protocol.
 // The chain should be a suffix of the last chain notified to the host via
 // ReceiveDecision (or known to be final via some other channel).
-func (h *gpbfthost) GetCanonicalChain() (chain gpbft.ECChain, power gpbft.PowerTable, beacon []byte) {
+func (h *gpbfthost) GetChainForInstance(instance uint64) (gpbft.ECChain, error) {
 	// TODO: this is just a complete fake
 	ts := sim.NewTipSetGenerator(1)
 	chain, err := gpbft.NewChain(gpbft.TipSet{Epoch: 0, Key: ts.Sample()}, gpbft.TipSet{Epoch: 1, Key: ts.Sample()})
 	if err != nil {
 		h.log.Errorf("creating chain: %+v", err)
-		return nil, *gpbft.NewPowerTable(), nil
-	}
-	table := gpbft.NewPowerTable()
-	err = table.Add(h.manifest.InitialPowerTable...)
-	if err != nil {
-		h.log.Errorf("creating powertable: %+v", err)
-		return nil, *gpbft.NewPowerTable(), nil
+		return nil, err
 	}
 
-	return chain, *table, []byte{'A'}
+	return chain, nil
+}
+
+func (h *gpbfthost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable, []byte, error) {
+	table := gpbft.NewPowerTable()
+	err := table.Add(h.manifest.InitialPowerTable...)
+	if err != nil {
+		h.log.Errorf("creating powertable: %+v", err)
+		return nil, nil, err
+	}
+	return table, []byte{'A'}, nil
 }
 
 // Returns the network's name (for signature separation)
@@ -142,7 +152,7 @@ func (h *gpbfthost) Broadcast(msg *gpbft.GMessage) {
 	if err != nil {
 		h.log.Errorf("marshalling GMessage: %+v", err)
 	}
-	err = h.broadcast(h.runningCtx, bw.Bytes())
+	err = h.client.BroadcastMessage(h.runningCtx, bw.Bytes())
 	if err != nil {
 		h.log.Errorf("broadcasting GMessage: %+v", err)
 	}
@@ -182,12 +192,4 @@ func (h *gpbfthost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 // that method is slow (computes a merkle tree that's necessary for testing).
 func (h *gpbfthost) MarshalPayloadForSigning(p *gpbft.Payload) []byte {
 	return p.MarshalForSigning(h.manifest.NetworkName)
-}
-
-type tracer struct {
-	Logger
-}
-
-func (t tracer) Log(fmt string, args ...any) {
-	t.Debugf(fmt, args...)
 }

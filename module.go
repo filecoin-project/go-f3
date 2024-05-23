@@ -9,6 +9,7 @@ import (
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
 
+	logging "github.com/ipfs/go-log/v2"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	peer "github.com/libp2p/go-libp2p/core/peer"
@@ -25,13 +26,38 @@ type Module struct {
 	ds     datastore.Datastore
 	host   host.Host
 	pubsub *pubsub.PubSub
-	verif  gpbft.Verifier
-	sigs   gpbft.Signer
 	ec     ECBackend
 	log    Logger
 
-	// topic is populated after Run is called
-	topic *pubsub.Topic
+	client moduleClient
+}
+
+type moduleClient struct {
+	gpbft.Verifier
+	gpbft.Signer
+	logger         Logger
+	loggerWithSkip Logger
+
+	// Populated after Run is called
+	messageQueue <-chan *gpbft.GMessage
+	topic        *pubsub.Topic
+}
+
+func (mc moduleClient) BroadcastMessage(ctx context.Context, msg []byte) error {
+	return mc.topic.Publish(ctx, msg)
+}
+
+func (mc moduleClient) IncommingMessages() <-chan *gpbft.GMessage {
+	return mc.messageQueue
+}
+
+// Log fulfills the gpbft.Tracer interface
+func (mc moduleClient) Log(fmt string, args ...any) {
+	mc.loggerWithSkip.Debugf(fmt, args...)
+}
+
+func (mc moduleClient) Logger() Logger {
+	return mc.logger
 }
 
 // NewModule creates and setups new libp2p f3 module
@@ -43,6 +69,10 @@ func NewModule(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds data
 	if err != nil {
 		return nil, xerrors.Errorf("creating CertStore: %w", err)
 	}
+	loggerWithSkip := log
+	if zapLogger, ok := log.(*logging.ZapEventLogger); ok {
+		loggerWithSkip = logging.WithSkip(zapLogger, 1)
+	}
 
 	m := Module{
 		Manifest:  manifest,
@@ -52,10 +82,15 @@ func NewModule(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds data
 		ds:     ds,
 		host:   h,
 		pubsub: ps,
-		verif:  verif,
-		sigs:   sigs,
 		ec:     ec,
 		log:    log,
+
+		client: moduleClient{
+			Verifier:       verif,
+			Signer:         sigs,
+			logger:         log,
+			loggerWithSkip: loggerWithSkip,
+		},
 	}
 
 	return &m, nil
@@ -71,14 +106,14 @@ func (m *Module) setupPubsub() error {
 	if err != nil {
 		return xerrors.Errorf("could not join on pubsub topic: %s: %w", pubsubTopicName, err)
 	}
-	m.topic = topic
+	m.client.topic = topic
 	return nil
 }
 
 func (m *Module) teardownPubsub() error {
 	return multierr.Combine(
 		m.pubsub.UnregisterTopicValidator(m.Manifest.NetworkName.PubSubTopic()),
-		m.topic.Close(),
+		m.client.topic.Close(),
 	)
 }
 
@@ -88,14 +123,15 @@ func (m *Module) Run(ctx context.Context) error {
 		return xerrors.Errorf("setting up pubsub: %w", err)
 	}
 
-	sub, err := m.topic.Subscribe()
+	sub, err := m.client.topic.Subscribe()
 	if err != nil {
 		return xerrors.Errorf("subscribing to topic: %w", err)
 	}
 
-	h, err := newHost(m.id, m.Manifest, func(ctx context.Context, b []byte) error {
-		return m.topic.Publish(ctx, b)
-	}, m.sigs, m.verif, m.log)
+	messageQueue := make(chan *gpbft.GMessage, 20)
+	m.client.messageQueue = messageQueue
+
+	h, err := newHost(m.id, m.Manifest, m.client)
 	if err != nil {
 		return xerrors.Errorf("creating gpbft host: %w", err)
 	}
@@ -117,14 +153,14 @@ loop:
 			m.log.Errorf("pubsub subscription.Next() returned an error: %+v", err)
 			break
 		}
-		var gmsg gpbft.GMessage
-		err = gmsg.UnmarshalCBOR(bytes.NewReader(msg.Data))
-		if err != nil {
-			m.log.Info("bad pubsub message: %+v", err)
+		gmsg, ok := msg.ValidatorData.(*gpbft.GMessage)
+		if !ok {
+			m.log.Errorf("invalid ValidatorData: %+v", msg.ValidatorData)
 			continue
 		}
+
 		select {
-		case h.MessageQueue <- &gmsg:
+		case messageQueue <- gmsg:
 		case <-ctx.Done():
 			break loop
 		}
@@ -141,6 +177,14 @@ var _ pubsub.ValidatorEx = (*Module)(nil).pubsubTopicValidator
 
 // validator for the pubsub
 func (m *Module) pubsubTopicValidator(ctx context.Context, pID peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
+	var gmsg gpbft.GMessage
+	err := gmsg.UnmarshalCBOR(bytes.NewReader(msg.Data))
+	if err != nil {
+		return pubsub.ValidationReject
+	}
+
+	// TODO more validation
+	msg.ValidatorData = &gmsg
 	return pubsub.ValidationAccept
 }
 
@@ -151,12 +195,8 @@ type Logger interface {
 	Debugf(format string, args ...interface{})
 	Error(args ...interface{})
 	Errorf(format string, args ...interface{})
-	Fatal(args ...interface{})
-	Fatalf(format string, args ...interface{})
 	Info(args ...interface{})
 	Infof(format string, args ...interface{})
-	Panic(args ...interface{})
-	Panicf(format string, args ...interface{})
 	Warn(args ...interface{})
 	Warnf(format string, args ...interface{})
 }

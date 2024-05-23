@@ -33,7 +33,7 @@ var manifestGenCmd = cli.Command{
 	Action: func(c *cli.Context) error {
 		path := c.String("manifest")
 		rng := make([]byte, 4)
-		rand.Read(rng)
+		_, _ = rand.Read(rng)
 		var m f3.Manifest
 		m.NetworkName = gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng))
 		fsig := signing.NewFakeBackend()

@@ -90,8 +90,8 @@ func (n *discoveryNotifee) HandlePeerFound(pi peer.AddrInfo) {
 	}
 }
 
-func setupDiscovery(h host.Host) (closer func() error, err error) {
+func setupDiscovery(h host.Host) (closer func(), err error) {
 	// setup mDNS discovery to find local peers
 	s := mdns.NewMdnsService(h, DiscoveryTag, &discoveryNotifee{h: h})
-	return s.Close, s.Start()
+	return func() { s.Close() }, s.Start()
 }
