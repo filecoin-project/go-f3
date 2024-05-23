@@ -36,12 +36,13 @@ func TestSpamAdversary(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
+		test := test
 		for _, hc := range honestCounts {
-			test := test
 			hc := hc
 			lessThanOneThirdAdversaryStoragePower := gpbft.NewStoragePower(int64(max(hc/3-1, 1)))
 			name := fmt.Sprintf("%s honest count %d", test.name, hc)
 			t.Run(name, func(t *testing.T) {
+				t.Parallel()
 				ecChainGenerator := sim.NewUniformECChainGenerator(651651, 1, 10)
 				sm, err := sim.NewSimulation(
 					sim.WithLatencyModeler(func() (latency.Model, error) {

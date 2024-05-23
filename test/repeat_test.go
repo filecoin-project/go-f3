@@ -51,69 +51,64 @@ var (
 	}
 )
 
-func TestRepeatAdversary(t *testing.T) {
+func FuzzRepeatAdversary(f *testing.F) {
 	tests := []struct {
 		name              string
 		repetitionSampler func(int) adversary.RepetitionSampler
+		maxRounds         uint64
 	}{
 		{
 			name:              "once",
 			repetitionSampler: repeatOnce,
+			maxRounds:         maxRounds,
 		},
 		{
 			name:              "bounded uniform random",
 			repetitionSampler: repeatBoundedRandom,
+			maxRounds:         maxRounds,
 		},
 		{
 			name:              "zipf",
 			repetitionSampler: repeatZipF,
+			maxRounds:         maxRounds,
 		},
 		{
 			name:              "QUALITY Repeater",
 			repetitionSampler: repeatBoundedQuality,
+			maxRounds:         maxRounds * 2,
 		},
 		{
 			name:              "COMMIT Repeater",
 			repetitionSampler: repeatBoundedCommit,
+			maxRounds:         maxRounds * 2,
 		},
 	}
-	for _, test := range tests {
-		test := test
-		t.Run(test.name, func(t *testing.T) {
-			for _, hc := range repeatAdversaryTestHonestCounts {
-				repeatAdversaryTest(t, 98461, hc, maxRounds, test.repetitionSampler)
-			}
-		})
-	}
-}
-
-func FuzzRepeatAdversary(f *testing.F) {
 	f.Add(68465)
 	f.Add(-5)
 	f.Add(-5454)
 	f.Fuzz(func(t *testing.T, seed int) {
+		t.Parallel()
 		for _, hc := range repeatAdversaryTestHonestCounts {
-			repeatAdversaryTest(t, seed, hc, maxRounds, repeatOnce)
-			repeatAdversaryTest(t, seed, hc, maxRounds, repeatZipF)
-			repeatAdversaryTest(t, seed, hc, maxRounds, repeatBoundedRandom)
-			repeatAdversaryTest(t, seed, hc, maxRounds*2, repeatBoundedQuality)
-			repeatAdversaryTest(t, seed, hc, maxRounds*2, repeatBoundedCommit)
+			hc := hc
+			for _, test := range tests {
+				test := test
+				t.Run(test.name, func(t *testing.T) {
+					t.Parallel()
+					rng := rand.New(rand.NewSource(int64(seed)))
+					dist := test.repetitionSampler(seed)
+					sm, err := sim.NewSimulation(asyncOptions(rng.Int(),
+						sim.AddHonestParticipants(
+							hc,
+							sim.NewUniformECChainGenerator(rng.Uint64(), 1, 10),
+							uniformOneStoragePower),
+						sim.WithAdversary(adversary.NewRepeatGenerator(oneStoragePower, dist)),
+					)...)
+					require.NoError(t, err)
+					require.NoErrorf(t, sm.Run(1, test.maxRounds), "%s", sm.Describe())
+				})
+			}
 		}
 	})
-}
-
-func repeatAdversaryTest(t *testing.T, seed int, honestCount int, maxRounds uint64, repetitionSampler func(int) adversary.RepetitionSampler) {
-	rng := rand.New(rand.NewSource(int64(seed)))
-	dist := repetitionSampler(seed)
-	sm, err := sim.NewSimulation(asyncOptions(rng.Int(),
-		sim.AddHonestParticipants(
-			honestCount,
-			sim.NewUniformECChainGenerator(rng.Uint64(), 1, 10),
-			uniformOneStoragePower),
-		sim.WithAdversary(adversary.NewRepeatGenerator(oneStoragePower, dist)),
-	)...)
-	require.NoError(t, err)
-	require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 }
 
 func newBoundedRepeater(rngSeed int64, min, max int) adversary.RepetitionSampler {
