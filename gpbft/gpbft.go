@@ -236,7 +236,7 @@ func (i *instance) ReceiveAlarm() error {
 }
 
 func (i *instance) Describe() string {
-	return fmt.Sprintf("P%d{%d}, round %d, phase %s", i.participant.host.ID(), i.instanceID, i.round, i.phase)
+	return fmt.Sprintf("{%d}, round %d, phase %s", i.instanceID, i.round, i.phase)
 }
 
 // Processes a single message.
@@ -825,14 +825,9 @@ func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase P
 func (i *instance) log(format string, args ...interface{}) {
 	if i.tracer != nil {
 		msg := fmt.Sprintf(format, args...)
-		i.tracer.Log("P%d{%d}: %s (round %d, step %s, proposal %s, value %s)", i.participant.host.ID(), i.instanceID, msg,
+		i.tracer.Log("{%d}: %s (round %d, step %s, proposal %s, value %s)", i.instanceID, msg,
 			i.round, i.phase, &i.proposal, &i.value)
 	}
-}
-
-func (i *instance) sign(msg []byte) ([]byte, error) {
-	_, pubKey := i.powerTable.Get(i.participant.host.ID())
-	return i.participant.host.Sign(pubKey, msg)
 }
 
 ///// Incremental quorum-calculation helper /////

@@ -171,7 +171,7 @@ func (p *Participant) beginInstance() error {
 			break
 		}
 		if p.tracer != nil {
-			p.tracer.Log("Delivering queued P%d{%d} ← P%d: %v", p.host.ID(), p.granite.instanceID, msg.Sender, msg)
+			p.tracer.Log("Delivering queued {%d} ← P%d: %v", p.granite.instanceID, msg.Sender, msg)
 		}
 		if err := p.granite.Receive(msg); err != nil {
 			return fmt.Errorf("delivering queued message: %w", err)

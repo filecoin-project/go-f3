@@ -76,10 +76,6 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 		gpbft.WithDeltaBackOffExponent(deltaBackOffExponent),
 		gpbft.WithInitialInstance(instance))
 	require.NoError(t, err)
-	subject.host.
-		On("ID").
-		Return(subject.id)
-	require.EqualValues(t, subject.id, subject.host.ID())
 	subject.requireNotStarted()
 	return &subject
 }
@@ -90,12 +86,13 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	pt.host.On("GetCommitteeForInstance", pt.instance).Return(pt.powerTable, pt.beacon, nil)
 	pt.host.On("Time").Return(pt.time)
 	pt.host.On("NetworkName").Return(pt.networkName)
+	pt.host.On("MarshalPayloadForSigning", mock.AnythingOfType("*gpbft.Payload")).
+		Return([]byte(gpbft.DOMAIN_SEPARATION_TAG + ":" + pt.networkName))
 
 	// Expect calls to get the host state prior to beginning of an instance.
 	pt.host.EXPECT().GetChainForInstance(pt.instance)
 	pt.host.EXPECT().GetCommitteeForInstance(pt.instance)
 	pt.host.EXPECT().Time()
-	pt.host.EXPECT().NetworkName()
 
 	// Expect alarm is set to 2X of configured delta.
 	pt.host.EXPECT().SetAlarm(pt.time.Add(2 * pt.delta))
@@ -123,7 +120,7 @@ func (pt *participantTestSubject) requireNotStarted() {
 
 func (pt *participantTestSubject) requireInstanceRoundPhase(wantInstance, wantRound uint64, wantPhase gpbft.Phase) {
 	pt.t.Helper()
-	require.Equal(pt.t, fmt.Sprintf("P%d{%d}, round %d, phase %s", pt.host.ID(), wantInstance, wantRound, wantPhase), pt.Describe())
+	require.Equal(pt.t, fmt.Sprintf("{%d}, round %d, phase %s", wantInstance, wantRound, wantPhase), pt.Describe())
 }
 
 func (pt *participantTestSubject) requireStart() {
@@ -139,8 +136,6 @@ func (pt *participantTestSubject) assertHostExpectations() bool {
 
 func (pt *participantTestSubject) mockValidSignature(target gpbft.PubKey, sig []byte) *mock.Call {
 	return pt.host.
-		On("ID").
-		Return(pt.id).
 		On("Verify", target, pt.matchMessageSigningPayload(), sig).
 		Return(nil)
 }

@@ -23,13 +23,13 @@ type Participant struct {
 	*gpbft.Participant
 }
 
-func newParticipant(host gpbft.Host, pOpts ...gpbft.Option) (Participant, error) {
+func newParticipant(id gpbft.ActorID, host gpbft.Host, pOpts ...gpbft.Option) (Participant, error) {
 	participant, err := gpbft.NewParticipant(host, pOpts...)
 	if err != nil {
 		return Participant{}, fmt.Errorf("failed to instantiate participant: %w", err)
 	}
 	return Participant{
-		id:          host.ID(),
+		id:          id,
 		Participant: participant,
 	}, nil
 }
@@ -149,7 +149,7 @@ func (s *Simulation) initParticipants() error {
 	for _, archetype := range s.honestParticipantArchetypes {
 		for i := 0; i < archetype.count; i++ {
 			host := newHost(nextID, s, archetype.ecChainGenerator, archetype.storagePowerGenerator)
-			participant, err := newParticipant(host, pOpts...)
+			participant, err := newParticipant(nextID, host, pOpts...)
 			if err != nil {
 				return err
 			}
