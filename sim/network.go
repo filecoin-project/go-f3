@@ -63,7 +63,7 @@ func (n *Network) AddParticipant(id gpbft.ActorID, p gpbft.Receiver) {
 
 ////// Network interface
 
-func (n *Network) NetworkFor(signer gpbft.Signer, id gpbft.ActorID) *networkFor {
+func (n *Network) NetworkFor(signer gpbft.SignerWithMarshaler, id gpbft.ActorID) *networkFor {
 	return &networkFor{
 		ParticipantID: id,
 		Signer:        signer,
@@ -73,7 +73,7 @@ func (n *Network) NetworkFor(signer gpbft.Signer, id gpbft.ActorID) *networkFor 
 
 type networkFor struct {
 	ParticipantID gpbft.ActorID
-	Signer        gpbft.Signer
+	Signer        gpbft.SignerWithMarshaler
 	*Network
 }
 

@@ -65,12 +65,10 @@ func (s *Spam) spamAtInstance(instance uint64) {
 			Round:    spamRound,
 			Step:     gpbft.COMMIT_PHASE,
 		}
-		mt := &gpbft.MessageBuilder{
-			PowerTable: power,
-			Payload:    p,
-		}
+		mt := gpbft.NewMessageBuilderWithPowerTable(power)
+		mt.Payload = p
 
-		s.host.RequestBroadcast(mt)
+		s.host.RequestBroadcast(&mt)
 	}
 }
 

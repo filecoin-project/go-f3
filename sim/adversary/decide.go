@@ -50,7 +50,7 @@ func (i *ImmediateDecide) Start() error {
 		Step:     gpbft.COMMIT_PHASE,
 		Value:    i.value,
 	}
-	sigPayload := i.host.MarshalPayloadForSigning(&justificationPayload)
+	sigPayload := i.host.MarshalPayloadForSigning(i.host.NetworkName(), &justificationPayload)
 	_, pubkey := powertable.Get(i.id)
 	sig, err := i.host.Sign(pubkey, sigPayload)
 	if err != nil {
@@ -93,7 +93,7 @@ func (i *ImmediateDecide) AllowMessage(_ gpbft.ActorID, _ gpbft.ActorID, _ gpbft
 
 func (i *ImmediateDecide) broadcast(payload gpbft.Payload, justification *gpbft.Justification, powertable *gpbft.PowerTable) {
 
-	pS := i.host.MarshalPayloadForSigning(&payload)
+	pS := i.host.MarshalPayloadForSigning(i.host.NetworkName(), &payload)
 	_, pubkey := powertable.Get(i.id)
 	sig, err := i.host.Sign(pubkey, pS)
 	if err != nil {

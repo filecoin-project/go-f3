@@ -86,7 +86,7 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	pt.host.On("GetCommitteeForInstance", pt.instance).Return(pt.powerTable, pt.beacon, nil)
 	pt.host.On("Time").Return(pt.time)
 	pt.host.On("NetworkName").Return(pt.networkName).Maybe()
-	pt.host.On("MarshalPayloadForSigning", mock.AnythingOfType("*gpbft.Payload")).
+	pt.host.On("MarshalPayloadForSigning", pt.networkName, mock.AnythingOfType("*gpbft.Payload")).
 		Return([]byte(gpbft.DOMAIN_SEPARATION_TAG + ":" + pt.networkName)).Maybe()
 
 	// Expect calls to get the host state prior to beginning of an instance.

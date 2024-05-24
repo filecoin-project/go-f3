@@ -82,16 +82,15 @@ func (r *Repeat) ReceiveMessage(msg *gpbft.GMessage, _ bool) (bool, error) {
 		Step:     msg.Vote.Step,
 		Value:    msg.Vote.Value,
 	}
-	mt := &gpbft.MessageBuilder{
-		PowerTable:    power,
-		Payload:       p,
-		Justification: msg.Justification,
-	}
+	mt := gpbft.NewMessageBuilderWithPowerTable(power)
+	mt.Payload = p
+	mt.Justification = msg.Justification
+
 	if len(msg.Ticket) != 0 {
 		mt.BeaconForTicket = beacon
 	}
 	for i := 0; i < echoCount; i++ {
-		r.host.RequestBroadcast(mt)
+		r.host.RequestBroadcast(&mt)
 	}
 	return true, nil
 }

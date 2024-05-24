@@ -8,7 +8,7 @@ import (
 )
 
 type MessageBuilder struct {
-	PowerTable powerTableAccess
+	powerTable powerTableAccess
 
 	Payload Payload
 
@@ -21,10 +21,15 @@ type powerTableAccess interface {
 	Get(ActorID) (*big.Int, PubKey)
 }
 
+type SignerWithMarshaler interface {
+	Signer
+	MessageMarshaler
+}
+
 // Build uses the template and a signer interface to build GMessage
 // It is a shortcut for when separated flow is not required
-func (mt MessageBuilder) Build(networkName NetworkName, signer Signer, id ActorID) (*GMessage, error) {
-	st, err := mt.PrepareSigningInputs(networkName, id)
+func (mt MessageBuilder) Build(networkName NetworkName, signer SignerWithMarshaler, id ActorID) (*GMessage, error) {
+	st, err := mt.PrepareSigningInputs(signer, networkName, id)
 	if err != nil {
 		return nil, xerrors.Errorf("preparing signing inputs: %w", err)
 	}
@@ -48,8 +53,7 @@ type SignatureBuilder struct {
 	VRFToSign     []byte
 }
 
-func (mt MessageBuilder) PrepareSigningInputs(networkName NetworkName, id ActorID) (SignatureBuilder, error) {
-	fmt.Println(">>>>> PREPARING SIGNATURE ID", id)
+func (mt MessageBuilder) PrepareSigningInputs(msh MessageMarshaler, networkName NetworkName, id ActorID) (SignatureBuilder, error) {
 	_, pubKey := mt.powerTable.Get(id)
 	if pubKey == nil {
 		return SignatureBuilder{}, xerrors.Errorf("could not find pubkey for actor %d", id)
@@ -63,13 +67,19 @@ func (mt MessageBuilder) PrepareSigningInputs(networkName NetworkName, id ActorI
 		PubKey: pubKey,
 	}
 
-	signingTemplate.PayloadToSign = signer.MarshalPayloadForSigning(&mt.Payload)
+	signingTemplate.PayloadToSign = msh.MarshalPayloadForSigning(networkName, &mt.Payload)
 	// signingTemplate.PayloadToSign = mt.Payload.MarshalForSigning(networkName)
 	if mt.BeaconForTicket != nil {
 		fmt.Println("verify vrf ticket")
 		signingTemplate.VRFToSign = vrfSerializeSigInput(mt.BeaconForTicket, mt.Payload.Instance, mt.Payload.Round, networkName)
 	}
 	return signingTemplate, nil
+}
+
+func NewMessageBuilderWithPowerTable(power *PowerTable) MessageBuilder {
+	return MessageBuilder{
+		powerTable: power,
+	}
 }
 
 // Sign creates signatures for the SigningTemplate, it could live across RPC boundry

@@ -59,6 +59,13 @@ type Signer interface {
 	Sign(sender PubKey, msg []byte) ([]byte, error)
 }
 
+type MessageMarshaler interface {
+	// MarshalPayloadForSigning marshals the given payload into the bytes that should be signed.
+	// This should usually call `Payload.MarshalForSigning(NetworkName)` except when testing as
+	// that method is slow (computes a merkle tree that's necessary for testing).
+	MarshalPayloadForSigning(NetworkName, *Payload) []byte
+}
+
 type Verifier interface {
 	// Verifies a signature for the given public key
 	Verify(pubKey PubKey, msg, sig []byte) error
@@ -69,13 +76,9 @@ type Verifier interface {
 }
 
 type Signatures interface {
+	MessageMarshaler
 	Signer
 	Verifier
-
-	// MarshalPayloadForSigning marshals the given payload into the bytes that should be signed.
-	// This should usually call `Payload.MarshalForSigning(NetworkName)` except when testing as
-	// that method is slow (computes a merkle tree that's necessary for testing).
-	MarshalPayloadForSigning(*Payload) []byte
 }
 
 type DecisionReceiver interface {

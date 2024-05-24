@@ -33,10 +33,11 @@ func TestMessageTemplate(t *testing.T) {
 		powerTable: pt,
 		Payload:    payload,
 	}
-	_, err = mt.PrepareSigningInputs(nn, 2)
+	msh := &marshaler{}
+	_, err = mt.PrepareSigningInputs(msh, nn, 2)
 	require.Error(t, err, "unknown ID should return an error")
 
-	st, err := mt.PrepareSigningInputs(nn, 0)
+	st, err := mt.PrepareSigningInputs(msh, nn, 0)
 	require.NoError(t, err)
 
 	require.Equal(t, st.Payload, payload)
@@ -45,7 +46,7 @@ func TestMessageTemplate(t *testing.T) {
 	require.NotNil(t, st.PayloadToSign)
 	require.Nil(t, st.VRFToSign)
 
-	st, err = mt.PrepareSigningInputs(nn, 1)
+	st, err = mt.PrepareSigningInputs(msh, nn, 1)
 	require.NoError(t, err)
 
 	require.Equal(t, st.Payload, payload)
@@ -76,12 +77,13 @@ func TestMessageTemplateWithVRF(t *testing.T) {
 	}
 
 	nn := NetworkName("test")
+	msh := &marshaler{}
 	mt := MessageBuilder{
 		powerTable:      pt,
 		Payload:         payload,
 		BeaconForTicket: []byte{0xbe, 0xac, 0x04},
 	}
-	st, err := mt.PrepareSigningInputs(nn, 0)
+	st, err := mt.PrepareSigningInputs(msh, nn, 0)
 	require.NoError(t, err)
 
 	require.Equal(t, st.Payload, payload)
@@ -90,7 +92,7 @@ func TestMessageTemplateWithVRF(t *testing.T) {
 	require.NotNil(t, st.PayloadToSign)
 	require.NotNil(t, st.VRFToSign)
 
-	st, err = mt.PrepareSigningInputs(nn, 1)
+	st, err = mt.PrepareSigningInputs(msh, nn, 1)
 	require.NoError(t, err)
 
 	require.Equal(t, st.Payload, payload)
@@ -98,4 +100,10 @@ func TestMessageTemplateWithVRF(t *testing.T) {
 	require.Equal(t, st.PubKey, PubKey{1})
 	require.NotNil(t, st.PayloadToSign)
 	require.NotNil(t, st.VRFToSign)
+}
+
+type marshaler struct{}
+
+func (*marshaler) MarshalPayloadForSigning(nn NetworkName, p *Payload) []byte {
+	return p.MarshalForSigning(nn)
 }

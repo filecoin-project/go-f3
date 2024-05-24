@@ -205,17 +205,17 @@ func (_c *MockHost_GetCommitteeForInstance_Call) RunAndReturn(run func(uint64) (
 	return _c
 }
 
-// MarshalPayloadForSigning provides a mock function with given fields: _a0
-func (_m *MockHost) MarshalPayloadForSigning(_a0 *Payload) []byte {
-	ret := _m.Called(_a0)
+// MarshalPayloadForSigning provides a mock function with given fields: _a0, _a1
+func (_m *MockHost) MarshalPayloadForSigning(_a0 NetworkName, _a1 *Payload) []byte {
+	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
 		panic("no return value specified for MarshalPayloadForSigning")
 	}
 
 	var r0 []byte
-	if rf, ok := ret.Get(0).(func(*Payload) []byte); ok {
-		r0 = rf(_a0)
+	if rf, ok := ret.Get(0).(func(NetworkName, *Payload) []byte); ok {
+		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]byte)
@@ -231,14 +231,15 @@ type MockHost_MarshalPayloadForSigning_Call struct {
 }
 
 // MarshalPayloadForSigning is a helper method to define mock.On call
-//   - _a0 *Payload
-func (_e *MockHost_Expecter) MarshalPayloadForSigning(_a0 interface{}) *MockHost_MarshalPayloadForSigning_Call {
-	return &MockHost_MarshalPayloadForSigning_Call{Call: _e.mock.On("MarshalPayloadForSigning", _a0)}
+//   - _a0 NetworkName
+//   - _a1 *Payload
+func (_e *MockHost_Expecter) MarshalPayloadForSigning(_a0 interface{}, _a1 interface{}) *MockHost_MarshalPayloadForSigning_Call {
+	return &MockHost_MarshalPayloadForSigning_Call{Call: _e.mock.On("MarshalPayloadForSigning", _a0, _a1)}
 }
 
-func (_c *MockHost_MarshalPayloadForSigning_Call) Run(run func(_a0 *Payload)) *MockHost_MarshalPayloadForSigning_Call {
+func (_c *MockHost_MarshalPayloadForSigning_Call) Run(run func(_a0 NetworkName, _a1 *Payload)) *MockHost_MarshalPayloadForSigning_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*Payload))
+		run(args[0].(NetworkName), args[1].(*Payload))
 	})
 	return _c
 }
@@ -248,7 +249,7 @@ func (_c *MockHost_MarshalPayloadForSigning_Call) Return(_a0 []byte) *MockHost_M
 	return _c
 }
 
-func (_c *MockHost_MarshalPayloadForSigning_Call) RunAndReturn(run func(*Payload) []byte) *MockHost_MarshalPayloadForSigning_Call {
+func (_c *MockHost_MarshalPayloadForSigning_Call) RunAndReturn(run func(NetworkName, *Payload) []byte) *MockHost_MarshalPayloadForSigning_Call {
 	_c.Call.Return(run)
 	return _c
 }
