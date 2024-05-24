@@ -59,7 +59,9 @@ func (d *Deny) isTargeted(id gpbft.ActorID) bool {
 	return found
 }
 
-func (*Deny) Start() error                                       { return nil }
-func (*Deny) ValidateMessage(*gpbft.GMessage) (bool, error)      { return true, nil }
-func (*Deny) ReceiveMessage(*gpbft.GMessage, bool) (bool, error) { return true, nil }
-func (*Deny) ReceiveAlarm() error                                { return nil }
+func (*Deny) Start() error { return nil }
+func (*Deny) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
+	return Validated(msg), nil
+}
+func (*Deny) ReceiveMessage(_ gpbft.ValidatedMessage) error { return nil }
+func (*Deny) ReceiveAlarm() error                           { return nil }

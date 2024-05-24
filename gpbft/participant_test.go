@@ -166,6 +166,14 @@ func (pt *participantTestSubject) mockValidTicket(target gpbft.PubKey, ticket gp
 		Return(nil)
 }
 
+func (pt *participantTestSubject) mockCommitteeForInstance(instance uint64, powerTable *gpbft.PowerTable, beacon []byte) {
+	pt.host.On("GetCommitteeForInstance", instance).Return(powerTable, beacon, nil)
+}
+
+func (pt *participantTestSubject) mockCommitteeUnavailableForInstance(instance uint64) {
+	pt.host.On("GetCommitteeForInstance", instance).Return(nil, nil, errors.New("committee not available"))
+}
+
 func (pt *participantTestSubject) matchMessageSigningPayload() any {
 	return mock.MatchedBy(func(msg []byte) bool {
 		return bytes.HasPrefix(msg, []byte(gpbft.DOMAIN_SEPARATION_TAG+":"+pt.networkName))
@@ -187,6 +195,7 @@ func generateRandomBytes(rng *rand.Rand) []byte {
 func TestParticipant(t *testing.T) {
 	t.Parallel()
 	const seed = 984651320
+	signature := []byte("barreleye")
 
 	t.Run("panic is recovered", func(t *testing.T) {
 		t.Run("on Start", func(t *testing.T) {
@@ -207,33 +216,36 @@ func TestParticipant(t *testing.T) {
 			subject := newParticipantTestSubject(t, seed, 0)
 			subject.requireStart()
 			require.NotPanics(t, func() {
-				gotChecked, gotErr := subject.ValidateMessage(nil)
-				require.False(t, gotChecked)
+				gotValidated, gotErr := subject.ValidateMessage(nil)
+				require.Nil(t, gotValidated)
 				require.Error(t, gotErr)
 			})
 		})
-		t.Run("on ValidateMessage", func(t *testing.T) {
+		t.Run("on ReceiveMessage", func(t *testing.T) {
 			subject := newParticipantTestSubject(t, seed, 0)
 			subject.requireStart()
 			require.NotPanics(t, func() {
-				gotAccepted, gotErr := subject.ReceiveMessage(nil, false)
-				require.False(t, gotAccepted)
+				gotErr := subject.ReceiveMessage(nil)
 				require.Error(t, gotErr)
 			})
 		})
 	})
 	t.Run("when not started", func(t *testing.T) {
-		t.Run("message is not validated", func(t *testing.T) {
-			subject := newParticipantTestSubject(t, seed, 0)
-			gotChecked, gotValidateErr := subject.ValidateMessage(new(gpbft.GMessage))
-			require.NoError(t, gotValidateErr)
-			require.False(t, gotChecked)
+		t.Run("message is validated", func(t *testing.T) {
+			initialInstance := uint64(0)
+			subject := newParticipantTestSubject(t, seed, initialInstance)
+			subject.mockCommitteeForInstance(initialInstance, subject.powerTable, subject.beacon)
+			gotValidated, gotValidateErr := subject.ValidateMessage(&gpbft.GMessage{
+				Sender: subject.ID(),
+				Vote:   gpbft.Payload{},
+			})
+			require.Nil(t, gotValidated)
+			require.ErrorContains(t, gotValidateErr, "invalid vote step: 0")
 		})
-		t.Run("message is not accepted", func(t *testing.T) {
+		t.Run("message is accepted (queued)", func(t *testing.T) {
 			subject := newParticipantTestSubject(t, seed, 0)
-			gotAccepted, gotReceiveErr := subject.ReceiveMessage(new(gpbft.GMessage), false)
+			gotReceiveErr := subject.ReceiveMessage(Validated(new(gpbft.GMessage)))
 			require.NoError(t, gotReceiveErr)
-			require.False(t, gotAccepted)
 		})
 		t.Run("instance is begun", func(t *testing.T) {
 			t.Run("on ReceiveAlarm", func(t *testing.T) {
@@ -296,46 +308,64 @@ func TestParticipant(t *testing.T) {
 		t.Run("on ReceiveMessage", func(t *testing.T) {
 			const initialInstance = 47
 			tests := []struct {
-				name         string
-				message      func(subject *participantTestSubject) (*gpbft.GMessage, bool)
-				wantAccepted bool
-				wantErr      string
+				name    string
+				message func(subject *participantTestSubject) *gpbft.GMessage
+				wantErr string
 			}{
 				{
-					name: "future instance messages are not accepted",
-					message: func(subject *participantTestSubject) (*gpbft.GMessage, bool) {
+					name: "prior instance message is dropped",
+					message: func(subject *participantTestSubject) *gpbft.GMessage {
 						return &gpbft.GMessage{
-							Vote: gpbft.Payload{Instance: initialInstance + 1413},
-						}, false
+							Vote: gpbft.Payload{Instance: initialInstance - 1},
+						}
 					},
+					wantErr: "message is for prior instance",
 				},
 				{
-					name: "unvalidated invalid current instance message is validated",
-					message: func(subject *participantTestSubject) (*gpbft.GMessage, bool) {
+					name: "current instance message with unexpected base is rejected",
+					message: func(subject *participantTestSubject) *gpbft.GMessage {
 						require.NoError(subject.t, subject.powerTable.Add(somePowerEntry))
 						return &gpbft.GMessage{
 							Sender: somePowerEntry.ID,
 							Vote: gpbft.Payload{
 								Instance: initialInstance,
-								Value:    gpbft.ECChain{gpbft.TipSet{}},
+								Step:     gpbft.QUALITY_PHASE,
+								Value:    gpbft.ECChain{gpbft.TipSet{Epoch: 0, Key: []byte("wrong")}},
 							},
-						}, false
+							Signature: signature,
+						}
 					},
-					wantAccepted: true,
-					wantErr:      "invalid message vote value chain",
+					wantErr: "unexpected base",
 				},
 				{
-					name: "valid current instance message is not error",
-					message: func(subject *participantTestSubject) (*gpbft.GMessage, bool) {
+					name: "future instance message with unexpected base is queued",
+					message: func(subject *participantTestSubject) *gpbft.GMessage {
+						require.NoError(subject.t, subject.powerTable.Add(somePowerEntry))
 						return &gpbft.GMessage{
-							Sender: gpbft.ActorID(1416),
+							Sender: somePowerEntry.ID,
+							Vote: gpbft.Payload{
+								Instance: initialInstance + 1,
+								Step:     gpbft.QUALITY_PHASE,
+								Value:    gpbft.ECChain{gpbft.TipSet{Epoch: 0, Key: []byte("wrong")}},
+							},
+							Signature: signature,
+						}
+					},
+				},
+				{
+					name: "valid current instance message is accepted",
+					message: func(subject *participantTestSubject) *gpbft.GMessage {
+						require.NoError(subject.t, subject.powerTable.Add(somePowerEntry))
+						return &gpbft.GMessage{
+							Sender: somePowerEntry.ID,
 							Vote: gpbft.Payload{
 								Instance: initialInstance,
+								Step:     gpbft.QUALITY_PHASE,
 								Value:    subject.canonicalChain,
 							},
-						}, true
+							Signature: signature,
+						}
 					},
-					wantAccepted: true,
 				},
 			}
 			for _, test := range tests {
@@ -343,14 +373,12 @@ func TestParticipant(t *testing.T) {
 				t.Run(test.name, func(t *testing.T) {
 					subject := newParticipantTestSubject(t, seed, initialInstance)
 					subject.requireStart()
-					message, validated := test.message(subject)
-					gotAccepted, gotErr := subject.ReceiveMessage(message, validated)
+					gotErr := subject.ReceiveMessage(Validated(test.message(subject)))
 					if test.wantErr == "" {
 						require.NoError(t, gotErr)
 					} else {
 						require.ErrorContains(t, gotErr, test.wantErr)
 					}
-					require.Equal(t, test.wantAccepted, gotAccepted)
 				})
 			}
 		})
@@ -371,22 +399,37 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 		signature = []byte("barreleye")
 	)
 	tests := []struct {
-		name           string
-		msg            func(*participantTestSubject) *gpbft.GMessage
-		msgs           func(*participantTestSubject) []*gpbft.GMessage
-		wantErr        string
-		wantNotChecked bool
+		name    string
+		msg     func(*participantTestSubject) *gpbft.GMessage
+		msgs    func(*participantTestSubject) []*gpbft.GMessage
+		wantErr string
 	}{
 		{
-			name: "mismatching instanceID is not checked",
-			msg: func(*participantTestSubject) *gpbft.GMessage {
+			name: "valid message is accepted",
+			msg: func(subject *participantTestSubject) *gpbft.GMessage {
+				subject.mockValidSignature(somePowerEntry.PubKey, signature)
+				return &gpbft.GMessage{
+					Sender: somePowerEntry.ID,
+					Vote: gpbft.Payload{
+						Instance: initialInstanceNumber,
+						Step:     gpbft.QUALITY_PHASE,
+						Value:    subject.canonicalChain,
+					},
+					Signature: signature,
+				}
+			},
+		},
+		{
+			name: "far future instanceID is rejected",
+			msg: func(subject *participantTestSubject) *gpbft.GMessage {
+				subject.mockCommitteeUnavailableForInstance(initialInstanceNumber + 5)
 				return &gpbft.GMessage{
 					Vote: gpbft.Payload{
 						Instance: initialInstanceNumber + 5,
 					},
 				}
 			},
-			wantNotChecked: true,
+			wantErr: "committee not available",
 		},
 		{
 			name: "zero message is error",
@@ -397,7 +440,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					},
 				}
 			},
-			wantErr: "sender with zero power or not in power table",
+			wantErr: "sender 0 with zero power or not in power table",
 		},
 		{
 			name: "unknown power is error",
@@ -409,7 +452,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					},
 				}
 			},
-			wantErr: "sender with zero power or not in power table",
+			wantErr: "sender 42 with zero power or not in power table",
 		},
 		{
 			name: "zero power is error",
@@ -421,20 +464,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					},
 				}
 			},
-			wantErr: "sender with zero power or not in power table",
-		},
-		{
-			name: "unexpected base is error",
-			msg: func(subject *participantTestSubject) *gpbft.GMessage {
-				return &gpbft.GMessage{
-					Sender: somePowerEntry.ID,
-					Vote: gpbft.Payload{
-						Instance: initialInstanceNumber,
-						Value:    gpbft.ECChain{gpbft.TipSet{Epoch: 0, Key: []byte("fish")}},
-					},
-				}
-			},
-			wantErr: "unexpected base [0@66697368]",
+			wantErr: "sender 1613 with zero power or not in power table",
 		},
 		{
 			name: "invalid value chain is error",
@@ -443,6 +473,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance: initialInstanceNumber,
+						Step:     gpbft.QUALITY_PHASE,
 						Value:    gpbft.ECChain{*subject.canonicalChain.Base(), gpbft.TipSet{}},
 					},
 				}
@@ -849,14 +880,14 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 			require.NoError(t, subject.powerTable.Add(somePowerEntry))
 			subject.requireStart()
 			testValidate := func(msg *gpbft.GMessage) {
-				gotChecked, gotValidateErr := subject.ValidateMessage(msg)
+				gotValidated, gotValidateErr := subject.ValidateMessage(msg)
 				subject.assertHostExpectations()
-				require.Equal(t, test.wantNotChecked, !gotChecked)
 				if test.wantErr != "" {
 					require.ErrorContains(t, gotValidateErr, test.wantErr)
 				} else {
 					require.NoError(t, gotValidateErr)
 				}
+				require.Equal(t, gotValidated != nil, gotValidateErr == nil)
 			}
 
 			if test.msg != nil {
@@ -869,4 +900,18 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 			}
 		})
 	}
+}
+
+type validatedMessage struct {
+	msg *gpbft.GMessage
+}
+
+var _ gpbft.ValidatedMessage = (*validatedMessage)(nil)
+
+func Validated(msg *gpbft.GMessage) gpbft.ValidatedMessage {
+	return &validatedMessage{msg: msg}
+}
+
+func (v *validatedMessage) Message() *gpbft.GMessage {
+	return v.msg
 }

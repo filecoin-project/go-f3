@@ -32,22 +32,22 @@ func (a *Absent) ID() gpbft.ActorID {
 	return a.id
 }
 
-func (a *Absent) Start() error {
+func (*Absent) Start() error {
 	return nil
 }
 
-func (a *Absent) ValidateMessage(_ *gpbft.GMessage) (bool, error) {
-	return true, nil
+func (*Absent) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
+	return Validated(msg), nil
 }
 
-func (a *Absent) ReceiveMessage(_ *gpbft.GMessage, _ bool) (bool, error) {
-	return true, nil
-}
-
-func (a *Absent) ReceiveAlarm() error {
+func (*Absent) ReceiveMessage(_ gpbft.ValidatedMessage) error {
 	return nil
 }
 
-func (a *Absent) AllowMessage(_ gpbft.ActorID, _ gpbft.ActorID, _ gpbft.GMessage) bool {
+func (*Absent) ReceiveAlarm() error {
+	return nil
+}
+
+func (*Absent) AllowMessage(_ gpbft.ActorID, _ gpbft.ActorID, _ gpbft.GMessage) bool {
 	return true
 }
