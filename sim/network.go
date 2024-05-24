@@ -77,48 +77,21 @@ type networkFor struct {
 	*Network
 }
 
-// Log implements tagging Tracer interface
-func (nf *networkFor) Log(format string, args ...any) {
-	nf.Network.log(TraceLogic, "P%d "+format, append([]any{nf.ParticipantID}, args...)...)
-}
-
 func (nf *networkFor) RequestBroadcast(msg *gpbft.GMessage) {
-	nf.log(TraceSent, "P%d ↗ %v", msg.Sender, msg)
-	for _, dest := range nf.participantIDs {
-		latencySample := time.Duration(0)
-		if dest != msg.Sender {
-			latencySample = nf.latency.Sample(nf.Time(), msg.Sender, dest)
-		}
-
-		nf.queue.Insert(
-			&messageInFlight{
-				source:    msg.Sender,
-				dest:      dest,
-				payload:   *msg,
-				deliverAt: nf.clock.Add(latencySample),
-			})
-	}
+	nf.broadcast(msg, false)
 }
 
 func (n *Network) NetworkName() gpbft.NetworkName {
 	return n.networkName
 }
 
-func (n *Network) Broadcast(sender gpbft.ActorID, msg *gpbft.GMessage) {
-	n.broadcast(sender, msg, false)
+func (n *Network) BroadcastSynchronous(msg *gpbft.GMessage) {
+	n.broadcast(msg, true)
 }
 
-func (n *Network) BroadcastSynchronous(sender gpbft.ActorID, msg *gpbft.GMessage) {
-	n.broadcast(sender, msg, true)
-}
-
-func (n *Network) broadcast(sender gpbft.ActorID, msg *gpbft.GMessage, synchronous bool) {
-	n.log(TraceSent, "P%d ↗ %v", sender, msg)
+func (n *Network) broadcast(msg *gpbft.GMessage, synchronous bool) {
+	n.log(TraceSent, "P%d ↗ %v", msg.Sender, msg)
 	for _, dest := range n.participantIDs {
-		if dest == sender {
-			continue
-		}
-
 		latencySample := time.Duration(0)
 		if !synchronous {
 			latencySample = n.latency.Sample(n.Time(), msg.Sender, dest)
@@ -126,7 +99,7 @@ func (n *Network) broadcast(sender gpbft.ActorID, msg *gpbft.GMessage, synchrono
 
 		n.queue.Insert(
 			&messageInFlight{
-				source:    sender,
+				source:    msg.Sender,
 				dest:      dest,
 				payload:   *msg,
 				deliverAt: n.clock.Add(latencySample),
