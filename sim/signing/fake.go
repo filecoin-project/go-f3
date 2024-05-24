@@ -44,8 +44,7 @@ func (s *FakeBackend) generateSignature(signer gpbft.PubKey, msg []byte) ([]byte
 	hasher.Write(signer)
 	hasher.Write([]byte(priv))
 	hasher.Write(msg)
-	sig := hasher.Sum(nil)
-	return sig, nil
+	return hasher.Sum(nil), nil
 }
 
 func (s *FakeBackend) Verify(signer gpbft.PubKey, msg, sig []byte) error {
