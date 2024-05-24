@@ -1,6 +1,7 @@
 package gpbft
 
 import (
+	"fmt"
 	"math/big"
 
 	xerrors "golang.org/x/xerrors"
@@ -48,6 +49,7 @@ type SignatureBuilder struct {
 }
 
 func (mt MessageBuilder) PrepareSigningInputs(networkName NetworkName, id ActorID) (SignatureBuilder, error) {
+	fmt.Println(">>>>> PREPARING SIGNATURE ID", id)
 	_, pubKey := mt.powerTable.Get(id)
 	if pubKey == nil {
 		return SignatureBuilder{}, xerrors.Errorf("could not find pubkey for actor %d", id)
@@ -62,6 +64,7 @@ func (mt MessageBuilder) PrepareSigningInputs(networkName NetworkName, id ActorI
 	}
 	signingTemplate.PayloadToSign = mt.Payload.MarshalForSigning(networkName)
 	if mt.BeaconForTicket != nil {
+		fmt.Println("verify vrf ticket")
 		signingTemplate.VRFToSign = vrfSerializeSigInput(mt.BeaconForTicket, mt.Payload.Instance, mt.Payload.Round, networkName)
 	}
 	return signingTemplate, nil
@@ -73,6 +76,8 @@ func (st SignatureBuilder) Sign(signer Signer) ([]byte, []byte, error) {
 	if err != nil {
 		return nil, nil, xerrors.Errorf("signing payload: %w", err)
 	}
+	fmt.Println(">>>>>>> Payload to sign builder", st.PubKey, "---", len(st.PayloadToSign), "----", st.PayloadToSign)
+	fmt.Println(">>>>>>> Signature builder", st.PubKey, payloadSignature)
 	var vrf []byte
 	if st.VRFToSign != nil {
 		vrf, err = signer.Sign(st.PubKey, st.VRFToSign)
@@ -83,7 +88,7 @@ func (st SignatureBuilder) Sign(signer Signer) ([]byte, []byte, error) {
 	return payloadSignature, vrf, nil
 }
 
-// Complete takes the template and signautres and builds GMessage out of them
+// Complete takes the template and signatures and builds GMessage out of them
 func (st SignatureBuilder) Complete(payloadSignature []byte, vrf []byte) *GMessage {
 	gmsg := &GMessage{
 		Sender:        st.ParticipantID,
