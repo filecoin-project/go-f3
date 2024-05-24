@@ -100,7 +100,7 @@ func (r *Repeat) ReceiveMessage(msg *gpbft.GMessage, _ bool) (bool, error) {
 		Ticket:        ticket,
 	}
 	for i := 0; i < echoCount; i++ {
-		r.host.Broadcast(echo.Sender, echo)
+		r.host.RequestBroadcast(echo)
 	}
 	return true, nil
 }
