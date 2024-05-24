@@ -11,20 +11,13 @@ import (
 
 // TestHonestMultiInstance_Agreement tests for multiple chained instances of the protocol with no adversaries.
 func TestHonestMultiInstance_Agreement(t *testing.T) {
-	// TODO: t.Parallel() here after https://github.com/filecoin-project/builtin-actors/issues/1541
-	//t.Parallel()
+	t.Parallel()
 	const (
 		instanceCount  = 4000
 		testRNGSeed    = 8965130
 		latencySeed    = testRNGSeed * 7
 		maxHonestCount = 10
 	)
-	// The number of honest participants for which every table test is executed.
-	participantCounts := make([]int, maxHonestCount)
-	for i := range participantCounts {
-		participantCounts[i] = i + 1
-	}
-
 	tests := []struct {
 		name    string
 		options []sim.Option
@@ -38,15 +31,17 @@ func TestHonestMultiInstance_Agreement(t *testing.T) {
 			options: asyncOptions(latencySeed),
 		},
 	}
-	for _, participantCount := range participantCounts {
-		participantCount := participantCount
-		for _, test := range tests {
-			test := test
-			name := fmt.Sprintf("%s %d", test.name, participantCount)
-			t.Run(name, func(t *testing.T) {
-				multiAgreementTest(t, testRNGSeed, participantCount, instanceCount, maxRounds, test.options...)
-			})
-		}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			for hc := 1; hc <= maxHonestCount; hc++ {
+				hc := hc
+				t.Run(fmt.Sprintf("%d", hc), func(t *testing.T) {
+					multiAgreementTest(t, testRNGSeed, hc, instanceCount, maxRounds, test.options...)
+				})
+			}
+		})
 	}
 }
 
@@ -101,8 +96,7 @@ func FuzzHonestMultiInstance_AsyncAgreement(f *testing.F) {
 }
 
 func multiAgreementTest(t *testing.T, seed int, honestCount int, instanceCount uint64, maxRounds uint64, opts ...sim.Option) {
-	// TODO: t.Parallel() here after https://github.com/filecoin-project/builtin-actors/issues/1541
-	//t.Parallel()
+	t.Parallel()
 	rng := rand.New(rand.NewSource(int64(seed)))
 	sm, err := sim.NewSimulation(append(opts,
 		sim.AddHonestParticipants(

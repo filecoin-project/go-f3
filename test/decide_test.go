@@ -17,34 +17,33 @@ func FuzzImmediateDecideAdversary(f *testing.F) {
 	f.Add(-9554)
 	f.Add(95)
 	f.Add(65)
-	f.Fuzz(immediateDecideAdversaryTest)
-}
+	f.Fuzz(func(t *testing.T, seed int) {
+		t.Parallel()
+		rng := rand.New(rand.NewSource(int64(seed)))
+		tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
+		baseChain := generateECChain(t, tsg)
+		adversaryValue := baseChain.Extend(tsg.Sample())
+		sm, err := sim.NewSimulation(
+			asyncOptions(rng.Int(),
+				sim.AddHonestParticipants(
+					1,
+					sim.NewUniformECChainGenerator(rng.Uint64(), 1, 10),
+					uniformOneStoragePower),
+				sim.WithBaseChain(&baseChain),
+				// Add the adversary to the simulation with 3/4 of total power.
+				sim.WithAdversary(adversary.NewImmediateDecideGenerator(adversaryValue, gpbft.NewStoragePower(3))),
+			)...)
+		require.NoError(t, err)
 
-func immediateDecideAdversaryTest(t *testing.T, seed int) {
-	rng := rand.New(rand.NewSource(int64(seed)))
-	tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
-	baseChain := generateECChain(t, tsg)
-	adversaryValue := baseChain.Extend(tsg.Sample())
-	sm, err := sim.NewSimulation(
-		asyncOptions(rng.Int(),
-			sim.AddHonestParticipants(
-				1,
-				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 10),
-				uniformOneStoragePower),
-			sim.WithBaseChain(&baseChain),
-			// Add the adversary to the simulation with 3/4 of total power.
-			sim.WithAdversary(adversary.NewImmediateDecideGenerator(adversaryValue, gpbft.NewStoragePower(3))),
-		)...)
-	require.NoError(t, err)
+		err = sm.Run(1, maxRounds)
+		if err != nil {
+			fmt.Printf("%s", sm.Describe())
+			sm.GetInstance(0).Print()
+		}
+		require.NoError(t, err)
 
-	err = sm.Run(1, maxRounds)
-	if err != nil {
-		fmt.Printf("%s", sm.Describe())
-		sm.GetInstance(0).Print()
-	}
-	require.NoError(t, err)
-
-	decision := sm.GetInstance(0).GetDecision(0)
-	require.NotNil(t, decision, "no decision")
-	require.Equal(t, adversaryValue.Head(), decision.Head(), "honest node did not decide the right value")
+		decision := sm.GetInstance(0).GetDecision(0)
+		require.NotNil(t, decision, "no decision")
+		require.Equal(t, adversaryValue.Head(), decision.Head(), "honest node did not decide the right value")
+	})
 }

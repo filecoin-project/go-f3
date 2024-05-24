@@ -6,6 +6,9 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
+// Modeler instantiates a new latency Model.
+type Modeler func() (Model, error)
+
 // Model represents a latency model of cross participant communication. The model
 // offers the ability for implementation of varying latency across a simulation,
 // as well as specialised latency across specific participants.
