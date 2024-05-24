@@ -56,26 +56,21 @@ func (s *Spam) spamAtInstance(instance uint64) {
 	// Spam the network with COMMIT messages by incrementing rounds up to
 	// roundsAhead.
 	for spamRound := uint64(0); spamRound < s.roundsAhead; spamRound++ {
-		spamVote := gpbft.Payload{
-			Instance: instance,
-			Round:    spamRound,
-			Step:     gpbft.COMMIT_PHASE,
-		}
-		sigPayload := s.host.MarshalPayloadForSigning(&spamVote)
 		power, _, err := s.host.GetCommitteeForInstance(instance)
 		if err != nil {
 			panic(err)
 		}
-		_, pubkey := power.Get(s.id)
-		sig, err := s.host.Sign(pubkey, sigPayload)
-		if err != nil {
-			panic(err)
+		p := gpbft.Payload{
+			Instance: instance,
+			Round:    spamRound,
+			Step:     gpbft.COMMIT_PHASE,
 		}
-		s.host.RequestBroadcast(&gpbft.GMessage{
-			Sender:    s.ID(),
-			Vote:      spamVote,
-			Signature: sig,
-		})
+		mt := &gpbft.MessageBuilder{
+			PowerTable: power,
+			Payload:    p,
+		}
+
+		s.host.RequestBroadcast(mt)
 	}
 }
 

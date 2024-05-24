@@ -8,7 +8,7 @@ import (
 )
 
 type MessageBuilder struct {
-	powerTable powerTableAccess
+	PowerTable powerTableAccess
 
 	Payload Payload
 
@@ -62,7 +62,9 @@ func (mt MessageBuilder) PrepareSigningInputs(networkName NetworkName, id ActorI
 
 		PubKey: pubKey,
 	}
-	signingTemplate.PayloadToSign = mt.Payload.MarshalForSigning(networkName)
+
+	signingTemplate.PayloadToSign = signer.MarshalPayloadForSigning(&mt.Payload)
+	// signingTemplate.PayloadToSign = mt.Payload.MarshalForSigning(networkName)
 	if mt.BeaconForTicket != nil {
 		fmt.Println("verify vrf ticket")
 		signingTemplate.VRFToSign = vrfSerializeSigInput(mt.BeaconForTicket, mt.Payload.Instance, mt.Payload.Round, networkName)
@@ -76,8 +78,6 @@ func (st SignatureBuilder) Sign(signer Signer) ([]byte, []byte, error) {
 	if err != nil {
 		return nil, nil, xerrors.Errorf("signing payload: %w", err)
 	}
-	fmt.Println(">>>>>>> Payload to sign builder", st.PubKey, "---", len(st.PayloadToSign), "----", st.PayloadToSign)
-	fmt.Println(">>>>>>> Signature builder", st.PubKey, payloadSignature)
 	var vrf []byte
 	if st.VRFToSign != nil {
 		vrf, err = signer.Sign(st.PubKey, st.VRFToSign)

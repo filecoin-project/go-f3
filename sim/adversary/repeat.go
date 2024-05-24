@@ -75,32 +75,23 @@ func (r *Repeat) ReceiveMessage(msg *gpbft.GMessage, _ bool) (bool, error) {
 		return true, nil
 	}
 
-	sigPayload := r.host.MarshalPayloadForSigning(&msg.Vote)
 	power, beacon, _ := r.host.GetCommitteeForInstance(0)
-	_, pubkey := power.Get(r.id)
-
-	sig, err := r.host.Sign(pubkey, sigPayload)
-	if err != nil {
-		panic(err)
+	p := gpbft.Payload{
+		Instance: msg.Vote.Instance,
+		Round:    msg.Vote.Round,
+		Step:     msg.Vote.Step,
+		Value:    msg.Vote.Value,
 	}
-
-	var ticket gpbft.Ticket
-	if len(msg.Ticket) != 0 {
-		var err error
-		ticket, err = gpbft.MakeTicket(r.host.NetworkName(), beacon, msg.Vote.Instance, msg.Vote.Round, pubkey, r.host)
-		if err != nil {
-			panic(err)
-		}
-	}
-	echo := &gpbft.GMessage{
-		Sender:        r.ID(),
-		Vote:          msg.Vote,
-		Signature:     sig,
+	mt := &gpbft.MessageBuilder{
+		PowerTable:    power,
+		Payload:       p,
 		Justification: msg.Justification,
-		Ticket:        ticket,
+	}
+	if len(msg.Ticket) != 0 {
+		mt.BeaconForTicket = beacon
 	}
 	for i := 0; i < echoCount; i++ {
-		r.host.RequestBroadcast(echo)
+		r.host.RequestBroadcast(mt)
 	}
 	return true, nil
 }
