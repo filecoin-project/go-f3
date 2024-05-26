@@ -68,7 +68,6 @@ func (mt MessageBuilder) PrepareSigningInputs(msh MessageMarshaler, networkName 
 	}
 
 	signingTemplate.PayloadToSign = msh.MarshalPayloadForSigning(networkName, &mt.Payload)
-	// signingTemplate.PayloadToSign = mt.Payload.MarshalForSigning(networkName)
 	if mt.BeaconForTicket != nil {
 		fmt.Println("verify vrf ticket")
 		signingTemplate.VRFToSign = vrfSerializeSigInput(mt.BeaconForTicket, mt.Payload.Instance, mt.Payload.Round, networkName)
@@ -76,6 +75,10 @@ func (mt MessageBuilder) PrepareSigningInputs(msh MessageMarshaler, networkName 
 	return signingTemplate, nil
 }
 
+// NewMessageBuilderWithPowerTable allows to create a new message builder
+// from an existing power table.
+//
+// This is needed to sign forged messages in adversary hosts
 func NewMessageBuilderWithPowerTable(power *PowerTable) MessageBuilder {
 	return MessageBuilder{
 		powerTable: power,
