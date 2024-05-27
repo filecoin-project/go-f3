@@ -86,10 +86,12 @@ func FuzzHonestMultiInstance_SyncAgreement(f *testing.F) {
 
 func FuzzHonestMultiInstance_AsyncAgreement(f *testing.F) {
 	const (
-		instanceCount = 4000
-		honestCount   = 5
+		instanceCount = 5000
+		honestCount   = 4
 	)
 	f.Add(-7)
+	f.Add(31)
+	f.Add(33)
 	f.Fuzz(func(t *testing.T, seed int) {
 		multiAgreementTest(t, seed, honestCount, instanceCount, maxRounds*2, asyncOptions(seed)...)
 	})
@@ -103,7 +105,7 @@ func multiAgreementTest(t *testing.T, seed int, honestCount int, instanceCount u
 			honestCount,
 			// Generate a random EC chain for all participant that changes randomly at each
 			// instance.
-			sim.NewUniformECChainGenerator(rng.Uint64(), 1, 10), uniformOneStoragePower),
+			sim.NewUniformECChainGenerator(rng.Uint64(), 1, 4), uniformOneStoragePower),
 	)...)
 	require.NoError(t, err)
 	require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
