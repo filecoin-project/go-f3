@@ -780,16 +780,14 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, createTick
 		Step:     step,
 		Value:    value,
 	}
-	messageTemplate := MessageBuilder{
-		powerTable:    &i.powerTable,
-		Payload:       p,
-		Justification: justification,
-	}
+	mb := NewMessageBuilder(&i.powerTable)
+	mb.SetPayload(p)
+	mb.SetJustification(justification)
 	if createTicket {
-		messageTemplate.BeaconForTicket = i.beacon
+		mb.SetBeaconForTicket(i.beacon)
 	}
 
-	i.participant.host.RequestBroadcast(&messageTemplate)
+	i.participant.host.RequestBroadcast(&mb)
 }
 
 // Sets an alarm to be delivered after a synchrony delay.
@@ -821,7 +819,7 @@ func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase P
 	}
 }
 
-func (i *instance) log(format string, args ...interface{}) {
+func (i *instance) log(format string, args ...any) {
 	if i.tracer != nil {
 		msg := fmt.Sprintf(format, args...)
 		i.tracer.Log("{%d}: %s (round %d, step %s, proposal %s, value %s)", i.instanceID, msg,

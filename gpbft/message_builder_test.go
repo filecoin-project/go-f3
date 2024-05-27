@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMessageTemplate(t *testing.T) {
+func TestMessageBuilder(t *testing.T) {
 	pt := NewPowerTable()
 	err := pt.Add([]PowerEntry{
 		{
@@ -29,10 +29,8 @@ func TestMessageTemplate(t *testing.T) {
 	}
 	nn := NetworkName("test")
 
-	mt := MessageBuilder{
-		powerTable: pt,
-		Payload:    payload,
-	}
+	mt := NewMessageBuilder(pt)
+	mt.SetPayload(payload)
 	msh := &marshaler{}
 	_, err = mt.PrepareSigningInputs(msh, nn, 2)
 	require.Error(t, err, "unknown ID should return an error")
@@ -40,23 +38,23 @@ func TestMessageTemplate(t *testing.T) {
 	st, err := mt.PrepareSigningInputs(msh, nn, 0)
 	require.NoError(t, err)
 
-	require.Equal(t, st.Payload, payload)
-	require.Equal(t, st.ParticipantID, ActorID(0))
-	require.Equal(t, st.PubKey, PubKey{0})
-	require.NotNil(t, st.PayloadToSign)
-	require.Nil(t, st.VRFToSign)
+	require.Equal(t, st.Payload(), payload)
+	require.Equal(t, st.ParticipantID(), ActorID(0))
+	require.Equal(t, st.PubKey(), PubKey{0})
+	require.NotNil(t, st.PayloadToSign())
+	require.Nil(t, st.VRFToSign())
 
 	st, err = mt.PrepareSigningInputs(msh, nn, 1)
 	require.NoError(t, err)
 
-	require.Equal(t, st.Payload, payload)
-	require.Equal(t, st.ParticipantID, ActorID(1))
-	require.Equal(t, st.PubKey, PubKey{1})
-	require.NotNil(t, st.PayloadToSign)
-	require.Nil(t, st.VRFToSign)
+	require.Equal(t, st.Payload(), payload)
+	require.Equal(t, st.ParticipantID(), ActorID(1))
+	require.Equal(t, st.PubKey(), PubKey{1})
+	require.NotNil(t, st.PayloadToSign())
+	require.Nil(t, st.VRFToSign())
 }
 
-func TestMessageTemplateWithVRF(t *testing.T) {
+func TestMessageBuilderWithVRF(t *testing.T) {
 	pt := NewPowerTable()
 	err := pt.Add([]PowerEntry{
 		{
@@ -78,28 +76,26 @@ func TestMessageTemplateWithVRF(t *testing.T) {
 
 	nn := NetworkName("test")
 	msh := &marshaler{}
-	mt := MessageBuilder{
-		powerTable:      pt,
-		Payload:         payload,
-		BeaconForTicket: []byte{0xbe, 0xac, 0x04},
-	}
+	mt := NewMessageBuilder(pt)
+	mt.SetPayload(payload)
+	mt.SetBeaconForTicket([]byte{0xbe, 0xac, 0x04})
 	st, err := mt.PrepareSigningInputs(msh, nn, 0)
 	require.NoError(t, err)
 
-	require.Equal(t, st.Payload, payload)
-	require.Equal(t, st.ParticipantID, ActorID(0))
-	require.Equal(t, st.PubKey, PubKey{0})
-	require.NotNil(t, st.PayloadToSign)
-	require.NotNil(t, st.VRFToSign)
+	require.Equal(t, st.Payload(), payload)
+	require.Equal(t, st.ParticipantID(), ActorID(0))
+	require.Equal(t, st.PubKey(), PubKey{0})
+	require.NotNil(t, st.PayloadToSign())
+	require.NotNil(t, st.VRFToSign())
 
 	st, err = mt.PrepareSigningInputs(msh, nn, 1)
 	require.NoError(t, err)
 
-	require.Equal(t, st.Payload, payload)
-	require.Equal(t, st.ParticipantID, ActorID(1))
-	require.Equal(t, st.PubKey, PubKey{1})
-	require.NotNil(t, st.PayloadToSign)
-	require.NotNil(t, st.VRFToSign)
+	require.Equal(t, st.Payload(), payload)
+	require.Equal(t, st.ParticipantID(), ActorID(1))
+	require.Equal(t, st.PubKey(), PubKey{1})
+	require.NotNil(t, st.PayloadToSign())
+	require.NotNil(t, st.VRFToSign())
 }
 
 type marshaler struct{}

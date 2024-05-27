@@ -8,16 +8,48 @@ import (
 )
 
 type MessageBuilder struct {
-	powerTable powerTableAccess
-
-	Payload Payload
-
-	BeaconForTicket []byte
-
-	Justification *Justification
+	powerTable      powerTableAccessor
+	payload         Payload
+	beaconForTicket []byte
+	justification   *Justification
 }
 
-type powerTableAccess interface {
+// NewMessageBuilder creates a new message builder with the provided beacon for ticket,
+// justification and payload.
+func NewMessageBuilder(powerTable powerTableAccessor) MessageBuilder {
+	return MessageBuilder{
+		powerTable: powerTable,
+	}
+}
+
+// SetBeaconForTicket sets the beacon for the ticket in the message builder.
+func (mb *MessageBuilder) SetBeaconForTicket(b []byte) {
+	mb.beaconForTicket = b
+}
+
+// SetJustification sets the justification in the message builder.
+func (mb *MessageBuilder) SetJustification(j *Justification) {
+	mb.justification = j
+}
+
+// SetPayload sets the payload in the message builder.
+func (mb *MessageBuilder) SetPayload(p Payload) {
+	mb.payload = p
+}
+
+func (mb *MessageBuilder) Payload() Payload {
+	return mb.payload
+}
+
+func (mb *MessageBuilder) BeaconForTicket() []byte {
+	return mb.beaconForTicket
+}
+
+func (mb *MessageBuilder) Justification() *Justification {
+	return mb.justification
+}
+
+type powerTableAccessor interface {
 	Get(ActorID) (*big.Int, PubKey)
 }
 
@@ -26,7 +58,7 @@ type SignerWithMarshaler interface {
 	MessageMarshaler
 }
 
-// Build uses the template and a signer interface to build GMessage
+// Build uses the builder and a signer interface to build GMessage
 // It is a shortcut for when separated flow is not required
 func (mt MessageBuilder) Build(networkName NetworkName, signer SignerWithMarshaler, id ActorID) (*GMessage, error) {
 	st, err := mt.PrepareSigningInputs(signer, networkName, id)
@@ -36,21 +68,45 @@ func (mt MessageBuilder) Build(networkName NetworkName, signer SignerWithMarshal
 
 	payloadSig, vrf, err := st.Sign(signer)
 	if err != nil {
-		return nil, xerrors.Errorf("signing template: %w", err)
+		return nil, xerrors.Errorf("signing message builder: %w", err)
 	}
 
 	return st.Complete(payloadSig, vrf), nil
 }
 
 type SignatureBuilder struct {
-	ParticipantID ActorID
-	NetworkName   NetworkName
-	Payload       Payload
-	Justification *Justification
+	NetworkName NetworkName
 
-	PubKey        PubKey
-	PayloadToSign []byte
-	VRFToSign     []byte
+	participantID ActorID
+	payload       Payload
+	justification *Justification
+	pubKey        PubKey
+	payloadToSign []byte
+	vrfToSign     []byte
+}
+
+func (sb *SignatureBuilder) ParticipantID() ActorID {
+	return sb.participantID
+}
+
+func (sb *SignatureBuilder) Payload() Payload {
+	return sb.payload
+}
+
+func (sb *SignatureBuilder) Justification() *Justification {
+	return sb.justification
+}
+
+func (sb *SignatureBuilder) PubKey() PubKey {
+	return sb.pubKey
+}
+
+func (sb *SignatureBuilder) PayloadToSign() []byte {
+	return sb.payloadToSign
+}
+
+func (sb *SignatureBuilder) VRFToSign() []byte {
+	return sb.vrfToSign
 }
 
 func (mt MessageBuilder) PrepareSigningInputs(msh MessageMarshaler, networkName NetworkName, id ActorID) (SignatureBuilder, error) {
@@ -59,18 +115,18 @@ func (mt MessageBuilder) PrepareSigningInputs(msh MessageMarshaler, networkName 
 		return SignatureBuilder{}, xerrors.Errorf("could not find pubkey for actor %d", id)
 	}
 	signingTemplate := SignatureBuilder{
-		ParticipantID: id,
+		participantID: id,
 		NetworkName:   networkName,
-		Payload:       mt.Payload,
-		Justification: mt.Justification,
+		payload:       mt.payload,
+		justification: mt.justification,
 
-		PubKey: pubKey,
+		pubKey: pubKey,
 	}
 
-	signingTemplate.PayloadToSign = msh.MarshalPayloadForSigning(networkName, &mt.Payload)
-	if mt.BeaconForTicket != nil {
+	signingTemplate.payloadToSign = msh.MarshalPayloadForSigning(networkName, &mt.payload)
+	if mt.beaconForTicket != nil {
 		fmt.Println("verify vrf ticket")
-		signingTemplate.VRFToSign = vrfSerializeSigInput(mt.BeaconForTicket, mt.Payload.Instance, mt.Payload.Round, networkName)
+		signingTemplate.vrfToSign = vrfSerializeSigInput(mt.beaconForTicket, mt.payload.Instance, mt.payload.Round, networkName)
 	}
 	return signingTemplate, nil
 }
@@ -87,13 +143,13 @@ func NewMessageBuilderWithPowerTable(power *PowerTable) MessageBuilder {
 
 // Sign creates signatures for the SigningTemplate, it could live across RPC boundry
 func (st SignatureBuilder) Sign(signer Signer) ([]byte, []byte, error) {
-	payloadSignature, err := signer.Sign(st.PubKey, st.PayloadToSign)
+	payloadSignature, err := signer.Sign(st.pubKey, st.payloadToSign)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("signing payload: %w", err)
 	}
 	var vrf []byte
-	if st.VRFToSign != nil {
-		vrf, err = signer.Sign(st.PubKey, st.VRFToSign)
+	if st.vrfToSign != nil {
+		vrf, err = signer.Sign(st.pubKey, st.vrfToSign)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("signing vrf: %w", err)
 		}
@@ -103,12 +159,11 @@ func (st SignatureBuilder) Sign(signer Signer) ([]byte, []byte, error) {
 
 // Complete takes the template and signatures and builds GMessage out of them
 func (st SignatureBuilder) Complete(payloadSignature []byte, vrf []byte) *GMessage {
-	gmsg := &GMessage{
-		Sender:        st.ParticipantID,
-		Vote:          st.Payload,
+	return &GMessage{
+		Sender:        st.participantID,
+		Vote:          st.payload,
 		Signature:     payloadSignature,
 		Ticket:        vrf,
-		Justification: st.Justification,
+		Justification: st.justification,
 	}
-	return gmsg
 }
