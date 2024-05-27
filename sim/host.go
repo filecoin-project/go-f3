@@ -20,7 +20,7 @@ type simHost struct {
 	SimNetwork
 	gpbft.Signer
 	gpbft.Verifier
-	gpbft.MessageMarshaler
+	gpbft.SigningMarshaler
 	gpbft.Clock
 
 	id     gpbft.ActorID
@@ -44,7 +44,7 @@ func newHost(id gpbft.ActorID, sim *Simulation, ecg ECChainGenerator, spg Storag
 		SimNetwork:       sim.network.NetworkFor(sim.signingBacked, id),
 		Verifier:         sim.signingBacked,
 		Signer:           sim.signingBacked,
-		MessageMarshaler: sim.signingBacked,
+		SigningMarshaler: sim.signingBacked,
 		sim:              sim,
 		id:               id,
 		ecg:              ecg,

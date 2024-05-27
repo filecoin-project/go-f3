@@ -1,7 +1,6 @@
 package gpbft
 
 import (
-	"fmt"
 	"math/big"
 
 	xerrors "golang.org/x/xerrors"
@@ -37,15 +36,15 @@ func (mb *MessageBuilder) SetPayload(p Payload) {
 	mb.payload = p
 }
 
-func (mb *MessageBuilder) Payload() Payload {
+func (mb MessageBuilder) Payload() Payload {
 	return mb.payload
 }
 
-func (mb *MessageBuilder) BeaconForTicket() []byte {
+func (mb MessageBuilder) BeaconForTicket() []byte {
 	return mb.beaconForTicket
 }
 
-func (mb *MessageBuilder) Justification() *Justification {
+func (mb MessageBuilder) Justification() *Justification {
 	return mb.justification
 }
 
@@ -55,7 +54,7 @@ type powerTableAccessor interface {
 
 type SignerWithMarshaler interface {
 	Signer
-	MessageMarshaler
+	SigningMarshaler
 }
 
 // Build uses the builder and a signer interface to build GMessage
@@ -66,12 +65,12 @@ func (mt MessageBuilder) Build(networkName NetworkName, signer SignerWithMarshal
 		return nil, xerrors.Errorf("preparing signing inputs: %w", err)
 	}
 
-	payloadSig, vrf, err := st.Sign(signer)
+	payloadSig, vrf, err := st.sign(signer)
 	if err != nil {
 		return nil, xerrors.Errorf("signing message builder: %w", err)
 	}
 
-	return st.Complete(payloadSig, vrf), nil
+	return st.build(payloadSig, vrf), nil
 }
 
 type SignatureBuilder struct {
@@ -109,12 +108,12 @@ func (sb *SignatureBuilder) VRFToSign() []byte {
 	return sb.vrfToSign
 }
 
-func (mt MessageBuilder) PrepareSigningInputs(msh MessageMarshaler, networkName NetworkName, id ActorID) (SignatureBuilder, error) {
+func (mt MessageBuilder) PrepareSigningInputs(msh SigningMarshaler, networkName NetworkName, id ActorID) (SignatureBuilder, error) {
 	_, pubKey := mt.powerTable.Get(id)
 	if pubKey == nil {
 		return SignatureBuilder{}, xerrors.Errorf("could not find pubkey for actor %d", id)
 	}
-	signingTemplate := SignatureBuilder{
+	sb := SignatureBuilder{
 		participantID: id,
 		NetworkName:   networkName,
 		payload:       mt.payload,
@@ -123,12 +122,11 @@ func (mt MessageBuilder) PrepareSigningInputs(msh MessageMarshaler, networkName 
 		pubKey: pubKey,
 	}
 
-	signingTemplate.payloadToSign = msh.MarshalPayloadForSigning(networkName, &mt.payload)
+	sb.payloadToSign = msh.MarshalPayloadForSigning(networkName, &mt.payload)
 	if mt.beaconForTicket != nil {
-		fmt.Println("verify vrf ticket")
-		signingTemplate.vrfToSign = vrfSerializeSigInput(mt.beaconForTicket, mt.payload.Instance, mt.payload.Round, networkName)
+		sb.vrfToSign = vrfSerializeSigInput(mt.beaconForTicket, mt.payload.Instance, mt.payload.Round, networkName)
 	}
-	return signingTemplate, nil
+	return sb, nil
 }
 
 // NewMessageBuilderWithPowerTable allows to create a new message builder
@@ -141,8 +139,9 @@ func NewMessageBuilderWithPowerTable(power *PowerTable) MessageBuilder {
 	}
 }
 
-// Sign creates signatures for the SigningTemplate, it could live across RPC boundry
-func (st SignatureBuilder) Sign(signer Signer) ([]byte, []byte, error) {
+// Sign creates the signed payload from the signature builder and returns the payload
+// and VRF signatures. These signatures can be used independent from the builder.
+func (st SignatureBuilder) sign(signer Signer) ([]byte, []byte, error) {
 	payloadSignature, err := signer.Sign(st.pubKey, st.payloadToSign)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("signing payload: %w", err)
@@ -157,8 +156,8 @@ func (st SignatureBuilder) Sign(signer Signer) ([]byte, []byte, error) {
 	return payloadSignature, vrf, nil
 }
 
-// Complete takes the template and signatures and builds GMessage out of them
-func (st SignatureBuilder) Complete(payloadSignature []byte, vrf []byte) *GMessage {
+// Build takes the template and signatures and builds GMessage out of them
+func (st SignatureBuilder) build(payloadSignature []byte, vrf []byte) *GMessage {
 	return &GMessage{
 		Sender:        st.participantID,
 		Vote:          st.payload,

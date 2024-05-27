@@ -86,6 +86,10 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	pt.host.On("GetCommitteeForInstance", pt.instance).Return(pt.powerTable, pt.beacon, nil)
 	pt.host.On("Time").Return(pt.time)
 	pt.host.On("NetworkName").Return(pt.networkName).Maybe()
+	// We need to use `Maybe` here because `MarshalPayloadForSigning` may be called
+	// an additional time for verification.
+	// Without the `Maybe` the tests immediately fails here:
+	// https://github.com/filecoin-project/go-f3/blob/d27d281109d31485fc4ac103e2af58afb86c158f/gpbft/gpbft.go#L395
 	pt.host.On("MarshalPayloadForSigning", pt.networkName, mock.AnythingOfType("*gpbft.Payload")).
 		Return([]byte(gpbft.DOMAIN_SEPARATION_TAG + ":" + pt.networkName)).Maybe()
 
