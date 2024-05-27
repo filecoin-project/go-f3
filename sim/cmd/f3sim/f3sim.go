@@ -31,7 +31,10 @@ func main() {
 		fmt.Printf("Iteration %d: seed=%d, mean=%f\n", i, seed, *latencyMean)
 
 		options := []sim.Option{
-			sim.WithLatencyModel(latency.NewLogNormal(*latencySeed, time.Duration(*latencyMean*float64(time.Second)))),
+			sim.WithLatencyModeler(func() (latency.Model, error) {
+				mean := time.Duration(*latencyMean * float64(time.Second))
+				return latency.NewLogNormal(*latencySeed, mean), nil
+			}),
 			sim.WithECEpochDuration(30 * time.Second),
 			sim.WithECStabilisationDelay(0),
 			sim.AddHonestParticipants(
