@@ -3,7 +3,7 @@ SHELL := /usr/bin/env bash
 
 all: generate test fuzz lint
 
-test: GOGC ?= 100 # Reduce GC frequency during testing, default to 1000 if unset.
+test: GOGC ?= 1000 # Reduce GC frequency during testing, default to 1000 if unset.
 test:
 	GOGC=$(GOGC) go test $(GOTEST_ARGS) ./...
 .PHONY: test
