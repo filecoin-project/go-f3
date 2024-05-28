@@ -44,9 +44,8 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 	finalInstance := instanceCount - 1
 
 	// Exclude adversary ID when checking for decision or instance completion.
-	var excludedParticipants []gpbft.ActorID
 	if s.adversary != nil {
-		excludedParticipants = append(excludedParticipants, s.adversary.ID())
+		s.ignoreConsensusFor = append(s.ignoreConsensusFor, s.adversary.ID())
 	}
 
 	// Run until there are no more messages, meaning termination or deadlock.
@@ -56,11 +55,11 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 			return fmt.Errorf("error in decision: %w", err)
 		}
 		if s.getMaxRound() > maxRounds {
-			return fmt.Errorf("reached maximum number of %d rounds", maxRounds)
+			return fmt.Errorf("reached maximum number of %d rounds at instance %d", maxRounds, currentInstance.Instance)
 		}
-		if currentInstance.HasCompleted(excludedParticipants...) {
+		if currentInstance.HasCompleted(s.ignoreConsensusFor...) {
 			// Verify the current instance as soon as it completes.
-			decidedChain, reachedConsensus := currentInstance.HasReachedConsensus(excludedParticipants...)
+			decidedChain, reachedConsensus := currentInstance.HasReachedConsensus(s.ignoreConsensusFor...)
 			if !reachedConsensus {
 				return fmt.Errorf("concensus was not reached at instance %d", currentInstance.Instance)
 			}
