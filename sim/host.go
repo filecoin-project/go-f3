@@ -68,6 +68,11 @@ func (v *simHost) GetCommitteeForInstance(instance uint64) (power *gpbft.PowerTa
 	return i.PowerTable, i.Beacon, nil
 }
 
+func (v *simHost) GetDataForInstance(instance uint64) (*gpbft.InstanceData, error) {
+	// TODO: use lookback to return the correct next power table commitment and commitments hash.
+	return new(gpbft.InstanceData), nil
+}
+
 func (v *simHost) SetAlarm(at time.Time) {
 	v.sim.network.SetAlarm(v.id, at)
 }

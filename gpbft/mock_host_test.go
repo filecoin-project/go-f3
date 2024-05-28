@@ -205,6 +205,64 @@ func (_c *MockHost_GetCommitteeForInstance_Call) RunAndReturn(run func(uint64) (
 	return _c
 }
 
+// GetDataForInstance provides a mock function with given fields: instance
+func (_m *MockHost) GetDataForInstance(instance uint64) (*InstanceData, error) {
+	ret := _m.Called(instance)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetDataForInstance")
+	}
+
+	var r0 *InstanceData
+	var r1 error
+	if rf, ok := ret.Get(0).(func(uint64) (*InstanceData, error)); ok {
+		return rf(instance)
+	}
+	if rf, ok := ret.Get(0).(func(uint64) *InstanceData); ok {
+		r0 = rf(instance)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*InstanceData)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(uint64) error); ok {
+		r1 = rf(instance)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockHost_GetDataForInstance_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetDataForInstance'
+type MockHost_GetDataForInstance_Call struct {
+	*mock.Call
+}
+
+// GetDataForInstance is a helper method to define mock.On call
+//   - instance uint64
+func (_e *MockHost_Expecter) GetDataForInstance(instance interface{}) *MockHost_GetDataForInstance_Call {
+	return &MockHost_GetDataForInstance_Call{Call: _e.mock.On("GetDataForInstance", instance)}
+}
+
+func (_c *MockHost_GetDataForInstance_Call) Run(run func(instance uint64)) *MockHost_GetDataForInstance_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(uint64))
+	})
+	return _c
+}
+
+func (_c *MockHost_GetDataForInstance_Call) Return(data *InstanceData, err error) *MockHost_GetDataForInstance_Call {
+	_c.Call.Return(data, err)
+	return _c
+}
+
+func (_c *MockHost_GetDataForInstance_Call) RunAndReturn(run func(uint64) (*InstanceData, error)) *MockHost_GetDataForInstance_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // MarshalPayloadForSigning provides a mock function with given fields: _a0, _a1
 func (_m *MockHost) MarshalPayloadForSigning(_a0 NetworkName, _a1 *Payload) []byte {
 	ret := _m.Called(_a0, _a1)

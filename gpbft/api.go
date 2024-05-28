@@ -68,6 +68,10 @@ type Chain interface {
 	// The offset (how many instances to look back) is determined by the host.
 	// Returns an error if the committee for the instance is not available.
 	GetCommitteeForInstance(instance uint64) (power *PowerTable, beacon []byte, err error)
+
+	// Returns the instance data for the given instance. All participants will propose the exact
+	// same instance data and all messages proposing _different_ instance data will be dropped.
+	GetDataForInstance(instance uint64) (data *InstanceData, err error)
 }
 
 // Endpoint to which participants can send messages.

@@ -151,6 +151,11 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 	return table, []byte{'A'}, nil
 }
 
+func (h *gpbftHost) GetDataForInstance(instance uint64) (*gpbft.InstanceData, error) {
+	// TODO: use lookback to return the correct next power table commitment and commitments hash.
+	return new(gpbft.InstanceData), nil
+}
+
 // Returns the network's name (for signature separation)
 func (h *gpbftHost) NetworkName() gpbft.NetworkName {
 	return h.runner.manifest.NetworkName

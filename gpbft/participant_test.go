@@ -36,6 +36,7 @@ type participantTestSubject struct {
 	beacon         []byte
 	time           time.Time
 	delta          time.Duration
+	instanceData   *gpbft.InstanceData
 }
 
 func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *participantTestSubject {
@@ -61,6 +62,7 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 		powerTable:     gpbft.NewPowerTable(),
 		beacon:         generateRandomBytes(rng),
 		time:           time.Now(),
+		instanceData:   new(gpbft.InstanceData),
 	}
 
 	// Assure power table contains the power entry for the test subject
@@ -84,6 +86,7 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	// Prepare the test host.
 	pt.host.On("GetChainForInstance", pt.instance).Return(pt.canonicalChain, nil)
 	pt.host.On("GetCommitteeForInstance", pt.instance).Return(pt.powerTable, pt.beacon, nil)
+	pt.host.On("GetDataForInstance", pt.instance).Return(pt.instanceData, nil)
 	pt.host.On("Time").Return(pt.time)
 	pt.host.On("NetworkName").Return(pt.networkName).Maybe()
 	// We need to use `Maybe` here because `MarshalPayloadForSigning` may be called
