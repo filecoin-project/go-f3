@@ -80,39 +80,6 @@ func (_c *MockHost_Aggregate_Call) RunAndReturn(run func([]PubKey, [][]byte) ([]
 	return _c
 }
 
-// Broadcast provides a mock function with given fields: msg
-func (_m *MockHost) Broadcast(msg *GMessage) {
-	_m.Called(msg)
-}
-
-// MockHost_Broadcast_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Broadcast'
-type MockHost_Broadcast_Call struct {
-	*mock.Call
-}
-
-// Broadcast is a helper method to define mock.On call
-//   - msg *GMessage
-func (_e *MockHost_Expecter) Broadcast(msg interface{}) *MockHost_Broadcast_Call {
-	return &MockHost_Broadcast_Call{Call: _e.mock.On("Broadcast", msg)}
-}
-
-func (_c *MockHost_Broadcast_Call) Run(run func(msg *GMessage)) *MockHost_Broadcast_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*GMessage))
-	})
-	return _c
-}
-
-func (_c *MockHost_Broadcast_Call) Return() *MockHost_Broadcast_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockHost_Broadcast_Call) RunAndReturn(run func(*GMessage)) *MockHost_Broadcast_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetChainForInstance provides a mock function with given fields: instance
 func (_m *MockHost) GetChainForInstance(instance uint64) (ECChain, error) {
 	ret := _m.Called(instance)
@@ -373,6 +340,39 @@ func (_c *MockHost_ReceiveDecision_Call) Return(_a0 time.Time) *MockHost_Receive
 }
 
 func (_c *MockHost_ReceiveDecision_Call) RunAndReturn(run func(*Justification) time.Time) *MockHost_ReceiveDecision_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RequestBroadcast provides a mock function with given fields: msg
+func (_m *MockHost) RequestBroadcast(msg *GMessage) {
+	_m.Called(msg)
+}
+
+// MockHost_RequestBroadcast_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RequestBroadcast'
+type MockHost_RequestBroadcast_Call struct {
+	*mock.Call
+}
+
+// RequestBroadcast is a helper method to define mock.On call
+//   - msg *GMessage
+func (_e *MockHost_Expecter) RequestBroadcast(msg interface{}) *MockHost_RequestBroadcast_Call {
+	return &MockHost_RequestBroadcast_Call{Call: _e.mock.On("RequestBroadcast", msg)}
+}
+
+func (_c *MockHost_RequestBroadcast_Call) Run(run func(msg *GMessage)) *MockHost_RequestBroadcast_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(*GMessage))
+	})
+	return _c
+}
+
+func (_c *MockHost_RequestBroadcast_Call) Return() *MockHost_RequestBroadcast_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockHost_RequestBroadcast_Call) RunAndReturn(run func(*GMessage)) *MockHost_RequestBroadcast_Call {
 	_c.Call.Return(run)
 	return _c
 }

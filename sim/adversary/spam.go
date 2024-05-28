@@ -71,7 +71,7 @@ func (s *Spam) spamAtInstance(instance uint64) {
 		if err != nil {
 			panic(err)
 		}
-		s.host.Broadcast(&gpbft.GMessage{
+		s.host.RequestBroadcast(&gpbft.GMessage{
 			Sender:    s.ID(),
 			Vote:      spamVote,
 			Signature: sig,

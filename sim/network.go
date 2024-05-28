@@ -61,24 +61,49 @@ func (n *Network) AddParticipant(p gpbft.Receiver) {
 	n.participants[p.ID()] = p
 }
 
+////// Network interface
+
+func (n *Network) NetworkFor(signer gpbft.Signer, id gpbft.ActorID) *networkFor {
+	return &networkFor{
+		ParticipantID: id,
+		Signer:        signer,
+		Network:       n,
+	}
+}
+
+type networkFor struct {
+	ParticipantID gpbft.ActorID
+	Signer        gpbft.Signer
+	*Network
+}
+
+func (nf *networkFor) RequestBroadcast(msg *gpbft.GMessage) {
+	nf.broadcast(msg, false)
+}
+
 func (n *Network) NetworkName() gpbft.NetworkName {
 	return n.networkName
 }
 
-func (n *Network) Broadcast(msg *gpbft.GMessage) {
+func (n *Network) BroadcastSynchronous(msg *gpbft.GMessage) {
+	n.broadcast(msg, true)
+}
+
+func (n *Network) broadcast(msg *gpbft.GMessage, synchronous bool) {
 	n.log(TraceSent, "P%d ↗ %v", msg.Sender, msg)
 	for _, dest := range n.participantIDs {
-		if dest != msg.Sender {
-			now := n.Time()
-			delay := n.latency.Sample(now, msg.Sender, dest)
-			n.queue.Insert(
-				&messageInFlight{
-					source:    msg.Sender,
-					dest:      dest,
-					payload:   *msg,
-					deliverAt: now.Add(delay),
-				})
+		latencySample := time.Duration(0)
+		if !synchronous {
+			latencySample = n.latency.Sample(n.Time(), msg.Sender, dest)
 		}
+
+		n.queue.Insert(
+			&messageInFlight{
+				source:    msg.Sender,
+				dest:      dest,
+				payload:   *msg,
+				deliverAt: n.clock.Add(latencySample),
+			})
 	}
 }
 
@@ -101,23 +126,8 @@ func (n *Network) SetAlarm(sender gpbft.ActorID, at time.Time) {
 	)
 }
 
-func (n *Network) Log(format string, args ...interface{}) {
+func (n *Network) Log(format string, args ...any) {
 	n.log(TraceLogic, format, args...)
-}
-
-func (n *Network) BroadcastSynchronous(sender gpbft.ActorID, msg gpbft.GMessage) {
-	n.log(TraceSent, "P%d ↗ %v", sender, msg)
-	for _, k := range n.participantIDs {
-		if k != sender {
-			n.queue.Insert(
-				&messageInFlight{
-					source:    sender,
-					dest:      k,
-					payload:   msg,
-					deliverAt: n.clock,
-				})
-		}
-	}
 }
 
 // Tick disseminates one message among participants and returns whether there are

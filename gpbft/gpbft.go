@@ -155,8 +155,6 @@ type instance struct {
 	// This field is an alternative to plumbing an optional decision value out through
 	// all the method calls, or holding a callback handle to receive it here.
 	terminationValue *Justification
-	// Queue of messages to be synchronously processed before returning from top-level call.
-	inbox []*GMessage
 	// Quality phase state (only for round 0)
 	quality *quorumState
 	// State for each round of phases.
@@ -212,10 +210,7 @@ func newRoundState(powerTable PowerTable) *roundState {
 }
 
 func (i *instance) Start() error {
-	if err := i.beginQuality(); err != nil {
-		return err
-	}
-	return i.drainInbox()
+	return i.beginQuality()
 }
 
 // Checks whether a message is valid.
@@ -233,13 +228,7 @@ func (i *instance) Receive(msg *GMessage) error {
 	if i.terminated() {
 		return fmt.Errorf("senders message after decision")
 	}
-	if len(i.inbox) > 0 {
-		return fmt.Errorf("senders message while already processing inbox")
-	}
-
-	// Enqueue the message for synchronous processing.
-	i.enqueueInbox(msg)
-	return i.drainInbox()
+	return i.receiveOne(msg)
 }
 
 func (i *instance) ReceiveAlarm() error {
@@ -266,32 +255,11 @@ func (i *instance) ReceiveAlarm() error {
 			}
 		}
 	}
-
-	// A phase may have been successfully completed.
-	// Re-process any queued messages for the next phase.
-	return i.drainInbox()
+	return nil
 }
 
 func (i *instance) Describe() string {
 	return fmt.Sprintf("P%d{%d}, round %d, phase %s", i.participant.id, i.instanceID, i.round, i.phase)
-}
-
-func (i *instance) enqueueInbox(msg *GMessage) {
-	i.inbox = append(i.inbox, msg)
-}
-
-func (i *instance) drainInbox() error {
-	for len(i.inbox) > 0 {
-		// Process one message.
-		// Note the message being processed is left in the inbox until after processing,
-		// as a signal that this loop is currently draining the inbox.
-		if err := i.receiveOne(i.inbox[0]); err != nil {
-			return fmt.Errorf("failed receiving message: %w", err)
-		}
-		i.inbox = i.inbox[1:]
-	}
-
-	return nil
 }
 
 // Processes a single message.
@@ -921,8 +889,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Tic
 		Ticket:        ticket,
 		Justification: justification,
 	}
-	i.participant.host.Broadcast(gmsg)
-	i.enqueueInbox(gmsg)
+	i.participant.host.RequestBroadcast(gmsg)
 }
 
 // Sets an alarm to be delivered after a synchrony delay.
