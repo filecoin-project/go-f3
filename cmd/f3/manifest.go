@@ -39,6 +39,7 @@ var manifestGenCmd = cli.Command{
 		fsig := signing.NewFakeBackend()
 		for i := 0; i < c.Int("N"); i++ {
 			pubkey, _ := fsig.GenerateKey()
+
 			m.InitialPowerTable = append(m.InitialPowerTable, gpbft.PowerEntry{
 				ID:     gpbft.ActorID(i),
 				PubKey: pubkey,
@@ -72,12 +73,12 @@ func loadManifest(path string) (f3.Manifest, error) {
 	if err != nil {
 		return f3.Manifest{}, xerrors.Errorf("opening %s to load manifest: %w", path, err)
 	}
+	defer f.Close()
 	var m f3.Manifest
 
 	err = json.NewDecoder(f).Decode(&m)
 	if err != nil {
 		return f3.Manifest{}, xerrors.Errorf("decoding JSON: %w", err)
 	}
-	_ = f.Close()
 	return m, err
 }

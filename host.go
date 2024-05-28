@@ -10,7 +10,7 @@ import (
 	"golang.org/x/xerrors"
 )
 
-type client interface {
+type Client interface {
 	gpbft.Signer
 	gpbft.Verifier
 	gpbft.Tracer
@@ -20,47 +20,60 @@ type client interface {
 	Logger() Logger
 }
 
-type gpbfthost struct {
-	client
+type gpbftRunner struct {
+	client      Client
 	participant *gpbft.Participant
 	manifest    Manifest
 
 	selfMessageQueue chan *gpbft.GMessage //for the future when self messages are async
 
 	alertTimer *time.Timer
+
 	runningCtx context.Context
 	log        Logger
+
+	host *gpbftHost
 }
 
-func newHost(id gpbft.ActorID, m Manifest, client client) (*gpbfthost, error) {
-	h := &gpbfthost{
+type gpbftHost struct {
+	Client
+	runner *gpbftRunner
+}
+
+func newRunner(id gpbft.ActorID, m Manifest, client Client) (*gpbftRunner, error) {
+	runner := &gpbftRunner{
 		client:           client,
 		manifest:         m,
 		selfMessageQueue: make(chan *gpbft.GMessage, 20),
 		log:              client.Logger(),
 	}
+	host := &gpbftHost{
+		Client: client,
+		runner: runner,
+	}
+	runner.host = host
 
 	// create a stopped timer to facilitate alerts requested from gpbft
-	h.alertTimer = time.NewTimer(100 * time.Hour)
-	if !h.alertTimer.Stop() {
-		<-h.alertTimer.C
+	runner.alertTimer = time.NewTimer(100 * time.Hour)
+	if !runner.alertTimer.Stop() {
+		<-runner.alertTimer.C
 	}
 
-	h.log.Infof("starting host for P%d", id)
-	p, err := gpbft.NewParticipant(id, h, gpbft.WithTracer(client))
+	runner.log.Infof("starting host for P%d", id)
+	p, err := gpbft.NewParticipant(id, host, gpbft.WithTracer(client))
 	if err != nil {
 		return nil, xerrors.Errorf("creating participant: %w", err)
 	}
-	h.participant = p
-	return h, nil
+	runner.participant = p
+	return runner, nil
 }
 
-func (h *gpbfthost) Run(ctx context.Context) error {
+func (h *gpbftRunner) Run(ctx context.Context) error {
 	var cancel func()
 	h.runningCtx, cancel = context.WithCancel(ctx)
 	defer cancel()
 
-	// temporary hack until re-broadcast and/or booststrap synchronisation are implemented
+	// TODO(Kubuxu): temporary hack until re-broadcast and/or booststrap synchronisation are implemented
 	time.Sleep(2 * time.Second)
 
 	err := h.participant.Start()
@@ -103,10 +116,6 @@ loop:
 	return err
 }
 
-//
-// internal APIs after
-//
-
 // Returns inputs to the next GPBFT instance.
 // These are:
 // - the EC chain to propose,
@@ -115,51 +124,47 @@ loop:
 // These will be used as input to a subsequent instance of the protocol.
 // The chain should be a suffix of the last chain notified to the host via
 // ReceiveDecision (or known to be final via some other channel).
-func (h *gpbfthost) GetChainForInstance(instance uint64) (gpbft.ECChain, error) {
+func (h *gpbftHost) GetChainForInstance(instance uint64) (gpbft.ECChain, error) {
 	// TODO: this is just a complete fake
 	ts := sim.NewTipSetGenerator(1)
 	chain, err := gpbft.NewChain(gpbft.TipSet{Epoch: 0, Key: ts.Sample()}, gpbft.TipSet{Epoch: 1, Key: ts.Sample()})
 	if err != nil {
-		h.log.Errorf("creating chain: %+v", err)
 		return nil, err
 	}
 
 	return chain, nil
 }
 
-func (h *gpbfthost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable, []byte, error) {
+func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable, []byte, error) {
 	table := gpbft.NewPowerTable()
-	err := table.Add(h.manifest.InitialPowerTable...)
+	err := table.Add(h.runner.manifest.InitialPowerTable...)
 	if err != nil {
-		h.log.Errorf("creating powertable: %+v", err)
 		return nil, nil, err
 	}
 	return table, []byte{'A'}, nil
 }
 
 // Returns the network's name (for signature separation)
-func (h *gpbfthost) NetworkName() gpbft.NetworkName {
-	return h.manifest.NetworkName
+func (h *gpbftHost) NetworkName() gpbft.NetworkName {
+	return h.runner.manifest.NetworkName
 }
 
 // Sends a message to all other participants.
 // The message's sender must be one that the network interface can sign on behalf of.
-func (h *gpbfthost) Broadcast(msg *gpbft.GMessage) {
-	h.log.Info("broadcast")
-
+func (h *gpbftHost) RequestBroadcast(msg *gpbft.GMessage) {
 	var bw bytes.Buffer
 	err := msg.MarshalCBOR(&bw)
 	if err != nil {
-		h.log.Errorf("marshalling GMessage: %+v", err)
+		h.runner.log.Errorf("marshalling GMessage: %+v", err)
 	}
-	err = h.client.BroadcastMessage(h.runningCtx, bw.Bytes())
+	err = h.Client.BroadcastMessage(h.runner.runningCtx, bw.Bytes())
 	if err != nil {
-		h.log.Errorf("broadcasting GMessage: %+v", err)
+		h.runner.log.Errorf("broadcasting GMessage: %+v", err)
 	}
 }
 
 // Returns the current network time.
-func (h *gpbfthost) Time() time.Time {
+func (h *gpbftHost) Time() time.Time {
 	return time.Now()
 }
 
@@ -168,11 +173,11 @@ func (h *gpbfthost) Time() time.Time {
 // Setting an alarm replaces any previous alarm that has not yet fired.
 // The timestamp may be in the past, in which case the alarm will fire as soon as possible
 // (but not synchronously).
-func (h *gpbfthost) SetAlarm(at time.Time) {
-	h.log.Infof("set alarm for %v", at)
+func (h *gpbftHost) SetAlarm(at time.Time) {
+	h.runner.log.Infof("set alarm for %v", at)
 	// we cannot reuse the timer because we don't know if it was read or not
-	h.alertTimer.Stop()
-	h.alertTimer = time.NewTimer(time.Until(at))
+	h.runner.alertTimer.Stop()
+	h.runner.alertTimer = time.NewTimer(time.Until(at))
 }
 
 // Receives a finality decision from the instance, with signatures from a strong quorum
@@ -181,8 +186,8 @@ func (h *gpbfthost) SetAlarm(at time.Time) {
 // The notification must return the timestamp at which the next instance should begin,
 // based on the decision received (which may be in the past).
 // E.g. this might be: finalised tipset timestamp + epoch duration + stabilisation delay.
-func (h *gpbfthost) ReceiveDecision(decision *gpbft.Justification) time.Time {
-	h.log.Infof("got decision: %+v", decision)
+func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
+	h.runner.log.Infof("got decision: %+v", decision)
 	//TODO propagate and save this for use in GetCanonicalChain
 	return time.Now().Add(2 * time.Second)
 }
@@ -190,6 +195,6 @@ func (h *gpbfthost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 // MarshalPayloadForSigning marshals the given payload into the bytes that should be signed.
 // This should usually call `Payload.MarshalForSigning(NetworkName)` except when testing as
 // that method is slow (computes a merkle tree that's necessary for testing).
-func (h *gpbfthost) MarshalPayloadForSigning(p *gpbft.Payload) []byte {
-	return p.MarshalForSigning(h.manifest.NetworkName)
+func (h *gpbftHost) MarshalPayloadForSigning(p *gpbft.Payload) []byte {
+	return p.MarshalForSigning(h.runner.manifest.NetworkName)
 }

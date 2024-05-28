@@ -64,7 +64,10 @@ var runCmd = cli.Command{
 			return xerrors.Errorf("loading manifest: %w", err)
 		}
 
-		_ = logging.SetLogLevel("f3", "debug")
+		err = logging.SetLogLevel("f3", "debug")
+		if err != nil {
+			return xerrors.Errorf("setting log level: %w", err)
+		}
 
 		signingBackend := signing.NewFakeBackend()
 		id := c.Uint64("id")

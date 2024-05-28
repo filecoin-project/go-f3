@@ -119,6 +119,8 @@ func (m *Module) teardownPubsub() error {
 
 // Run start the module. It will exit when context is cancelled.
 func (m *Module) Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	if err := m.setupPubsub(); err != nil {
 		return xerrors.Errorf("setting up pubsub: %w", err)
 	}
@@ -131,14 +133,17 @@ func (m *Module) Run(ctx context.Context) error {
 	messageQueue := make(chan *gpbft.GMessage, 20)
 	m.client.messageQueue = messageQueue
 
-	h, err := newHost(m.id, m.Manifest, m.client)
+	r, err := newRunner(m.id, m.Manifest, m.client)
 	if err != nil {
 		return xerrors.Errorf("creating gpbft host: %w", err)
 	}
 
+	runnerErrCh := make(chan error, 1)
+
 	go func() {
-		err := h.Run(ctx)
+		err := r.Run(ctx)
 		m.log.Errorf("running host: %+v", err)
+		runnerErrCh <- err
 	}()
 
 loop:
@@ -162,6 +167,8 @@ loop:
 		select {
 		case messageQueue <- gmsg:
 		case <-ctx.Done():
+			break loop
+		case err = <-runnerErrCh:
 			break loop
 		}
 	}
