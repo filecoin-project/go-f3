@@ -92,15 +92,17 @@ func (r *Repeat) ReceiveMessage(msg *gpbft.GMessage, _ bool) (bool, error) {
 			panic(err)
 		}
 	}
-	echo := &gpbft.GMessage{
-		Sender:        r.ID(),
-		Vote:          msg.Vote,
-		Signature:     sig,
-		Justification: msg.Justification,
-		Ticket:        ticket,
-	}
-	for i := 0; i < echoCount; i++ {
-		r.host.RequestBroadcast(echo)
+	if msg.Sender != r.ID() {
+		echo := &gpbft.GMessage{
+			Sender:        r.ID(),
+			Vote:          msg.Vote,
+			Signature:     sig,
+			Justification: msg.Justification,
+			Ticket:        ticket,
+		}
+		for i := 0; i < echoCount; i++ {
+			r.host.RequestBroadcast(echo)
+		}
 	}
 	return true, nil
 }
