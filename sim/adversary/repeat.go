@@ -90,7 +90,10 @@ func (r *Repeat) ReceiveMessage(msg *gpbft.GMessage, _ bool) (bool, error) {
 		mt.SetBeaconForTicket(beacon)
 	}
 	for i := 0; i < echoCount; i++ {
-		r.host.RequestBroadcast(&mt)
+		if msg.Sender != r.ID() {
+			r.host.RequestBroadcast(&mt)
+
+		}
 	}
 	return true, nil
 }
