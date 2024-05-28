@@ -32,11 +32,11 @@ type participantTestSubject struct {
 	instance       uint64
 	networkName    gpbft.NetworkName
 	canonicalChain gpbft.ECChain
+	instanceData   *gpbft.InstanceData
 	powerTable     *gpbft.PowerTable
 	beacon         []byte
 	time           time.Time
 	delta          time.Duration
-	instanceData   *gpbft.InstanceData
 }
 
 func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *participantTestSubject {
@@ -59,10 +59,10 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 		instance:       instance,
 		networkName:    "fish",
 		canonicalChain: canonicalChain,
+		instanceData:   new(gpbft.InstanceData),
 		powerTable:     gpbft.NewPowerTable(),
 		beacon:         generateRandomBytes(rng),
 		time:           time.Now(),
-		instanceData:   new(gpbft.InstanceData),
 	}
 
 	// Assure power table contains the power entry for the test subject

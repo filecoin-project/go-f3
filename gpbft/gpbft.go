@@ -158,6 +158,8 @@ type instance struct {
 	// For QUALITY, PREPARE, and COMMIT, this is the latest time (the phase can end sooner).
 	// For CONVERGE, this is the exact time (the timeout solely defines the phase end).
 	phaseTimeout time.Time
+	// Instance data that all participants must agree on.
+	instanceData *InstanceData
 	// This instance's proposal for the current round. Never bottom.
 	// This is set after the QUALITY phase, and changes only at the end of a full round.
 	proposal ECChain
@@ -181,8 +183,6 @@ type instance struct {
 	// Decision state. Collects DECIDE messages until a decision can be made,
 	// independently of protocol phases/rounds.
 	decision *quorumState
-	// Instance data that all participants must agree on.
-	instanceData *InstanceData
 	// tracer traces logic logs for debugging and simulation purposes.
 	tracer Tracer
 }
@@ -198,23 +198,23 @@ func newInstance(
 		return nil, fmt.Errorf("input is empty")
 	}
 	return &instance{
-		participant: participant,
-		instanceID:  instanceID,
-		input:       input,
-		powerTable:  powerTable,
-		beacon:      beacon,
-		round:       0,
-		phase:       INITIAL_PHASE,
-		proposal:    input,
-		value:       ECChain{},
-		candidates:  []ECChain{input.BaseChain()},
-		quality:     newQuorumState(powerTable),
+		participant:  participant,
+		instanceID:   instanceID,
+		input:        input,
+		powerTable:   powerTable,
+		beacon:       beacon,
+		round:        0,
+		phase:        INITIAL_PHASE,
+		instanceData: data,
+		proposal:     input,
+		value:        ECChain{},
+		candidates:   []ECChain{input.BaseChain()},
+		quality:      newQuorumState(powerTable),
 		rounds: map[uint64]*roundState{
 			0: newRoundState(powerTable),
 		},
-		instanceData: data,
-		decision:     newQuorumState(powerTable),
-		tracer:       participant.tracer,
+		decision: newQuorumState(powerTable),
+		tracer:   participant.tracer,
 	}, nil
 }
 
