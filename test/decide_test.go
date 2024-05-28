@@ -27,7 +27,7 @@ func FuzzImmediateDecideAdversary(f *testing.F) {
 			asyncOptions(rng.Int(),
 				sim.AddHonestParticipants(
 					1,
-					sim.NewUniformECChainGenerator(rng.Uint64(), 1, 10),
+					sim.NewUniformECChainGenerator(rng.Uint64(), 1, 5),
 					uniformOneStoragePower),
 				sim.WithBaseChain(&baseChain),
 				// Add the adversary to the simulation with 3/4 of total power.

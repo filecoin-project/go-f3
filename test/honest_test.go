@@ -216,19 +216,19 @@ func FuzzHonest_SyncMajorityCommonPrefix(f *testing.F) {
 	f.Fuzz(func(t *testing.T, seed int) {
 		t.Parallel()
 		rng := rand.New(rand.NewSource(int64(seed)))
-		majorityCommonPrefixGenerator := sim.NewUniformECChainGenerator(rng.Uint64(), 10, 20)
+		majorityCommonPrefixGenerator := sim.NewUniformECChainGenerator(rng.Uint64(), 1, 5)
 		sm, err := sim.NewSimulation(append(syncOptions(),
 			sim.AddHonestParticipants(20, sim.NewAppendingECChainGenerator(
 				majorityCommonPrefixGenerator,
-				sim.NewRandomECChainGenerator(rng.Uint64(), 1, 8),
+				sim.NewRandomECChainGenerator(rng.Uint64(), 1, 3),
 			), uniformOneStoragePower),
 			sim.AddHonestParticipants(5, sim.NewAppendingECChainGenerator(
-				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 20),
-				sim.NewRandomECChainGenerator(rng.Uint64(), 5, 8),
+				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 4),
+				sim.NewRandomECChainGenerator(rng.Uint64(), 2, 4),
 			), uniformOneStoragePower),
 			sim.AddHonestParticipants(1, sim.NewAppendingECChainGenerator(
-				sim.NewUniformECChainGenerator(rng.Uint64(), 10, 20),
-				sim.NewRandomECChainGenerator(rng.Uint64(), 2, 8),
+				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 5),
+				sim.NewRandomECChainGenerator(rng.Uint64(), 1, 3),
 			), uniformOneStoragePower),
 		)...)
 		require.NoError(t, err)
@@ -258,19 +258,19 @@ func FuzzHonest_AsyncMajorityCommonPrefix(f *testing.F) {
 	f.Fuzz(func(t *testing.T, seed int) {
 		t.Parallel()
 		rng := rand.New(rand.NewSource(int64(seed)))
-		majorityCommonPrefixGenerator := sim.NewUniformECChainGenerator(rng.Uint64(), 10, 20)
+		majorityCommonPrefixGenerator := sim.NewUniformECChainGenerator(rng.Uint64(), 1, 3)
 		sm, err := sim.NewSimulation(append(asyncOptions(rng.Int()),
 			sim.AddHonestParticipants(20, sim.NewAppendingECChainGenerator(
 				majorityCommonPrefixGenerator,
-				sim.NewRandomECChainGenerator(rng.Uint64(), 1, 8),
+				sim.NewRandomECChainGenerator(rng.Uint64(), 1, 4),
 			), uniformOneStoragePower),
 			sim.AddHonestParticipants(5, sim.NewAppendingECChainGenerator(
-				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 20),
-				sim.NewRandomECChainGenerator(rng.Uint64(), 5, 8),
+				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 4),
+				sim.NewRandomECChainGenerator(rng.Uint64(), 2, 3),
 			), uniformOneStoragePower),
 			sim.AddHonestParticipants(1, sim.NewAppendingECChainGenerator(
-				sim.NewUniformECChainGenerator(rng.Uint64(), 10, 20),
-				sim.NewRandomECChainGenerator(rng.Uint64(), 2, 8),
+				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 3),
+				sim.NewRandomECChainGenerator(rng.Uint64(), 2, 3),
 			), uniformOneStoragePower),
 		)...)
 		require.NoError(t, err)

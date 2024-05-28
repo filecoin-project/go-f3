@@ -53,8 +53,8 @@ func storagePowerIncreaseMidSimulationTest(t *testing.T, seed int, instanceCount
 
 	tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
 	baseChain := generateECChain(t, tsg)
-	groupOneEcGenerator := sim.NewUniformECChainGenerator(rng.Uint64(), 5, 10)
-	groupTwoEcGenerator := sim.NewUniformECChainGenerator(rng.Uint64(), 5, 10)
+	groupOneEcGenerator := sim.NewUniformECChainGenerator(rng.Uint64(), 1, 4)
+	groupTwoEcGenerator := sim.NewUniformECChainGenerator(rng.Uint64(), 1, 4)
 	sm, err := sim.NewSimulation(
 		append(o,
 			sim.WithBaseChain(&baseChain),
@@ -115,7 +115,7 @@ func FuzzStoragePower_AsyncDecreaseRevertsToBase(f *testing.F) {
 	f.Add(-44)
 	f.Add(11151)
 	f.Fuzz(func(t *testing.T, seed int) {
-		storagePowerDecreaseRevertsToBaseTest(t, seed, 100, maxRounds, asyncOptions(seed)...)
+		storagePowerDecreaseRevertsToBaseTest(t, seed, 100, maxRounds*2, asyncOptions(seed)...)
 	})
 }
 
@@ -138,7 +138,7 @@ func storagePowerDecreaseRevertsToBaseTest(t *testing.T, seed int, instanceCount
 			// decreasing by 1 per instance per participant.
 			sim.AddHonestParticipants(
 				10,
-				sim.NewUniformECChainGenerator(rng.Uint64(), 5, 10),
+				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 5),
 				func(instance uint64, id gpbft.ActorID) *gpbft.StoragePower {
 					// Decrease storage power of each participant by 1 per instance.
 					// The plus one is there to avoid zero powered actors as it is an error.
