@@ -8,38 +8,44 @@ import (
 	"fmt"
 
 	"github.com/filecoin-project/go-f3/gpbft"
+	"golang.org/x/xerrors"
 )
 
 var _ Backend = (*FakeBackend)(nil)
 
 type FakeBackend struct {
-	i        int
-	keyPairs map[string]string
+	allowed map[string]struct{}
+	i       int
 }
 
 func NewFakeBackend() *FakeBackend {
-	return &FakeBackend{
-		keyPairs: make(map[string]string),
-	}
+	return &FakeBackend{allowed: make(map[string]struct{})}
 }
 
 func (s *FakeBackend) GenerateKey() (gpbft.PubKey, any) {
-	pubKey := gpbft.PubKey(fmt.Sprintf("pubkey:%08x", s.i))
+	pubKey := gpbft.PubKey(fmt.Sprintf("pubkey::%08x", s.i))
 	privKey := fmt.Sprintf("privkey:%08x", s.i)
-	s.keyPairs[string(pubKey)] = privKey
+	s.allowed[string(pubKey)] = struct{}{}
 	s.i++
 	return pubKey, privKey
 }
 
+func (s *FakeBackend) Allow(i int) gpbft.PubKey {
+	pubKey := gpbft.PubKey(fmt.Sprintf("pubkey::%08x", i))
+	s.allowed[string(pubKey)] = struct{}{}
+	return pubKey
+}
+
 func (s *FakeBackend) Sign(signer gpbft.PubKey, msg []byte) ([]byte, error) {
+	if _, ok := s.allowed[string(signer)]; !ok {
+		return nil, xerrors.Errorf("cannot sign: unknown sender")
+	}
 	return s.generateSignature(signer, msg)
 }
 
 func (s *FakeBackend) generateSignature(signer gpbft.PubKey, msg []byte) ([]byte, error) {
-	priv, known := s.keyPairs[string(signer)]
-	if !known {
-		return nil, errors.New("unknown signer")
-	}
+	priv := "privkey" + string(signer[7:])
+
 	hasher := sha256.New()
 	hasher.Write(signer)
 	hasher.Write([]byte(priv))
@@ -73,7 +79,7 @@ func (_ *FakeBackend) Aggregate(signers []gpbft.PubKey, sigs [][]byte) ([]byte, 
 func (s *FakeBackend) VerifyAggregate(payload, aggSig []byte, signers []gpbft.PubKey) error {
 	hasher := sha256.New()
 	for _, signer := range signers {
-		sig, err := s.Sign(signer, payload)
+		sig, err := s.generateSignature(signer, payload)
 		if err != nil {
 			return err
 		}

@@ -192,6 +192,7 @@ func newInstance(
 			0: newRoundState(powerTable),
 		},
 		decision: newQuorumState(powerTable),
+		tracer:   participant.tracer,
 	}, nil
 }
 
