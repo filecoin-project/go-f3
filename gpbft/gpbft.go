@@ -79,17 +79,17 @@ type Justification struct {
 }
 
 type InstanceData struct {
-	// The blake2b hash of the power table used to validate the next instance, taking lookback
-	// into account.
-	PowerTable [32]byte
 	// Merkle-tree of instance-specific commitments. Currently empty but this will eventually
 	// include things like snark-friendly power-table commitments.
 	Commitments [32]byte
+	// The DagCBOR-blake2b256 CID of the power table used to validate the next instance, taking
+	// lookback into account.
+	PowerTable CID // []PowerEntry
 }
 
 func (d *InstanceData) Eq(other *InstanceData) bool {
 	return d.Commitments == other.Commitments &&
-		d.PowerTable == other.PowerTable
+		bytes.Equal(d.PowerTable, other.PowerTable)
 }
 
 // Fields of the message that make up the signature payload.
@@ -131,8 +131,8 @@ func (p *Payload) MarshalForSigning(nn NetworkName) []byte {
 	_ = binary.Write(&buf, binary.BigEndian, p.Round)
 	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
 	_, _ = buf.Write(p.Data.Commitments[:])
-	_, _ = buf.Write(p.Data.PowerTable[:])
 	_, _ = buf.Write(root[:])
+	_, _ = buf.Write(p.Data.PowerTable)
 	return buf.Bytes()
 }
 

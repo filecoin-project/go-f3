@@ -384,19 +384,6 @@ func (t *InstanceData) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.PowerTable ([32]uint8) (array)
-	if len(t.PowerTable) > 2097152 {
-		return xerrors.Errorf("Byte array in field t.PowerTable was too long")
-	}
-
-	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.PowerTable))); err != nil {
-		return err
-	}
-
-	if _, err := cw.Write(t.PowerTable[:]); err != nil {
-		return err
-	}
-
 	// t.Commitments ([32]uint8) (array)
 	if len(t.Commitments) > 2097152 {
 		return xerrors.Errorf("Byte array in field t.Commitments was too long")
@@ -409,6 +396,20 @@ func (t *InstanceData) MarshalCBOR(w io.Writer) error {
 	if _, err := cw.Write(t.Commitments[:]); err != nil {
 		return err
 	}
+
+	// t.PowerTable ([]uint8) (slice)
+	if len(t.PowerTable) > 2097152 {
+		return xerrors.Errorf("Byte array in field t.PowerTable was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.PowerTable))); err != nil {
+		return err
+	}
+
+	if _, err := cw.Write(t.PowerTable); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -435,27 +436,6 @@ func (t *InstanceData) UnmarshalCBOR(r io.Reader) (err error) {
 		return fmt.Errorf("cbor input had wrong number of fields")
 	}
 
-	// t.PowerTable ([32]uint8) (array)
-
-	maj, extra, err = cr.ReadHeader()
-	if err != nil {
-		return err
-	}
-
-	if extra > 2097152 {
-		return fmt.Errorf("t.PowerTable: byte array too large (%d)", extra)
-	}
-	if maj != cbg.MajByteString {
-		return fmt.Errorf("expected byte array")
-	}
-	if extra != 32 {
-		return fmt.Errorf("expected array to have 32 elements")
-	}
-
-	t.PowerTable = [32]uint8{}
-	if _, err := io.ReadFull(cr, t.PowerTable[:]); err != nil {
-		return err
-	}
 	// t.Commitments ([32]uint8) (array)
 
 	maj, extra, err = cr.ReadHeader()
@@ -477,6 +457,28 @@ func (t *InstanceData) UnmarshalCBOR(r io.Reader) (err error) {
 	if _, err := io.ReadFull(cr, t.Commitments[:]); err != nil {
 		return err
 	}
+	// t.PowerTable ([]uint8) (slice)
+
+	maj, extra, err = cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+
+	if extra > 2097152 {
+		return fmt.Errorf("t.PowerTable: byte array too large (%d)", extra)
+	}
+	if maj != cbg.MajByteString {
+		return fmt.Errorf("expected byte array")
+	}
+
+	if extra > 0 {
+		t.PowerTable = make([]uint8, extra)
+	}
+
+	if _, err := io.ReadFull(cr, t.PowerTable); err != nil {
+		return err
+	}
+
 	return nil
 }
 

@@ -19,7 +19,7 @@ func TestPayloadMarshalForSigning(t *testing.T) {
 		Step:     3,
 		Data: gpbft.InstanceData{
 			Commitments: [32]byte{0x42},
-			PowerTable:  [32]byte{0x43},
+			PowerTable:  []byte{0x43},
 		},
 		Value: nil, // not valid in f3, but an empty merkle-tree is defined to hash to all zeros.
 	}).MarshalForSigning(nn)
@@ -29,8 +29,8 @@ func TestPayloadMarshalForSigning(t *testing.T) {
 	assert.Equal(t, binary.BigEndian.Uint64(encoded[16:24]), uint64(2)) // round
 	assert.Equal(t, binary.BigEndian.Uint64(encoded[24:32]), uint64(1)) // instance (32-byte right aligned)
 	assert.EqualValues(t, encoded[32:64], [32]byte{0x42})               // commitments root
-	assert.EqualValues(t, encoded[64:96], [32]byte{0x43})               // next power table
-	assert.EqualValues(t, encoded[96:128], [32]byte{})                  // tipsets
+	assert.EqualValues(t, encoded[64:96], [32]byte{})                   // tipsets
+	assert.EqualValues(t, encoded[96:128], [32]byte{0x43})              // next power table
 
 	// Simulate a signe decide message, the one we'll need to verify as a part of finality certificates.
 	encoded = (&gpbft.Payload{
