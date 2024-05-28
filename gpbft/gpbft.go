@@ -233,28 +233,8 @@ func (i *instance) Receive(msg *GMessage) error {
 }
 
 func (i *instance) ReceiveAlarm() error {
-	phaseBeforeAlarm := i.phase
 	if err := i.tryCurrentPhase(); err != nil {
 		return fmt.Errorf("failed completing protocol phase: %w", err)
-	}
-
-	// Check if the alarm ended QUALITY phase, i.e. transition from QUALITY to PREPARE phase.
-	qualityPhaseEnded := phaseBeforeAlarm == QUALITY_PHASE && i.phase == PREPARE_PHASE
-	if qualityPhaseEnded {
-		// Check if there are any eligible future rounds to which to skip.
-
-		// TODO: Potential optimisations:
-		//        1) Consider preferring higher rounds to jump to first. FIP does not specify
-		//           any constraints here.
-		//        2) Build an incremental index of round candidates as messages arrive, allowing
-		//           for efficient jumping to the target round without scanning all state history.
-		for round, state := range i.rounds {
-			if round > i.round {
-				if chain, justification, skipToRound := i.shouldSkipToRound(round, state); skipToRound {
-					i.skipToRound(round, chain, justification)
-				}
-			}
-		}
 	}
 	return nil
 }
@@ -353,17 +333,8 @@ func (i *instance) receiveOne(msg *GMessage) error {
 func (i *instance) shouldSkipToRound(round uint64, state *roundState) (ECChain, *Justification, bool) {
 
 	// Check if the given round is ahead of current round and this instance is not in
-	// QUALITY nor DECIDE phase as dedicated by FIP-0086.
-	//
-	// Note that sipping ahead from QUALITY phase does not violate the correctness
-	// proof of gPBFT. The fact that QUALITY always terminates for a participant
-	// means this participant will eventually jump, but it may do it earlier.
-	// However, if a node skips to future rounds without executing the QUALITY phase
-	// it will only help reaching consensus for bottom.
-	//
-	// Future work may consider skipping ahead from QUALITY for faster census in
-	// certain scenarios. For now, this implementation conforms to the FIP.
-	if round <= i.round || i.phase == QUALITY_PHASE || i.phase == DECIDE_PHASE {
+	// DECIDE phase.
+	if round <= i.round || i.phase == DECIDE_PHASE {
 		return nil, nil, false
 	}
 	proposal := state.converged.FindMaxTicketProposal(i.powerTable)
