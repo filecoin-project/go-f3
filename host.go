@@ -86,7 +86,7 @@ loop:
 	for {
 		select {
 		case msg := <-h.selfMessageQueue:
-			_, err = h.participant.ReceiveMessage(msg, true)
+			err = h.deliverMessage(msg)
 		default:
 		}
 		if err != nil {
@@ -98,13 +98,13 @@ loop:
 			h.log.Infof("alarm fired")
 			err = h.participant.ReceiveAlarm()
 		case msg := <-h.selfMessageQueue:
-			_, err = h.participant.ReceiveMessage(msg, true)
+			err = h.deliverMessage(msg)
 		case msg, ok := <-messageQueue:
 			if !ok {
 				err = xerrors.Errorf("incoming messsage queue closed")
 				break loop
 			}
-			_, err = h.participant.ReceiveMessage(msg, false)
+			err = h.deliverMessage(msg)
 		case <-ctx.Done():
 			return nil
 		}
@@ -114,6 +114,14 @@ loop:
 	}
 	h.log.Errorf("gpbfthost exiting: %+v", err)
 	return err
+}
+
+func (h *gpbftRunner) deliverMessage(msg *gpbft.GMessage) error {
+	valid, err := h.participant.ValidateMessage(msg)
+	if err != nil {
+		return err
+	}
+	return h.participant.ReceiveMessage(valid)
 }
 
 // Returns inputs to the next GPBFT instance.

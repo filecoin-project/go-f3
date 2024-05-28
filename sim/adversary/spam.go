@@ -43,13 +43,18 @@ func (s *Spam) Start() error {
 	return nil
 }
 
-func (s *Spam) ReceiveMessage(msg *gpbft.GMessage, _ bool) (bool, error) {
+func (*Spam) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
+	return Validated(msg), nil
+}
+
+func (s *Spam) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
+	msg := vmsg.Message()
 	// Watch for increase in instance, and when increased spam again.
 	if msg.Vote.Instance > s.latestObservedInstance {
 		s.spamAtInstance(msg.Vote.Instance)
 		s.latestObservedInstance = msg.Vote.Instance
 	}
-	return true, nil
+	return nil
 }
 
 func (s *Spam) spamAtInstance(instance uint64) {
@@ -80,6 +85,5 @@ func (s *Spam) spamAtInstance(instance uint64) {
 }
 
 func (s *Spam) ID() gpbft.ActorID                                              { return s.id }
-func (s *Spam) ValidateMessage(*gpbft.GMessage) (bool, error)                  { return true, nil }
 func (s *Spam) ReceiveAlarm() error                                            { return nil }
 func (s *Spam) AllowMessage(gpbft.ActorID, gpbft.ActorID, gpbft.GMessage) bool { return true }

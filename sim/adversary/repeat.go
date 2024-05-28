@@ -69,10 +69,15 @@ func NewRepeatGenerator(power *gpbft.StoragePower, sampler RepetitionSampler) Ge
 	}
 }
 
-func (r *Repeat) ReceiveMessage(msg *gpbft.GMessage, _ bool) (bool, error) {
+func (*Repeat) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
+	return Validated(msg), nil
+}
+
+func (r *Repeat) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
+	msg := vmsg.Message()
 	echoCount := r.repetitionSampler(msg)
 	if echoCount <= 0 {
-		return true, nil
+		return nil
 	}
 
 	sigPayload := r.host.MarshalPayloadForSigning(&msg.Vote)
@@ -104,11 +109,10 @@ func (r *Repeat) ReceiveMessage(msg *gpbft.GMessage, _ bool) (bool, error) {
 			r.host.RequestBroadcast(echo)
 		}
 	}
-	return true, nil
+	return nil
 }
 
 func (r *Repeat) ID() gpbft.ActorID                                              { return r.id }
 func (r *Repeat) Start() error                                                   { return nil }
-func (r *Repeat) ValidateMessage(*gpbft.GMessage) (bool, error)                  { return true, nil }
 func (r *Repeat) ReceiveAlarm() error                                            { return nil }
 func (r *Repeat) AllowMessage(gpbft.ActorID, gpbft.ActorID, gpbft.GMessage) bool { return true }
