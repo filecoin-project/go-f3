@@ -392,6 +392,7 @@ func (i *instance) tryCurrentPhase() error {
 // Checks message validity, including justification and signatures.
 // An invalid message can never become valid, so may be dropped.
 // This is a pure function and does not modify its arguments.
+// It must be safe for concurrent use.
 func ValidateMessage(powerTable *PowerTable, beacon []byte, host Host, msg *GMessage) error {
 	// Check sender is eligible.
 	senderPower, senderPubKey := powerTable.Get(msg.Sender)
