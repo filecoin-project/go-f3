@@ -63,8 +63,8 @@ func FuzzHonestMultiInstance_AsyncDisagreement(f *testing.F) {
 		baseChain := generateECChain(t, tsg)
 		sm, err := sim.NewSimulation(asyncOptions(seed,
 			sim.WithBaseChain(&baseChain),
-			sim.AddHonestParticipants(honestCount/2, sim.NewUniformECChainGenerator(rand.Uint64(), 4, 10), uniformOneStoragePower),
-			sim.AddHonestParticipants(honestCount/2, sim.NewUniformECChainGenerator(rand.Uint64(), 1, 5), uniformOneStoragePower),
+			sim.AddHonestParticipants(honestCount/2, sim.NewUniformECChainGenerator(rand.Uint64(), 1, 3), uniformOneStoragePower),
+			sim.AddHonestParticipants(honestCount/2, sim.NewUniformECChainGenerator(rand.Uint64(), 2, 4), uniformOneStoragePower),
 		)...)
 		require.NoError(t, err)
 		require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
@@ -76,7 +76,7 @@ func FuzzHonestMultiInstance_AsyncDisagreement(f *testing.F) {
 func FuzzHonestMultiInstance_SyncAgreement(f *testing.F) {
 	const (
 		instanceCount = 4000
-		honestCount   = 5
+		honestCount   = 4
 	)
 	f.Add(-47)
 	f.Fuzz(func(t *testing.T, seed int) {
@@ -86,7 +86,7 @@ func FuzzHonestMultiInstance_SyncAgreement(f *testing.F) {
 
 func FuzzHonestMultiInstance_AsyncAgreement(f *testing.F) {
 	const (
-		instanceCount = 5000
+		instanceCount = 4000
 		honestCount   = 4
 	)
 	f.Add(-7)

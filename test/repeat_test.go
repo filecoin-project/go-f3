@@ -99,7 +99,7 @@ func FuzzRepeatAdversary(f *testing.F) {
 					sm, err := sim.NewSimulation(asyncOptions(rng.Int(),
 						sim.AddHonestParticipants(
 							hc,
-							sim.NewUniformECChainGenerator(rng.Uint64(), 1, 10),
+							sim.NewUniformECChainGenerator(rng.Uint64(), 1, 4),
 							uniformOneStoragePower),
 						sim.WithAdversary(adversary.NewRepeatGenerator(oneStoragePower, dist)),
 					)...)

@@ -13,7 +13,7 @@ test/cover: GOTEST_ARGS=-coverprofile=coverage.txt -covermode=atomic -coverpkg=.
 .PHONY: test/cover
 
 fuzz: FUZZTIME ?= 10s # The duration to run fuzz testing, default to 10s if unset.
-fuzz: GOGC ?= 400 # Reduce GC frequency during testing, default to 200 if unset.
+fuzz: GOGC ?= 400 # Reduce GC frequency during testing, default to 400 if unset.
 fuzz: # List all fuzz tests across the repo, and run them one at a time with the configured fuzztime.
 	@set -e; \
 	go list ./... | while read -r package; do \

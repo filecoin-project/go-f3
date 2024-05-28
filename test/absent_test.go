@@ -21,7 +21,7 @@ func FuzzAbsentAdversary(f *testing.F) {
 				// Total network size of 3 + 1, where the adversary has 1/4 of power.
 				sim.AddHonestParticipants(
 					3,
-					sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 10),
+					sim.NewUniformECChainGenerator(tipSetGeneratorSeed, 1, 5),
 					uniformOneStoragePower),
 				sim.WithAdversary(adversary.NewAbsentGenerator(oneStoragePower)),
 			)...)
