@@ -232,7 +232,30 @@ func (i *instance) Receive(msg *GMessage) error {
 }
 
 func (i *instance) ReceiveAlarm() error {
-	return i.tryCurrentPhase()
+	phaseBeforeAlarm := i.phase
+	if err := i.tryCurrentPhase(); err != nil {
+		return fmt.Errorf("failed completing protocol phase: %w", err)
+	}
+
+	// Check if the alarm ended QUALITY phase, i.e. transition from QUALITY to PREPARE phase.
+	qualityPhaseEnded := phaseBeforeAlarm == QUALITY_PHASE && i.phase == PREPARE_PHASE
+	if qualityPhaseEnded {
+		// Check if there are any eligible future rounds to which to skip.
+
+		// TODO: Potential optimisations:
+		//        1) Consider preferring higher rounds to jump to first. FIP does not specify
+		//           any constraints here.
+		//        2) Build an incremental index of round candidates as messages arrive, allowing
+		//           for efficient jumping to the target round without scanning all state history.
+		for round, state := range i.rounds {
+			if round > i.round {
+				if chain, justification, skipToRound := i.shouldSkipToRound(round, state); skipToRound {
+					i.skipToRound(round, chain, justification)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func (i *instance) Describe() string {
@@ -306,6 +329,11 @@ func (i *instance) receiveOne(msg *GMessage) error {
 		i.log("unexpected message %v", msg)
 	}
 
+	// Check whether the instance should skip ahead to future round.
+	if chain, justification, skip := i.shouldSkipToRound(msg.Vote.Round, round); skip {
+		i.skipToRound(msg.Vote.Round, chain, justification)
+		return nil
+	}
 	// Every COMMIT phase stays open to new messages even after the protocol moves on to
 	// a new round. Late-arriving COMMITS can still (must) cause a local decision, *in that round*.
 	// Try to complete the COMMIT phase for the round specified by the message.
@@ -314,6 +342,40 @@ func (i *instance) receiveOne(msg *GMessage) error {
 	}
 	// Try to complete the current phase in the current round.
 	return i.tryCurrentPhase()
+}
+
+// shouldSkipToRound determines whether to skip to round, and justification
+// either for a value to sway to, or of COMMIT bottom to justify our own
+// proposal. Otherwise, it returns nil chain, nil justification and false.
+//
+// See: skipToRound.
+func (i *instance) shouldSkipToRound(round uint64, state *roundState) (ECChain, *Justification, bool) {
+
+	// Check if the given round is ahead of current round and this instance is not in
+	// QUALITY nor DECIDE phase as dedicated by FIP-0086.
+	//
+	// Note that sipping ahead from QUALITY phase does not violate the correctness
+	// proof of gPBFT. The fact that QUALITY always terminates for a participant
+	// means this participant will eventually jump, but it may do it earlier.
+	// However, if a node skips to future rounds without executing the QUALITY phase
+	// it will only help reaching consensus for bottom.
+	//
+	// Future work may consider skipping ahead from QUALITY for faster census in
+	// certain scenarios. For now, this implementation conforms to the FIP.
+	if round <= i.round || i.phase == QUALITY_PHASE || i.phase == DECIDE_PHASE {
+		return nil, nil, false
+	}
+	proposal := state.converged.FindMaxTicketProposal(i.powerTable)
+	if proposal.Justification == nil {
+		// FindMaxTicketProposal returns a zero-valued ConvergeValue if no such ticket is
+		// found. Hence the check for nil. Otherwise, if found such ConvergeValue must
+		// have a non-nil justification.
+		return nil, nil, false
+	}
+	if !state.prepared.ReceivedFromWeakQuorum() {
+		return nil, nil, false
+	}
+	return proposal.Chain, proposal.Justification, true
 }
 
 // Attempts to complete the current phase and round.
@@ -532,26 +594,15 @@ func (i *instance) tryQuality() error {
 	return nil
 }
 
-func (i *instance) beginConverge() {
-	i.phase = CONVERGE_PHASE
-
-	i.phaseTimeout = i.alarmAfterSynchrony()
-	prevRoundState := i.roundState(i.round - 1)
-
-	// Proposal was updated at the end of COMMIT phase to be some value for which
-	// this node received a COMMIT message (bearing justification), if there were any.
-	// If there were none, there must have been a strong quorum for bottom instead.
-	var justification *Justification
-	if quorum, ok := prevRoundState.committed.FindStrongQuorumFor(""); ok {
-		// Build justification for strong quorum of COMMITs for bottom in the previous round.
-		justification = i.buildJustification(quorum, i.round-1, COMMIT_PHASE, ECChain{})
-	} else {
-		// Extract the justification received from some participant (possibly this node itself).
-		justification, ok = prevRoundState.committed.receivedJustification[i.proposal.Key()]
-		if !ok {
-			panic("beginConverge called but no justification for proposal")
-		}
+// beginConverge initiates CONVERGE_PHASE justified by the given justification.
+func (i *instance) beginConverge(justification *Justification) {
+	if justification.Vote.Round != i.round-1 {
+		// For safety assert that the justification given blongs to the right round
+		panic("justification for which to begin converge does not belong to expected round")
 	}
+	i.phase = CONVERGE_PHASE
+	i.phaseTimeout = i.alarmAfterSynchrony()
+
 	_, pubkey := i.powerTable.Get(i.participant.id)
 	ticket, err := MakeTicket(i.beacon, i.instanceID, i.round, pubkey, i.participant.host)
 	if err != nil {
@@ -755,7 +806,43 @@ func (i *instance) roundState(r uint64) *roundState {
 func (i *instance) beginNextRound() {
 	i.round += 1
 	i.log("moving to round %d with %s", i.round, i.proposal.String())
-	i.beginConverge()
+
+	prevRoundState := i.roundState(i.round - 1)
+	// Proposal was updated at the end of COMMIT phase to be some value for which
+	// this node received a COMMIT message (bearing justification), if there were any.
+	// If there were none, there must have been a strong quorum for bottom instead.
+	var justification *Justification
+	if quorum, ok := prevRoundState.committed.FindStrongQuorumFor(""); ok {
+		// Build justification for strong quorum of COMMITs for bottom in the previous round.
+		justification = i.buildJustification(quorum, i.round-1, COMMIT_PHASE, ECChain{})
+	} else {
+		// Extract the justification received from some participant (possibly this node itself).
+		justification, ok = prevRoundState.committed.receivedJustification[i.proposal.Key()]
+		if !ok {
+			panic("beginConverge called but no justification for proposal")
+		}
+	}
+
+	i.beginConverge(justification)
+}
+
+// skipToRound jumps ahead to the given round by initiating CONVERGE with the given justification.
+//
+// See shouldSkipToRound.
+func (i *instance) skipToRound(round uint64, chain ECChain, justification *Justification) {
+	i.log("skipping from round %d to round %d with %s", i.round, round, i.proposal.String())
+	i.round = round
+
+	// TODO: Also update rebroadcast timeout once implemented according to the
+	//       following pseudocode borrowed from the FIP:
+	//          107:      timeout_rebroadcast ← max(timeout+1, timeout_rebroadcast)
+
+	if justification.Vote.Step == PREPARE_PHASE {
+		i.log("⚠️ swaying from %s to %s by skip to round %d", &i.proposal, chain, i.round)
+		i.candidates = append(i.candidates, chain)
+		i.proposal = chain
+	}
+	i.beginConverge(justification)
 }
 
 // Returns whether a chain is acceptable as a proposal for this instance to vote for.
@@ -973,6 +1060,12 @@ func (q *quorumState) ListAllValues() []ECChain {
 // Checks whether at least one message has been senders from a strong quorum of senders.
 func (q *quorumState) ReceivedFromStrongQuorum() bool {
 	return hasStrongQuorum(q.sendersTotalPower, q.powerTable.Total)
+}
+
+// ReceivedFromWeakQuorum checks whether at least one message has been received
+// from a weak quorum of senders.
+func (q *quorumState) ReceivedFromWeakQuorum() bool {
+	return hasWeakQuorum(q.sendersTotalPower, q.powerTable.Total)
 }
 
 // Checks whether a chain has reached a strong quorum.
