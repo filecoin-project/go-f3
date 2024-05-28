@@ -600,6 +600,10 @@ func (i *instance) beginConverge(justification *Justification) {
 		// For safety assert that the justification given blongs to the right round
 		panic("justification for which to begin converge does not belong to expected round")
 	}
+
+	i.phase = CONVERGE_PHASE
+	i.phaseTimeout = i.alarmAfterSynchrony()
+
 	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, true, justification)
 }
 
