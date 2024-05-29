@@ -1,0 +1,6 @@
+ignore:
+  - "gen"
+  - "test"
+  - "sim"
+  - "**/*_test.go"
+  - "**/gen.go"
