@@ -114,6 +114,8 @@ func (v *FakeBackend) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Pa
 	_ = binary.Write(&buf, binary.BigEndian, p.Step)
 	_ = binary.Write(&buf, binary.BigEndian, p.Round)
 	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
+	_, _ = buf.Write(p.SupplementalData.Commitments[:])
+	_, _ = buf.Write(p.SupplementalData.PowerTable)
 	_ = binary.Write(&buf, binary.BigEndian, uint32(len(p.Value)))
 	for i := range p.Value {
 		ts := &p.Value[i]

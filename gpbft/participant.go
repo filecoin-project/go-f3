@@ -153,7 +153,7 @@ func (p *Participant) ReceiveAlarm() (err error) {
 }
 
 func (p *Participant) beginInstance() error {
-	chain, err := p.host.GetChainForInstance(p.currentInstance)
+	data, chain, err := p.host.GetProposalForInstance(p.currentInstance)
 	if err != nil {
 		return fmt.Errorf("failed fetching chain for instance %d: %w", p.currentInstance, err)
 	}
@@ -170,7 +170,7 @@ func (p *Participant) beginInstance() error {
 	if err != nil {
 		return err
 	}
-	if p.gpbft, err = newInstance(p, p.currentInstance, chain, *comm.power, comm.beacon); err != nil {
+	if p.gpbft, err = newInstance(p, p.currentInstance, chain, data, *comm.power, comm.beacon); err != nil {
 		return fmt.Errorf("failed creating new gpbft instance: %w", err)
 	}
 	if err := p.gpbft.Start(); err != nil {

@@ -78,6 +78,20 @@ type Justification struct {
 	Signature []byte
 }
 
+type SupplementalData struct {
+	// Merkle-tree of instance-specific commitments. Currently empty but this will eventually
+	// include things like snark-friendly power-table commitments.
+	Commitments [32]byte
+	// The DagCBOR-blake2b256 CID of the power table used to validate the next instance, taking
+	// lookback into account.
+	PowerTable CID // []PowerEntry
+}
+
+func (d *SupplementalData) Eq(other *SupplementalData) bool {
+	return d.Commitments == other.Commitments &&
+		bytes.Equal(d.PowerTable, other.PowerTable)
+}
+
 // Fields of the message that make up the signature payload.
 type Payload struct {
 	// GossiPBFT instance (epoch) number.
@@ -86,8 +100,9 @@ type Payload struct {
 	Round uint64
 	// GossiPBFT step name.
 	Step Phase
-	// Chain of tipsets proposed/voted for finalisation.
-	// Always non-empty; the first entry is the base tipset finalised in the previous instance.
+	// The common data.
+	SupplementalData SupplementalData
+	// The value agreed-upon in a single instance.
 	Value ECChain
 }
 
@@ -95,6 +110,7 @@ func (p *Payload) Eq(other *Payload) bool {
 	return p.Instance == other.Instance &&
 		p.Round == other.Round &&
 		p.Step == other.Step &&
+		p.SupplementalData.Eq(&other.SupplementalData) &&
 		p.Value.Eq(other.Value)
 }
 
@@ -114,7 +130,9 @@ func (p *Payload) MarshalForSigning(nn NetworkName) []byte {
 	_ = binary.Write(&buf, binary.BigEndian, p.Step)
 	_ = binary.Write(&buf, binary.BigEndian, p.Round)
 	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
+	_, _ = buf.Write(p.SupplementalData.Commitments[:])
 	_, _ = buf.Write(root[:])
+	_, _ = buf.Write(p.SupplementalData.PowerTable)
 	return buf.Bytes()
 }
 
@@ -140,6 +158,9 @@ type instance struct {
 	// For QUALITY, PREPARE, and COMMIT, this is the latest time (the phase can end sooner).
 	// For CONVERGE, this is the exact time (the timeout solely defines the phase end).
 	phaseTimeout time.Time
+	// Supplemental data that all participants must agree on ahead of time. Messages that
+	// propose supplemental data that differs with our supplemental data will be discarded.
+	supplementalData *SupplementalData
 	// This instance's proposal for the current round. Never bottom.
 	// This is set after the QUALITY phase, and changes only at the end of a full round.
 	proposal ECChain
@@ -171,23 +192,25 @@ func newInstance(
 	participant *Participant,
 	instanceID uint64,
 	input ECChain,
+	data *SupplementalData,
 	powerTable PowerTable,
 	beacon []byte) (*instance, error) {
 	if input.IsZero() {
 		return nil, fmt.Errorf("input is empty")
 	}
 	return &instance{
-		participant: participant,
-		instanceID:  instanceID,
-		input:       input,
-		powerTable:  powerTable,
-		beacon:      beacon,
-		round:       0,
-		phase:       INITIAL_PHASE,
-		proposal:    input,
-		value:       ECChain{},
-		candidates:  []ECChain{input.BaseChain()},
-		quality:     newQuorumState(powerTable),
+		participant:      participant,
+		instanceID:       instanceID,
+		input:            input,
+		powerTable:       powerTable,
+		beacon:           beacon,
+		round:            0,
+		phase:            INITIAL_PHASE,
+		supplementalData: data,
+		proposal:         input,
+		value:            ECChain{},
+		candidates:       []ECChain{input.BaseChain()},
+		quality:          newQuorumState(powerTable),
 		rounds: map[uint64]*roundState{
 			0: newRoundState(powerTable),
 		},
@@ -223,6 +246,11 @@ func (i *instance) Receive(msg *GMessage) error {
 		// passed this message here.
 		return fmt.Errorf("message for instance %d, expected %d: %w",
 			msg.Vote.Instance, i.instanceID, ErrReceivedWrongInstance)
+	}
+	// Ensure all participants are proposing the same supplemental data. This data is based on
+	// the _base_, so everyone should agree.
+	if !msg.Vote.SupplementalData.Eq(i.supplementalData) {
+		return xerrors.Errorf("message for instance %d disagrees on the supplemental data", msg.Vote.Instance)
 	}
 	// Perform validation that could not be done until the instance started.
 	if !(msg.Vote.Value.IsZero() || msg.Vote.Value.HasBase(i.input.Base())) {

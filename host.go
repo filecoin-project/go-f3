@@ -125,21 +125,21 @@ func (h *gpbftRunner) deliverMessage(msg *gpbft.GMessage) error {
 
 // Returns inputs to the next GPBFT instance.
 // These are:
-// - the EC chain to propose,
-// - the power table specifying the participants,
-// - the beacon value for generating tickets.
+// - the supplemental data.
+// - the EC chain to propose.
 // These will be used as input to a subsequent instance of the protocol.
 // The chain should be a suffix of the last chain notified to the host via
 // ReceiveDecision (or known to be final via some other channel).
-func (h *gpbftHost) GetChainForInstance(instance uint64) (gpbft.ECChain, error) {
+func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.SupplementalData, gpbft.ECChain, error) {
 	// TODO: this is just a complete fake
 	ts := sim.NewTipSetGenerator(1)
 	chain, err := gpbft.NewChain(gpbft.TipSet{Epoch: 0, Key: ts.Sample()}, gpbft.TipSet{Epoch: 1, Key: ts.Sample()})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return chain, nil
+	// TODO: use lookback to return the correct next power table commitment and commitments hash.
+	return new(gpbft.SupplementalData), chain, nil
 }
 
 func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable, []byte, error) {

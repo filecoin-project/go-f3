@@ -57,10 +57,13 @@ type Receiver interface {
 }
 
 type Chain interface {
-	// Returns the chain to propose for a new GPBFT instance.
-	// This should be a suffix of the chain finalised by the immediately prior instance.
+	// Returns the supplemental data and the chain to propose for a new GPBFT instance.
+	// The chain must be a suffix of the chain finalised by the immediately prior instance.
+	// The supplemental data must be derived entirely from prior instances and all participants
+	// must propose the same supplemental data.
+	//
 	// Returns an error if the chain for the instance is not available.
-	GetChainForInstance(instance uint64) (chain ECChain, err error)
+	GetProposalForInstance(instance uint64) (data *SupplementalData, chain ECChain, err error)
 
 	// Returns the power table and beacon value to be used for a GPBFT instance.
 	// These values should be derived from a chain previously received as final by the host,

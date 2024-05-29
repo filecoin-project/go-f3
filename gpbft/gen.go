@@ -370,7 +370,119 @@ func (t *GMessage) UnmarshalCBOR(r io.Reader) (err error) {
 	return nil
 }
 
-var lengthBufPayload = []byte{132}
+var lengthBufSupplementalData = []byte{130}
+
+func (t *SupplementalData) MarshalCBOR(w io.Writer) error {
+	if t == nil {
+		_, err := w.Write(cbg.CborNull)
+		return err
+	}
+
+	cw := cbg.NewCborWriter(w)
+
+	if _, err := cw.Write(lengthBufSupplementalData); err != nil {
+		return err
+	}
+
+	// t.Commitments ([32]uint8) (array)
+	if len(t.Commitments) > 2097152 {
+		return xerrors.Errorf("Byte array in field t.Commitments was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.Commitments))); err != nil {
+		return err
+	}
+
+	if _, err := cw.Write(t.Commitments[:]); err != nil {
+		return err
+	}
+
+	// t.PowerTable ([]uint8) (slice)
+	if len(t.PowerTable) > 2097152 {
+		return xerrors.Errorf("Byte array in field t.PowerTable was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.PowerTable))); err != nil {
+		return err
+	}
+
+	if _, err := cw.Write(t.PowerTable); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (t *SupplementalData) UnmarshalCBOR(r io.Reader) (err error) {
+	*t = SupplementalData{}
+
+	cr := cbg.NewCborReader(r)
+
+	maj, extra, err := cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err == io.EOF {
+			err = io.ErrUnexpectedEOF
+		}
+	}()
+
+	if maj != cbg.MajArray {
+		return fmt.Errorf("cbor input should be of type array")
+	}
+
+	if extra != 2 {
+		return fmt.Errorf("cbor input had wrong number of fields")
+	}
+
+	// t.Commitments ([32]uint8) (array)
+
+	maj, extra, err = cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+
+	if extra > 2097152 {
+		return fmt.Errorf("t.Commitments: byte array too large (%d)", extra)
+	}
+	if maj != cbg.MajByteString {
+		return fmt.Errorf("expected byte array")
+	}
+	if extra != 32 {
+		return fmt.Errorf("expected array to have 32 elements")
+	}
+
+	t.Commitments = [32]uint8{}
+	if _, err := io.ReadFull(cr, t.Commitments[:]); err != nil {
+		return err
+	}
+	// t.PowerTable ([]uint8) (slice)
+
+	maj, extra, err = cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+
+	if extra > 2097152 {
+		return fmt.Errorf("t.PowerTable: byte array too large (%d)", extra)
+	}
+	if maj != cbg.MajByteString {
+		return fmt.Errorf("expected byte array")
+	}
+
+	if extra > 0 {
+		t.PowerTable = make([]uint8, extra)
+	}
+
+	if _, err := io.ReadFull(cr, t.PowerTable); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var lengthBufPayload = []byte{133}
 
 func (t *Payload) MarshalCBOR(w io.Writer) error {
 	if t == nil {
@@ -398,6 +510,11 @@ func (t *Payload) MarshalCBOR(w io.Writer) error {
 
 	// t.Step (gpbft.Phase) (uint8)
 	if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.Step)); err != nil {
+		return err
+	}
+
+	// t.SupplementalData (gpbft.SupplementalData) (struct)
+	if err := t.SupplementalData.MarshalCBOR(cw); err != nil {
 		return err
 	}
 
@@ -437,7 +554,7 @@ func (t *Payload) UnmarshalCBOR(r io.Reader) (err error) {
 		return fmt.Errorf("cbor input should be of type array")
 	}
 
-	if extra != 4 {
+	if extra != 5 {
 		return fmt.Errorf("cbor input had wrong number of fields")
 	}
 
@@ -482,6 +599,15 @@ func (t *Payload) UnmarshalCBOR(r io.Reader) (err error) {
 		return fmt.Errorf("integer in input was too large for uint8 field")
 	}
 	t.Step = Phase(extra)
+	// t.SupplementalData (gpbft.SupplementalData) (struct)
+
+	{
+
+		if err := t.SupplementalData.UnmarshalCBOR(cr); err != nil {
+			return xerrors.Errorf("unmarshaling t.SupplementalData: %w", err)
+		}
+
+	}
 	// t.Value (gpbft.ECChain) (slice)
 
 	maj, extra, err = cr.ReadHeader()
