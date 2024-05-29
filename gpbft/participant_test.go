@@ -84,9 +84,8 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 
 func (pt *participantTestSubject) expectBeginInstance() {
 	// Prepare the test host.
-	pt.host.On("GetChainForInstance", pt.instance).Return(pt.canonicalChain, nil)
+	pt.host.On("GetProposalForInstance", pt.instance).Return(pt.instanceData, pt.canonicalChain, nil)
 	pt.host.On("GetCommitteeForInstance", pt.instance).Return(pt.powerTable, pt.beacon, nil)
-	pt.host.On("GetDataForInstance", pt.instance).Return(pt.instanceData, nil)
 	pt.host.On("Time").Return(pt.time)
 	pt.host.On("NetworkName").Return(pt.networkName).Maybe()
 	// We need to use `Maybe` here because `MarshalPayloadForSigning` may be called
@@ -97,7 +96,7 @@ func (pt *participantTestSubject) expectBeginInstance() {
 		Return([]byte(gpbft.DOMAIN_SEPARATION_TAG + ":" + pt.networkName)).Maybe()
 
 	// Expect calls to get the host state prior to beginning of an instance.
-	pt.host.EXPECT().GetChainForInstance(pt.instance)
+	pt.host.EXPECT().GetProposalForInstance(pt.instance)
 	pt.host.EXPECT().GetCommitteeForInstance(pt.instance)
 	pt.host.EXPECT().Time()
 
@@ -203,14 +202,14 @@ func TestParticipant(t *testing.T) {
 	t.Run("panic is recovered", func(t *testing.T) {
 		t.Run("on Start", func(t *testing.T) {
 			subject := newParticipantTestSubject(t, seed, 0)
-			subject.host.On("GetChainForInstance", subject.instance).Panic("saw me no chain")
+			subject.host.On("GetProposalForInstance", subject.instance).Panic("saw me no chain")
 			require.NotPanics(t, func() {
 				require.ErrorContains(t, subject.Start(), "saw me no chain")
 			})
 		})
 		t.Run("on ReceiveAlarm", func(t *testing.T) {
 			subject := newParticipantTestSubject(t, seed, 0)
-			subject.host.On("GetChainForInstance", subject.instance).Panic("saw me no chain")
+			subject.host.On("GetProposalForInstance", subject.instance).Panic("saw me no chain")
 			require.NotPanics(t, func() {
 				require.ErrorContains(t, subject.ReceiveAlarm(), "saw me no chain")
 			})
@@ -270,7 +269,8 @@ func TestParticipant(t *testing.T) {
 			t.Run("on zero canonical chain", func(t *testing.T) {
 				subject := newParticipantTestSubject(t, seed, 0)
 				var zeroChain gpbft.ECChain
-				subject.host.On("GetChainForInstance", subject.instance).Return(zeroChain, nil)
+				emptyInstanceData := new(gpbft.InstanceData)
+				subject.host.On("GetProposalForInstance", subject.instance).Return(emptyInstanceData, zeroChain, nil)
 				require.ErrorContains(t, subject.Start(), "cannot be zero-valued")
 				subject.assertHostExpectations()
 				subject.requireNotStarted()
@@ -278,7 +278,8 @@ func TestParticipant(t *testing.T) {
 			t.Run("on invalid canonical chain", func(t *testing.T) {
 				subject := newParticipantTestSubject(t, seed, 0)
 				invalidChain := gpbft.ECChain{gpbft.TipSet{}}
-				subject.host.On("GetChainForInstance", subject.instance).Return(invalidChain, nil)
+				emptyInstanceData := new(gpbft.InstanceData)
+				subject.host.On("GetProposalForInstance", subject.instance).Return(emptyInstanceData, invalidChain, nil)
 				require.ErrorContains(t, subject.Start(), "invalid canonical chain")
 				subject.assertHostExpectations()
 				subject.requireNotStarted()
@@ -286,7 +287,8 @@ func TestParticipant(t *testing.T) {
 			t.Run("on failure to fetch chain", func(t *testing.T) {
 				subject := newParticipantTestSubject(t, seed, 0)
 				invalidChain := gpbft.ECChain{gpbft.TipSet{}}
-				subject.host.On("GetChainForInstance", subject.instance).Return(invalidChain, errors.New("fish"))
+				emptyInstanceData := new(gpbft.InstanceData)
+				subject.host.On("GetProposalForInstance", subject.instance).Return(emptyInstanceData, invalidChain, errors.New("fish"))
 				require.ErrorContains(t, subject.Start(), "fish")
 				subject.assertHostExpectations()
 				subject.requireNotStarted()
@@ -299,7 +301,10 @@ func TestParticipant(t *testing.T) {
 					PowerTable:  []byte("pt"),
 					Commitments: [32]byte{},
 				}}
-				subject.host.On("GetChainForInstance", subject.instance).Return(chain, nil)
+				instanceData := &gpbft.InstanceData{
+					PowerTable: chain[0].PowerTable,
+				}
+				subject.host.On("GetProposalForInstance", subject.instance).Return(instanceData, chain, nil)
 				subject.host.On("GetCommitteeForInstance", subject.instance).Return(nil, nil, errors.New("fish"))
 				require.ErrorContains(t, subject.Start(), "fish")
 				subject.assertHostExpectations()

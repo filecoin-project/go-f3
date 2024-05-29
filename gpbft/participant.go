@@ -153,7 +153,7 @@ func (p *Participant) ReceiveAlarm() (err error) {
 }
 
 func (p *Participant) beginInstance() error {
-	chain, err := p.host.GetChainForInstance(p.currentInstance)
+	data, chain, err := p.host.GetProposalForInstance(p.currentInstance)
 	if err != nil {
 		return fmt.Errorf("failed fetching chain for instance %d: %w", p.currentInstance, err)
 	}
@@ -169,10 +169,6 @@ func (p *Participant) beginInstance() error {
 	comm, err := p.getCommittee(p.currentInstance)
 	if err != nil {
 		return err
-	}
-	data, err := p.host.GetDataForInstance(p.currentInstance)
-	if err != nil {
-		return fmt.Errorf("failed fetching extra data for instance %d: %w", p.currentInstance, err)
 	}
 	if p.gpbft, err = newInstance(p, p.currentInstance, chain, data, *comm.power, comm.beacon); err != nil {
 		return fmt.Errorf("failed creating new gpbft instance: %w", err)

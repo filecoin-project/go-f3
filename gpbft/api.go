@@ -60,7 +60,7 @@ type Chain interface {
 	// Returns the chain to propose for a new GPBFT instance.
 	// This should be a suffix of the chain finalised by the immediately prior instance.
 	// Returns an error if the chain for the instance is not available.
-	GetChainForInstance(instance uint64) (chain ECChain, err error)
+	GetProposalForInstance(instance uint64) (data *InstanceData, chain ECChain, err error)
 
 	// Returns the power table and beacon value to be used for a GPBFT instance.
 	// These values should be derived from a chain previously received as final by the host,
@@ -68,10 +68,6 @@ type Chain interface {
 	// The offset (how many instances to look back) is determined by the host.
 	// Returns an error if the committee for the instance is not available.
 	GetCommitteeForInstance(instance uint64) (power *PowerTable, beacon []byte, err error)
-
-	// Returns the instance data for the given instance. All participants will propose the exact
-	// same instance data and all messages proposing _different_ instance data will be dropped.
-	GetDataForInstance(instance uint64) (data *InstanceData, err error)
 }
 
 // Endpoint to which participants can send messages.

@@ -54,10 +54,11 @@ func newHost(id gpbft.ActorID, sim *Simulation, ecg ECChainGenerator, spg Storag
 	}
 }
 
-func (v *simHost) GetChainForInstance(instance uint64) (gpbft.ECChain, error) {
+func (v *simHost) GetProposalForInstance(instance uint64) (*gpbft.InstanceData, gpbft.ECChain, error) {
 	// Use the head of latest agreement chain as the base of next.
+	// TODO: use lookback to return the correct next power table commitment and commitments hash.
 	chain := v.ecg.GenerateECChain(instance, *v.ecChain.Head(), v.id)
-	return chain, nil
+	return new(gpbft.InstanceData), chain, nil
 }
 
 func (v *simHost) GetCommitteeForInstance(instance uint64) (power *gpbft.PowerTable, beacon []byte, err error) {
@@ -66,11 +67,6 @@ func (v *simHost) GetCommitteeForInstance(instance uint64) (power *gpbft.PowerTa
 		return nil, nil, ErrInstanceUnavailable
 	}
 	return i.PowerTable, i.Beacon, nil
-}
-
-func (v *simHost) GetDataForInstance(instance uint64) (*gpbft.InstanceData, error) {
-	// TODO: use lookback to return the correct next power table commitment and commitments hash.
-	return new(gpbft.InstanceData), nil
 }
 
 func (v *simHost) SetAlarm(at time.Time) {
