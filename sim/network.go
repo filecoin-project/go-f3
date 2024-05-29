@@ -82,13 +82,14 @@ func (nf *networkFor) Log(format string, args ...any) {
 	nf.Network.log(TraceLogic, "P%d "+format, append([]any{nf.ParticipantID}, args...)...)
 }
 
-func (nf *networkFor) RequestBroadcast(mb *gpbft.MessageBuilder) {
+func (nf *networkFor) RequestBroadcast(mb *gpbft.MessageBuilder) error {
 	msg, err := mb.Build(nf.networkName, nf.Signer, nf.ParticipantID)
 	if err != nil {
 		nf.Log("building message for: %d: %+v", nf.ParticipantID, err)
-		return
+		return err
 	}
 	nf.broadcast(msg, false)
+	return nil
 }
 
 func (n *Network) NetworkName() gpbft.NetworkName {

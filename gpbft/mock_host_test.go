@@ -346,8 +346,21 @@ func (_c *MockHost_ReceiveDecision_Call) RunAndReturn(run func(*Justification) t
 }
 
 // RequestBroadcast provides a mock function with given fields: mb
-func (_m *MockHost) RequestBroadcast(mb *MessageBuilder) {
-	_m.Called(mb)
+func (_m *MockHost) RequestBroadcast(mb *MessageBuilder) error {
+	ret := _m.Called(mb)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RequestBroadcast")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(*MessageBuilder) error); ok {
+		r0 = rf(mb)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
 }
 
 // MockHost_RequestBroadcast_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RequestBroadcast'
@@ -368,12 +381,12 @@ func (_c *MockHost_RequestBroadcast_Call) Run(run func(mb *MessageBuilder)) *Moc
 	return _c
 }
 
-func (_c *MockHost_RequestBroadcast_Call) Return() *MockHost_RequestBroadcast_Call {
-	_c.Call.Return()
+func (_c *MockHost_RequestBroadcast_Call) Return(_a0 error) *MockHost_RequestBroadcast_Call {
+	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockHost_RequestBroadcast_Call) RunAndReturn(run func(*MessageBuilder)) *MockHost_RequestBroadcast_Call {
+func (_c *MockHost_RequestBroadcast_Call) RunAndReturn(run func(*MessageBuilder) error) *MockHost_RequestBroadcast_Call {
 	_c.Call.Return(run)
 	return _c
 }

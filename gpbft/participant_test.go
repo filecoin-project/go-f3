@@ -112,7 +112,7 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	)
 	pt.host.EXPECT().RequestBroadcast(mock.MatchedBy(func(mt *gpbft.MessageBuilder) bool {
 		return assert.EqualExportedValues(pt.t, mt, wantQualityPhaseBroadcastBuilder) //nolint
-	}))
+	})).Return(nil)
 }
 
 func (pt *participantTestSubject) requireNotStarted() {
@@ -236,7 +236,7 @@ func TestParticipant(t *testing.T) {
 			subject := newParticipantTestSubject(t, seed, initialInstance)
 			subject.mockCommitteeForInstance(initialInstance, subject.powerTable, subject.beacon)
 			gotValidated, gotValidateErr := subject.ValidateMessage(&gpbft.GMessage{
-				Sender: subject.ID(),
+				Sender: subject.id,
 				Vote:   gpbft.Payload{},
 			})
 			require.Nil(t, gotValidated)

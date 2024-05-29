@@ -1,7 +1,6 @@
 package f3
 
 import (
-	"bytes"
 	"context"
 	"time"
 
@@ -15,7 +14,7 @@ type Client interface {
 	gpbft.Verifier
 	gpbft.Tracer
 
-	BroadcastMessage(context.Context, []byte) error
+	BroadcastMessage(context.Context, *gpbft.MessageBuilder) error
 	IncommingMessages() <-chan *gpbft.GMessage
 	Logger() Logger
 }
@@ -60,7 +59,7 @@ func newRunner(id gpbft.ActorID, m Manifest, client Client) (*gpbftRunner, error
 	}
 
 	runner.log.Infof("starting host for P%d", id)
-	p, err := gpbft.NewParticipant(id, host, gpbft.WithTracer(client))
+	p, err := gpbft.NewParticipant(host, gpbft.WithTracer(client))
 	if err != nil {
 		return nil, xerrors.Errorf("creating participant: %w", err)
 	}
@@ -159,16 +158,13 @@ func (h *gpbftHost) NetworkName() gpbft.NetworkName {
 
 // Sends a message to all other participants.
 // The message's sender must be one that the network interface can sign on behalf of.
-func (h *gpbftHost) RequestBroadcast(msg *gpbft.GMessage) {
-	var bw bytes.Buffer
-	err := msg.MarshalCBOR(&bw)
-	if err != nil {
-		h.runner.log.Errorf("marshalling GMessage: %+v", err)
-	}
-	err = h.Client.BroadcastMessage(h.runner.runningCtx, bw.Bytes())
+func (h *gpbftHost) RequestBroadcast(mb *gpbft.MessageBuilder) error {
+	err := h.Client.BroadcastMessage(h.runner.runningCtx, mb)
 	if err != nil {
 		h.runner.log.Errorf("broadcasting GMessage: %+v", err)
+		return err
 	}
+	return nil
 }
 
 // Returns the current network time.
@@ -203,6 +199,6 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 // MarshalPayloadForSigning marshals the given payload into the bytes that should be signed.
 // This should usually call `Payload.MarshalForSigning(NetworkName)` except when testing as
 // that method is slow (computes a merkle tree that's necessary for testing).
-func (h *gpbftHost) MarshalPayloadForSigning(p *gpbft.Payload) []byte {
-	return p.MarshalForSigning(h.runner.manifest.NetworkName)
+func (h *gpbftHost) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Payload) []byte {
+	return p.MarshalForSigning(nn)
 }

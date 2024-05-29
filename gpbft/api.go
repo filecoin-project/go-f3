@@ -75,7 +75,7 @@ type Network interface {
 	// Returns the network's name (for signature separation)
 	NetworkName() NetworkName
 	// Requests that the message is signed and broadcasted, it should also be delivered locally
-	RequestBroadcast(mb *MessageBuilder)
+	RequestBroadcast(mb *MessageBuilder) error
 }
 
 type Clock interface {
