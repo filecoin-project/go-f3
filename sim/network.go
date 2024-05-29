@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -172,10 +173,14 @@ func (n *Network) Tick(adv *adversary.Adversary) (bool, error) {
 		}
 		validated, err := receiver.ValidateMessage(&payload)
 		if err != nil {
+			if errors.Is(err, gpbft.ErrValidationTooOld) {
+				// Silently drop old messages.
+				break
+			}
 			return false, fmt.Errorf("invalid message from %d to %d: %w", msg.source, msg.dest, err)
 		}
 		n.log(TraceRecvd, "P%d ← P%d: %v", msg.dest, msg.source, msg.payload)
-		if _, err := receiver.ReceiveMessage(&payload, validated); err != nil {
+		if err := receiver.ReceiveMessage(validated); err != nil {
 			return false, fmt.Errorf("failed to deliver message from %d to %d: %w", msg.source, msg.dest, err)
 		}
 	default:

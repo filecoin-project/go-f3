@@ -114,15 +114,15 @@ func (w *WithholdCommit) Start() error {
 	return nil
 }
 
-func (a *WithholdCommit) ValidateMessage(_ *gpbft.GMessage) (bool, error) {
-	return true, nil
+func (*WithholdCommit) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
+	return Validated(msg), nil
 }
 
-func (a *WithholdCommit) ReceiveMessage(_ *gpbft.GMessage, _ bool) (bool, error) {
-	return true, nil
+func (*WithholdCommit) ReceiveMessage(_ gpbft.ValidatedMessage) error {
+	return nil
 }
 
-func (w *WithholdCommit) ReceiveAlarm() error {
+func (*WithholdCommit) ReceiveAlarm() error {
 	return nil
 }
 

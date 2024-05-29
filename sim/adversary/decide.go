@@ -74,19 +74,19 @@ func (i *ImmediateDecide) Start() error {
 	return nil
 }
 
-func (i *ImmediateDecide) ValidateMessage(_ *gpbft.GMessage) (bool, error) {
-	return true, nil
+func (*ImmediateDecide) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
+	return Validated(msg), nil
 }
 
-func (i *ImmediateDecide) ReceiveMessage(_ *gpbft.GMessage, _ bool) (bool, error) {
-	return true, nil
-}
-
-func (i *ImmediateDecide) ReceiveAlarm() error {
+func (*ImmediateDecide) ReceiveMessage(_ gpbft.ValidatedMessage) error {
 	return nil
 }
 
-func (i *ImmediateDecide) AllowMessage(_ gpbft.ActorID, _ gpbft.ActorID, _ gpbft.GMessage) bool {
+func (*ImmediateDecide) ReceiveAlarm() error {
+	return nil
+}
+
+func (*ImmediateDecide) AllowMessage(_ gpbft.ActorID, _ gpbft.ActorID, _ gpbft.GMessage) bool {
 	// Allow all messages
 	return true
 }

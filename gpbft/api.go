@@ -1,15 +1,49 @@
 package gpbft
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// Sentinel errors for the message validation and reception APIs.
+var (
+	ErrValidationTooOld      = errors.New("message is for prior instance")
+	ErrValidationNoCommittee = errors.New("no committee for message instance")
+	ErrValidationInvalid     = errors.New("message invalid")
+	ErrValidationWrongBase   = errors.New("unexpected base chain")
+
+	ErrReceivedWrongInstance    = errors.New("received message for wrong instance")
+	ErrReceivedAfterTermination = errors.New("received message after terminating")
+	ErrReceivedInternalError    = errors.New("error processing message")
+)
+
+type MessageValidator interface {
+	// Validates a Granite message.
+	// An invalid message can never become valid, so may be dropped.
+	// Returns an error, wrapping (use errors.Is()/Unwrap()):
+	// - ErrValidationTooOld if the message is for a prior instance;
+	// - both ErrValidationNoCommittee and an error describing the reason;
+	//   if there is no committee available with with to validate the message;
+	// - both ErrValidationInvalid and a cause if the message is invalid,
+	// Returns a validated message if the message is valid.
+	ValidateMessage(msg *GMessage) (valid ValidatedMessage, err error)
+}
+
+// Opaque type tagging a validated message.
+type ValidatedMessage interface {
+	// Returns the validated message.
+	Message() *GMessage
+}
 
 // Receives a Granite protocol message.
 type MessageReceiver interface {
-	// Validates a message received from another participant, if possible.
-	// Returns whether the message could be validated, and an error if it was invalid.
-	ValidateMessage(msg *GMessage) (bool, error)
-	// Receives a message from another participant.
-	// The `validated` parameter indicates whether the message has already passed validation.
-	ReceiveMessage(msg *GMessage, validated bool) (bool, error)
+	// Receives a validated Granite message from some other participant.
+	// Returns an error, wrapping (use errors.Is()/Unwrap()):
+	// - ErrValidationTooOld if the message is for a prior instance
+	// - ErrValidationWrongBase if the message has an invalid base chain
+	// - ErrReceivedAfterTermination if the message is received after the instance has terminated (a programming error)
+	// - both ErrReceivedInternalError and a cause if there was an internal error processing the message
+	ReceiveMessage(msg ValidatedMessage) error
 	ReceiveAlarm() error
 }
 
@@ -18,6 +52,7 @@ type Receiver interface {
 	// Begins executing the protocol.
 	// The node will request the canonical chain to propose from the host.
 	Start() error
+	MessageValidator
 	MessageReceiver
 }
 

@@ -192,6 +192,7 @@ func newInstance(
 			0: newRoundState(powerTable),
 		},
 		decision: newQuorumState(powerTable),
+		tracer:   participant.tracer,
 	}, nil
 }
 
@@ -213,47 +214,31 @@ func (i *instance) Start() error {
 	return i.beginQuality()
 }
 
-// Checks whether a message is valid.
-// An invalid message can never become valid, so may be dropped.
-// This method is read-only and inspects only immutable state, so should be safe to invoke
-// concurrently.
-func (i *instance) Validate(msg *GMessage) error {
-	return i.validateMessage(msg)
-}
-
-// Receives a validated message.
-// This method will not attempt to validate the message, the caller must ensure the message
-// is valid before calling this method.
+// Receives and processes a message.
+// Returns an error indicating either message invalidation or a programming error.
 func (i *instance) Receive(msg *GMessage) error {
+	// Check the message is for this instance, to guard against programming error.
+	if msg.Vote.Instance != i.instanceID {
+		// Return true here to cause a loud failure at the caller, which should not have
+		// passed this message here.
+		return fmt.Errorf("message for instance %d, expected %d: %w",
+			msg.Vote.Instance, i.instanceID, ErrReceivedWrongInstance)
+	}
+	// Perform validation that could not be done until the instance started.
+	if !(msg.Vote.Value.IsZero() || msg.Vote.Value.HasBase(i.input.Base())) {
+		return fmt.Errorf("message base %s, expected %s: %w",
+			&msg.Vote.Value, i.input.Base(), ErrValidationWrongBase)
+	}
+
 	if i.terminated() {
-		return fmt.Errorf("senders message after decision")
+		return ErrReceivedAfterTermination
 	}
 	return i.receiveOne(msg)
 }
 
 func (i *instance) ReceiveAlarm() error {
-	phaseBeforeAlarm := i.phase
 	if err := i.tryCurrentPhase(); err != nil {
 		return fmt.Errorf("failed completing protocol phase: %w", err)
-	}
-
-	// Check if the alarm ended QUALITY phase, i.e. transition from QUALITY to PREPARE phase.
-	qualityPhaseEnded := phaseBeforeAlarm == QUALITY_PHASE && i.phase == PREPARE_PHASE
-	if qualityPhaseEnded {
-		// Check if there are any eligible future rounds to which to skip.
-
-		// TODO: Potential optimisations:
-		//        1) Consider preferring higher rounds to jump to first. FIP does not specify
-		//           any constraints here.
-		//        2) Build an incremental index of round candidates as messages arrive, allowing
-		//           for efficient jumping to the target round without scanning all state history.
-		for round, state := range i.rounds {
-			if round > i.round {
-				if chain, justification, skipToRound := i.shouldSkipToRound(round, state); skipToRound {
-					i.skipToRound(round, chain, justification)
-				}
-			}
-		}
 	}
 	return nil
 }
@@ -279,22 +264,8 @@ func (i *instance) receiveOne(msg *GMessage) error {
 	// Drop message that:
 	//  * belong to future rounds, beyond the configured max lookahead threshold, and
 	//  * carry no justification, i.e. are spammable.
-	//
-	// The only messages that are spammable are COMMIT for bottom. QUALITY and
-	// PREPARE messages may also not carry justification, but they are not
-	// spammable. Because:
-	//  * QUALITY is only valid for round zero.
-	//  * PREPARE must carry justification for non-zero rounds.
-	//
-	// Therefore, we are only left with COMMIT for bottom messages as potentially
-	// spammable for rounds beyond zero.
-	//
-	// To drop such messages, the implementation below defensively uses a stronger
-	// condition of "nil justification with round larger than zero" to determine
-	// whether a message is "spammable".
 	beyondMaxLookaheadRounds := msg.Vote.Round > i.round+i.participant.maxLookaheadRounds
-	spammable := msg.Justification == nil && msg.Vote.Round > 0
-	if beyondMaxLookaheadRounds && spammable {
+	if beyondMaxLookaheadRounds && isSpammable(msg) {
 		return nil
 	}
 
@@ -352,17 +323,8 @@ func (i *instance) receiveOne(msg *GMessage) error {
 func (i *instance) shouldSkipToRound(round uint64, state *roundState) (ECChain, *Justification, bool) {
 
 	// Check if the given round is ahead of current round and this instance is not in
-	// QUALITY nor DECIDE phase as dedicated by FIP-0086.
-	//
-	// Note that sipping ahead from QUALITY phase does not violate the correctness
-	// proof of gPBFT. The fact that QUALITY always terminates for a participant
-	// means this participant will eventually jump, but it may do it earlier.
-	// However, if a node skips to future rounds without executing the QUALITY phase
-	// it will only help reaching consensus for bottom.
-	//
-	// Future work may consider skipping ahead from QUALITY for faster census in
-	// certain scenarios. For now, this implementation conforms to the FIP.
-	if round <= i.round || i.phase == QUALITY_PHASE || i.phase == DECIDE_PHASE {
+	// DECIDE phase.
+	if round <= i.round || i.phase == DECIDE_PHASE {
 		return nil, nil, false
 	}
 	proposal := state.converged.FindMaxTicketProposal(i.powerTable)
@@ -400,25 +362,18 @@ func (i *instance) tryCurrentPhase() error {
 }
 
 // Checks message validity, including justification and signatures.
-func (i *instance) validateMessage(msg *GMessage) error {
-	// Check the message is for this instance.
-	// The caller should ensure this is always the case.
-	if msg.Vote.Instance != i.instanceID {
-		return xerrors.Errorf("message for wrong instance %d, expected %d", msg.Vote.Instance, i.instanceID)
-	}
+// An invalid message can never become valid, so may be dropped.
+// This is a pure function and does not modify its arguments.
+func ValidateMessage(powerTable *PowerTable, beacon []byte, host Host, msg *GMessage) error {
 	// Check sender is eligible.
-	senderPower, senderPubKey := i.powerTable.Get(msg.Sender)
+	senderPower, senderPubKey := powerTable.Get(msg.Sender)
 	if senderPower == nil || senderPower.Sign() == 0 {
-		return xerrors.Errorf("sender with zero power or not in power table")
+		return xerrors.Errorf("sender %d with zero power or not in power table", msg.Sender)
 	}
 
 	// Check that message value is a valid chain.
 	if err := msg.Vote.Value.Validate(); err != nil {
 		return xerrors.Errorf("invalid message vote value chain: %w", err)
-	}
-	// Check the value is acceptable.
-	if !(msg.Vote.Value.IsZero() || msg.Vote.Value.HasBase(i.input.Base())) {
-		return xerrors.Errorf("unexpected base %s", &msg.Vote.Value)
 	}
 
 	// Check phase-specific constraints.
@@ -437,7 +392,7 @@ func (i *instance) validateMessage(msg *GMessage) error {
 		if msg.Vote.Value.IsZero() {
 			return xerrors.Errorf("unexpected zero value for converge phase")
 		}
-		if !VerifyTicket(i.participant.host.NetworkName(), i.beacon, i.instanceID, msg.Vote.Round, senderPubKey, i.participant.host, msg.Ticket) {
+		if !VerifyTicket(host.NetworkName(), beacon, msg.Vote.Instance, msg.Vote.Round, senderPubKey, host, msg.Ticket) {
 			return xerrors.Errorf("failed to verify ticket from %v", msg.Sender)
 		}
 	case DECIDE_PHASE:
@@ -454,8 +409,8 @@ func (i *instance) validateMessage(msg *GMessage) error {
 	}
 
 	// Check vote signature.
-	sigPayload := i.participant.host.MarshalPayloadForSigning(i.participant.host.NetworkName(), &msg.Vote)
-	if err := i.participant.host.Verify(senderPubKey, sigPayload, msg.Signature); err != nil {
+	sigPayload := host.MarshalPayloadForSigning(host.NetworkName(), &msg.Vote)
+	if err := host.Verify(senderPubKey, sigPayload, msg.Signature); err != nil {
 		return xerrors.Errorf("invalid signature on %v, %v", msg, err)
 	}
 
@@ -525,22 +480,22 @@ func (i *instance) validateMessage(msg *GMessage) error {
 		justificationPower := NewStoragePower(0)
 		signers := make([]PubKey, 0)
 		if err := msg.Justification.Signers.ForEach(func(bit uint64) error {
-			if int(bit) >= len(i.powerTable.Entries) {
+			if int(bit) >= len(powerTable.Entries) {
 				return fmt.Errorf("invalid signer index: %d", bit)
 			}
-			justificationPower.Add(justificationPower, i.powerTable.Entries[bit].Power)
-			signers = append(signers, i.powerTable.Entries[bit].PubKey)
+			justificationPower.Add(justificationPower, powerTable.Entries[bit].Power)
+			signers = append(signers, powerTable.Entries[bit].PubKey)
 			return nil
 		}); err != nil {
 			return fmt.Errorf("failed to iterate over signers: %w", err)
 		}
 
-		if !hasStrongQuorum(justificationPower, i.powerTable.Total) {
+		if !hasStrongQuorum(justificationPower, powerTable.Total) {
 			return fmt.Errorf("message %v has justification with insufficient power: %v", msg, justificationPower)
 		}
 
-		payload := i.participant.host.MarshalPayloadForSigning(i.participant.host.NetworkName(), &msg.Justification.Vote)
-		if err := i.participant.host.VerifyAggregate(payload, msg.Justification.Signature, signers); err != nil {
+		payload := host.MarshalPayloadForSigning(host.NetworkName(), &msg.Justification.Vote)
+		if err := host.VerifyAggregate(payload, msg.Justification.Signature, signers); err != nil {
 			return xerrors.Errorf("verification of the aggregate failed: %+v: %w", msg.Justification, err)
 		}
 	} else if msg.Justification != nil {
@@ -875,7 +830,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, createTick
 		mb.SetBeaconForTicket(i.beacon)
 	}
 
-	i.participant.host.RequestBroadcast(&mb)
+	_ = i.participant.host.RequestBroadcast(&mb)
 }
 
 // Sets an alarm to be delivered after a synchrony delay.
@@ -1251,6 +1206,22 @@ func (c *convergeState) FindProposalFor(chain ECChain) (ConvergeValue, bool) {
 }
 
 ///// General helpers /////
+
+// The only messages that are spammable are COMMIT for bottom. QUALITY and
+// PREPARE messages may also not carry justification, but they are not
+// spammable. Because:
+//   - QUALITY is only valid for round zero.
+//   - PREPARE must carry justification for non-zero rounds.
+//
+// Therefore, we are only left with COMMIT for bottom messages as potentially
+// spammable for rounds beyond zero.
+//
+// To drop such messages, the implementation below defensively uses a stronger
+// condition of "nil justification with round larger than zero" to determine
+// whether a message is "spammable".
+func isSpammable(msg *GMessage) bool {
+	return msg.Justification == nil && msg.Vote.Round > 0
+}
 
 // Returns the first candidate value that is a prefix of the preferred value, or the base of preferred.
 func findFirstPrefixOf(preferred ECChain, candidates []ECChain) ECChain {
