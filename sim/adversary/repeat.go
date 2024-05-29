@@ -80,33 +80,24 @@ func (r *Repeat) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
 		return nil
 	}
 
-	sigPayload := r.host.MarshalPayloadForSigning(&msg.Vote)
 	power, beacon, _ := r.host.GetCommitteeForInstance(0)
-	_, pubkey := power.Get(r.id)
-
-	sig, err := r.host.Sign(pubkey, sigPayload)
-	if err != nil {
-		panic(err)
+	p := gpbft.Payload{
+		Instance: msg.Vote.Instance,
+		Round:    msg.Vote.Round,
+		Step:     msg.Vote.Step,
+		Value:    msg.Vote.Value,
 	}
+	mt := gpbft.NewMessageBuilderWithPowerTable(power)
+	mt.SetPayload(p)
+	mt.SetJustification(msg.Justification)
 
-	var ticket gpbft.Ticket
 	if len(msg.Ticket) != 0 {
-		var err error
-		ticket, err = gpbft.MakeTicket(beacon, msg.Vote.Instance, msg.Vote.Round, pubkey, r.host)
-		if err != nil {
-			panic(err)
-		}
+		mt.SetBeaconForTicket(beacon)
 	}
-	if msg.Sender != r.ID() {
-		echo := &gpbft.GMessage{
-			Sender:        r.ID(),
-			Vote:          msg.Vote,
-			Signature:     sig,
-			Justification: msg.Justification,
-			Ticket:        ticket,
-		}
-		for i := 0; i < echoCount; i++ {
-			r.host.RequestBroadcast(echo)
+	for i := 0; i < echoCount; i++ {
+		if msg.Sender != r.ID() {
+			_ = r.host.RequestBroadcast(&mt)
+
 		}
 	}
 	return nil

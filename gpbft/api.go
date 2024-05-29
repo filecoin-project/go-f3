@@ -49,7 +49,6 @@ type MessageReceiver interface {
 
 // Interface which network participants must implement.
 type Receiver interface {
-	ID() ActorID
 	// Begins executing the protocol.
 	// The node will request the canonical chain to propose from the host.
 	Start() error
@@ -76,7 +75,7 @@ type Network interface {
 	// Returns the network's name (for signature separation)
 	NetworkName() NetworkName
 	// Requests that the message is signed and broadcasted, it should also be delivered locally
-	RequestBroadcast(msg *GMessage)
+	RequestBroadcast(mb *MessageBuilder) error
 }
 
 type Clock interface {
@@ -95,6 +94,13 @@ type Signer interface {
 	Sign(sender PubKey, msg []byte) ([]byte, error)
 }
 
+type SigningMarshaler interface {
+	// MarshalPayloadForSigning marshals the given payload into the bytes that should be signed.
+	// This should usually call `Payload.MarshalForSigning(NetworkName)` except when testing as
+	// that method is slow (computes a merkle tree that's necessary for testing).
+	MarshalPayloadForSigning(NetworkName, *Payload) []byte
+}
+
 type Verifier interface {
 	// Verifies a signature for the given public key
 	Verify(pubKey PubKey, msg, sig []byte) error
@@ -105,13 +111,9 @@ type Verifier interface {
 }
 
 type Signatures interface {
+	SigningMarshaler
 	Signer
 	Verifier
-
-	// MarshalPayloadForSigning marshals the given payload into the bytes that should be signed.
-	// This should usually call `Payload.MarshalForSigning(NetworkName)` except when testing as
-	// that method is slow (computes a merkle tree that's necessary for testing).
-	MarshalPayloadForSigning(*Payload) []byte
 }
 
 type DecisionReceiver interface {

@@ -54,17 +54,17 @@ func (n *Network) hasGlobalStabilizationTimeElapsed() bool {
 	return n.Time().After(n.gst)
 }
 
-func (n *Network) AddParticipant(p gpbft.Receiver) {
-	if n.participants[p.ID()] != nil {
+func (n *Network) AddParticipant(id gpbft.ActorID, p gpbft.Receiver) {
+	if n.participants[id] != nil {
 		panic("duplicate participant ID")
 	}
-	n.participantIDs = append(n.participantIDs, p.ID())
-	n.participants[p.ID()] = p
+	n.participantIDs = append(n.participantIDs, id)
+	n.participants[id] = p
 }
 
 ////// Network interface
 
-func (n *Network) NetworkFor(signer gpbft.Signer, id gpbft.ActorID) *networkFor {
+func (n *Network) NetworkFor(signer gpbft.SignerWithMarshaler, id gpbft.ActorID) *networkFor {
 	return &networkFor{
 		ParticipantID: id,
 		Signer:        signer,
@@ -74,12 +74,22 @@ func (n *Network) NetworkFor(signer gpbft.Signer, id gpbft.ActorID) *networkFor 
 
 type networkFor struct {
 	ParticipantID gpbft.ActorID
-	Signer        gpbft.Signer
+	Signer        gpbft.SignerWithMarshaler
 	*Network
 }
 
-func (nf *networkFor) RequestBroadcast(msg *gpbft.GMessage) {
+func (nf *networkFor) Log(format string, args ...any) {
+	nf.Network.log(TraceLogic, "P%d "+format, append([]any{nf.ParticipantID}, args...)...)
+}
+
+func (nf *networkFor) RequestBroadcast(mb *gpbft.MessageBuilder) error {
+	msg, err := mb.Build(nf.networkName, nf.Signer, nf.ParticipantID)
+	if err != nil {
+		nf.Log("building message for: %d: %+v", nf.ParticipantID, err)
+		return err
+	}
 	nf.broadcast(msg, false)
+	return nil
 }
 
 func (n *Network) NetworkName() gpbft.NetworkName {

@@ -97,7 +97,7 @@ func (w *WithholdCommit) Start() error {
 
 	signatures := make([][]byte, 0)
 	pubKeys := make([]gpbft.PubKey, 0)
-	prepareMarshalled := w.host.MarshalPayloadForSigning(&preparePayload)
+	prepareMarshalled := w.host.MarshalPayloadForSigning(w.host.NetworkName(), &preparePayload)
 	for _, signerIndex := range signers {
 		entry := powertable.Entries[signerIndex]
 		signatures = append(signatures, w.sign(entry.PubKey, prepareMarshalled))
@@ -167,7 +167,7 @@ func (w *WithholdCommit) sign(pubkey gpbft.PubKey, msg []byte) []byte {
 
 func (w *WithholdCommit) broadcastHelper(sender gpbft.ActorID, powertable *gpbft.PowerTable) func(gpbft.Payload, *gpbft.Justification) {
 	return func(payload gpbft.Payload, justification *gpbft.Justification) {
-		pS := w.host.MarshalPayloadForSigning(&payload)
+		pS := w.host.MarshalPayloadForSigning(w.host.NetworkName(), &payload)
 		_, pubkey := powertable.Get(sender)
 		sig, err := w.host.Sign(pubkey, pS)
 		if err != nil {

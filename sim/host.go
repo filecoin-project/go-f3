@@ -20,6 +20,7 @@ type simHost struct {
 	SimNetwork
 	gpbft.Signer
 	gpbft.Verifier
+	gpbft.SigningMarshaler
 	gpbft.Clock
 
 	id     gpbft.ActorID
@@ -40,15 +41,16 @@ type SimNetwork interface {
 func newHost(id gpbft.ActorID, sim *Simulation, ecg ECChainGenerator, spg StoragePowerGenerator) *simHost {
 	pubKey, _ := sim.signingBacked.GenerateKey()
 	return &simHost{
-		SimNetwork: sim.network.NetworkFor(sim.signingBacked, id),
-		Verifier:   sim.signingBacked,
-		Signer:     sim.signingBacked,
-		sim:        sim,
-		id:         id,
-		ecg:        ecg,
-		spg:        spg,
-		pubkey:     pubKey,
-		ecChain:    *sim.baseChain,
+		SimNetwork:       sim.network.NetworkFor(sim.signingBacked, id),
+		Verifier:         sim.signingBacked,
+		Signer:           sim.signingBacked,
+		SigningMarshaler: sim.signingBacked,
+		sim:              sim,
+		id:               id,
+		ecg:              ecg,
+		spg:              spg,
+		pubkey:           pubKey,
+		ecChain:          *sim.baseChain,
 	}
 }
 
@@ -82,10 +84,6 @@ func (v *simHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 
 func (v *simHost) StoragePower(instance uint64) *gpbft.StoragePower {
 	return v.spg(instance, v.id)
-}
-
-func (v *simHost) MarshalPayloadForSigning(p *gpbft.Payload) []byte {
-	return v.sim.signingBacked.MarshalPayloadForSigning(v.NetworkName(), p)
 }
 
 func (v *simHost) PublicKey( /*instance */ uint64) gpbft.PubKey {

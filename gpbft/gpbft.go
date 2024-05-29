@@ -244,7 +244,7 @@ func (i *instance) ReceiveAlarm() error {
 }
 
 func (i *instance) Describe() string {
-	return fmt.Sprintf("P%d{%d}, round %d, phase %s", i.participant.id, i.instanceID, i.round, i.phase)
+	return fmt.Sprintf("{%d}, round %d, phase %s", i.instanceID, i.round, i.phase)
 }
 
 // Processes a single message.
@@ -392,7 +392,7 @@ func ValidateMessage(powerTable *PowerTable, beacon []byte, host Host, msg *GMes
 		if msg.Vote.Value.IsZero() {
 			return xerrors.Errorf("unexpected zero value for converge phase")
 		}
-		if !VerifyTicket(beacon, msg.Vote.Instance, msg.Vote.Round, senderPubKey, host, msg.Ticket) {
+		if !VerifyTicket(host.NetworkName(), beacon, msg.Vote.Instance, msg.Vote.Round, senderPubKey, host, msg.Ticket) {
 			return xerrors.Errorf("failed to verify ticket from %v", msg.Sender)
 		}
 	case DECIDE_PHASE:
@@ -409,7 +409,7 @@ func ValidateMessage(powerTable *PowerTable, beacon []byte, host Host, msg *GMes
 	}
 
 	// Check vote signature.
-	sigPayload := host.MarshalPayloadForSigning(&msg.Vote)
+	sigPayload := host.MarshalPayloadForSigning(host.NetworkName(), &msg.Vote)
 	if err := host.Verify(senderPubKey, sigPayload, msg.Signature); err != nil {
 		return xerrors.Errorf("invalid signature on %v, %v", msg, err)
 	}
@@ -494,7 +494,7 @@ func ValidateMessage(powerTable *PowerTable, beacon []byte, host Host, msg *GMes
 			return fmt.Errorf("message %v has justification with insufficient power: %v", msg, justificationPower)
 		}
 
-		payload := host.MarshalPayloadForSigning(&msg.Justification.Vote)
+		payload := host.MarshalPayloadForSigning(host.NetworkName(), &msg.Justification.Vote)
 		if err := host.VerifyAggregate(payload, msg.Justification.Signature, signers); err != nil {
 			return xerrors.Errorf("verification of the aggregate failed: %+v: %w", msg.Justification, err)
 		}
@@ -513,7 +513,7 @@ func (i *instance) beginQuality() error {
 	// Broadcast input value and wait up to Δ to receive from others.
 	i.phase = QUALITY_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony()
-	i.broadcast(i.round, QUALITY_PHASE, i.input, nil, nil)
+	i.broadcast(i.round, QUALITY_PHASE, i.input, false, nil)
 	return nil
 }
 
@@ -555,17 +555,11 @@ func (i *instance) beginConverge(justification *Justification) {
 		// For safety assert that the justification given blongs to the right round
 		panic("justification for which to begin converge does not belong to expected round")
 	}
+
 	i.phase = CONVERGE_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony()
 
-	_, pubkey := i.powerTable.Get(i.participant.id)
-	ticket, err := MakeTicket(i.beacon, i.instanceID, i.round, pubkey, i.participant.host)
-	if err != nil {
-		i.log("error while creating VRF ticket: %v", err)
-		return
-	}
-
-	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, ticket, justification)
+	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, true, justification)
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
@@ -616,7 +610,7 @@ func (i *instance) beginPrepare(justification *Justification) {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony()
-	i.broadcast(i.round, PREPARE_PHASE, i.value, nil, justification)
+	i.broadcast(i.round, PREPARE_PHASE, i.value, false, justification)
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -660,7 +654,7 @@ func (i *instance) beginCommit() {
 		}
 	}
 
-	i.broadcast(i.round, COMMIT_PHASE, i.value, nil, justification)
+	i.broadcast(i.round, COMMIT_PHASE, i.value, false, justification)
 }
 
 func (i *instance) tryCommit(round uint64) error {
@@ -722,7 +716,7 @@ func (i *instance) beginDecide(round uint64) {
 	// in different rounds (but for the same value).
 	// Since each node sends only one DECIDE message, they must share the same vote
 	// in order to be aggregated.
-	i.broadcast(0, DECIDE_PHASE, i.value, nil, justification)
+	i.broadcast(0, DECIDE_PHASE, i.value, false, justification)
 }
 
 // Skips immediately to the DECIDE phase and sends a DECIDE message
@@ -732,7 +726,7 @@ func (i *instance) skipToDecide(value ECChain, justification *Justification) {
 	i.phase = DECIDE_PHASE
 	i.proposal = value
 	i.value = i.proposal
-	i.broadcast(0, DECIDE_PHASE, i.value, nil, justification)
+	i.broadcast(0, DECIDE_PHASE, i.value, false, justification)
 }
 
 func (i *instance) tryDecide() error {
@@ -822,29 +816,21 @@ func (i *instance) terminated() bool {
 	return i.phase == TERMINATED_PHASE
 }
 
-func (i *instance) broadcast(round uint64, step Phase, value ECChain, ticket Ticket, justification *Justification) {
+func (i *instance) broadcast(round uint64, step Phase, value ECChain, createTicket bool, justification *Justification) {
 	p := Payload{
 		Instance: i.instanceID,
 		Round:    round,
 		Step:     step,
 		Value:    value,
 	}
-	sp := i.participant.host.MarshalPayloadForSigning(&p)
-
-	sig, err := i.sign(sp)
-	if err != nil {
-		i.log("error while signing message: %v", err)
-		return
+	mb := NewMessageBuilder(&i.powerTable)
+	mb.SetPayload(p)
+	mb.SetJustification(justification)
+	if createTicket {
+		mb.SetBeaconForTicket(i.beacon)
 	}
 
-	gmsg := &GMessage{
-		Sender:        i.participant.id,
-		Vote:          p,
-		Signature:     sig,
-		Ticket:        ticket,
-		Justification: justification,
-	}
-	i.participant.host.RequestBroadcast(gmsg)
+	_ = i.participant.host.RequestBroadcast(&mb)
 }
 
 // Sets an alarm to be delivered after a synchrony delay.
@@ -876,17 +862,12 @@ func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase P
 	}
 }
 
-func (i *instance) log(format string, args ...interface{}) {
+func (i *instance) log(format string, args ...any) {
 	if i.tracer != nil {
 		msg := fmt.Sprintf(format, args...)
-		i.tracer.Log("P%d{%d}: %s (round %d, step %s, proposal %s, value %s)", i.participant.id, i.instanceID, msg,
+		i.tracer.Log("{%d}: %s (round %d, step %s, proposal %s, value %s)", i.instanceID, msg,
 			i.round, i.phase, &i.proposal, &i.value)
 	}
-}
-
-func (i *instance) sign(msg []byte) ([]byte, error) {
-	_, pubKey := i.powerTable.Get(i.participant.id)
-	return i.participant.host.Sign(pubKey, msg)
 }
 
 ///// Incremental quorum-calculation helper /////

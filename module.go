@@ -22,7 +22,6 @@ type Module struct {
 	Manifest  Manifest
 	CertStore *certs.Store
 
-	id     gpbft.ActorID
 	ds     datastore.Datastore
 	host   host.Host
 	pubsub *pubsub.PubSub
@@ -33,8 +32,10 @@ type Module struct {
 }
 
 type moduleClient struct {
+	id gpbft.ActorID
+	nn gpbft.NetworkName
 	gpbft.Verifier
-	gpbft.Signer
+	gpbft.SignerWithMarshaler
 	logger         Logger
 	loggerWithSkip Logger
 
@@ -43,8 +44,18 @@ type moduleClient struct {
 	topic        *pubsub.Topic
 }
 
-func (mc moduleClient) BroadcastMessage(ctx context.Context, msg []byte) error {
-	return mc.topic.Publish(ctx, msg)
+func (mc moduleClient) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder) error {
+	msg, err := mb.Build(mc.nn, mc.SignerWithMarshaler, mc.id)
+	if err != nil {
+		mc.Log("building message for: %d: %+v", mc.id, err)
+		return err
+	}
+	var bw bytes.Buffer
+	err = msg.MarshalCBOR(&bw)
+	if err != nil {
+		mc.Log("marshalling GMessage: %+v", err)
+	}
+	return mc.topic.Publish(ctx, bw.Bytes())
 }
 
 func (mc moduleClient) IncommingMessages() <-chan *gpbft.GMessage {
@@ -63,7 +74,7 @@ func (mc moduleClient) Logger() Logger {
 // NewModule creates and setups new libp2p f3 module
 // The context is used for initialization not runtime.
 func NewModule(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.Datastore, h host.Host,
-	ps *pubsub.PubSub, sigs gpbft.Signer, verif gpbft.Verifier, ec ECBackend, log Logger) (*Module, error) {
+	ps *pubsub.PubSub, sigs gpbft.SignerWithMarshaler, verif gpbft.Verifier, ec ECBackend, log Logger) (*Module, error) {
 	ds = namespace.Wrap(ds, manifest.NetworkName.DatastorePrefix())
 	cs, err := certs.NewStore(ctx, ds)
 	if err != nil {
@@ -78,7 +89,6 @@ func NewModule(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds data
 		Manifest:  manifest,
 		CertStore: cs,
 
-		id:     id,
 		ds:     ds,
 		host:   h,
 		pubsub: ps,
@@ -86,10 +96,11 @@ func NewModule(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds data
 		log:    log,
 
 		client: moduleClient{
-			Verifier:       verif,
-			Signer:         sigs,
-			logger:         log,
-			loggerWithSkip: loggerWithSkip,
+			id:                  id,
+			Verifier:            verif,
+			SignerWithMarshaler: sigs,
+			logger:              log,
+			loggerWithSkip:      loggerWithSkip,
 		},
 	}
 
@@ -133,7 +144,7 @@ func (m *Module) Run(ctx context.Context) error {
 	messageQueue := make(chan *gpbft.GMessage, 20)
 	m.client.messageQueue = messageQueue
 
-	r, err := newRunner(m.id, m.Manifest, m.client)
+	r, err := newRunner(m.client.id, m.Manifest, m.client)
 	if err != nil {
 		return xerrors.Errorf("creating gpbft host: %w", err)
 	}

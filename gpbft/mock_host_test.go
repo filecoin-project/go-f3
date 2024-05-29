@@ -205,17 +205,17 @@ func (_c *MockHost_GetCommitteeForInstance_Call) RunAndReturn(run func(uint64) (
 	return _c
 }
 
-// MarshalPayloadForSigning provides a mock function with given fields: _a0
-func (_m *MockHost) MarshalPayloadForSigning(_a0 *Payload) []byte {
-	ret := _m.Called(_a0)
+// MarshalPayloadForSigning provides a mock function with given fields: _a0, _a1
+func (_m *MockHost) MarshalPayloadForSigning(_a0 NetworkName, _a1 *Payload) []byte {
+	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
 		panic("no return value specified for MarshalPayloadForSigning")
 	}
 
 	var r0 []byte
-	if rf, ok := ret.Get(0).(func(*Payload) []byte); ok {
-		r0 = rf(_a0)
+	if rf, ok := ret.Get(0).(func(NetworkName, *Payload) []byte); ok {
+		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]byte)
@@ -231,14 +231,15 @@ type MockHost_MarshalPayloadForSigning_Call struct {
 }
 
 // MarshalPayloadForSigning is a helper method to define mock.On call
-//   - _a0 *Payload
-func (_e *MockHost_Expecter) MarshalPayloadForSigning(_a0 interface{}) *MockHost_MarshalPayloadForSigning_Call {
-	return &MockHost_MarshalPayloadForSigning_Call{Call: _e.mock.On("MarshalPayloadForSigning", _a0)}
+//   - _a0 NetworkName
+//   - _a1 *Payload
+func (_e *MockHost_Expecter) MarshalPayloadForSigning(_a0 interface{}, _a1 interface{}) *MockHost_MarshalPayloadForSigning_Call {
+	return &MockHost_MarshalPayloadForSigning_Call{Call: _e.mock.On("MarshalPayloadForSigning", _a0, _a1)}
 }
 
-func (_c *MockHost_MarshalPayloadForSigning_Call) Run(run func(_a0 *Payload)) *MockHost_MarshalPayloadForSigning_Call {
+func (_c *MockHost_MarshalPayloadForSigning_Call) Run(run func(_a0 NetworkName, _a1 *Payload)) *MockHost_MarshalPayloadForSigning_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*Payload))
+		run(args[0].(NetworkName), args[1].(*Payload))
 	})
 	return _c
 }
@@ -248,7 +249,7 @@ func (_c *MockHost_MarshalPayloadForSigning_Call) Return(_a0 []byte) *MockHost_M
 	return _c
 }
 
-func (_c *MockHost_MarshalPayloadForSigning_Call) RunAndReturn(run func(*Payload) []byte) *MockHost_MarshalPayloadForSigning_Call {
+func (_c *MockHost_MarshalPayloadForSigning_Call) RunAndReturn(run func(NetworkName, *Payload) []byte) *MockHost_MarshalPayloadForSigning_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -344,9 +345,22 @@ func (_c *MockHost_ReceiveDecision_Call) RunAndReturn(run func(*Justification) t
 	return _c
 }
 
-// RequestBroadcast provides a mock function with given fields: msg
-func (_m *MockHost) RequestBroadcast(msg *GMessage) {
-	_m.Called(msg)
+// RequestBroadcast provides a mock function with given fields: mb
+func (_m *MockHost) RequestBroadcast(mb *MessageBuilder) error {
+	ret := _m.Called(mb)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RequestBroadcast")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(*MessageBuilder) error); ok {
+		r0 = rf(mb)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
 }
 
 // MockHost_RequestBroadcast_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RequestBroadcast'
@@ -355,24 +369,24 @@ type MockHost_RequestBroadcast_Call struct {
 }
 
 // RequestBroadcast is a helper method to define mock.On call
-//   - msg *GMessage
-func (_e *MockHost_Expecter) RequestBroadcast(msg interface{}) *MockHost_RequestBroadcast_Call {
-	return &MockHost_RequestBroadcast_Call{Call: _e.mock.On("RequestBroadcast", msg)}
+//   - mb *MessageBuilder
+func (_e *MockHost_Expecter) RequestBroadcast(mb interface{}) *MockHost_RequestBroadcast_Call {
+	return &MockHost_RequestBroadcast_Call{Call: _e.mock.On("RequestBroadcast", mb)}
 }
 
-func (_c *MockHost_RequestBroadcast_Call) Run(run func(msg *GMessage)) *MockHost_RequestBroadcast_Call {
+func (_c *MockHost_RequestBroadcast_Call) Run(run func(mb *MessageBuilder)) *MockHost_RequestBroadcast_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*GMessage))
+		run(args[0].(*MessageBuilder))
 	})
 	return _c
 }
 
-func (_c *MockHost_RequestBroadcast_Call) Return() *MockHost_RequestBroadcast_Call {
-	_c.Call.Return()
+func (_c *MockHost_RequestBroadcast_Call) Return(_a0 error) *MockHost_RequestBroadcast_Call {
+	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockHost_RequestBroadcast_Call) RunAndReturn(run func(*GMessage)) *MockHost_RequestBroadcast_Call {
+func (_c *MockHost_RequestBroadcast_Call) RunAndReturn(run func(*MessageBuilder) error) *MockHost_RequestBroadcast_Call {
 	_c.Call.Return(run)
 	return _c
 }

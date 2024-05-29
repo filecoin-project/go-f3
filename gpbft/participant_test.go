@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -70,12 +71,11 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 	}))
 
 	subject.host = gpbft.NewMockHost(t)
-	subject.Participant, err = gpbft.NewParticipant(subject.id, subject.host,
+	subject.Participant, err = gpbft.NewParticipant(subject.host,
 		gpbft.WithDelta(delta),
 		gpbft.WithDeltaBackOffExponent(deltaBackOffExponent),
 		gpbft.WithInitialInstance(instance))
 	require.NoError(t, err)
-	require.EqualValues(t, subject.id, subject.ID())
 	subject.requireNotStarted()
 	return &subject
 }
@@ -86,8 +86,12 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	pt.host.On("GetCommitteeForInstance", pt.instance).Return(pt.powerTable, pt.beacon, nil)
 	pt.host.On("Time").Return(pt.time)
 	pt.host.On("NetworkName").Return(pt.networkName).Maybe()
-	pt.host.On("MarshalPayloadForSigning", mock.AnythingOfType("*gpbft.Payload")).
-		Return([]byte(gpbft.DOMAIN_SEPARATION_TAG + ":" + pt.networkName))
+	// We need to use `Maybe` here because `MarshalPayloadForSigning` may be called
+	// an additional time for verification.
+	// Without the `Maybe` the tests immediately fails here:
+	// https://github.com/filecoin-project/go-f3/blob/d27d281109d31485fc4ac103e2af58afb86c158f/gpbft/gpbft.go#L395
+	pt.host.On("MarshalPayloadForSigning", pt.networkName, mock.AnythingOfType("*gpbft.Payload")).
+		Return([]byte(gpbft.DOMAIN_SEPARATION_TAG + ":" + pt.networkName)).Maybe()
 
 	// Expect calls to get the host state prior to beginning of an instance.
 	pt.host.EXPECT().GetChainForInstance(pt.instance)
@@ -97,22 +101,18 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	// Expect alarm is set to 2X of configured delta.
 	pt.host.EXPECT().SetAlarm(pt.time.Add(2 * pt.delta))
 
-	wantSignature := generateRandomBytes(pt.rng)
-
-	// Expect message is signed with expected payload.
-	pt.host.On("Sign", pt.pubKey, pt.matchMessageSigningPayload()).Return(wantSignature, nil)
-
 	// Expect a broadcast occurs with quality phase message, and the expected chain, signature.
-	wantQualityPhaseBroadcastMessage := &gpbft.GMessage{
-		Sender: pt.id,
-		Vote: gpbft.Payload{
+	wantQualityPhaseBroadcastBuilder := &gpbft.MessageBuilder{}
+	wantQualityPhaseBroadcastBuilder.SetPayload(
+		gpbft.Payload{
 			Instance: pt.instance,
 			Step:     gpbft.QUALITY_PHASE,
 			Value:    pt.canonicalChain,
 		},
-		Signature: wantSignature,
-	}
-	pt.host.EXPECT().RequestBroadcast(wantQualityPhaseBroadcastMessage)
+	)
+	pt.host.EXPECT().RequestBroadcast(mock.MatchedBy(func(mt *gpbft.MessageBuilder) bool {
+		return assert.EqualExportedValues(pt.t, mt, wantQualityPhaseBroadcastBuilder) //nolint
+	})).Return(nil)
 }
 
 func (pt *participantTestSubject) requireNotStarted() {
@@ -123,7 +123,7 @@ func (pt *participantTestSubject) requireNotStarted() {
 
 func (pt *participantTestSubject) requireInstanceRoundPhase(wantInstance, wantRound uint64, wantPhase gpbft.Phase) {
 	pt.t.Helper()
-	require.Equal(pt.t, fmt.Sprintf("P%d{%d}, round %d, phase %s", pt.ID(), wantInstance, wantRound, wantPhase), pt.Describe())
+	require.Equal(pt.t, fmt.Sprintf("{%d}, round %d, phase %s", wantInstance, wantRound, wantPhase), pt.Describe())
 }
 
 func (pt *participantTestSubject) requireStart() {
@@ -236,7 +236,7 @@ func TestParticipant(t *testing.T) {
 			subject := newParticipantTestSubject(t, seed, initialInstance)
 			subject.mockCommitteeForInstance(initialInstance, subject.powerTable, subject.beacon)
 			gotValidated, gotValidateErr := subject.ValidateMessage(&gpbft.GMessage{
-				Sender: subject.ID(),
+				Sender: subject.id,
 				Vote:   gpbft.Payload{},
 			})
 			require.Nil(t, gotValidated)

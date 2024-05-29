@@ -14,19 +14,19 @@ type VRFHost interface {
 	Verifier
 }
 
-func MakeTicket(beacon []byte, instance uint64, round uint64, source PubKey, host VRFHost) (Ticket, error) {
-	return host.Sign(source, serializeSigInput(beacon, instance, round, host.NetworkName()))
+func MakeTicket(nn NetworkName, beacon []byte, instance uint64, round uint64, source PubKey, host VRFHost) (Ticket, error) {
+	return host.Sign(source, vrfSerializeSigInput(beacon, instance, round, nn))
 }
 
-func VerifyTicket(beacon []byte, instance uint64, round uint64, source PubKey, host VRFHost, ticket Ticket) bool {
-	return host.Verify(source, serializeSigInput(beacon, instance, round, host.NetworkName()), ticket) == nil
+func VerifyTicket(nn NetworkName, beacon []byte, instance uint64, round uint64, source PubKey, host VRFHost, ticket Ticket) bool {
+	return host.Verify(source, vrfSerializeSigInput(beacon, instance, round, nn), ticket) == nil
 }
 
 const DOMAIN_SEPARATION_TAG_VRF = "VRF"
 
 // Serializes the input to the VRF signature for the CONVERGE step of GossiPBFT.
 // Only used for VRF ticket creation and/or verification.
-func serializeSigInput(beacon []byte, instance uint64, round uint64, networkName NetworkName) []byte {
+func vrfSerializeSigInput(beacon []byte, instance uint64, round uint64, networkName NetworkName) []byte {
 	var buf bytes.Buffer
 
 	buf.WriteString(DOMAIN_SEPARATION_TAG_VRF)
