@@ -157,7 +157,7 @@ func (c ECChain) Prefix(to int) ECChain {
 		panic("can't get prefix from zero-valued chain")
 	}
 	length := min(to+1, len(c))
-	return c[:length : length]
+	return c[:length:length]
 }
 
 // Compares two ECChains for equality.

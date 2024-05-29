@@ -18,7 +18,7 @@ func TestPayloadMarshalForSigning(t *testing.T) {
 		Instance: 1,
 		Round:    2,
 		Step:     3,
-		Data: gpbft.InstanceData{
+		SupplementalData: gpbft.SupplementalData{
 			Commitments: [32]byte{0x42},
 			PowerTable:  powerTableCid,
 		},
@@ -38,7 +38,7 @@ func TestPayloadMarshalForSigning(t *testing.T) {
 		Instance: 29,
 		Round:    0,
 		Step:     gpbft.DECIDE_PHASE,
-		Data: gpbft.InstanceData{
+		SupplementalData: gpbft.SupplementalData{
 			Commitments: [32]byte{},
 			PowerTable:  powerTableCid,
 		},

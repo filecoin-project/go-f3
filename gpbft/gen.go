@@ -370,9 +370,9 @@ func (t *GMessage) UnmarshalCBOR(r io.Reader) (err error) {
 	return nil
 }
 
-var lengthBufInstanceData = []byte{130}
+var lengthBufSupplementalData = []byte{130}
 
-func (t *InstanceData) MarshalCBOR(w io.Writer) error {
+func (t *SupplementalData) MarshalCBOR(w io.Writer) error {
 	if t == nil {
 		_, err := w.Write(cbg.CborNull)
 		return err
@@ -380,7 +380,7 @@ func (t *InstanceData) MarshalCBOR(w io.Writer) error {
 
 	cw := cbg.NewCborWriter(w)
 
-	if _, err := cw.Write(lengthBufInstanceData); err != nil {
+	if _, err := cw.Write(lengthBufSupplementalData); err != nil {
 		return err
 	}
 
@@ -413,8 +413,8 @@ func (t *InstanceData) MarshalCBOR(w io.Writer) error {
 	return nil
 }
 
-func (t *InstanceData) UnmarshalCBOR(r io.Reader) (err error) {
-	*t = InstanceData{}
+func (t *SupplementalData) UnmarshalCBOR(r io.Reader) (err error) {
+	*t = SupplementalData{}
 
 	cr := cbg.NewCborReader(r)
 
@@ -513,8 +513,8 @@ func (t *Payload) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.Data (gpbft.InstanceData) (struct)
-	if err := t.Data.MarshalCBOR(cw); err != nil {
+	// t.SupplementalData (gpbft.SupplementalData) (struct)
+	if err := t.SupplementalData.MarshalCBOR(cw); err != nil {
 		return err
 	}
 
@@ -599,12 +599,12 @@ func (t *Payload) UnmarshalCBOR(r io.Reader) (err error) {
 		return fmt.Errorf("integer in input was too large for uint8 field")
 	}
 	t.Step = Phase(extra)
-	// t.Data (gpbft.InstanceData) (struct)
+	// t.SupplementalData (gpbft.SupplementalData) (struct)
 
 	{
 
-		if err := t.Data.UnmarshalCBOR(cr); err != nil {
-			return xerrors.Errorf("unmarshaling t.Data: %w", err)
+		if err := t.SupplementalData.UnmarshalCBOR(cr); err != nil {
+			return xerrors.Errorf("unmarshaling t.SupplementalData: %w", err)
 		}
 
 	}

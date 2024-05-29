@@ -78,7 +78,7 @@ type Justification struct {
 	Signature []byte
 }
 
-type InstanceData struct {
+type SupplementalData struct {
 	// Merkle-tree of instance-specific commitments. Currently empty but this will eventually
 	// include things like snark-friendly power-table commitments.
 	Commitments [32]byte
@@ -87,7 +87,7 @@ type InstanceData struct {
 	PowerTable CID // []PowerEntry
 }
 
-func (d *InstanceData) Eq(other *InstanceData) bool {
+func (d *SupplementalData) Eq(other *SupplementalData) bool {
 	return d.Commitments == other.Commitments &&
 		bytes.Equal(d.PowerTable, other.PowerTable)
 }
@@ -101,7 +101,7 @@ type Payload struct {
 	// GossiPBFT step name.
 	Step Phase
 	// The common data.
-	Data InstanceData
+	SupplementalData SupplementalData
 	// The value agreed-upon in a single instance.
 	Value ECChain
 }
@@ -110,7 +110,7 @@ func (p *Payload) Eq(other *Payload) bool {
 	return p.Instance == other.Instance &&
 		p.Round == other.Round &&
 		p.Step == other.Step &&
-		p.Data.Eq(&other.Data) &&
+		p.SupplementalData.Eq(&other.SupplementalData) &&
 		p.Value.Eq(other.Value)
 }
 
@@ -130,9 +130,9 @@ func (p *Payload) MarshalForSigning(nn NetworkName) []byte {
 	_ = binary.Write(&buf, binary.BigEndian, p.Step)
 	_ = binary.Write(&buf, binary.BigEndian, p.Round)
 	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
-	_, _ = buf.Write(p.Data.Commitments[:])
+	_, _ = buf.Write(p.SupplementalData.Commitments[:])
 	_, _ = buf.Write(root[:])
-	_, _ = buf.Write(p.Data.PowerTable)
+	_, _ = buf.Write(p.SupplementalData.PowerTable)
 	return buf.Bytes()
 }
 
@@ -158,8 +158,9 @@ type instance struct {
 	// For QUALITY, PREPARE, and COMMIT, this is the latest time (the phase can end sooner).
 	// For CONVERGE, this is the exact time (the timeout solely defines the phase end).
 	phaseTimeout time.Time
-	// Instance data that all participants must agree on.
-	instanceData *InstanceData
+	// Supplemental data that all participants must agree on ahead of time. Messages that
+	// propose supplemental data that differs with our supplemental data will be discarded.
+	supplementalData *SupplementalData
 	// This instance's proposal for the current round. Never bottom.
 	// This is set after the QUALITY phase, and changes only at the end of a full round.
 	proposal ECChain
@@ -191,25 +192,25 @@ func newInstance(
 	participant *Participant,
 	instanceID uint64,
 	input ECChain,
-	data *InstanceData,
+	data *SupplementalData,
 	powerTable PowerTable,
 	beacon []byte) (*instance, error) {
 	if input.IsZero() {
 		return nil, fmt.Errorf("input is empty")
 	}
 	return &instance{
-		participant:  participant,
-		instanceID:   instanceID,
-		input:        input,
-		powerTable:   powerTable,
-		beacon:       beacon,
-		round:        0,
-		phase:        INITIAL_PHASE,
-		instanceData: data,
-		proposal:     input,
-		value:        ECChain{},
-		candidates:   []ECChain{input.BaseChain()},
-		quality:      newQuorumState(powerTable),
+		participant:      participant,
+		instanceID:       instanceID,
+		input:            input,
+		powerTable:       powerTable,
+		beacon:           beacon,
+		round:            0,
+		phase:            INITIAL_PHASE,
+		supplementalData: data,
+		proposal:         input,
+		value:            ECChain{},
+		candidates:       []ECChain{input.BaseChain()},
+		quality:          newQuorumState(powerTable),
 		rounds: map[uint64]*roundState{
 			0: newRoundState(powerTable),
 		},
@@ -246,10 +247,10 @@ func (i *instance) Receive(msg *GMessage) error {
 		return fmt.Errorf("message for instance %d, expected %d: %w",
 			msg.Vote.Instance, i.instanceID, ErrReceivedWrongInstance)
 	}
-	// Ensure all participants are proposing the same instance data. This data is based on the
-	// _base_, so everyone should agree.
-	if !msg.Vote.Data.Eq(i.instanceData) {
-		return xerrors.Errorf("message for instance %d disagrees on the instance data", msg.Vote.Instance)
+	// Ensure all participants are proposing the same supplemental data. This data is based on
+	// the _base_, so everyone should agree.
+	if !msg.Vote.SupplementalData.Eq(i.supplementalData) {
+		return xerrors.Errorf("message for instance %d disagrees on the supplemental data", msg.Vote.Instance)
 	}
 	// Perform validation that could not be done until the instance started.
 	if !(msg.Vote.Value.IsZero() || msg.Vote.Value.HasBase(i.input.Base())) {

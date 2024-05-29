@@ -148,24 +148,24 @@ func (_c *MockHost_GetCommitteeForInstance_Call) RunAndReturn(run func(uint64) (
 }
 
 // GetProposalForInstance provides a mock function with given fields: instance
-func (_m *MockHost) GetProposalForInstance(instance uint64) (*InstanceData, ECChain, error) {
+func (_m *MockHost) GetProposalForInstance(instance uint64) (*SupplementalData, ECChain, error) {
 	ret := _m.Called(instance)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetProposalForInstance")
 	}
 
-	var r0 *InstanceData
+	var r0 *SupplementalData
 	var r1 ECChain
 	var r2 error
-	if rf, ok := ret.Get(0).(func(uint64) (*InstanceData, ECChain, error)); ok {
+	if rf, ok := ret.Get(0).(func(uint64) (*SupplementalData, ECChain, error)); ok {
 		return rf(instance)
 	}
-	if rf, ok := ret.Get(0).(func(uint64) *InstanceData); ok {
+	if rf, ok := ret.Get(0).(func(uint64) *SupplementalData); ok {
 		r0 = rf(instance)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*InstanceData)
+			r0 = ret.Get(0).(*SupplementalData)
 		}
 	}
 
@@ -204,12 +204,12 @@ func (_c *MockHost_GetProposalForInstance_Call) Run(run func(instance uint64)) *
 	return _c
 }
 
-func (_c *MockHost_GetProposalForInstance_Call) Return(data *InstanceData, chain ECChain, err error) *MockHost_GetProposalForInstance_Call {
+func (_c *MockHost_GetProposalForInstance_Call) Return(data *SupplementalData, chain ECChain, err error) *MockHost_GetProposalForInstance_Call {
 	_c.Call.Return(data, chain, err)
 	return _c
 }
 
-func (_c *MockHost_GetProposalForInstance_Call) RunAndReturn(run func(uint64) (*InstanceData, ECChain, error)) *MockHost_GetProposalForInstance_Call {
+func (_c *MockHost_GetProposalForInstance_Call) RunAndReturn(run func(uint64) (*SupplementalData, ECChain, error)) *MockHost_GetProposalForInstance_Call {
 	_c.Call.Return(run)
 	return _c
 }
