@@ -12,15 +12,15 @@ type Participant struct {
 	*options
 	host Host
 
+	// Mutex protecting currentInstance and committees cache for concurrent validation.
+	// Note that not every access need be protected:
+	// - writes to currentInstance, and reads from it during validation,
+	// - reads from or writes to committees (which is written during validation).
+	mutex sync.Mutex
 	// Instance identifier for the current (or, if none, next to start) GPBFT instance.
 	currentInstance uint64
 	// Cache of committees for the current or future instances.
 	committees map[uint64]*committee
-	// Mutex protecting currentInstance and committees cache for concurrent validation.
-	// Note that not every access need be protected:
-	// - writes to currentInstance (which is read in validation)
-	// - reads from or writes to committees (which are written during validation)
-	mutex sync.Mutex
 
 	// Current Granite instance.
 	gpbft *instance
@@ -231,13 +231,13 @@ func (p *Participant) handleDecision() {
 }
 
 func (p *Participant) finishCurrentInstance() {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
 	p.finalised = p.gpbft.terminationValue
 	p.terminatedDuringRound = p.gpbft.round
-	delete(p.committees, p.gpbft.instanceID)
 	p.gpbft = nil
+
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	delete(p.committees, p.currentInstance)
 	p.currentInstance++
 }
 
