@@ -8,7 +8,7 @@ import (
 // Sentinel errors for the message validation and reception APIs.
 var (
 	ErrValidationTooOld      = errors.New("message is for prior instance")
-	ErrValidationNoCommittee = errors.New("no committee for message instance")
+	ErrValidationNoCommittee = errors.New("no committee for instance")
 	ErrValidationInvalid     = errors.New("message invalid")
 	ErrValidationWrongBase   = errors.New("unexpected base chain")
 
@@ -26,6 +26,8 @@ type MessageValidator interface {
 	//   if there is no committee available with with to validate the message;
 	// - both ErrValidationInvalid and a cause if the message is invalid,
 	// Returns a validated message if the message is valid.
+	//
+	// Implementations must be safe for concurrent use.
 	ValidateMessage(msg *GMessage) (valid ValidatedMessage, err error)
 }
 
@@ -43,7 +45,9 @@ type MessageReceiver interface {
 	// - ErrValidationWrongBase if the message has an invalid base chain
 	// - ErrReceivedAfterTermination if the message is received after the instance has terminated (a programming error)
 	// - both ErrReceivedInternalError and a cause if there was an internal error processing the message
+	// This method is not safe for concurrent use.
 	ReceiveMessage(msg ValidatedMessage) error
+	// This method is not safe for concurrent use.
 	ReceiveAlarm() error
 }
 
@@ -101,15 +105,18 @@ type SigningMarshaler interface {
 	// MarshalPayloadForSigning marshals the given payload into the bytes that should be signed.
 	// This should usually call `Payload.MarshalForSigning(NetworkName)` except when testing as
 	// that method is slow (computes a merkle tree that's necessary for testing).
+	// Implementations must be safe for concurrent use.
 	MarshalPayloadForSigning(NetworkName, *Payload) []byte
 }
 
 type Verifier interface {
-	// Verifies a signature for the given public key
+	// Verifies a signature for the given public key.
+	// Implementations must be safe for concurrent use.
 	Verify(pubKey PubKey, msg, sig []byte) error
-	// Aggregates signatures from a participants
+	// Aggregates signatures from a participants.
 	Aggregate(pubKeys []PubKey, sigs [][]byte) ([]byte, error)
 	// VerifyAggregate verifies an aggregate signature.
+	// Implementations must be safe for concurrent use.
 	VerifyAggregate(payload, aggSig []byte, signers []PubKey) error
 }
 
