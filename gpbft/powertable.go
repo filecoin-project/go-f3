@@ -8,6 +8,7 @@ import (
 )
 
 var _ sort.Interface = (*PowerTable)(nil)
+var _ sort.Interface = (PowerEntries)(nil)
 
 // PowerEntry represents a single entry in the PowerTable, including ActorID and its StoragePower and PubKey.
 type PowerEntry struct {
@@ -16,12 +17,41 @@ type PowerEntry struct {
 	PubKey PubKey
 }
 
+type PowerEntries []PowerEntry
+
 // PowerTable maps ActorID to a unique index in the range [0, len(powerTable.Entries)).
 // Entries is the reverse mapping to a PowerEntry.
 type PowerTable struct {
-	Entries []PowerEntry    // Slice to maintain the order. Meant to be maintained in order in order by (Power descending, ID ascending)
+	Entries PowerEntries    // Slice to maintain the order. Meant to be maintained in order in order by (Power descending, ID ascending)
 	Lookup  map[ActorID]int // Maps ActorID to the index of the associated entry in Entries
 	Total   *StoragePower
+}
+
+// Len returns the number of entries in this PowerTable.
+func (p PowerEntries) Len() int {
+	return len(p)
+}
+
+// Less determines if the entry at index i should be sorted before the entry at index j.
+// Entries are sorted descending order of their power, where entries with equal power are
+// sorted by ascending order of their ID.
+// This ordering is guaranteed to be stable, since a valid PowerTable cannot contain entries with duplicate IDs; see Validate.
+func (p PowerEntries) Less(i, j int) bool {
+	one, other := p[i], p[j]
+	switch cmp := one.Power.Cmp(other.Power); {
+	case cmp > 0:
+		return true
+	case cmp == 0:
+		return one.ID < other.ID
+	default:
+		return false
+	}
+}
+
+// Swap swaps the entry at index i with the entry at index j.
+// This function must not be called directly since it is used as part of sort.Interface.
+func (p PowerEntries) Swap(i, j int) {
+	p[i], p[j] = p[j], p[i]
 }
 
 // NewPowerTable creates a new PowerTable from a slice of PowerEntry .
@@ -94,7 +124,7 @@ func (p *PowerTable) Copy() *PowerTable {
 
 // Len returns the number of entries in this PowerTable.
 func (p *PowerTable) Len() int {
-	return len(p.Entries)
+	return p.Entries.Len()
 }
 
 // Less determines if the entry at index i should be sorted before the entry at index j.
@@ -102,21 +132,13 @@ func (p *PowerTable) Len() int {
 // sorted by ascending order of their ID.
 // This ordering is guaranteed to be stable, since a valid PowerTable cannot contain entries with duplicate IDs; see Validate.
 func (p *PowerTable) Less(i, j int) bool {
-	one, other := p.Entries[i], p.Entries[j]
-	switch cmp := one.Power.Cmp(other.Power); {
-	case cmp > 0:
-		return true
-	case cmp == 0:
-		return one.ID < other.ID
-	default:
-		return false
-	}
+	return p.Entries.Less(i, j)
 }
 
 // Swap swaps the entry at index i with the entry at index j.
 // This function must not be called directly since it is used as part of sort.Interface.
 func (p *PowerTable) Swap(i, j int) {
-	p.Entries[i], p.Entries[j] = p.Entries[j], p.Entries[i]
+	p.Entries.Swap(i, j)
 	p.Lookup[p.Entries[i].ID], p.Lookup[p.Entries[j].ID] = i, j
 }
 

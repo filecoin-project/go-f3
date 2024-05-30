@@ -518,7 +518,7 @@ func ValidateMessage(powerTable *PowerTable, beacon []byte, host Host, msg *GMes
 			return fmt.Errorf("failed to iterate over signers: %w", err)
 		}
 
-		if !hasStrongQuorum(justificationPower, powerTable.Total) {
+		if !IsStrongQuorum(justificationPower, powerTable.Total) {
 			return fmt.Errorf("message %v has justification with insufficient power: %v", msg, justificationPower)
 		}
 
@@ -994,7 +994,7 @@ func (q *quorumState) receiveInner(sender ActorID, value ECChain, power *Storage
 		panic("duplicate message should have been dropped")
 	}
 	candidate.signatures[sender] = signature
-	candidate.hasStrongQuorum = hasStrongQuorum(candidate.power, q.powerTable.Total)
+	candidate.hasStrongQuorum = IsStrongQuorum(candidate.power, q.powerTable.Total)
 	candidate.hasWeakQuorum = hasWeakQuorum(candidate.power, q.powerTable.Total)
 	q.chainSupport[key] = candidate
 }
@@ -1023,7 +1023,7 @@ func (q *quorumState) ListAllValues() []ECChain {
 
 // Checks whether at least one message has been senders from a strong quorum of senders.
 func (q *quorumState) ReceivedFromStrongQuorum() bool {
-	return hasStrongQuorum(q.sendersTotalPower, q.powerTable.Total)
+	return IsStrongQuorum(q.sendersTotalPower, q.powerTable.Total)
 }
 
 // ReceivedFromWeakQuorum checks whether at least one message has been received
@@ -1089,7 +1089,7 @@ func (q *quorumState) FindStrongQuorumFor(key ChainKey) (QuorumResult, bool) {
 		justificationPower.Add(justificationPower, entry.Power)
 		signatures = append(signatures, chainSupport.signatures[entry.ID])
 		pubkeys = append(pubkeys, entry.PubKey)
-		if hasStrongQuorum(justificationPower, q.powerTable.Total) {
+		if IsStrongQuorum(justificationPower, q.powerTable.Total) {
 			return QuorumResult{
 				Signers:    signers[:i+1],
 				PubKeys:    pubkeys,
@@ -1264,7 +1264,7 @@ func findFirstPrefixOf(preferred ECChain, candidates []ECChain) ECChain {
 }
 
 // Check whether a portion of storage power is a strong quorum of the total
-func hasStrongQuorum(part, total *StoragePower) bool {
+func IsStrongQuorum(part, total *StoragePower) bool {
 	two := NewStoragePower(2)
 	three := NewStoragePower(3)
 

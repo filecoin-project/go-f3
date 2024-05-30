@@ -11,6 +11,7 @@ import (
 	cid "github.com/ipfs/go-cid"
 	cbg "github.com/whyrusleeping/cbor-gen"
 	xerrors "golang.org/x/xerrors"
+	big "math/big"
 )
 
 var _ = xerrors.Errorf
@@ -752,5 +753,223 @@ func (t *Justification) UnmarshalCBOR(r io.Reader) (err error) {
 		return err
 	}
 
+	return nil
+}
+
+var lengthBufPowerEntry = []byte{131}
+
+func (t *PowerEntry) MarshalCBOR(w io.Writer) error {
+	if t == nil {
+		_, err := w.Write(cbg.CborNull)
+		return err
+	}
+
+	cw := cbg.NewCborWriter(w)
+
+	if _, err := cw.Write(lengthBufPowerEntry); err != nil {
+		return err
+	}
+
+	// t.ID (gpbft.ActorID) (uint64)
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.ID)); err != nil {
+		return err
+	}
+
+	// t.Power (big.Int) (struct)
+	{
+		if err := cw.CborWriteHeader(cbg.MajTag, 2); err != nil {
+			return err
+		}
+		var b []byte
+		if t.Power != nil {
+			b = t.Power.Bytes()
+		}
+
+		if err := cw.CborWriteHeader(cbg.MajByteString, uint64(len(b))); err != nil {
+			return err
+		}
+		if _, err := cw.Write(b); err != nil {
+			return err
+		}
+	}
+
+	// t.PubKey (gpbft.PubKey) (slice)
+	if len(t.PubKey) > 2097152 {
+		return xerrors.Errorf("Byte array in field t.PubKey was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.PubKey))); err != nil {
+		return err
+	}
+
+	if _, err := cw.Write(t.PubKey); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (t *PowerEntry) UnmarshalCBOR(r io.Reader) (err error) {
+	*t = PowerEntry{}
+
+	cr := cbg.NewCborReader(r)
+
+	maj, extra, err := cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err == io.EOF {
+			err = io.ErrUnexpectedEOF
+		}
+	}()
+
+	if maj != cbg.MajArray {
+		return fmt.Errorf("cbor input should be of type array")
+	}
+
+	if extra != 3 {
+		return fmt.Errorf("cbor input had wrong number of fields")
+	}
+
+	// t.ID (gpbft.ActorID) (uint64)
+
+	{
+
+		maj, extra, err = cr.ReadHeader()
+		if err != nil {
+			return err
+		}
+		if maj != cbg.MajUnsignedInt {
+			return fmt.Errorf("wrong type for uint64 field")
+		}
+		t.ID = ActorID(extra)
+
+	}
+	// t.Power (big.Int) (struct)
+
+	maj, extra, err = cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+
+	if maj != cbg.MajTag || extra != 2 {
+		return fmt.Errorf("big ints should be cbor bignums")
+	}
+
+	maj, extra, err = cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+
+	if maj != cbg.MajByteString {
+		return fmt.Errorf("big ints should be tagged cbor byte strings")
+	}
+
+	if extra > 256 {
+		return fmt.Errorf("t.Power: cbor bignum was too large")
+	}
+
+	if extra > 0 {
+		buf := make([]byte, extra)
+		if _, err := io.ReadFull(cr, buf); err != nil {
+			return err
+		}
+		t.Power = big.NewInt(0).SetBytes(buf)
+	} else {
+		t.Power = big.NewInt(0)
+	}
+	// t.PubKey (gpbft.PubKey) (slice)
+
+	maj, extra, err = cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+
+	if extra > 2097152 {
+		return fmt.Errorf("t.PubKey: byte array too large (%d)", extra)
+	}
+	if maj != cbg.MajByteString {
+		return fmt.Errorf("expected byte array")
+	}
+
+	if extra > 0 {
+		t.PubKey = make([]uint8, extra)
+	}
+
+	if _, err := io.ReadFull(cr, t.PubKey); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (t *PowerEntries) MarshalCBOR(w io.Writer) error {
+	cw := cbg.NewCborWriter(w)
+
+	// (*t) (gpbft.PowerEntries) (slice)
+	if len((*t)) > 8192 {
+		return xerrors.Errorf("Slice value in field (*t) was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajArray, uint64(len((*t)))); err != nil {
+		return err
+	}
+	for _, v := range *t {
+		if err := v.MarshalCBOR(cw); err != nil {
+			return err
+		}
+
+	}
+	return nil
+}
+
+func (t *PowerEntries) UnmarshalCBOR(r io.Reader) (err error) {
+	*t = PowerEntries{}
+
+	cr := cbg.NewCborReader(r)
+	var maj byte
+	var extra uint64
+	_ = maj
+	_ = extra
+	// (*t) (gpbft.PowerEntries) (slice)
+
+	maj, extra, err = cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+
+	if extra > 8192 {
+		return fmt.Errorf("(*t): array too large (%d)", extra)
+	}
+
+	if maj != cbg.MajArray {
+		return fmt.Errorf("expected cbor array")
+	}
+
+	if extra > 0 {
+		(*t) = make([]PowerEntry, extra)
+	}
+
+	for i := 0; i < int(extra); i++ {
+		{
+			var maj byte
+			var extra uint64
+			var err error
+			_ = maj
+			_ = extra
+			_ = err
+
+			{
+
+				if err := (*t)[i].UnmarshalCBOR(cr); err != nil {
+					return xerrors.Errorf("unmarshaling (*t)[i]: %w", err)
+				}
+
+			}
+
+		}
+	}
 	return nil
 }

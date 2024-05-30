@@ -140,10 +140,12 @@ func (c ECChain) BaseChain() ECChain {
 func (c ECChain) Extend(tips ...TipSetKey) ECChain {
 	c = c[:len(c):len(c)]
 	offset := c.Head().Epoch + 1
+	pt := c.Head().PowerTable
 	for i, tip := range tips {
 		c = append(c, TipSet{
-			Epoch: offset + int64(i),
-			Key:   tip,
+			Epoch:      offset + int64(i),
+			Key:        tip,
+			PowerTable: pt,
 		})
 	}
 	return c
