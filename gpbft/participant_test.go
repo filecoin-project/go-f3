@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
@@ -85,7 +86,7 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 func (pt *participantTestSubject) expectBeginInstance() {
 	// Prepare the test host.
 	pt.host.On("GetProposalForInstance", pt.instance).Return(pt.supplementalData, pt.canonicalChain, nil)
-	pt.host.On("GetCommitteeForInstance", pt.instance).Return(pt.powerTable, pt.beacon, nil)
+	pt.host.On("GetCommitteeForInstance", pt.instance).Return(pt.powerTable, pt.beacon, nil).Once()
 	pt.host.On("Time").Return(pt.time)
 	pt.host.On("NetworkName").Return(pt.networkName).Maybe()
 	// We need to use `Maybe` here because `MarshalPayloadForSigning` may be called
@@ -169,7 +170,7 @@ func (pt *participantTestSubject) mockValidTicket(target gpbft.PubKey, ticket gp
 }
 
 func (pt *participantTestSubject) mockCommitteeForInstance(instance uint64, powerTable *gpbft.PowerTable, beacon []byte) {
-	pt.host.On("GetCommitteeForInstance", instance).Return(powerTable, beacon, nil)
+	pt.host.On("GetCommitteeForInstance", instance).Return(powerTable, beacon, nil).Once()
 }
 
 func (pt *participantTestSubject) mockCommitteeUnavailableForInstance(instance uint64) {
@@ -908,6 +909,56 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParticipant_ValidateMessageParallel(t *testing.T) {
+	const (
+		seed                  = 894651320
+		initialInstanceNumber = 47
+		// Empirically, these values cause a race to be detected reliably if the mutex is removed.
+		concurrency   = 10
+		msgCount      = 100
+		instanceCount = 5
+	)
+	signature := []byte("barreleye")
+	subject := newParticipantTestSubject(t, seed, initialInstanceNumber)
+	require.NoError(t, subject.powerTable.Add(somePowerEntry))
+	subject.requireStart()
+	subject.mockValidSignature(somePowerEntry.PubKey, signature)
+
+	// Expect fetching committee for each subsequent instance (only once, since it's cached).
+	for i := uint64(1); i < instanceCount; i++ {
+		subject.mockCommitteeForInstance(initialInstanceNumber+i, subject.powerTable, subject.beacon)
+	}
+
+	validateOne := func(i uint64) {
+		msg := &gpbft.GMessage{
+			Sender: somePowerEntry.ID,
+			Vote: gpbft.Payload{
+				Instance: initialInstanceNumber + (i % instanceCount),
+				Step:     gpbft.QUALITY_PHASE,
+				Value:    subject.canonicalChain,
+			},
+			Signature: signature,
+		}
+
+		gotValidated, gotValidateErr := subject.ValidateMessage(msg)
+		require.NoError(t, gotValidateErr)
+		require.Equal(t, gotValidated != nil, gotValidateErr == nil)
+	}
+	// Run validation in parallel.
+	var wg sync.WaitGroup
+	wg.Add(concurrency)
+	for i := 0; i < concurrency; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < msgCount; j++ {
+				validateOne(uint64(j))
+			}
+		}()
+	}
+	wg.Wait()
+	subject.assertHostExpectations()
 }
 
 type validatedMessage struct {
