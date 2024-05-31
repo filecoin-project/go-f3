@@ -101,6 +101,42 @@ func TestPowerTableDiff(t *testing.T) {
 		}
 	}
 
+	// explicit transitions
+	{
+		// Add power
+		newPowerTable, err := certs.ApplyPowerTableDiffs(powerTable, []certs.PowerTableDelta{{
+			ParticipantID: powerTable[0].ID,
+			PowerDelta:    gpbft.NewStoragePower(1),
+		}})
+		require.NoError(t, err)
+		require.Equal(t,
+			new(gpbft.StoragePower).Sub(newPowerTable[0].Power, powerTable[0].Power),
+			gpbft.NewStoragePower(1),
+		)
+
+		// Add power with key.
+		newPowerTable, err = certs.ApplyPowerTableDiffs(powerTable, []certs.PowerTableDelta{{
+			ParticipantID: powerTable[0].ID,
+			PowerDelta:    gpbft.NewStoragePower(1),
+			SigningKey:    powerTable[1].PubKey,
+		}})
+		require.NoError(t, err)
+		require.Equal(t,
+			new(gpbft.StoragePower).Sub(newPowerTable[0].Power, powerTable[0].Power),
+			gpbft.NewStoragePower(1),
+		)
+		require.Equal(t, newPowerTable[0].PubKey, powerTable[1].PubKey)
+
+		// Change Key without power
+		newPowerTable, err = certs.ApplyPowerTableDiffs(powerTable, []certs.PowerTableDelta{{
+			ParticipantID: powerTable[0].ID,
+			PowerDelta:    gpbft.NewStoragePower(0),
+			SigningKey:    powerTable[1].PubKey,
+		}})
+		require.NoError(t, err)
+		require.Equal(t, newPowerTable[0].PubKey, powerTable[1].PubKey)
+	}
+
 	// invalid transitions
 	{
 		// Idempotent key change
