@@ -83,10 +83,6 @@ func (v *simHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 	return v.Time().Add(v.sim.ecEpochDuration).Add(v.sim.ecStabilisationDelay)
 }
 
-func (v *simHost) ReceiveFinalityCertificate(uint64, gpbft.FinalityInfo) error {
-	panic("not implemented")
-}
-
 func (v *simHost) StoragePower(instance uint64) *gpbft.StoragePower {
 	return v.spg(instance, v.id)
 }
