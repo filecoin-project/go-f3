@@ -65,10 +65,10 @@ func TestPowerTableDiff(t *testing.T) {
 		require.Equal(t, expDeltaRemove, certs.MakePowerTableDiff(powerTable, nil))
 		require.Equal(t, expDeltaAdd, certs.MakePowerTableDiff(nil, powerTable))
 
-		addAll, err := certs.ApplyPowerTableDiff(nil, expDeltaAdd)
+		addAll, err := certs.ApplyPowerTableDiffs(nil, expDeltaAdd)
 		require.NoError(t, err)
 		require.Equal(t, powerTable, addAll)
-		remAll, err := certs.ApplyPowerTableDiff(powerTable, expDeltaRemove)
+		remAll, err := certs.ApplyPowerTableDiffs(powerTable, expDeltaRemove)
 		require.NoError(t, err)
 		require.Empty(t, remAll)
 	}
@@ -88,11 +88,11 @@ func TestPowerTableDiff(t *testing.T) {
 			diffAB := certs.MakePowerTableDiff(a, b)
 			diffBA := certs.MakePowerTableDiff(b, a)
 
-			bNew, err := certs.ApplyPowerTableDiff(a, diffAB)
+			bNew, err := certs.ApplyPowerTableDiffs(a, diffAB)
 			require.NoError(t, err)
 			require.Equal(t, b, bNew)
 
-			aNew, err := certs.ApplyPowerTableDiff(b, diffBA)
+			aNew, err := certs.ApplyPowerTableDiffs(b, diffBA)
 			require.NoError(t, err)
 			require.Equal(t, a, aNew)
 		}

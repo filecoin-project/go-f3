@@ -113,7 +113,7 @@ func ValidateFinalityCertificates(verifier gpbft.Verifier, network gpbft.Network
 
 		// Now compute the new power table and validate that it matches the power table for
 		// new head.
-		newPowerTable, err = ApplyPowerTableDiff(prevPowerTable, cert.PowerTableDelta)
+		newPowerTable, err = ApplyPowerTableDiffs(prevPowerTable, cert.PowerTableDelta)
 		if err != nil {
 			return nextInstance, chain, prevPowerTable, xerrors.Errorf("failed to apply power table delta for finality certificate for instance %d: %w", cert.GPBFTInstance, err)
 		}
@@ -230,53 +230,56 @@ func MakePowerTableDiff(oldPowerTable, newPowerTable gpbft.PowerEntries) []Power
 	return diff
 }
 
-// Apply a power table diff to the passed power table.
+// Apply a set of power table diffs to the passed power table.
 //
 // - The delta must be sorted by participant ID, ascending.
 // - The returned power table is sorted by power, descending.
-func ApplyPowerTableDiff(prevPowerTable gpbft.PowerEntries, delta []PowerTableDelta) (gpbft.PowerEntries, error) {
-	deltaMap := make(map[gpbft.ActorID]*PowerTableDelta, len(delta))
-	var lastActorId gpbft.ActorID
-	for i := range delta {
-		d := &delta[i]
-
-		// We assert this to make sure the finality certificate has a consistent power-table
-		// diff.
-		if i > 0 && d.ParticipantID <= lastActorId {
-			return nil, xerrors.Errorf("power table delta not sorted by participant ID")
-		}
-
-		deltaMap[d.ParticipantID] = d
-		lastActorId = d.ParticipantID
-	}
-
-	// NOTE: we don't check if the new power is negative or anything like that because
-	// we're just going to serialize to CBOR and validate that the hashes map. So the
-	// only sanity check we need is the above "sort" check.
-	newPowerTable := make(gpbft.PowerEntries, 0, len(prevPowerTable)+len(deltaMap))
+func ApplyPowerTableDiffs(prevPowerTable gpbft.PowerEntries, diffs ...[]PowerTableDelta) (gpbft.PowerEntries, error) {
+	powerTableMap := make(map[gpbft.ActorID]gpbft.PowerEntry, len(prevPowerTable))
 	for _, pe := range prevPowerTable {
-		if diff, ok := deltaMap[pe.ID]; ok {
-			delete(deltaMap, pe.ID)
-
-			if diff.PowerDelta.Sign() != 0 {
-				pe.Power = new(gpbft.StoragePower).Add(diff.PowerDelta, pe.Power)
-				if pe.Power.Sign() == 0 {
-					continue
+		powerTableMap[pe.ID] = pe
+	}
+	for j, diff := range diffs {
+		var lastActorId gpbft.ActorID
+		for i, d := range diff {
+			// We assert this to make sure the finality certificate has a consistent power-table
+			// diff.
+			if i > 0 && d.ParticipantID <= lastActorId {
+				return nil, xerrors.Errorf("power table delta not sorted by participant ID")
+			}
+			lastActorId = d.ParticipantID
+			pe, ok := powerTableMap[d.ParticipantID]
+			if ok {
+				if d.PowerDelta.Sign() != 0 {
+					pe.Power = new(gpbft.StoragePower).Add(d.PowerDelta, pe.Power)
+				}
+				if len(d.SigningKey) > 0 {
+					pe.PubKey = d.SigningKey
+				}
+			} else if len(d.SigningKey) == 0 {
+				return nil, xerrors.Errorf("new power entry for %d has an empty signing key", d.ParticipantID)
+			} else {
+				pe = gpbft.PowerEntry{
+					ID:     d.ParticipantID,
+					Power:  d.PowerDelta,
+					PubKey: d.SigningKey,
 				}
 			}
-			if len(diff.SigningKey) > 0 {
-				pe.PubKey = diff.SigningKey
+			switch pe.Power.Sign() {
+			case 0: // if the power drops to 0, remove it.
+				delete(powerTableMap, pe.ID)
+			case 1: // if the power is positive, keep it and update the map.
+				powerTableMap[pe.ID] = pe
+			default: // if the power becomes negative, something went wrong
+				return nil, xerrors.Errorf("diff %d resulted in a negative power for participant %d", j, pe.ID)
 			}
+
 		}
-		newPowerTable = append(newPowerTable, pe)
 	}
 
-	for _, diff := range deltaMap {
-		newPowerTable = append(newPowerTable, gpbft.PowerEntry{
-			ID:     diff.ParticipantID,
-			Power:  diff.PowerDelta,
-			PubKey: diff.SigningKey,
-		})
+	newPowerTable := make(gpbft.PowerEntries, 0, len(powerTableMap))
+	for _, pe := range powerTableMap {
+		newPowerTable = append(newPowerTable, pe)
 	}
 
 	sort.Sort(newPowerTable)
