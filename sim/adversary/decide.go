@@ -86,6 +86,10 @@ func (*ImmediateDecide) ReceiveAlarm() error {
 	return nil
 }
 
+func (*ImmediateDecide) ReceiveFinalityCertificate(_ uint64, _ gpbft.FinalityInfo) error {
+	return nil
+}
+
 func (*ImmediateDecide) AllowMessage(_ gpbft.ActorID, _ gpbft.ActorID, _ gpbft.GMessage) bool {
 	// Allow all messages
 	return true

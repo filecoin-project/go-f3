@@ -44,6 +44,10 @@ func (*Absent) ReceiveMessage(_ gpbft.ValidatedMessage) error {
 	return nil
 }
 
+func (*Absent) ReceiveFinalityCertificate(_ uint64, _ gpbft.FinalityInfo) error {
+	return nil
+}
+
 func (*Absent) ReceiveAlarm() error {
 	return nil
 }

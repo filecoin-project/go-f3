@@ -103,7 +103,8 @@ func (r *Repeat) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
 	return nil
 }
 
-func (r *Repeat) ID() gpbft.ActorID                                              { return r.id }
-func (r *Repeat) Start() error                                                   { return nil }
-func (r *Repeat) ReceiveAlarm() error                                            { return nil }
-func (r *Repeat) AllowMessage(gpbft.ActorID, gpbft.ActorID, gpbft.GMessage) bool { return true }
+func (r *Repeat) ID() gpbft.ActorID                                               { return r.id }
+func (r *Repeat) Start() error                                                    { return nil }
+func (r *Repeat) ReceiveAlarm() error                                             { return nil }
+func (r *Repeat) ReceiveFinalityCertificate(_ uint64, _ gpbft.FinalityInfo) error { return nil }
+func (r *Repeat) AllowMessage(gpbft.ActorID, gpbft.ActorID, gpbft.GMessage) bool  { return true }

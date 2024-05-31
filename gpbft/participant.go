@@ -152,6 +152,44 @@ func (p *Participant) ReceiveAlarm() (err error) {
 	return nil
 }
 
+// FinalityInfo is an auxiliary struct to pass relevant info from the finality certificate
+// NOTE: It is not clear to me what information is available in the finality certificate
+// and in what form. The information provided here may change, using it as a placeholder for now.
+type FinalityInfo struct {
+	Instance uint64
+	Power    *PowerTable
+	Beacon   []byte
+}
+
+func (p *Participant) ReceiveFinalityCertificate(f FinalityInfo) error {
+	// Get ready to start the instance defined in the finality certificate for the next instance
+	p.gpbft = nil
+	prevInstance := p.currentInstance
+	// Set the instance from the certificate as the current one.
+	p.currentInstance = f.Instance
+	// clean all messages queued for instances below the one in the finality certificate
+	// and old committees
+	for i := prevInstance + 1; i < p.currentInstance; i++ {
+		delete(p.mqueue.messages, i)
+		delete(p.committees, i)
+	}
+
+	// store the new committees provided by the finality certificate
+	// overwriting whatever was there already (if anything).
+	if err := f.Power.Validate(); err != nil {
+		return fmt.Errorf("invalid power table: %w", err)
+	}
+	com := &committee{power: f.Power, beacon: f.Beacon}
+	p.committees[f.Instance] = com
+
+	// Set the alarm to begin a new instance immediately.
+	// This will fetch the chain, drain existing messages for that instance,
+	// and start the instance.
+	p.host.SetAlarm(p.host.Time())
+
+	return nil
+}
+
 func (p *Participant) beginInstance() error {
 	data, chain, err := p.host.GetProposalForInstance(p.currentInstance)
 	if err != nil {
