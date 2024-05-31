@@ -122,7 +122,7 @@ func (*WithholdCommit) ReceiveMessage(_ gpbft.ValidatedMessage) error {
 	return nil
 }
 
-func (*WithholdCommit) ReceiveFinalityCertificate(_ uint64, _ gpbft.FinalityInfo) error {
+func (*WithholdCommit) ReceiveFinalityCertificate(_ gpbft.FinalityInfo) error {
 	return nil
 }
 

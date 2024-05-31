@@ -56,7 +56,7 @@ type FinalityReceiver interface {
 	// This function expects the host to have already validated the finality certificate,
 	// and provide the new instance ID and any updates regarding the committees for that instance
 	// (and future instances?)
-	ReceiveFinalityCertificate(uint64, FinalityInfo) error
+	ReceiveFinalityCertificate(FinalityInfo) error
 }
 
 // Interface which network participants must implement.

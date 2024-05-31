@@ -63,6 +63,6 @@ func (*Deny) Start() error { return nil }
 func (*Deny) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
 	return Validated(msg), nil
 }
-func (*Deny) ReceiveMessage(_ gpbft.ValidatedMessage) error                   { return nil }
-func (*Deny) ReceiveAlarm() error                                             { return nil }
-func (*Deny) ReceiveFinalityCertificate(_ uint64, _ gpbft.FinalityInfo) error { return nil }
+func (*Deny) ReceiveMessage(_ gpbft.ValidatedMessage) error         { return nil }
+func (*Deny) ReceiveAlarm() error                                   { return nil }
+func (*Deny) ReceiveFinalityCertificate(_ gpbft.FinalityInfo) error { return nil }

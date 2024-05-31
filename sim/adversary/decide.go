@@ -86,7 +86,7 @@ func (*ImmediateDecide) ReceiveAlarm() error {
 	return nil
 }
 
-func (*ImmediateDecide) ReceiveFinalityCertificate(_ uint64, _ gpbft.FinalityInfo) error {
+func (*ImmediateDecide) ReceiveFinalityCertificate(_ gpbft.FinalityInfo) error {
 	return nil
 }
 

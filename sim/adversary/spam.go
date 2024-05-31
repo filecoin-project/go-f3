@@ -77,7 +77,7 @@ func (s *Spam) spamAtInstance(instance uint64) {
 	}
 }
 
-func (s *Spam) ID() gpbft.ActorID                                               { return s.id }
-func (s *Spam) ReceiveAlarm() error                                             { return nil }
-func (s *Spam) ReceiveFinalityCertificate(_ uint64, _ gpbft.FinalityInfo) error { return nil }
-func (s *Spam) AllowMessage(gpbft.ActorID, gpbft.ActorID, gpbft.GMessage) bool  { return true }
+func (s *Spam) ID() gpbft.ActorID                                              { return s.id }
+func (s *Spam) ReceiveAlarm() error                                            { return nil }
+func (s *Spam) ReceiveFinalityCertificate(_ gpbft.FinalityInfo) error          { return nil }
+func (s *Spam) AllowMessage(gpbft.ActorID, gpbft.ActorID, gpbft.GMessage) bool { return true }
