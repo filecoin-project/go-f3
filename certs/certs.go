@@ -245,20 +245,39 @@ func ApplyPowerTableDiffs(prevPowerTable gpbft.PowerEntries, diffs ...[]PowerTab
 			// We assert this to make sure the finality certificate has a consistent power-table
 			// diff.
 			if i > 0 && d.ParticipantID <= lastActorId {
-				return nil, xerrors.Errorf("power table delta not sorted by participant ID")
+				return nil, xerrors.Errorf("diff %d not sorted by participant ID")
 			}
+
+			// Empty power diffs aren't allowed.
+			if d.IsZero() {
+				return nil, xerrors.Errorf("diff %d contains an empty delta for participant %d", j, d.ParticipantID)
+			}
+
 			lastActorId = d.ParticipantID
 			pe, ok := powerTableMap[d.ParticipantID]
 			if ok {
+				// Power deltas can't replace a key with the same key.
+				if bytes.Equal(d.SigningKey, pe.PubKey) {
+					return nil, xerrors.Errorf("diff %d delta for participant %d includes an unchanged key", j, pe.ID)
+				}
 				if d.PowerDelta.Sign() != 0 {
 					pe.Power = new(gpbft.StoragePower).Add(d.PowerDelta, pe.Power)
 				}
 				if len(d.SigningKey) > 0 {
+					// If we end up with no power, we shouldn't have replaced the key.
+					if pe.Power.Sign() == 0 {
+						return nil, xerrors.Errorf("diff %d removes all power for participant %d while specifying a new key", j, pe.ID)
+					}
 					pe.PubKey = d.SigningKey
 				}
-			} else if len(d.SigningKey) == 0 {
-				return nil, xerrors.Errorf("new power entry for %d has an empty signing key", d.ParticipantID)
 			} else {
+				// New power entries must specify a key and positive power.
+				if d.PowerDelta.Sign() <= 0 {
+					return nil, xerrors.Errorf("diff %d includes a new entry with a non-positive power delta for participant %d", j, pe.ID)
+				}
+				if len(d.SigningKey) == 0 {
+					return nil, xerrors.Errorf("diff %d includes a new power delta for participant %d with an empty signing key", j, pe.ID)
+				}
 				pe = gpbft.PowerEntry{
 					ID:     d.ParticipantID,
 					Power:  d.PowerDelta,
@@ -271,7 +290,7 @@ func ApplyPowerTableDiffs(prevPowerTable gpbft.PowerEntries, diffs ...[]PowerTab
 			case 1: // if the power is positive, keep it and update the map.
 				powerTableMap[pe.ID] = pe
 			default: // if the power becomes negative, something went wrong
-				return nil, xerrors.Errorf("diff %d resulted in a negative power for participant %d", j, pe.ID)
+				return nil, xerrors.Errorf("diff %d resulted in negative power for participant %d", j, pe.ID)
 			}
 
 		}

@@ -45,6 +45,7 @@ func TestPowerTableDiff(t *testing.T) {
 		require.Empty(t, certs.MakePowerTableDiff(nil, nil))
 		require.Empty(t, certs.MakePowerTableDiff(powerTable, powerTable))
 	}
+
 	// Add all, remove all.
 	{
 		expDeltaRemove := make([]certs.PowerTableDelta, len(powerTable))
@@ -71,7 +72,9 @@ func TestPowerTableDiff(t *testing.T) {
 		remAll, err := certs.ApplyPowerTableDiffs(powerTable, expDeltaRemove)
 		require.NoError(t, err)
 		require.Empty(t, remAll)
+
 	}
+
 	{
 		// randomized
 		rng := rand.New(rand.NewSource(1234))
@@ -97,6 +100,63 @@ func TestPowerTableDiff(t *testing.T) {
 			require.Equal(t, a, aNew)
 		}
 	}
+
+	// invalid transitions
+	{
+		// Idempotent key change
+		_, err := certs.ApplyPowerTableDiffs(powerTable, []certs.PowerTableDelta{{
+			ParticipantID: powerTable[0].ID,
+			PowerDelta:    gpbft.NewStoragePower(1),
+			SigningKey:    powerTable[0].PubKey,
+		}})
+		require.ErrorContains(t, err, "includes an unchanged key")
+
+		// Empty power change
+		_, err = certs.ApplyPowerTableDiffs(powerTable, []certs.PowerTableDelta{{
+			ParticipantID: powerTable[0].ID,
+			PowerDelta:    gpbft.NewStoragePower(0),
+		}})
+		require.ErrorContains(t, err, "empty delta")
+
+		// Remove all power and change key.
+		_, err = certs.ApplyPowerTableDiffs(powerTable, []certs.PowerTableDelta{{
+			ParticipantID: powerTable[0].ID,
+			PowerDelta:    new(gpbft.StoragePower).Neg(powerTable[0].Power),
+			SigningKey:    powerTable[1].PubKey,
+		}})
+		require.ErrorContains(t, err, "removes all power for participant 1 while specifying a new key")
+
+		// Add an entry with a non-positive power.
+		_, err = certs.ApplyPowerTableDiffs(nil, []certs.PowerTableDelta{{
+			ParticipantID: powerTable[0].ID,
+			PowerDelta:    gpbft.NewStoragePower(0),
+			SigningKey:    powerTable[0].PubKey,
+		}})
+		require.ErrorContains(t, err, "new entry with a non-positive power delta")
+
+		// Add an entry with a negative power.
+		_, err = certs.ApplyPowerTableDiffs(nil, []certs.PowerTableDelta{{
+			ParticipantID: powerTable[0].ID,
+			PowerDelta:    gpbft.NewStoragePower(-1),
+			SigningKey:    powerTable[0].PubKey,
+		}})
+		require.ErrorContains(t, err, "new entry with a non-positive power delta")
+
+		// Add an entry with no key.
+		_, err = certs.ApplyPowerTableDiffs(nil, []certs.PowerTableDelta{{
+			ParticipantID: powerTable[0].ID,
+			PowerDelta:    gpbft.NewStoragePower(1),
+		}})
+		require.ErrorContains(t, err, "empty signing key")
+
+		// Remove more power than we have.
+		_, err = certs.ApplyPowerTableDiffs(powerTable, []certs.PowerTableDelta{{
+			ParticipantID: powerTable[0].ID,
+			PowerDelta:    new(gpbft.StoragePower).Sub(gpbft.NewStoragePower(-1), powerTable[0].Power),
+		}})
+		require.ErrorContains(t, err, "resulted in negative power")
+	}
+
 }
 
 func TestFinalityCertificates(t *testing.T) {
