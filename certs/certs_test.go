@@ -73,6 +73,10 @@ func TestPowerTableDiff(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, remAll)
 
+		// Deltas must be ordered
+		slices.Reverse(expDeltaAdd)
+		_, err = certs.ApplyPowerTableDiffs(nil, expDeltaAdd)
+		require.ErrorContains(t, err, "not sorted")
 	}
 
 	{
@@ -252,7 +256,9 @@ func TestBadFinalityCertificates(t *testing.T) {
 	require.NoError(t, err)
 	base := gpbft.TipSet{Epoch: 0, Key: tsg.Sample(), PowerTable: tableCid}
 
-	justification := makeJustification(t, rng, tsg, backend, base, 1, powerTable, powerTable)
+	nextPowerTable, _ := randomizePowerTable(rng, backend, 200, powerTable, nil)
+
+	justification := makeJustification(t, rng, tsg, backend, base, 1, powerTable, nextPowerTable)
 
 	// Alter the step
 	{
@@ -276,7 +282,8 @@ func TestBadFinalityCertificates(t *testing.T) {
 		require.ErrorContains(t, err, "got a decision for bottom")
 	}
 
-	certificate, err := certs.NewFinalityCertificate(nil, justification)
+	powerDiff := certs.MakePowerTableDiff(powerTable, nextPowerTable)
+	certificate, err := certs.NewFinalityCertificate(powerDiff, justification)
 	require.NoError(t, err)
 
 	// Unexpected instance number
@@ -343,6 +350,45 @@ func TestBadFinalityCertificates(t *testing.T) {
 		nextInstance, chain, _, err := certs.ValidateFinalityCertificates(backend, networkName, powerTableCpy, 1, nil, *certificate)
 		require.ErrorContains(t, err, fmt.Sprintf("has insufficient power: %d", count))
 		require.EqualValues(t, 1, nextInstance)
+		require.Empty(t, chain)
+	}
+
+	// Chain is bottom.
+	{
+		certCpy := *certificate
+		certCpy.ECChain = nil
+		nextInstance, chain, newPowerTable, err := certs.ValidateFinalityCertificates(backend, networkName, powerTable, 1, nil, certCpy)
+		require.ErrorContains(t, err, "empty finality certificate")
+		require.EqualValues(t, 1, nextInstance)
+		require.Equal(t, powerTable, newPowerTable)
+		require.Empty(t, chain)
+	}
+
+	// Chain is invalid.
+	{
+		certCpy := *certificate
+		certCpy.ECChain = slices.Clone(certCpy.ECChain)
+		slices.Reverse(certCpy.ECChain)
+		nextInstance, chain, newPowerTable, err := certs.ValidateFinalityCertificates(backend, networkName, powerTable, 1, nil, certCpy)
+		require.ErrorContains(t, err, "chain must have increasing epochs")
+		require.EqualValues(t, 1, nextInstance)
+		require.Equal(t, powerTable, newPowerTable)
+		require.Empty(t, chain)
+	}
+
+	// Power table diff is invalid (already tested in ApplyPowerTableDiffs tests, but this makes
+	// sure we don't try something fancy here).
+	{
+		certCpy := *certificate
+		certCpy.PowerTableDelta = slices.Clone(certCpy.PowerTableDelta)
+		// empty diff is invalid.
+		certCpy.PowerTableDelta[0].PowerDelta = gpbft.NewStoragePower(0)
+		certCpy.PowerTableDelta[0].SigningKey = nil
+
+		nextInstance, chain, newPowerTable, err := certs.ValidateFinalityCertificates(backend, networkName, powerTable, 1, nil, certCpy)
+		require.ErrorContains(t, err, "failed to apply power table delta")
+		require.EqualValues(t, 1, nextInstance)
+		require.Equal(t, powerTable, newPowerTable)
 		require.Empty(t, chain)
 	}
 }
