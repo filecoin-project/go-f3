@@ -245,7 +245,7 @@ func ApplyPowerTableDiffs(prevPowerTable gpbft.PowerEntries, diffs ...[]PowerTab
 			// We assert this to make sure the finality certificate has a consistent power-table
 			// diff.
 			if i > 0 && d.ParticipantID <= lastActorId {
-				return nil, xerrors.Errorf("diff %d not sorted by participant ID")
+				return nil, xerrors.Errorf("diff %d not sorted by participant ID", j)
 			}
 
 			// Empty power diffs aren't allowed.
