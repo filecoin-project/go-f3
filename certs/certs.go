@@ -11,7 +11,8 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// PowerTableDelta represents a single power table change between GPBFT instances.
+// PowerTableDelta represents a single power table change between GPBFT instances. If the resulting
+// power is 0 after applying the delta, the participant is removed from the power table.
 type PowerTableDelta struct {
 	// Participant with changed power
 	ParticipantID gpbft.ActorID
@@ -146,7 +147,7 @@ func verifyFinalityCertificateSignature(verifier gpbft.Verifier, powerTable gpbf
 	}
 
 	signers := make([]gpbft.PubKey, 0, len(powerTable))
-	signerPower := new(gpbft.StoragePower)
+	signerPowers := new(gpbft.StoragePower)
 	if err := cert.Signers.ForEach(func(i uint64) error {
 		if i >= uint64(len(powerTable)) {
 			return xerrors.Errorf(
@@ -154,15 +155,15 @@ func verifyFinalityCertificateSignature(verifier gpbft.Verifier, powerTable gpbf
 				cert.GPBFTInstance, i, len(powerTable))
 		}
 		signer := &powerTable[i]
-		signerPower = signerPower.Add(signerPower, signer.Power)
+		signerPowers = signerPowers.Add(signerPowers, signer.Power)
 		signers = append(signers, signer.PubKey)
 		return nil
 	}); err != nil {
 		return err
 	}
 
-	if !gpbft.IsStrongQuorum(signerPower, totalPower) {
-		return xerrors.Errorf("finality certificate for instance %d has insufficient power: %s < 2/3 %s", cert.GPBFTInstance, signerPower, totalPower)
+	if !gpbft.IsStrongQuorum(signerPowers, totalPower) {
+		return xerrors.Errorf("finality certificate for instance %d has insufficient power: %s < 2/3 %s", cert.GPBFTInstance, signerPowers, totalPower)
 	}
 
 	payload := &gpbft.Payload{
