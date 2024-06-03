@@ -83,10 +83,14 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 	return &subject
 }
 
-func (pt *participantTestSubject) expectBeginInstance() {
+func (pt *participantTestSubject) expectBeginInstance(fromFinality bool) {
 	// Prepare the test host.
 	pt.host.On("GetProposalForInstance", pt.instance).Return(pt.supplementalData, pt.canonicalChain, nil)
-	pt.host.On("GetCommitteeForInstance", pt.instance).Return(pt.powerTable, pt.beacon, nil).Once()
+	// if we begin instance from finality, the committee is already available for the instance
+	// and there is no call to GetCommitteeForInstance
+	if !fromFinality {
+		pt.host.On("GetCommitteeForInstance", pt.instance).Return(pt.powerTable, pt.beacon, nil).Once()
+	}
 	pt.host.On("Time").Return(pt.time)
 	pt.host.On("NetworkName").Return(pt.networkName).Maybe()
 	// We need to use `Maybe` here because `MarshalPayloadForSigning` may be called
@@ -98,7 +102,9 @@ func (pt *participantTestSubject) expectBeginInstance() {
 
 	// Expect calls to get the host state prior to beginning of an instance.
 	pt.host.EXPECT().GetProposalForInstance(pt.instance)
-	pt.host.EXPECT().GetCommitteeForInstance(pt.instance)
+	if !fromFinality {
+		pt.host.EXPECT().GetCommitteeForInstance(pt.instance)
+	}
 	pt.host.EXPECT().Time()
 
 	// Expect alarm is set to 2X of configured delta.
@@ -130,7 +136,7 @@ func (pt *participantTestSubject) requireInstanceRoundPhase(wantInstance, wantRo
 }
 
 func (pt *participantTestSubject) requireStart() {
-	pt.expectBeginInstance()
+	pt.expectBeginInstance(false)
 	require.NoError(pt.t, pt.Start())
 	pt.assertHostExpectations()
 	pt.requireInstanceRoundPhase(pt.instance, 0, gpbft.QUALITY_PHASE)
@@ -253,17 +259,38 @@ func TestParticipant(t *testing.T) {
 		t.Run("instance is begun", func(t *testing.T) {
 			t.Run("on ReceiveAlarm", func(t *testing.T) {
 				subject := newParticipantTestSubject(t, seed, 0)
-				subject.expectBeginInstance()
+				subject.expectBeginInstance(false)
 				require.NoError(t, subject.ReceiveAlarm())
 				subject.assertHostExpectations()
 				subject.requireInstanceRoundPhase(0, 0, gpbft.QUALITY_PHASE)
 			})
 			t.Run("on Start", func(t *testing.T) {
 				subject := newParticipantTestSubject(t, seed, 47)
-				subject.expectBeginInstance()
+				subject.expectBeginInstance(false)
 				require.NoError(t, subject.Start())
 				subject.assertHostExpectations()
 				subject.requireInstanceRoundPhase(47, 0, gpbft.QUALITY_PHASE)
+			})
+			t.Run("on ReceiveFinalityCertificate", func(t *testing.T) {
+				// initialize participant in instance 47
+				subject := newParticipantTestSubject(t, seed, 47)
+				subject.host.On("Time").Return(subject.time)
+				subject.host.EXPECT().SetAlarm(subject.time)
+				// expect an update of the participate to 57
+				fInstance := uint64(57)
+				subject.instance = fInstance
+				subject.expectBeginInstance(true)
+				// Receiving the certificate should skip directly to the finality instance.
+				require.NoError(t, subject.ReceiveFinalityCertificate(gpbft.FinalityInfo{
+					Instance: fInstance,
+					Power:    subject.powerTable,
+				}))
+				// set subject to the finality instance to see if participant
+				// has begun the right instance.
+				fmt.Println(">>>>> SUBJECT", subject.instance)
+				require.NoError(t, subject.ReceiveAlarm())
+				subject.assertHostExpectations()
+				subject.requireInstanceRoundPhase(57, 0, gpbft.QUALITY_PHASE)
 			})
 		})
 		t.Run("instance is not begun", func(t *testing.T) {
