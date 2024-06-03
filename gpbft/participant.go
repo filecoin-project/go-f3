@@ -175,6 +175,11 @@ func (p *Participant) ReceiveFinalityCertificate(f FinalityInfo) error {
 
 	// store the new committees provided by the finality certificate
 	// overwriting whatever was there already (if anything).
+	// NOTE: this may not be needed and explicitly pass the committee
+	// to this function
+	// as depending on how we handle certificates in the host, it may
+	// already store the new power tables to make them available for gpbft
+	// through the host without additional work.
 	if err := f.Power.Validate(); err != nil {
 		return fmt.Errorf("invalid power table: %w", err)
 	}
