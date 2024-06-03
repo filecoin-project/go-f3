@@ -11,6 +11,7 @@ import (
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
+	"github.com/ipfs/go-datastore/query"
 
 	"github.com/Kubuxu/go-broadcast"
 	"golang.org/x/xerrors"
@@ -42,18 +43,23 @@ func NewStore(ctx context.Context, ds datastore.Datastore) (*Store, error) {
 	return cs, nil
 }
 
-var certStoreLatestKey = datastore.NewKey("/latestCert")
-
 func (cs *Store) loadLatest(ctx context.Context) (*certs.FinalityCertificate, error) {
-	cb, err := cs.ds.Get(ctx, certStoreLatestKey)
-	if errors.Is(err, datastore.ErrNotFound) {
+	// This will optimize well on badger and leveldb.
+	res, err := cs.ds.Query(ctx, query.Query{
+		Prefix: "/certs",
+		Orders: []query.Order{query.OrderByKeyDescending{}},
+		Limit:  1,
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query for the latest finality certificate: %w", err)
+	}
+	defer res.Close()
+	val, ok := res.NextSync()
+	if !ok {
 		return nil, nil
 	}
-	if err != nil {
-		return nil, xerrors.Errorf("getting latest cert: %w", err)
-	}
 	var c certs.FinalityCertificate
-	err = c.UnmarshalCBOR(bytes.NewReader(cb))
+	err = c.UnmarshalCBOR(bytes.NewReader(val.Value))
 	if err != nil {
 		return nil, xerrors.Errorf("unmarshalling latest cert: %w", err)
 	}
@@ -153,9 +159,6 @@ func (cs *Store) Put(ctx context.Context, cert *certs.FinalityCertificate) error
 	}
 
 	if err := cs.ds.Put(ctx, key, buf.Bytes()); err != nil {
-		return xerrors.Errorf("putting the cert: %w", err)
-	}
-	if err := cs.ds.Put(ctx, certStoreLatestKey, buf.Bytes()); err != nil {
 		return xerrors.Errorf("putting the cert: %w", err)
 	}
 	cs.busCerts.Publish(cert) // Publish within the lock to ensure ordering
