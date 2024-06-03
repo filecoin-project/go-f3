@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 )
 
 // An F3 participant runs repeated instances of Granite to finalise longer chains.
@@ -11,12 +12,18 @@ type Participant struct {
 	*options
 	host Host
 
+	// Mutex protecting currentInstance and committees cache for concurrent validation.
+	// Note that not every access need be protected:
+	// - writes to currentInstance, and reads from it during validation,
+	// - reads from or writes to committees (which is written during validation).
+	mutex sync.Mutex
 	// Instance identifier for the current (or, if none, next to start) GPBFT instance.
 	currentInstance uint64
-	// Current Granite instance.
-	gpbft *instance
 	// Cache of committees for the current or future instances.
 	committees map[uint64]*committee
+
+	// Current Granite instance.
+	gpbft *instance
 	// Messages queued for future instances.
 	mqueue *messageQueue
 	// The output from the last terminated Granite instance.
@@ -86,17 +93,9 @@ func (p *Participant) ValidateMessage(msg *GMessage) (valid ValidatedMessage, er
 		}
 	}()
 
-	// Reject messages for past instances.
-	if msg.Vote.Instance < p.currentInstance {
-		return nil, fmt.Errorf("message %d, current instance %d: %w",
-			msg.Vote.Instance, p.currentInstance, ErrValidationTooOld)
-	}
-
-	// Fetch the committee against which to validate the message.
-	comt, err := p.getCommittee(msg.Vote.Instance)
+	comt, err := p.fetchCommittee(msg.Vote.Instance)
 	if err != nil {
-		return nil, fmt.Errorf("instance %d: %w: %w",
-			msg.Vote.Instance, ErrValidationNoCommittee, err)
+		return nil, err
 	}
 
 	// Validate the message.
@@ -204,11 +203,11 @@ func (p *Participant) beginInstance() error {
 		return fmt.Errorf("invalid canonical chain: %w", err)
 	}
 
-	comm, err := p.getCommittee(p.currentInstance)
+	comt, err := p.fetchCommittee(p.currentInstance)
 	if err != nil {
 		return err
 	}
-	if p.gpbft, err = newInstance(p, p.currentInstance, chain, data, *comm.power, comm.beacon); err != nil {
+	if p.gpbft, err = newInstance(p, p.currentInstance, chain, data, *comt.power, comt.beacon); err != nil {
 		return fmt.Errorf("failed creating new gpbft instance: %w", err)
 	}
 	if err := p.gpbft.Start(); err != nil {
@@ -234,34 +233,50 @@ func (p *Participant) beginInstance() error {
 	return nil
 }
 
-func (p *Participant) getCommittee(instance uint64) (*committee, error) {
-	c, ok := p.committees[instance]
+// Fetches the committee against which to validate messages for some instance.
+func (p *Participant) fetchCommittee(instance uint64) (*committee, error) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	// Reject messages for past instances.
+	if instance < p.currentInstance {
+		return nil, fmt.Errorf("instance %d, current %d: %w",
+			instance, p.currentInstance, ErrValidationTooOld)
+	}
+
+	comt, ok := p.committees[instance]
 	if !ok {
 		power, beacon, err := p.host.GetCommitteeForInstance(instance)
 		if err != nil {
-			return nil, fmt.Errorf("failed fetching committee for instance %d: %w", instance, err)
+			return nil, fmt.Errorf("instance %d: %w: %w", instance, ErrValidationNoCommittee, err)
 		}
 		if err := power.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid power table: %w", err)
+			return nil, fmt.Errorf("instance %d: %w: invalid power: %w", instance, ErrValidationNoCommittee, err)
 		}
-		c = &committee{power: power, beacon: beacon}
-		p.committees[instance] = c
+		comt = &committee{power: power, beacon: beacon}
+		p.committees[instance] = comt
 	}
-	return c, nil
+	return comt, nil
 }
 
 func (p *Participant) handleDecision() {
 	if p.terminated() {
-		p.finalised = p.gpbft.terminationValue
-		p.terminatedDuringRound = p.gpbft.round
-		delete(p.committees, p.gpbft.instanceID)
-		p.gpbft = nil
-		p.currentInstance++
+		p.finishCurrentInstance()
 		nextStart := p.host.ReceiveDecision(p.finalised)
-
 		// Set an alarm at which to fetch the next chain and begin a new instance.
 		p.host.SetAlarm(nextStart)
 	}
+}
+
+func (p *Participant) finishCurrentInstance() {
+	p.finalised = p.gpbft.terminationValue
+	p.terminatedDuringRound = p.gpbft.round
+	p.gpbft = nil
+
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	delete(p.committees, p.currentInstance)
+	p.currentInstance++
 }
 
 func (p *Participant) terminated() bool {

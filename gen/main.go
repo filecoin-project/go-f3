@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
 	gen "github.com/whyrusleeping/cbor-gen"
 )
@@ -17,6 +18,17 @@ func main() {
 		gpbft.SupplementalData{},
 		gpbft.Payload{},
 		gpbft.Justification{},
+		gpbft.PowerEntry{},
+		gpbft.PowerEntries{},
+	)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	err = gen.WriteTupleEncodersToFile("../certs/gen.go", "certs",
+		certs.PowerTableDelta{},
+		certs.FinalityCertificate{},
 	)
 	if err != nil {
 		fmt.Println(err)

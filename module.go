@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/filecoin-project/go-f3/certs"
+	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
@@ -20,7 +20,7 @@ import (
 
 type Module struct {
 	Manifest  Manifest
-	CertStore *certs.Store
+	CertStore *certstore.Store
 
 	ds     datastore.Datastore
 	host   host.Host
@@ -76,7 +76,7 @@ func (mc moduleClient) Logger() Logger {
 func NewModule(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.Datastore, h host.Host,
 	ps *pubsub.PubSub, sigs gpbft.SignerWithMarshaler, verif gpbft.Verifier, ec ECBackend, log Logger) (*Module, error) {
 	ds = namespace.Wrap(ds, manifest.NetworkName.DatastorePrefix())
-	cs, err := certs.NewStore(ctx, ds)
+	cs, err := certstore.NewStore(ctx, ds)
 	if err != nil {
 		return nil, xerrors.Errorf("creating CertStore: %w", err)
 	}

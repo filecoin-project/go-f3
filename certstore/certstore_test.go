@@ -1,9 +1,10 @@
-package certs
+package certstore
 
 import (
 	"context"
 	"testing"
 
+	"github.com/filecoin-project/go-f3/certs"
 	datastore "github.com/ipfs/go-datastore"
 	ds_sync "github.com/ipfs/go-datastore/sync"
 	"github.com/stretchr/testify/require"
@@ -35,18 +36,18 @@ func TestPut(t *testing.T) {
 	cs, err := NewStore(ctx, ds)
 	require.NoError(t, err)
 
-	cert := &Cert{Instance: 1}
+	cert := &certs.FinalityCertificate{GPBFTInstance: 1}
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
 	latest := cs.Latest()
 	require.NotNil(t, latest)
-	require.Equal(t, uint64(1), latest.Instance)
+	require.Equal(t, uint64(1), latest.GPBFTInstance)
 
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
-	cert = &Cert{Instance: 3}
+	cert = &certs.FinalityCertificate{GPBFTInstance: 3}
 	err = cs.Put(ctx, cert)
 	require.Error(t, err)
 }
@@ -62,13 +63,13 @@ func TestGet(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrCertNotFound)
 
-	cert := &Cert{Instance: 1}
+	cert := &certs.FinalityCertificate{GPBFTInstance: 1}
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
 	fetchedCert, err := cs.Get(ctx, 1)
 	require.NoError(t, err)
-	require.Equal(t, uint64(1), fetchedCert.Instance)
+	require.Equal(t, uint64(1), fetchedCert.GPBFTInstance)
 }
 
 func TestGetRange(t *testing.T) {
@@ -82,7 +83,7 @@ func TestGetRange(t *testing.T) {
 	require.Error(t, err)
 
 	for i := uint64(1); i <= 5; i++ {
-		cert := &Cert{Instance: i}
+		cert := &certs.FinalityCertificate{GPBFTInstance: i}
 		err := cs.Put(ctx, cert)
 		require.NoError(t, err)
 	}
@@ -99,11 +100,11 @@ func TestSubscribeForNewCerts(t *testing.T) {
 	cs, err := NewStore(ctx, ds)
 	require.NoError(t, err)
 
-	ch := make(chan *Cert, 1)
+	ch := make(chan *certs.FinalityCertificate, 1)
 	_, closer := cs.SubscribeForNewCerts(ch)
 	defer closer()
 
-	cert := &Cert{Instance: 1}
+	cert := &certs.FinalityCertificate{GPBFTInstance: 1}
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
@@ -123,21 +124,21 @@ func TestLatestAfterPut(t *testing.T) {
 	cs, err := NewStore(ctx, ds)
 	require.NoError(t, err)
 
-	cert := &Cert{Instance: 1}
+	cert := &certs.FinalityCertificate{GPBFTInstance: 1}
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
 	latest := cs.Latest()
 	require.NotNil(t, latest)
-	require.Equal(t, uint64(1), latest.Instance)
+	require.Equal(t, uint64(1), latest.GPBFTInstance)
 
-	cert = &Cert{Instance: 2}
+	cert = &certs.FinalityCertificate{GPBFTInstance: 2}
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
 	latest = cs.Latest()
 	require.NotNil(t, latest)
-	require.Equal(t, uint64(2), latest.Instance)
+	require.Equal(t, uint64(2), latest.GPBFTInstance)
 }
 
 func TestPutSequential(t *testing.T) {
@@ -148,12 +149,12 @@ func TestPutSequential(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := uint64(1); i <= 5; i++ {
-		cert := &Cert{Instance: i}
+		cert := &certs.FinalityCertificate{GPBFTInstance: i}
 		err := cs.Put(ctx, cert)
 		require.NoError(t, err)
 	}
 
-	cert := &Cert{Instance: 7}
+	cert := &certs.FinalityCertificate{GPBFTInstance: 7}
 	err = cs.Put(ctx, cert)
 	require.Error(t, err)
 }
@@ -166,7 +167,7 @@ func TestPersistency(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := uint64(1); i <= 5; i++ {
-		cert := &Cert{Instance: i}
+		cert := &certs.FinalityCertificate{GPBFTInstance: i}
 		err := cs1.Put(ctx, cert)
 		require.NoError(t, err)
 	}
@@ -177,8 +178,8 @@ func TestPersistency(t *testing.T) {
 	for i := uint64(1); i <= 5; i++ {
 		cert, err := cs2.Get(ctx, i)
 		require.NoError(t, err)
-		require.Equal(t, i, cert.Instance)
+		require.Equal(t, i, cert.GPBFTInstance)
 	}
 
-	require.Equal(t, cs1.Latest().Instance, cs2.Latest().Instance)
+	require.Equal(t, cs1.Latest().GPBFTInstance, cs2.Latest().GPBFTInstance)
 }
