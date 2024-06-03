@@ -3,9 +3,11 @@ package gpbft
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
+	"slices"
 	"sort"
 	"time"
 
@@ -240,28 +242,44 @@ func (i *instance) Start() error {
 // Receives and processes a message.
 // Returns an error indicating either message invalidation or a programming error.
 func (i *instance) Receive(msg *GMessage) error {
-	// Check the message is for this instance, to guard against programming error.
-	if msg.Vote.Instance != i.instanceID {
-		// Return true here to cause a loud failure at the caller, which should not have
-		// passed this message here.
-		return fmt.Errorf("message for instance %d, expected %d: %w",
-			msg.Vote.Instance, i.instanceID, ErrReceivedWrongInstance)
-	}
-	// Ensure all participants are proposing the same supplemental data. This data is based on
-	// the _base_, so everyone should agree.
-	if !msg.Vote.SupplementalData.Eq(i.supplementalData) {
-		return xerrors.Errorf("message for instance %d disagrees on the supplemental data", msg.Vote.Instance)
-	}
-	// Perform validation that could not be done until the instance started.
-	if !(msg.Vote.Value.IsZero() || msg.Vote.Value.HasBase(i.input.Base())) {
-		return fmt.Errorf("message base %s, expected %s: %w",
-			&msg.Vote.Value, i.input.Base(), ErrValidationWrongBase)
-	}
-
 	if i.terminated() {
 		return ErrReceivedAfterTermination
 	}
-	return i.receiveOne(msg)
+	if err := i.receiveOne(msg); err != nil {
+		return err
+	}
+	i.postReceive(msg.Vote.Round)
+	return nil
+}
+
+// Receives and processes a batch of queued messages.
+// Messages should be ordered by round for most effective processing.
+func (i *instance) ReceiveMany(msgs []*GMessage) error {
+	if i.terminated() {
+		return ErrReceivedAfterTermination
+	}
+
+	// Received each message and remember which rounds were received.
+	roundsReceived := map[uint64]struct{}{}
+	for _, msg := range msgs {
+		if err := i.receiveOne(msg); err != nil {
+			if errors.Is(err, ErrValidationWrongBase) || errors.Is(err, ErrValidationWrongSupplement) {
+				// Drop late-binding validation errors.
+				i.log("dropping invalid message: %s", err)
+			} else {
+				return err
+			}
+		}
+		roundsReceived[msg.Vote.Round] = struct{}{}
+	}
+	// Build unique, ordered list of rounds received.
+	rounds := make([]uint64, 0, len(roundsReceived))
+	for r := range roundsReceived {
+		rounds = append(rounds, r)
+	}
+	sort.Slice(rounds, func(i, j int) bool { return rounds[i] < rounds[j] })
+	i.postReceive(rounds...)
+	return nil
 }
 
 func (i *instance) ReceiveAlarm() error {
@@ -277,6 +295,23 @@ func (i *instance) Describe() string {
 
 // Processes a single message.
 func (i *instance) receiveOne(msg *GMessage) error {
+	// Check the message is for this instance, to guard against programming error.
+	if msg.Vote.Instance != i.instanceID {
+		return fmt.Errorf("%w: message for instance %d, expected %d",
+			ErrReceivedWrongInstance, msg.Vote.Instance, i.instanceID)
+	}
+	// Perform validation that could not be done until the instance started.
+	// Check supplemental data matches this instance's expectation.
+	if !msg.Vote.SupplementalData.Eq(i.supplementalData) {
+		return fmt.Errorf("%w: message supplement %s, expected %s",
+			ErrValidationWrongSupplement, msg.Vote.SupplementalData, i.supplementalData)
+	}
+	// Check proposal has the expected base chain.
+	if !(msg.Vote.Value.IsZero() || msg.Vote.Value.HasBase(i.input.Base())) {
+		return fmt.Errorf("%w: message base %s, expected %s",
+			ErrValidationWrongBase, &msg.Vote.Value, i.input.Base())
+	}
+
 	if i.phase == TERMINATED_PHASE {
 		return nil // No-op
 	}
@@ -328,11 +363,6 @@ func (i *instance) receiveOne(msg *GMessage) error {
 		i.log("unexpected message %v", msg)
 	}
 
-	// Check whether the instance should skip ahead to future round.
-	if chain, justification, skip := i.shouldSkipToRound(msg.Vote.Round, round); skip {
-		i.skipToRound(msg.Vote.Round, chain, justification)
-		return nil
-	}
 	// Every COMMIT phase stays open to new messages even after the protocol moves on to
 	// a new round. Late-arriving COMMITS can still (must) cause a local decision, *in that round*.
 	// Try to complete the COMMIT phase for the round specified by the message.
@@ -341,6 +371,18 @@ func (i *instance) receiveOne(msg *GMessage) error {
 	}
 	// Try to complete the current phase in the current round.
 	return i.tryCurrentPhase()
+}
+
+func (i *instance) postReceive(roundsReceived ...uint64) {
+	// Check whether the instance should skip ahead to future round, in descending order.
+	slices.Reverse(roundsReceived)
+	for _, r := range roundsReceived {
+		round := i.roundState(r)
+		if chain, justification, skip := i.shouldSkipToRound(r, round); skip {
+			i.skipToRound(r, chain, justification)
+			return
+		}
+	}
 }
 
 // shouldSkipToRound determines whether to skip to round, and justification
