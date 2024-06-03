@@ -287,7 +287,6 @@ func TestParticipant(t *testing.T) {
 				}))
 				// set subject to the finality instance to see if participant
 				// has begun the right instance.
-				fmt.Println(">>>>> SUBJECT", subject.instance)
 				require.NoError(t, subject.ReceiveAlarm())
 				subject.assertHostExpectations()
 				subject.requireInstanceRoundPhase(57, 0, gpbft.QUALITY_PHASE)
