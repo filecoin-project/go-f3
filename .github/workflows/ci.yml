@@ -14,14 +14,14 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.21'
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.58
+          version: v1.59
           only-new-issues: true
       - name: Tidy go.mod
         run: go mod tidy
@@ -33,8 +33,8 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.21'
       - name: Build
@@ -42,9 +42,9 @@ jobs:
       - name: Test
         run: make test/cover
       - name: Upload coverage to Codecov
-        # Commit SHA corresponds to version v4.4.0
-        # See: https://github.com/codecov/codecov-action/releases/tag/v4.4.0
-        uses: codecov/codecov-action@6d798873df2b1b8e5846dba6fb86631229fbcb17
+        # Commit SHA corresponds to version v4.4.1
+        # See: https://github.com/codecov/codecov-action/releases/tag/v4.4.1
+        uses: codecov/codecov-action@125fc84a9a348dbcf27191600683ec096ec9021c
         # Don't run coverage on merge queue CI to avoid duplicating reports to codecov.
         # Otherwise base coverage from main branch does not render properly.
         #
@@ -61,8 +61,8 @@ jobs:
     needs:
       - test # Do not bother running the fuzz tests if tests fail
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.21'
       - name: Fuzz
@@ -98,8 +98,8 @@ jobs:
     name: Generate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.21'
       - name: Generate
