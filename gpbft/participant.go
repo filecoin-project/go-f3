@@ -219,20 +219,14 @@ func (p *Participant) beginInstance() error {
 		return fmt.Errorf("failed starting gpbft instance: %w", err)
 	}
 	// Deliver any queued messages for the new instance.
-	for _, msg := range p.mqueue.Drain(p.gpbft.instanceID) {
-		if p.terminated() {
-			break
-		}
-		if p.tracer != nil {
+	queued := p.mqueue.Drain(p.gpbft.instanceID)
+	if p.tracer != nil {
+		for _, msg := range queued {
 			p.tracer.Log("Delivering queued {%d} ← P%d: %v", p.gpbft.instanceID, msg.Sender, msg)
 		}
-		if err := p.gpbft.Receive(msg); err != nil {
-			if errors.Is(err, ErrValidationWrongBase) {
-				// Silently ignore this late-binding validation error
-			} else {
-				return fmt.Errorf("delivering queued message: %w", err)
-			}
-		}
+	}
+	if err := p.gpbft.ReceiveMany(queued); err != nil {
+		return fmt.Errorf("delivering queued messages: %w", err)
 	}
 	p.handleDecision()
 	return nil
@@ -339,12 +333,13 @@ func (q *messageQueue) Add(msg *GMessage) {
 	instanceQueue[msg.Sender] = append(instanceQueue[msg.Sender], msg)
 }
 
+// Removes and returns all messages for an instance.
+// The returned messages are ordered by round and step.
 func (q *messageQueue) Drain(instance uint64) []*GMessage {
 	var msgs []*GMessage
 	for _, ms := range q.messages[instance] {
 		msgs = append(msgs, ms...)
 	}
-	// Sort by round and then step so messages will be processed in a useful order.
 	sort.SliceStable(msgs, func(i, j int) bool {
 		if msgs[i].Vote.Round != msgs[j].Vote.Round {
 			return msgs[i].Vote.Round < msgs[j].Vote.Round

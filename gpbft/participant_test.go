@@ -52,18 +52,21 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 
 	rng := rand.New(rand.NewSource(seed))
 	subject := participantTestSubject{
-		t:                t,
-		rng:              rng,
-		id:               gpbft.ActorID(rng.Uint64()),
-		pubKey:           generateRandomBytes(rng),
-		delta:            delta,
-		instance:         instance,
-		networkName:      "fish",
-		canonicalChain:   canonicalChain,
-		supplementalData: new(gpbft.SupplementalData),
-		powerTable:       gpbft.NewPowerTable(),
-		beacon:           generateRandomBytes(rng),
-		time:             time.Now(),
+		t:              t,
+		rng:            rng,
+		id:             gpbft.ActorID(rng.Uint64()),
+		pubKey:         generateRandomBytes(rng),
+		delta:          delta,
+		instance:       instance,
+		networkName:    "fish",
+		canonicalChain: canonicalChain,
+		supplementalData: &gpbft.SupplementalData{
+			Commitments: [32]byte{},
+			PowerTable:  []byte("powertable"),
+		},
+		powerTable: gpbft.NewPowerTable(),
+		beacon:     generateRandomBytes(rng),
+		time:       time.Now(),
 	}
 
 	// Assure power table contains the power entry for the test subject
@@ -363,14 +366,36 @@ func TestParticipant(t *testing.T) {
 						return &gpbft.GMessage{
 							Sender: somePowerEntry.ID,
 							Vote: gpbft.Payload{
-								Instance: initialInstance,
-								Step:     gpbft.QUALITY_PHASE,
-								Value:    gpbft.ECChain{gpbft.TipSet{Epoch: 0, Key: []byte("wrong")}},
+								Instance:         initialInstance,
+								Step:             gpbft.QUALITY_PHASE,
+								SupplementalData: *subject.supplementalData,
+								Value:            gpbft.ECChain{gpbft.TipSet{Epoch: 0, Key: []byte("wrong")}},
 							},
 							Signature: signature,
 						}
 					},
 					wantErr: "unexpected base",
+				},
+				{
+					name: "current instance message with unexpected supplement is rejected",
+					message: func(subject *participantTestSubject) *gpbft.GMessage {
+						require.NoError(subject.t, subject.powerTable.Add(somePowerEntry))
+						return &gpbft.GMessage{
+							Sender: somePowerEntry.ID,
+							Vote: gpbft.Payload{
+								Instance: initialInstance,
+								Step:     gpbft.QUALITY_PHASE,
+								SupplementalData: gpbft.SupplementalData{
+									Commitments: [32]byte{},
+									PowerTable:  []byte("wrong"),
+								},
+								Value: subject.canonicalChain,
+							},
+
+							Signature: signature,
+						}
+					},
+					wantErr: "unexpected supplement",
 				},
 				{
 					name: "future instance message with unexpected base is queued",
@@ -379,9 +404,10 @@ func TestParticipant(t *testing.T) {
 						return &gpbft.GMessage{
 							Sender: somePowerEntry.ID,
 							Vote: gpbft.Payload{
-								Instance: initialInstance + 1,
-								Step:     gpbft.QUALITY_PHASE,
-								Value:    gpbft.ECChain{gpbft.TipSet{Epoch: 0, Key: []byte("wrong")}},
+								Instance:         initialInstance + 1,
+								Step:             gpbft.QUALITY_PHASE,
+								SupplementalData: *subject.supplementalData,
+								Value:            gpbft.ECChain{gpbft.TipSet{Epoch: 0, Key: []byte("wrong")}},
 							},
 							Signature: signature,
 						}
@@ -394,9 +420,10 @@ func TestParticipant(t *testing.T) {
 						return &gpbft.GMessage{
 							Sender: somePowerEntry.ID,
 							Vote: gpbft.Payload{
-								Instance: initialInstance,
-								Step:     gpbft.QUALITY_PHASE,
-								Value:    subject.canonicalChain,
+								Instance:         initialInstance,
+								Step:             gpbft.QUALITY_PHASE,
+								SupplementalData: *subject.supplementalData,
+								Value:            subject.canonicalChain,
 							},
 							Signature: signature,
 						}

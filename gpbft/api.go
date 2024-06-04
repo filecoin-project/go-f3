@@ -7,10 +7,11 @@ import (
 
 // Sentinel errors for the message validation and reception APIs.
 var (
-	ErrValidationTooOld      = errors.New("message is for prior instance")
-	ErrValidationNoCommittee = errors.New("no committee for instance")
-	ErrValidationInvalid     = errors.New("message invalid")
-	ErrValidationWrongBase   = errors.New("unexpected base chain")
+	ErrValidationTooOld          = errors.New("message is for prior instance")
+	ErrValidationNoCommittee     = errors.New("no committee for instance")
+	ErrValidationInvalid         = errors.New("message invalid")
+	ErrValidationWrongBase       = errors.New("unexpected base chain")
+	ErrValidationWrongSupplement = errors.New("unexpected supplemental data")
 
 	ErrReceivedWrongInstance    = errors.New("received message for wrong instance")
 	ErrReceivedAfterTermination = errors.New("received message after terminating")
