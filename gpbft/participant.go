@@ -67,16 +67,12 @@ func NewParticipant(host Host, o ...Option) (*Participant, error) {
 	}, nil
 }
 
-// TODO: Consider using SkipToInstance under the hood to directly
-// start the current instance
+// Start uses SkipToInstance() under the hood to trigger
+// the start of the first instance.
+// This way we handle in an homogeneous way the start of
+// new instances
 func (p *Participant) Start() (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = &PanicError{Err: r}
-		}
-	}()
-
-	return p.beginInstance()
+	return p.SkipToInstance(p.currentInstance)
 }
 
 func (p *Participant) CurrentRound() uint64 {
