@@ -28,7 +28,7 @@ func requireConsensusAtInstance(t *testing.T, sm *sim.Simulation, instance uint6
 func generateECChain(t *testing.T, tsg *sim.TipSetGenerator) gpbft.ECChain {
 	t.Helper()
 	// TODO: add stochastic chain generation.
-	chain, err := gpbft.NewChain(gpbft.TipSet{Epoch: 0, Key: tsg.Sample()})
+	chain, err := gpbft.NewChain(gpbft.TipSet{Epoch: 0, Key: tsg.Sample(), PowerTable: []byte("pt")})
 	require.NoError(t, err)
 	return chain
 }
