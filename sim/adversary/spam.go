@@ -79,5 +79,5 @@ func (s *Spam) spamAtInstance(instance uint64) {
 
 func (s *Spam) ID() gpbft.ActorID                                              { return s.id }
 func (s *Spam) ReceiveAlarm() error                                            { return nil }
-func (s *Spam) SkipToInstance(_ uint64) error                                  { return nil }
+func (s *Spam) SkipToInstance(uint64)                                          {}
 func (s *Spam) AllowMessage(gpbft.ActorID, gpbft.ActorID, gpbft.GMessage) bool { return true }

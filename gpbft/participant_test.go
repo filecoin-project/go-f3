@@ -288,7 +288,7 @@ func TestParticipant(t *testing.T) {
 				subject.instance = fInstance
 				subject.expectBeginInstance()
 				// Receiving the certificate should skip directly to the finality instance.
-				require.NoError(t, subject.SkipToInstance(fInstance))
+				subject.SkipToInstance(fInstance)
 				// set subject to the finality instance to see if participant
 				// has begun the right instance.
 				require.NoError(t, subject.ReceiveAlarm())

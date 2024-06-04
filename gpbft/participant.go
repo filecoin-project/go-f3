@@ -67,12 +67,12 @@ func NewParticipant(host Host, o ...Option) (*Participant, error) {
 	}, nil
 }
 
-// Start uses SkipToInstance() under the hood to trigger
+// Start uses SkipToInstance under the hood to trigger
 // the start of the first instance.
 // This way we handle in an homogeneous way the start of
 // new instances
-func (p *Participant) Start() (err error) {
-	return p.SkipToInstance(p.currentInstance)
+func (p *Participant) Start() {
+	p.SkipToInstance(p.currentInstance)
 }
 
 func (p *Participant) CurrentRound() uint64 {
@@ -149,7 +149,7 @@ func (p *Participant) ReceiveAlarm() (err error) {
 }
 
 // Triggers the start to the instance defined as an argument.
-func (p *Participant) SkipToInstance(i uint64) error {
+func (p *Participant) SkipToInstance(i uint64) {
 	// Finish current instance to clean old committees and old messages queued
 	// and prepare to begin a new instance.
 	p.finishCurrentInstance(i)
@@ -158,8 +158,6 @@ func (p *Participant) SkipToInstance(i uint64) error {
 	// This will fetch the chain, drain existing messages for that instance,
 	// and start the instance.
 	p.host.SetAlarm(p.host.Time())
-
-	return nil
 }
 
 func (p *Participant) beginInstance() error {

@@ -44,9 +44,7 @@ func (*Absent) ReceiveMessage(_ gpbft.ValidatedMessage) error {
 	return nil
 }
 
-func (*Absent) SkipToInstance(_ uint64) error {
-	return nil
-}
+func (*Absent) SkipToInstance(uint64) {}
 
 func (*Absent) ReceiveAlarm() error {
 	return nil

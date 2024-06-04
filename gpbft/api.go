@@ -54,11 +54,10 @@ type MessageReceiver interface {
 
 // Interface which network participants must implement.
 type Receiver interface {
-	// Beings the execution of the instance number passed as an argument.
-	// The node will request the canonical chain to propose from the host.
-	// This function cna be used to skip directly to an instance number,
-	// for instance, when a new valid finality certificate is received
-	SkipToInstance(uint64) error
+	// SkipToInstance jumps directly to a given instance.
+	// This can be triggered by the reception of a valid finality certificate, or
+	// whenever a new instance for a participant want to be started.
+	SkipToInstance(uint64)
 	MessageValidator
 	MessageReceiver
 }
