@@ -218,7 +218,7 @@ func TestParticipant(t *testing.T) {
 			subject := newParticipantTestSubject(t, seed, 0)
 			subject.host.On("GetProposalForInstance", subject.instance).Panic("saw me no chain")
 			require.NotPanics(t, func() {
-				require.ErrorContains(t, subject.ReceiveAlarm(), "saw me no chain")
+				require.ErrorContains(t, subject.Start(), "saw me no chain")
 			})
 		})
 		t.Run("on ReceiveAlarm", func(t *testing.T) {
@@ -274,7 +274,7 @@ func TestParticipant(t *testing.T) {
 			t.Run("on Start", func(t *testing.T) {
 				subject := newParticipantTestSubject(t, seed, 47)
 				subject.expectBeginInstance()
-				require.NoError(t, subject.ReceiveAlarm())
+				require.NoError(t, subject.Start())
 				subject.assertHostExpectations()
 				subject.requireInstanceRoundPhase(47, 0, gpbft.QUALITY_PHASE)
 			})
@@ -302,7 +302,7 @@ func TestParticipant(t *testing.T) {
 				var zeroChain gpbft.ECChain
 				emptySupplementalData := new(gpbft.SupplementalData)
 				subject.host.On("GetProposalForInstance", subject.instance).Return(emptySupplementalData, zeroChain, nil)
-				require.ErrorContains(t, subject.ReceiveAlarm(), "cannot be zero-valued")
+				require.ErrorContains(t, subject.Start(), "cannot be zero-valued")
 				subject.assertHostExpectations()
 				subject.requireNotStarted()
 			})
@@ -311,7 +311,7 @@ func TestParticipant(t *testing.T) {
 				invalidChain := gpbft.ECChain{gpbft.TipSet{}}
 				emptySupplementalData := new(gpbft.SupplementalData)
 				subject.host.On("GetProposalForInstance", subject.instance).Return(emptySupplementalData, invalidChain, nil)
-				require.ErrorContains(t, subject.ReceiveAlarm(), "invalid canonical chain")
+				require.ErrorContains(t, subject.Start(), "invalid canonical chain")
 				subject.assertHostExpectations()
 				subject.requireNotStarted()
 			})
@@ -320,7 +320,7 @@ func TestParticipant(t *testing.T) {
 				invalidChain := gpbft.ECChain{gpbft.TipSet{}}
 				emptySupplementalData := new(gpbft.SupplementalData)
 				subject.host.On("GetProposalForInstance", subject.instance).Return(emptySupplementalData, invalidChain, errors.New("fish"))
-				require.ErrorContains(t, subject.ReceiveAlarm(), "fish")
+				require.ErrorContains(t, subject.Start(), "fish")
 				subject.assertHostExpectations()
 				subject.requireNotStarted()
 			})
@@ -337,7 +337,7 @@ func TestParticipant(t *testing.T) {
 				}
 				subject.host.On("GetProposalForInstance", subject.instance).Return(supplementalData, chain, nil)
 				subject.host.On("GetCommitteeForInstance", subject.instance).Return(nil, nil, errors.New("fish"))
-				require.ErrorContains(t, subject.ReceiveAlarm(), "fish")
+				require.ErrorContains(t, subject.Start(), "fish")
 				subject.assertHostExpectations()
 				subject.requireNotStarted()
 			})
