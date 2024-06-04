@@ -52,26 +52,15 @@ type MessageReceiver interface {
 	ReceiveAlarm() error
 }
 
-// Supports catching-up with other participants by pulling finality certificates.
-type FinalityReceiver interface {
-	// Receives a finality certificate pulled by the host because its is stuck.
-	// This triggers the protocol to skip to the new instance determined by the finality certificate.
-	// It terminates the current instance and starts from the one specified.
-	//
-	// This function expects the host to have already validated the finality certificate,
-	// and provide the new instance ID and any updates regarding the committees for that instance
-	// (and future instances?)
-	ReceiveFinalityCertificate(FinalityInfo) error
-}
-
 // Interface which network participants must implement.
 type Receiver interface {
-	// Begins executing the protocol.
+	// Beings the execution of the instance number passed as an argument.
 	// The node will request the canonical chain to propose from the host.
-	Start() error
+	// This function cna be used to skip directly to an instance number,
+	// for instance, when a new valid finality certificate is received
+	SkipToInstance(uint64) error
 	MessageValidator
 	MessageReceiver
-	FinalityReceiver
 }
 
 type Chain interface {

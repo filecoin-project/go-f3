@@ -67,7 +67,8 @@ func NewParticipant(host Host, o ...Option) (*Participant, error) {
 	}, nil
 }
 
-// Fetches the preferred EC chain for the instance and begins the GPBFT protocol.
+// TODO: Consider using SkipToInstance under the hood to directly
+// start the current instance
 func (p *Participant) Start() (err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -151,40 +152,11 @@ func (p *Participant) ReceiveAlarm() (err error) {
 	return nil
 }
 
-// FinalityInfo is an auxiliary struct to pass relevant info from the finality certificate
-// NOTE: It is not clear to me what information is available in the finality certificate
-// and in what form. The information provided here may change, using it as a placeholder for now.
-type FinalityInfo struct {
-	Instance uint64
-	Power    *PowerTable
-	Beacon   []byte
-}
-
-func (p *Participant) ReceiveFinalityCertificate(f FinalityInfo) error {
-	// Get ready to start the instance defined in the finality certificate for the next instance
-	p.gpbft = nil
-	prevInstance := p.currentInstance
-	// Set the instance from the certificate as the current one.
-	p.currentInstance = f.Instance
-	// clean all messages queued for instances below the one in the finality certificate
-	// and old committees
-	for i := prevInstance + 1; i < p.currentInstance; i++ {
-		delete(p.mqueue.messages, i)
-		delete(p.committees, i)
-	}
-
-	// store the new committees provided by the finality certificate
-	// overwriting whatever was there already (if anything).
-	// NOTE: this may not be needed and explicitly pass the committee
-	// to this function
-	// as depending on how we handle certificates in the host, it may
-	// already store the new power tables to make them available for gpbft
-	// through the host without additional work.
-	if err := f.Power.Validate(); err != nil {
-		return fmt.Errorf("invalid power table: %w", err)
-	}
-	com := &committee{power: f.Power, beacon: f.Beacon}
-	p.committees[f.Instance] = com
+// Triggers the start to the instance defined as an argument.
+func (p *Participant) SkipToInstance(i uint64) error {
+	// Finish current instance to clean old committees and old messages queued
+	// and prepare to begin a new instance.
+	p.finishCurrentInstance(i)
 
 	// Set the alarm to begin a new instance immediately.
 	// This will fetch the chain, drain existing messages for that instance,
@@ -260,22 +232,32 @@ func (p *Participant) fetchCommittee(instance uint64) (*committee, error) {
 
 func (p *Participant) handleDecision() {
 	if p.terminated() {
-		p.finishCurrentInstance()
+		// finish current instance and move to the next one
+		p.finishCurrentInstance(p.currentInstance + 1)
 		nextStart := p.host.ReceiveDecision(p.finalised)
 		// Set an alarm at which to fetch the next chain and begin a new instance.
 		p.host.SetAlarm(nextStart)
 	}
 }
 
-func (p *Participant) finishCurrentInstance() {
-	p.finalised = p.gpbft.terminationValue
-	p.terminatedDuringRound = p.gpbft.round
+func (p *Participant) finishCurrentInstance(nextInstance uint64) {
+	// Update gpbft-specific parameters if we are skipping from
+	// a finalized run of the protocol.
+	if p.gpbft != nil {
+		p.finalised = p.gpbft.terminationValue
+		p.terminatedDuringRound = p.gpbft.round
+	}
 	p.gpbft = nil
 
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	delete(p.committees, p.currentInstance)
-	p.currentInstance++
+	// clean all messages queued and old committees for instances below the next
+	// one
+	for i := p.currentInstance; i < nextInstance; i++ {
+		delete(p.mqueue.messages, i)
+		delete(p.committees, i)
+	}
+	p.currentInstance = nextInstance
 }
 
 func (p *Participant) terminated() bool {

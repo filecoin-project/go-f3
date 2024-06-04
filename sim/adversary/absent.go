@@ -44,7 +44,7 @@ func (*Absent) ReceiveMessage(_ gpbft.ValidatedMessage) error {
 	return nil
 }
 
-func (*Absent) ReceiveFinalityCertificate(_ gpbft.FinalityInfo) error {
+func (*Absent) SkipToInstance(_ uint64) error {
 	return nil
 }
 
