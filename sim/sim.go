@@ -112,7 +112,9 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 func (s *Simulation) startParticipants() {
 	// Start participants.
 	for _, p := range s.participants {
-		p.Start()
+		if err := p.Start(); err != nil {
+			panic(fmt.Errorf("participant %d failed starting: %w", p.ID(), err))
+		}
 	}
 	// Start adversary
 	if s.adversary != nil {
