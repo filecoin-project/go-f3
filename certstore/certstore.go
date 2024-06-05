@@ -121,7 +121,7 @@ func (cs *Store) GetRange(ctx context.Context, start uint64, end uint64) ([]cert
 	return certs, nil
 }
 
-func (_ *Store) keyForInstance(i uint64) datastore.Key {
+func (*Store) keyForInstance(i uint64) datastore.Key {
 	return datastore.NewKey(fmt.Sprintf("/certs/%016X", i))
 }
 
