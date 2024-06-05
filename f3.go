@@ -18,7 +18,7 @@ import (
 	"golang.org/x/xerrors"
 )
 
-type Module struct {
+type F3 struct {
 	Manifest  Manifest
 	CertStore *certstore.Store
 
@@ -28,10 +28,10 @@ type Module struct {
 	ec     ECBackend
 	log    Logger
 
-	client moduleClient
+	client clientImpl
 }
 
-type moduleClient struct {
+type clientImpl struct {
 	id gpbft.ActorID
 	nn gpbft.NetworkName
 	gpbft.Verifier
@@ -44,7 +44,7 @@ type moduleClient struct {
 	topic        *pubsub.Topic
 }
 
-func (mc moduleClient) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder) error {
+func (mc clientImpl) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder) error {
 	msg, err := mb.Build(mc.nn, mc.SignerWithMarshaler, mc.id)
 	if err != nil {
 		mc.Log("building message for: %d: %+v", mc.id, err)
@@ -58,23 +58,23 @@ func (mc moduleClient) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBu
 	return mc.topic.Publish(ctx, bw.Bytes())
 }
 
-func (mc moduleClient) IncommingMessages() <-chan *gpbft.GMessage {
+func (mc clientImpl) IncommingMessages() <-chan *gpbft.GMessage {
 	return mc.messageQueue
 }
 
 // Log fulfills the gpbft.Tracer interface
-func (mc moduleClient) Log(fmt string, args ...any) {
+func (mc clientImpl) Log(fmt string, args ...any) {
 	mc.loggerWithSkip.Debugf(fmt, args...)
 }
 
-func (mc moduleClient) Logger() Logger {
+func (mc clientImpl) Logger() Logger {
 	return mc.logger
 }
 
 // New creates and setups f3 with libp2p
 // The context is used for initialization not runtime.
 func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.Datastore, h host.Host,
-	ps *pubsub.PubSub, sigs gpbft.SignerWithMarshaler, verif gpbft.Verifier, ec ECBackend, log Logger) (*Module, error) {
+	ps *pubsub.PubSub, sigs gpbft.SignerWithMarshaler, verif gpbft.Verifier, ec ECBackend, log Logger) (*F3, error) {
 	ds = namespace.Wrap(ds, manifest.NetworkName.DatastorePrefix())
 	cs, err := certstore.NewStore(ctx, ds)
 	if err != nil {
@@ -85,7 +85,7 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 		loggerWithSkip = logging.WithSkip(zapLogger, 1)
 	}
 
-	m := Module{
+	m := F3{
 		Manifest:  manifest,
 		CertStore: cs,
 
@@ -95,7 +95,7 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 		ec:     ec,
 		log:    log,
 
-		client: moduleClient{
+		client: clientImpl{
 			nn:                  manifest.NetworkName,
 			id:                  id,
 			Verifier:            verif,
@@ -107,7 +107,7 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 
 	return &m, nil
 }
-func (m *Module) setupPubsub() error {
+func (m *F3) setupPubsub() error {
 	pubsubTopicName := m.Manifest.NetworkName.PubSubTopic()
 	err := m.pubsub.RegisterTopicValidator(pubsubTopicName, m.pubsubTopicValidator)
 	if err != nil {
@@ -122,7 +122,7 @@ func (m *Module) setupPubsub() error {
 	return nil
 }
 
-func (m *Module) teardownPubsub() error {
+func (m *F3) teardownPubsub() error {
 	return multierr.Combine(
 		m.pubsub.UnregisterTopicValidator(m.Manifest.NetworkName.PubSubTopic()),
 		m.client.topic.Close(),
@@ -130,7 +130,7 @@ func (m *Module) teardownPubsub() error {
 }
 
 // Run start the module. It will exit when context is cancelled.
-func (m *Module) Run(ctx context.Context) error {
+func (m *F3) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	if err := m.setupPubsub(); err != nil {
@@ -192,10 +192,10 @@ loop:
 	return multierr.Append(err, ctx.Err())
 }
 
-var _ pubsub.ValidatorEx = (*Module)(nil).pubsubTopicValidator
+var _ pubsub.ValidatorEx = (*F3)(nil).pubsubTopicValidator
 
 // validator for the pubsub
-func (m *Module) pubsubTopicValidator(ctx context.Context, pID peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
+func (m *F3) pubsubTopicValidator(ctx context.Context, pID peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
 	var gmsg gpbft.GMessage
 	err := gmsg.UnmarshalCBOR(bytes.NewReader(msg.Data))
 	if err != nil {
