@@ -71,9 +71,9 @@ func (mc moduleClient) Logger() Logger {
 	return mc.logger
 }
 
-// NewModule creates and setups new libp2p f3 module
+// New creates and setups f3 with libp2p
 // The context is used for initialization not runtime.
-func NewModule(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.Datastore, h host.Host,
+func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.Datastore, h host.Host,
 	ps *pubsub.PubSub, sigs gpbft.SignerWithMarshaler, verif gpbft.Verifier, ec ECBackend, log Logger) (*Module, error) {
 	ds = namespace.Wrap(ds, manifest.NetworkName.DatastorePrefix())
 	cs, err := certstore.NewStore(ctx, ds)
@@ -96,6 +96,7 @@ func NewModule(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds data
 		log:    log,
 
 		client: moduleClient{
+			nn:                  manifest.NetworkName,
 			id:                  id,
 			Verifier:            verif,
 			SignerWithMarshaler: sigs,

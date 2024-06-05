@@ -69,10 +69,10 @@ var runCmd = cli.Command{
 			return xerrors.Errorf("setting log level: %w", err)
 		}
 
-		signingBackend := signing.NewFakeBackend()
+		signingBackend := &fakeSigner{*signing.NewFakeBackend()}
 		id := c.Uint64("id")
 		signingBackend.Allow(int(id))
-		module, err := f3.NewModule(ctx, gpbft.ActorID(id), m, ds, h, ps, signingBackend, signingBackend, nil, log)
+		module, err := f3.New(ctx, gpbft.ActorID(id), m, ds, h, ps, signingBackend, signingBackend, nil, log)
 		if err != nil {
 			return xerrors.Errorf("creating module: %w", err)
 		}
@@ -97,4 +97,16 @@ func setupDiscovery(h host.Host) (closer func(), err error) {
 	// setup mDNS discovery to find local peers
 	s := mdns.NewMdnsService(h, DiscoveryTag, &discoveryNotifee{h: h})
 	return func() { s.Close() }, s.Start()
+}
+
+type fakeSigner struct {
+	signing.FakeBackend
+}
+
+// MarshalPayloadForSigning marshals the given payload into the bytes that should be signed.
+// This should usually call `Payload.MarshalForSigning(NetworkName)` except when testing as
+// that method is slow (computes a merkle tree that's necessary for testing).
+// Implementations must be safe for concurrent use.
+func (fs *fakeSigner) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Payload) []byte {
+	return p.MarshalForSigning(nn)
 }

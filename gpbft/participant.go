@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+
+	xerrors "golang.org/x/xerrors"
 )
 
 // An F3 participant runs repeated instances of Granite to finalise longer chains.
@@ -100,7 +102,7 @@ func (p *Participant) ValidateMessage(msg *GMessage) (valid ValidatedMessage, er
 
 	// Validate the message.
 	if err = ValidateMessage(comt.power, comt.beacon, p.host, msg); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrValidationInvalid, err)
+		return nil, xerrors.Errorf("%v: %w", err, ErrValidationInvalid)
 	}
 	return &validatedMessage{msg: msg}, nil
 }
