@@ -34,6 +34,7 @@ type gpbftRunner struct {
 	log        Logger
 }
 
+// gpbftHost is a newtype of gpbftRunner exposing APIs required by the gpbft.Participant
 type gpbftHost gpbftRunner
 
 func newRunner(id gpbft.ActorID, m Manifest, client Client) (*gpbftRunner, error) {
