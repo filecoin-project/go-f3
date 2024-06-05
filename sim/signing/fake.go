@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"golang.org/x/xerrors"
@@ -14,8 +15,10 @@ import (
 var _ Backend = (*FakeBackend)(nil)
 
 type FakeBackend struct {
-	allowed map[string]struct{}
+	// mu Guards both i and allowed map access.
+	mu      sync.RWMutex
 	i       int
+	allowed map[string]struct{}
 }
 
 func NewFakeBackend() *FakeBackend {
@@ -23,6 +26,8 @@ func NewFakeBackend() *FakeBackend {
 }
 
 func (s *FakeBackend) GenerateKey() (gpbft.PubKey, any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	pubKey := gpbft.PubKey(fmt.Sprintf("pubkey::%08x", s.i))
 	privKey := fmt.Sprintf("privkey:%08x", s.i)
 	s.allowed[string(pubKey)] = struct{}{}
@@ -37,6 +42,8 @@ func (s *FakeBackend) Allow(i int) gpbft.PubKey {
 }
 
 func (s *FakeBackend) Sign(signer gpbft.PubKey, msg []byte) ([]byte, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	if _, ok := s.allowed[string(signer)]; !ok {
 		return nil, xerrors.Errorf("cannot sign: unknown sender")
 	}
@@ -64,7 +71,7 @@ func (s *FakeBackend) Verify(signer gpbft.PubKey, msg, sig []byte) error {
 	}
 }
 
-func (_ *FakeBackend) Aggregate(signers []gpbft.PubKey, sigs [][]byte) ([]byte, error) {
+func (*FakeBackend) Aggregate(signers []gpbft.PubKey, sigs [][]byte) ([]byte, error) {
 	if len(signers) != len(sigs) {
 		return nil, errors.New("public keys and signatures length mismatch")
 	}

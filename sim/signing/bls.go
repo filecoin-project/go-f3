@@ -2,6 +2,7 @@ package signing
 
 import (
 	"errors"
+	"sync"
 
 	bls12381 "github.com/drand/kyber-bls12381"
 	"github.com/drand/kyber/pairing"
@@ -14,13 +15,19 @@ var _ Backend = (*BLSBackend)(nil)
 
 type BLSBackend struct {
 	gpbft.Verifier
+	suite  pairing.Suite
+	scheme *bdn.Scheme
+
+	// signersMutex guards access to signersByPubKey.
+	signersMutex    sync.RWMutex
 	signersByPubKey map[string]*blssig.Signer
-	suite           pairing.Suite
-	scheme          *bdn.Scheme
 }
 
 func (b *BLSBackend) Sign(sender gpbft.PubKey, msg []byte) ([]byte, error) {
+	b.signersMutex.RLock()
 	signer, known := b.signersByPubKey[string(sender)]
+	b.signersMutex.RUnlock()
+
 	if !known {
 		return nil, errors.New("cannot sign: unknown sender")
 	}
@@ -38,11 +45,15 @@ func NewBLSBackend() *BLSBackend {
 }
 
 func (b *BLSBackend) GenerateKey() (gpbft.PubKey, any) {
+
 	priv, pub := b.scheme.NewKeyPair(b.suite.RandomStream())
 	pubKeyB, err := pub.MarshalBinary()
 	if err != nil {
 		panic(err)
 	}
+
+	b.signersMutex.Lock()
+	defer b.signersMutex.Unlock()
 	b.signersByPubKey[string(pubKeyB)] = blssig.SignerWithKeyOnG1(pubKeyB, priv)
 	return pubKeyB, priv
 }

@@ -6,24 +6,21 @@ import (
 
 	"github.com/drand/kyber"
 	bls12381 "github.com/drand/kyber-bls12381"
-	"github.com/drand/kyber/sign"
-
-	// we use it only for signing, verification is rogue key safe
-	"github.com/drand/kyber/sign/bls" //nolint:staticcheck
+	"github.com/drand/kyber/sign/bdn"
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
 var _ gpbft.Signer = (*Signer)(nil)
 
 type Signer struct {
-	scheme  sign.AggregatableScheme
+	scheme  *bdn.Scheme
 	pubKey  gpbft.PubKey
 	privKey kyber.Scalar
 }
 
 func SignerWithKeyOnG1(pub gpbft.PubKey, privKey kyber.Scalar) *Signer {
 	return &Signer{
-		scheme:  bls.NewSchemeOnG2(bls12381.NewBLS12381Suite()),
+		scheme:  bdn.NewSchemeOnG2(bls12381.NewBLS12381Suite()),
 		pubKey:  pub,
 		privKey: privKey,
 	}
