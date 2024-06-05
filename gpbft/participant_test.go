@@ -89,8 +89,6 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 func (pt *participantTestSubject) expectBeginInstance() {
 	// Prepare the test host.
 	pt.host.On("GetProposalForInstance", pt.instance).Return(pt.supplementalData, pt.canonicalChain, nil)
-	// if we begin instance from finality, the committee is already available for the instance
-	// and there is no call to GetCommitteeForInstance
 	pt.host.On("GetCommitteeForInstance", pt.instance).Return(pt.powerTable, pt.beacon, nil).Once()
 	pt.host.On("Time").Return(pt.time)
 	pt.host.On("NetworkName").Return(pt.networkName).Maybe()
@@ -278,7 +276,7 @@ func TestParticipant(t *testing.T) {
 				subject.assertHostExpectations()
 				subject.requireInstanceRoundPhase(47, 0, gpbft.QUALITY_PHASE)
 			})
-			t.Run("on ReceiveFinalityCertificate", func(t *testing.T) {
+			t.Run("on SkipTToInstance", func(t *testing.T) {
 				// initialize participant in instance 47
 				subject := newParticipantTestSubject(t, seed, 47)
 				subject.host.On("Time").Return(subject.time)
@@ -288,7 +286,7 @@ func TestParticipant(t *testing.T) {
 				subject.instance = fInstance
 				subject.expectBeginInstance()
 				// Receiving the certificate should skip directly to the finality instance.
-				subject.SkipToInstance(fInstance)
+				require.NoError(t, subject.SkipToInstance(fInstance))
 				// set subject to the finality instance to see if participant
 				// has begun the right instance.
 				require.NoError(t, subject.ReceiveAlarm())

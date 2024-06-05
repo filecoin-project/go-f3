@@ -65,4 +65,4 @@ func (*Deny) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error
 }
 func (*Deny) ReceiveMessage(_ gpbft.ValidatedMessage) error { return nil }
 func (*Deny) ReceiveAlarm() error                           { return nil }
-func (*Deny) SkipToInstance(uint64)                         {}
+func (*Deny) SkipToInstance(uint64) error                   { return nil }

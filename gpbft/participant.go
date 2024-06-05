@@ -71,8 +71,13 @@ func NewParticipant(host Host, o ...Option) (*Participant, error) {
 // the start of the first instance.
 // This way we handle in an homogeneous way the start of
 // new instances
-func (p *Participant) Start() {
-	p.SkipToInstance(p.currentInstance)
+func (p *Participant) Start() (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = &PanicError{Err: r}
+		}
+	}()
+	return p.SkipToInstance(p.currentInstance)
 }
 
 func (p *Participant) CurrentRound() uint64 {
@@ -149,7 +154,13 @@ func (p *Participant) ReceiveAlarm() (err error) {
 }
 
 // Triggers the start to the instance defined as an argument.
-func (p *Participant) SkipToInstance(i uint64) {
+func (p *Participant) SkipToInstance(i uint64) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = &PanicError{Err: r}
+		}
+	}()
+
 	// Finish current instance to clean old committees and old messages queued
 	// and prepare to begin a new instance.
 	p.finishCurrentInstance(i)
@@ -158,6 +169,8 @@ func (p *Participant) SkipToInstance(i uint64) {
 	// This will fetch the chain, drain existing messages for that instance,
 	// and start the instance.
 	p.host.SetAlarm(p.host.Time())
+
+	return err
 }
 
 func (p *Participant) beginInstance() error {
@@ -226,7 +239,6 @@ func (p *Participant) fetchCommittee(instance uint64) (*committee, error) {
 
 func (p *Participant) handleDecision() {
 	if p.terminated() {
-		// finish current instance and move to the next one
 		p.finishCurrentInstance(p.currentInstance + 1)
 		nextStart := p.host.ReceiveDecision(p.finalised)
 		// Set an alarm at which to fetch the next chain and begin a new instance.
@@ -235,13 +247,10 @@ func (p *Participant) handleDecision() {
 }
 
 func (p *Participant) finishCurrentInstance(nextInstance uint64) {
-	// Update gpbft-specific parameters if we are skipping from
-	// a finalized run of the protocol.
 	if p.gpbft != nil {
 		p.finalised = p.gpbft.terminationValue
 		p.terminatedDuringRound = p.gpbft.round
 	}
-	p.gpbft = nil
 
 	p.mutex.Lock()
 	defer p.mutex.Unlock()

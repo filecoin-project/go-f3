@@ -6,7 +6,6 @@ type Receiver interface {
 	gpbft.Receiver
 	ID() gpbft.ActorID
 	AllowMessage(from gpbft.ActorID, to gpbft.ActorID, msg gpbft.GMessage) bool
-	Start() error
 }
 
 // Endpoint with which the adversary can control the network

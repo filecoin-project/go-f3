@@ -106,5 +106,5 @@ func (r *Repeat) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
 func (r *Repeat) ID() gpbft.ActorID                                              { return r.id }
 func (r *Repeat) Start() error                                                   { return nil }
 func (r *Repeat) ReceiveAlarm() error                                            { return nil }
-func (r *Repeat) SkipToInstance(uint64)                                          {}
+func (r *Repeat) SkipToInstance(uint64) error                                    { return nil }
 func (r *Repeat) AllowMessage(gpbft.ActorID, gpbft.ActorID, gpbft.GMessage) bool { return true }

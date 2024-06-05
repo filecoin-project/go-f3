@@ -69,14 +69,16 @@ func newRunner(id gpbft.ActorID, m Manifest, client Client) (*gpbftRunner, error
 
 func (h *gpbftRunner) Run(ctx context.Context) error {
 	var cancel func()
-	var err error
 	h.runningCtx, cancel = context.WithCancel(ctx)
 	defer cancel()
 
 	// TODO(Kubuxu): temporary hack until re-broadcast and/or booststrap synchronisation are implemented
 	time.Sleep(2 * time.Second)
 
-	h.participant.Start()
+	err := h.participant.Start()
+	if err != nil {
+		return xerrors.Errorf("starting a participant: %w", err)
+	}
 
 	messageQueue := h.client.IncommingMessages()
 loop:
