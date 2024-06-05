@@ -251,6 +251,7 @@ func (p *Participant) finishCurrentInstance(nextInstance uint64) {
 		p.finalised = p.gpbft.terminationValue
 		p.terminatedDuringRound = p.gpbft.round
 	}
+	p.gpbft = nil
 
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
