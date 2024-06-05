@@ -71,7 +71,7 @@ func (s *FakeBackend) Verify(signer gpbft.PubKey, msg, sig []byte) error {
 	}
 }
 
-func (_ *FakeBackend) Aggregate(signers []gpbft.PubKey, sigs [][]byte) ([]byte, error) {
+func (*FakeBackend) Aggregate(signers []gpbft.PubKey, sigs [][]byte) ([]byte, error) {
 	if len(signers) != len(sigs) {
 		return nil, errors.New("public keys and signatures length mismatch")
 	}
