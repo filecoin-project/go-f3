@@ -57,6 +57,10 @@ type Receiver interface {
 	// Begins executing the protocol.
 	// The node will request the canonical chain to propose from the host.
 	Start() error
+	// SkipToInstance jumps directly to a given instance.
+	// This can be triggered by the reception of a valid finality certificate, or
+	// whenever a new instance for a participant want to be started.
+	SkipToInstance(uint64) error
 	MessageValidator
 	MessageReceiver
 }

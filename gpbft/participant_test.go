@@ -139,6 +139,14 @@ func (pt *participantTestSubject) requireStart() {
 	pt.requireInstanceRoundPhase(pt.instance, 0, gpbft.QUALITY_PHASE)
 }
 
+// Participants start new instances asynchronously by setting an alarm
+// that is triggered immediately, thus the underlying use of
+// ReceiveAlarm() in tests that require starting instances.
+// See [participant.go:Start()] for reference
+func (pt *participantTestSubject) Start() error {
+	return pt.ReceiveAlarm()
+}
+
 func (pt *participantTestSubject) assertHostExpectations() bool {
 	return pt.host.AssertExpectations(pt.t)
 }
@@ -267,6 +275,23 @@ func TestParticipant(t *testing.T) {
 				require.NoError(t, subject.Start())
 				subject.assertHostExpectations()
 				subject.requireInstanceRoundPhase(47, 0, gpbft.QUALITY_PHASE)
+			})
+			t.Run("on SkipTToInstance", func(t *testing.T) {
+				// initialize participant in instance 47
+				subject := newParticipantTestSubject(t, seed, 47)
+				subject.host.On("Time").Return(subject.time)
+				subject.host.EXPECT().SetAlarm(subject.time)
+				// expect an update of the participate to 57
+				fInstance := uint64(57)
+				subject.instance = fInstance
+				subject.expectBeginInstance()
+				// Receiving the certificate should skip directly to the finality instance.
+				require.NoError(t, subject.SkipToInstance(fInstance))
+				// set subject to the finality instance to see if participant
+				// has begun the right instance.
+				require.NoError(t, subject.ReceiveAlarm())
+				subject.assertHostExpectations()
+				subject.requireInstanceRoundPhase(57, 0, gpbft.QUALITY_PHASE)
 			})
 		})
 		t.Run("instance is not begun", func(t *testing.T) {

@@ -122,6 +122,8 @@ func (*WithholdCommit) ReceiveMessage(_ gpbft.ValidatedMessage) error {
 	return nil
 }
 
+func (*WithholdCommit) SkipToInstance(uint64) error { return nil }
+
 func (*WithholdCommit) ReceiveAlarm() error {
 	return nil
 }

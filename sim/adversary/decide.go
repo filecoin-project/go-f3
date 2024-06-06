@@ -86,6 +86,8 @@ func (*ImmediateDecide) ReceiveAlarm() error {
 	return nil
 }
 
+func (*ImmediateDecide) SkipToInstance(uint64) error { return nil }
+
 func (*ImmediateDecide) AllowMessage(_ gpbft.ActorID, _ gpbft.ActorID, _ gpbft.GMessage) bool {
 	// Allow all messages
 	return true
