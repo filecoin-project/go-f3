@@ -971,7 +971,6 @@ type chainSupport struct {
 	power           *StoragePower
 	signatures      map[ActorID][]byte
 	hasStrongQuorum bool
-	hasWeakQuorum   bool
 }
 
 // Creates a new, empty quorum state.
@@ -1033,7 +1032,6 @@ func (q *quorumState) receiveInner(sender ActorID, value ECChain, power *Storage
 			power:           NewStoragePower(0),
 			signatures:      map[ActorID][]byte{},
 			hasStrongQuorum: false,
-			hasWeakQuorum:   false,
 		}
 	}
 
@@ -1043,7 +1041,6 @@ func (q *quorumState) receiveInner(sender ActorID, value ECChain, power *Storage
 	}
 	candidate.signatures[sender] = signature
 	candidate.hasStrongQuorum = IsStrongQuorum(candidate.power, q.powerTable.Total)
-	candidate.hasWeakQuorum = hasWeakQuorum(candidate.power, q.powerTable.Total)
 	q.chainSupport[key] = candidate
 }
 
@@ -1147,12 +1144,6 @@ func (q *quorumState) FindStrongQuorumFor(key ChainKey) (QuorumResult, bool) {
 	}
 
 	return QuorumResult{}, false
-}
-
-// Checks whether a chain has reached weak quorum.
-func (q *quorumState) HasWeakQuorumFor(key ChainKey) bool {
-	cp, ok := q.chainSupport[key]
-	return ok && cp.hasWeakQuorum
 }
 
 // Returns a list of the chains which have reached an agreeing strong quorum.
