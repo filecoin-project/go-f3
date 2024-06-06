@@ -26,8 +26,6 @@ type gpbftRunner struct {
 	participant *gpbft.Participant
 	manifest    Manifest
 
-	selfMessageQueue chan *gpbft.GMessage //for the future when self messages are async
-
 	alertTimer *time.Timer
 
 	runningCtx context.Context
@@ -39,10 +37,9 @@ type gpbftHost gpbftRunner
 
 func newRunner(id gpbft.ActorID, m Manifest, client Client) (*gpbftRunner, error) {
 	runner := &gpbftRunner{
-		client:           client,
-		manifest:         m,
-		selfMessageQueue: make(chan *gpbft.GMessage, 20),
-		log:              client.Logger(),
+		client:   client,
+		manifest: m,
+		log:      client.Logger(),
 	}
 
 	// create a stopped timer to facilitate alerts requested from gpbft
@@ -76,15 +73,6 @@ func (h *gpbftRunner) Run(ctx context.Context) error {
 	messageQueue := h.client.IncomingMessages()
 loop:
 	for {
-		select {
-		case msg := <-h.selfMessageQueue:
-			err = h.deliverMessage(msg)
-		default:
-		}
-		if err != nil {
-			break loop
-		}
-
 		// prioritise alarm delivery
 		// although there is no guarantee that alarm won't fire between
 		// the two select statements
@@ -100,8 +88,6 @@ loop:
 		select {
 		case <-h.alertTimer.C:
 			err = h.participant.ReceiveAlarm()
-		case msg := <-h.selfMessageQueue:
-			err = h.deliverMessage(msg)
 		case msg, ok := <-messageQueue:
 			if !ok {
 				err = xerrors.Errorf("incoming messsage queue closed")
