@@ -1118,7 +1118,11 @@ func (q *quorumState) FindStrongQuorumFor(key ChainKey) (QuorumResult, bool) {
 	// Build an array of indices of signers in the power table.
 	signers := make([]int, 0, len(chainSupport.signatures))
 	for id := range chainSupport.signatures {
-		signers = append(signers, q.powerTable.Lookup[id])
+		entryIndex, found := q.powerTable.Lookup[id]
+		if !found {
+			panic(fmt.Sprintf("signer not found in power table: %d", id))
+		}
+		signers = append(signers, entryIndex)
 	}
 	// Sort power table indices.
 	// If the power table entries are ordered by decreasing power,
@@ -1146,7 +1150,9 @@ func (q *quorumState) FindStrongQuorumFor(key ChainKey) (QuorumResult, bool) {
 		}
 	}
 
-	return QuorumResult{}, false
+	// There is likely a bug. Because, chainSupport.hasStrongQuorum must have been
+	// true for the code to reach this point. Hence, the fatal error.
+	panic("strong quorum exists but could not be found")
 }
 
 // Checks whether a chain has reached weak quorum.
