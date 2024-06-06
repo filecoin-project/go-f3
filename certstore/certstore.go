@@ -284,10 +284,7 @@ func (cs *Store) GetPowerTable(ctx context.Context, instance uint64) (gpbft.Powe
 
 	// We store every `powerTableFrequency` power tables. Find the nearest multiple smaller than
 	// the requested instance.
-	startInstance := instance
-	if offset := instance % cs.powerTableFrequency; offset != 0 {
-		startInstance = max(startInstance-offset, cs.firstInstance)
-	}
+	startInstance := max(instance-instance%cs.powerTableFrequency, cs.firstInstance)
 
 	powerTable, err := cs.readPowerTable(ctx, startInstance)
 	if err != nil {
