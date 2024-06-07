@@ -143,11 +143,11 @@ func (s *Simulation) getPowerTable(instance uint64) (*gpbft.PowerTable, error) {
 }
 
 func (s *Simulation) initParticipants() error {
-	pOpts := append(s.gpbftOptions, gpbft.WithTracer(s.network))
 	var nextID gpbft.ActorID
 	for _, archetype := range s.honestParticipantArchetypes {
 		for i := 0; i < archetype.count; i++ {
 			host := newHost(nextID, s, archetype.ecChainGenerator, archetype.storagePowerGenerator)
+			pOpts := append(s.gpbftOptions, gpbft.WithTracer(host))
 			participant, err := newParticipant(nextID, host, pOpts...)
 			if err != nil {
 				return err

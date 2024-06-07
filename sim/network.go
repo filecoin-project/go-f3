@@ -137,10 +137,6 @@ func (n *Network) SetAlarm(sender gpbft.ActorID, at time.Time) {
 	)
 }
 
-func (n *Network) Log(format string, args ...any) {
-	n.log(TraceLogic, format, args...)
-}
-
 // Tick disseminates one message among participants and returns whether there are
 // any more messages to process.
 func (n *Network) Tick(adv *adversary.Adversary) (bool, error) {
@@ -164,7 +160,7 @@ func (n *Network) Tick(adv *adversary.Adversary) (bool, error) {
 		// If GST has not elapsed, check if adversary allows the propagation of message.
 		if adv != nil && !n.globalStabilisationElapsed {
 			if n.hasGlobalStabilizationTimeElapsed() {
-				n.Log("GST elapsed")
+				n.log(TraceRecvd, "GST elapsed")
 				n.globalStabilisationElapsed = true
 			} else if !adv.AllowMessage(msg.source, msg.dest, payload) {
 				// GST has not passed and adversary blocks the delivery of message; proceed to
