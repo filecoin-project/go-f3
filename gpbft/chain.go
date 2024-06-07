@@ -47,15 +47,15 @@ type TipSet struct {
 	// The EC epoch (strictly increasing).
 	Epoch int64
 	// The tipset's key (canonically ordered concatenated block-header CIDs).
-	Key TipSetKey
+	Key TipSetKey `cborgen:"maxlen=38"`
 	// Blake2b256-32 CID of the CBOR-encoded power table.
 	PowerTable CID // []PowerEntry
 	// Keccak256 root hash of the commitments merkle tree.
 	Commitments [32]byte
 }
 
-var EMPTY_COMMITMENTS = [32]byte{}
-
+// Validates a tipset.
+// Note the zero value is invalid.
 func (ts *TipSet) Validate() error {
 	if len(ts.Key) == 0 {
 		return errors.New("tipset key must not be empty")
@@ -68,9 +68,6 @@ func (ts *TipSet) Validate() error {
 	}
 	if len(ts.PowerTable) > CID_MAX_LEN {
 		return errors.New("power table CID too long")
-	}
-	if !bytes.Equal(ts.Commitments[:], EMPTY_COMMITMENTS[:]) {
-		return errors.New("commitments must be zero")
 	}
 	return nil
 }
@@ -262,9 +259,6 @@ func (c ECChain) Validate() error {
 	var lastEpoch int64 = -1
 	for i := range c {
 		ts := &c[i]
-		if ts.IsZero() {
-			return errors.New("chain cannot contain zero-valued tip sets")
-		}
 		if err := ts.Validate(); err != nil {
 			return fmt.Errorf("tipset %d: %w", i, err)
 		}
