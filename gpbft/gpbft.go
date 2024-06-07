@@ -1327,17 +1327,6 @@ func findFirstPrefixOf(preferred ECChain, candidates []ECChain) ECChain {
 	return preferred.BaseChain()
 }
 
-func scalePower(power, total *StoragePower) (uint16, error) {
-	const maxPower = 0xffff
-	if power.Cmp(total) > 0 {
-		return 0, xerrors.Errorf("total power %d is less than the power of a single participant %d", total, power)
-	}
-	scaled := big.NewInt(maxPower)
-	scaled = scaled.Mul(scaled, (*big.Int)(power))
-	scaled = scaled.Div(scaled, (*big.Int)(total))
-	return uint16(scaled.Uint64()), nil
-}
-
 func divCeil(a, b uint32) uint32 {
 	quo := a / b
 	rem := a % b

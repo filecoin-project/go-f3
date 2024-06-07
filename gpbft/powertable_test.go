@@ -1,6 +1,7 @@
 package gpbft_test
 
 import (
+	"slices"
 	"sort"
 	"testing"
 
@@ -157,6 +158,8 @@ func TestPowerTable(t *testing.T) {
 					require.ErrorContains(t, gotErr, test.wantErr)
 				} else {
 					require.NoError(t, gotErr)
+					// Scaling power shouldn't change relative power.
+					require.True(t, slices.IsSorted(subject.ScaledPower))
 				}
 			})
 		}

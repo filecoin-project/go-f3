@@ -4,8 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math/big"
 	"slices"
 	"sort"
+
+	xerrors "golang.org/x/xerrors"
 )
 
 var _ sort.Interface = (*PowerTable)(nil)
@@ -195,7 +198,7 @@ func (p *PowerTable) Validate() error {
 		return errors.New("inconsistent entries and scaled power")
 	}
 	total := NewStoragePower(0)
-	totalScaled := uint16(0)
+	totalScaled := 0 // int instead of uint16 to detect overflow
 	var previous *PowerEntry
 	for index, entry := range p.Entries {
 		if lookupIndex, found := p.Lookup[entry.ID]; !found || index != lookupIndex {
@@ -220,14 +223,25 @@ func (p *PowerTable) Validate() error {
 		}
 
 		total.Add(total, entry.Power)
-		totalScaled += scaledPower
+		totalScaled += int(scaledPower)
 		previous = &entry
 	}
 	if total.Cmp(p.Total) != 0 {
 		return errors.New("total power does not match entries")
 	}
-	if p.ScaledTotal != totalScaled {
+	if int(p.ScaledTotal) != totalScaled {
 		return errors.New("scaled total power does not match entries")
 	}
 	return nil
+}
+
+func scalePower(power, total *StoragePower) (uint16, error) {
+	const maxPower = 0xffff
+	if power.Cmp(total) > 0 {
+		return 0, xerrors.Errorf("total power %d is less than the power of a single participant %d", total, power)
+	}
+	scaled := big.NewInt(maxPower)
+	scaled = scaled.Mul(scaled, (*big.Int)(power))
+	scaled = scaled.Div(scaled, (*big.Int)(total))
+	return uint16(scaled.Uint64()), nil
 }
