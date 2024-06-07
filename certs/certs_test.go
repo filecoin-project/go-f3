@@ -338,6 +338,23 @@ func TestBadFinalityCertificates(t *testing.T) {
 		require.Empty(t, chain)
 	}
 
+	// Give one signer enough power such that all others round to zero.
+	{
+		powerTableCpy := slices.Clone(powerTable)
+		for i := range powerTableCpy {
+			powerTableCpy[i].Power = gpbft.NewStoragePower(1)
+		}
+
+		firstSigner, err := certificate.Signers.First()
+		require.NoError(t, err)
+		powerTableCpy[firstSigner].Power = gpbft.NewStoragePower(0xffff)
+
+		nextInstance, chain, _, err := certs.ValidateFinalityCertificates(backend, networkName, powerTableCpy, 1, nil, *certificate)
+		require.ErrorContains(t, err, "no effective power after scaling")
+		require.EqualValues(t, 1, nextInstance)
+		require.Empty(t, chain)
+	}
+
 	// Reduce active power to 1, can't have quorum.
 	{
 		powerTableCpy := slices.Clone(powerTable)
