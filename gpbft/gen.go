@@ -45,7 +45,7 @@ func (t *TipSet) MarshalCBOR(w io.Writer) error {
 	}
 
 	// t.Key ([]uint8) (slice)
-	if len(t.Key) > 2097152 {
+	if len(t.Key) > 760 {
 		return xerrors.Errorf("Byte array in field t.Key was too long")
 	}
 
@@ -58,7 +58,7 @@ func (t *TipSet) MarshalCBOR(w io.Writer) error {
 	}
 
 	// t.PowerTable ([]uint8) (slice)
-	if len(t.PowerTable) > 2097152 {
+	if len(t.PowerTable) > 38 {
 		return xerrors.Errorf("Byte array in field t.PowerTable was too long")
 	}
 
@@ -140,7 +140,7 @@ func (t *TipSet) UnmarshalCBOR(r io.Reader) (err error) {
 		return err
 	}
 
-	if extra > 2097152 {
+	if extra > 760 {
 		return fmt.Errorf("t.Key: byte array too large (%d)", extra)
 	}
 	if maj != cbg.MajByteString {
@@ -162,7 +162,7 @@ func (t *TipSet) UnmarshalCBOR(r io.Reader) (err error) {
 		return err
 	}
 
-	if extra > 2097152 {
+	if extra > 38 {
 		return fmt.Errorf("t.PowerTable: byte array too large (%d)", extra)
 	}
 	if maj != cbg.MajByteString {
@@ -399,7 +399,7 @@ func (t *SupplementalData) MarshalCBOR(w io.Writer) error {
 	}
 
 	// t.PowerTable ([]uint8) (slice)
-	if len(t.PowerTable) > 2097152 {
+	if len(t.PowerTable) > 38 {
 		return xerrors.Errorf("Byte array in field t.PowerTable was too long")
 	}
 
@@ -465,7 +465,7 @@ func (t *SupplementalData) UnmarshalCBOR(r io.Reader) (err error) {
 		return err
 	}
 
-	if extra > 2097152 {
+	if extra > 38 {
 		return fmt.Errorf("t.PowerTable: byte array too large (%d)", extra)
 	}
 	if maj != cbg.MajByteString {

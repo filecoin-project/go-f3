@@ -17,6 +17,12 @@ type TipSetKey = []byte
 
 type CID = []byte
 
+const CID_MAX_LEN = 38
+
+// Allow ample space for an impossibly-unlikely number of blocks in a tipset,
+// while maintaining a practical limit to prevent abuse.
+const TIPSET_KEY_MAX_LEN = 20 * CID_MAX_LEN
+
 // This the CID "prefix" of a v1-DagCBOR-Blake2b256-32 CID. That is:
 //
 // - 0x01     CIDv1
@@ -41,11 +47,29 @@ type TipSet struct {
 	// The EC epoch (strictly increasing).
 	Epoch int64
 	// The tipset's key (canonically ordered concatenated block-header CIDs).
-	Key TipSetKey
+	Key TipSetKey `cborgen:"maxlen=760"` // 20 * 38B
 	// Blake2b256-32 CID of the CBOR-encoded power table.
-	PowerTable CID // []PowerEntry
+	PowerTable CID `cborgen:"maxlen=38"` // []PowerEntry
 	// Keccak256 root hash of the commitments merkle tree.
 	Commitments [32]byte
+}
+
+// Validates a tipset.
+// Note the zero value is invalid.
+func (ts *TipSet) Validate() error {
+	if len(ts.Key) == 0 {
+		return errors.New("tipset key must not be empty")
+	}
+	if len(ts.Key) > TIPSET_KEY_MAX_LEN {
+		return errors.New("tipset key too long")
+	}
+	if len(ts.PowerTable) == 0 {
+		return errors.New("power table CID must not be empty")
+	}
+	if len(ts.PowerTable) > CID_MAX_LEN {
+		return errors.New("power table CID too long")
+	}
+	return nil
 }
 
 func (ts *TipSet) IsZero() bool {
@@ -235,8 +259,8 @@ func (c ECChain) Validate() error {
 	var lastEpoch int64 = -1
 	for i := range c {
 		ts := &c[i]
-		if ts.IsZero() {
-			return errors.New("chain cannot contain zero-valued tip sets")
+		if err := ts.Validate(); err != nil {
+			return fmt.Errorf("tipset %d: %w", i, err)
 		}
 		if ts.Epoch <= lastEpoch {
 			return errors.New("chain must have increasing epochs")

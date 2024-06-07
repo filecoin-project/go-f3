@@ -42,7 +42,7 @@ type participantTestSubject struct {
 
 func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *participantTestSubject {
 	// Generate some canonical chain.
-	canonicalChain, err := gpbft.NewChain(gpbft.TipSet{Epoch: 0, Key: []byte("genesis")})
+	canonicalChain, err := gpbft.NewChain(gpbft.TipSet{Epoch: 0, Key: []byte("genesis"), PowerTable: []byte("pt")})
 	require.NoError(t, err)
 
 	const (

@@ -86,7 +86,7 @@ type SupplementalData struct {
 	Commitments [32]byte
 	// The DagCBOR-blake2b256 CID of the power table used to validate the next instance, taking
 	// lookback into account.
-	PowerTable CID // []PowerEntry
+	PowerTable CID `cborgen:"maxlen=38"` // []PowerEntry
 }
 
 func (d *SupplementalData) Eq(other *SupplementalData) bool {
