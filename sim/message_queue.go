@@ -25,6 +25,15 @@ type messageInFlight struct {
 	index int // Index in the heap used internally by the heap implementation
 }
 
+func (m *messageInFlight) isAlarm() bool {
+	switch payload := m.payload.(type) {
+	case string:
+		return m.dest == m.source && payload == "ALARM"
+	default:
+		return false
+	}
+}
+
 func newMessagePriorityQueue() *messageQueue {
 	var mpq messageQueue
 	heap.Init(&mpq)
@@ -39,11 +48,19 @@ func (pq *messageQueue) Len() int { return len(pq.mailbox) }
 // to determine this, where the earlier the deliverAt the higher priority the
 // message, i.e. messages are sorted in ascending order of their deliverAt.
 //
+// Note that alarms take precedence over messages when both have the same
+// deliverAt.
+//
 // This function is part of heap.Interface and must not be called externally.
 func (pq *messageQueue) Less(i, j int) bool {
 	// We want Pop to give us the earliest delivery time, so we use Less to sort by
 	// deliverAt in ascending order.
-	return pq.mailbox[i].deliverAt.Before(pq.mailbox[j].deliverAt)
+	switch one, other := pq.mailbox[i], pq.mailbox[j]; {
+	case one.deliverAt.Equal(other.deliverAt):
+		return one.isAlarm() && !other.isAlarm()
+	default:
+		return one.deliverAt.Before(other.deliverAt)
+	}
 }
 
 // Swap swaps messages in-flight at index i with the one at index j.

@@ -48,6 +48,11 @@ type MessageReceiver interface {
 	// - both ErrReceivedInternalError and a cause if there was an internal error processing the message
 	// This method is not safe for concurrent use.
 	ReceiveMessage(msg ValidatedMessage) error
+	// ReceiveAlarm signals the trigger of the alarm set by Clock.SetAlarm. Note that
+	// triggering alarms takes precedence over ReceiveMessage, i.e. when an alarm is
+	// triggered at the same time as an arrival of a message ReceiveAlarm must be
+	// called before ReceiveMessage.
+	//
 	// This method is not safe for concurrent use.
 	ReceiveAlarm() error
 }
@@ -93,11 +98,13 @@ type Network interface {
 type Clock interface {
 	// Returns the current network time.
 	Time() time.Time
-	// Sets an alarm to fire after the given timestamp.
-	// At most one alarm can be set at a time.
-	// Setting an alarm replaces any previous alarm that has not yet fired.
-	// The timestamp may be in the past, in which case the alarm will fire as soon as possible
-	// (but not synchronously).
+	// SetAlarm sets an alarm to fire after the given timestamp. At most one alarm
+	// can be set at a time. Setting an alarm replaces any previous alarm that has
+	// not yet fired. The timestamp may be in the past, in which case the alarm will
+	// fire as soon as possible (but not synchronously).
+	//
+	// Note that delivery of triggered alarms must take precedence over messages
+	// that may arrive at the same time.
 	SetAlarm(at time.Time)
 }
 

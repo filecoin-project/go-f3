@@ -127,7 +127,7 @@ func (n *Network) SetAlarm(sender gpbft.ActorID, at time.Time) {
 	// Update any existing alarm or insert if no such alarm exists.
 	n.queue.UpsertFirstWhere(
 		func(m *messageInFlight) bool {
-			return m.dest == sender && m.payload == "ALARM"
+			return m.dest == sender && m.isAlarm()
 		}, &messageInFlight{
 			source:    sender,
 			dest:      sender,

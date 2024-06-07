@@ -156,3 +156,27 @@ func TestMessageQueue_UpsertFirstWhere(t *testing.T) {
 		})
 	}
 }
+func TestMessageQueue_AlarmTakesPrecedence(t *testing.T) {
+	subject := newMessagePriorityQueue()
+
+	t0 := time.Time{}.Add(time.Second)
+	t1 := t0.Add(12 * time.Second)
+	t2 := t1.Add(100 * time.Second)
+
+	want1st := &messageInFlight{deliverAt: t0}
+	want2nd := &messageInFlight{payload: "ALARM", deliverAt: t1}
+	want3rd := &messageInFlight{deliverAt: t1}
+	want4th := &messageInFlight{deliverAt: t2}
+
+	subject.Insert(want2nd)
+	subject.Insert(want4th)
+	subject.Insert(want1st)
+	subject.Insert(want3rd)
+
+	require.Equal(t, subject.Len(), 4)
+	require.Equal(t, want1st, subject.Remove())
+	require.Equal(t, want2nd, subject.Remove())
+	require.Equal(t, want3rd, subject.Remove())
+	require.Equal(t, want4th, subject.Remove())
+	require.Zero(t, subject.Len())
+}
