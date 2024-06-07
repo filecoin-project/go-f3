@@ -15,7 +15,7 @@ type Client interface {
 	gpbft.Tracer
 
 	BroadcastMessage(context.Context, *gpbft.MessageBuilder) error
-	IncomingMessages() <-chan *gpbft.GMessage
+	IncomingMessages() <-chan gpbft.ValidatedMessage
 	Logger() Logger
 }
 
@@ -93,7 +93,7 @@ loop:
 				err = xerrors.Errorf("incoming messsage queue closed")
 				break loop
 			}
-			err = h.deliverMessage(msg)
+			err = h.participant.ReceiveMessage(msg)
 		case <-ctx.Done():
 			return nil
 		}
@@ -105,12 +105,8 @@ loop:
 	return err
 }
 
-func (h *gpbftRunner) deliverMessage(msg *gpbft.GMessage) error {
-	valid, err := h.participant.ValidateMessage(msg)
-	if err != nil {
-		return xerrors.Errorf("validating message: %w", err)
-	}
-	return h.participant.ReceiveMessage(valid)
+func (h *gpbftRunner) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
+	return h.participant.ValidateMessage(msg)
 }
 
 // Returns inputs to the next GPBFT instance.
