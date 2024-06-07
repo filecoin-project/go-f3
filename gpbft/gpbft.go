@@ -758,7 +758,7 @@ func (i *instance) tryCommit(round uint64) error {
 		// The participant isn't influencing that decision against their interest, just accepting it.
 		i.value = quorumValue
 		i.beginDecide(round)
-	} else if i.round == round && i.phase == COMMIT_PHASE && timedOut {
+	} else if i.round == round && i.phase == COMMIT_PHASE && (timedOut || foundStrongQuorum) {
 		if foundStrongQuorum {
 			// If there is a strong quorum for bottom, carry forward the existing proposal.
 		} else {
