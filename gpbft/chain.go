@@ -47,9 +47,9 @@ type TipSet struct {
 	// The EC epoch (strictly increasing).
 	Epoch int64
 	// The tipset's key (canonically ordered concatenated block-header CIDs).
-	Key TipSetKey `cborgen:"maxlen=38"`
+	Key TipSetKey `cborgen:"maxlen=760"` // 20 * 38B
 	// Blake2b256-32 CID of the CBOR-encoded power table.
-	PowerTable CID // []PowerEntry
+	PowerTable CID `cborgen:"maxlen=38"` // []PowerEntry
 	// Keccak256 root hash of the commitments merkle tree.
 	Commitments [32]byte
 }
