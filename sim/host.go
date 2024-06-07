@@ -34,6 +34,7 @@ type simHost struct {
 
 type SimNetwork interface {
 	gpbft.Network
+	gpbft.Tracer
 	// sends a message to all other participants immediately.
 	BroadcastSynchronous(msg *gpbft.GMessage)
 }
@@ -93,4 +94,8 @@ func (v *simHost) PublicKey( /*instance */ uint64) gpbft.PubKey {
 
 func (v *simHost) ID() gpbft.ActorID {
 	return v.id
+}
+
+func (v *simHost) Log(format string, args ...any) {
+	v.SimNetwork.Log(format, args...)
 }
