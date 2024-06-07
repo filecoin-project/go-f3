@@ -1338,7 +1338,7 @@ func scalePower(power, total *StoragePower) (uint16, error) {
 	return uint16(scaled.Uint64()), nil
 }
 
-func divCeil(a, b uint16) uint16 {
+func divCeil(a, b uint32) uint32 {
 	quo := a / b
 	rem := a % b
 	if rem != 0 {
@@ -1349,12 +1349,14 @@ func divCeil(a, b uint16) uint16 {
 
 // Check whether a portion of storage power is a strong quorum of the total
 func IsStrongQuorum(part uint16, whole uint16) bool {
-	return part >= divCeil(2*whole, 3)
+	// uint32 because 2 * whole exceeds uint16
+	return uint32(part) >= divCeil(2*uint32(whole), 3)
 }
 
 // Check whether a portion of storage power is a weak quorum of the total
 func hasWeakQuorum(part, whole uint16) bool {
-	return part > divCeil(whole, 3)
+	// Must be strictly greater than 1/3. Otherwise, there could be a strong quorum.
+	return uint32(part) > divCeil(uint32(whole), 3)
 }
 
 // Tests whether lhs is equal to or greater than rhs.
