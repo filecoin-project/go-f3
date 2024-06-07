@@ -630,7 +630,7 @@ func (i *instance) tryQuality() error {
 // beginConverge initiates CONVERGE_PHASE justified by the given justification.
 func (i *instance) beginConverge(justification *Justification) {
 	if justification.Vote.Round != i.round-1 {
-		// For safety assert that the justification given blongs to the right round
+		// For safety assert that the justification given belongs to the right round.
 		panic("justification for which to begin converge does not belong to expected round")
 	}
 
@@ -698,17 +698,18 @@ func (i *instance) tryPrepare() error {
 	}
 
 	prepared := i.getRound(i.round).prepared
-	// Optimisation: we could advance phase once a strong quorum on our proposal is not possible.
-	foundQuorum := prepared.HasStrongQuorumFor(i.proposal.Key())
+	proposalKey := i.proposal.Key()
+	foundQuorum := prepared.HasStrongQuorumFor(proposalKey)
 	timedOut := atOrAfter(i.participant.host.Time(), i.phaseTimeout) && prepared.ReceivedFromStrongQuorum()
+	quorumNotPossible := !prepared.couldReachStrongQuorumFor(proposalKey)
 
 	if foundQuorum {
 		i.value = i.proposal
-	} else if timedOut {
+	} else if timedOut || quorumNotPossible {
 		i.value = ECChain{}
 	}
 
-	if foundQuorum || timedOut {
+	if foundQuorum || timedOut || quorumNotPossible {
 		i.beginCommit()
 	}
 
@@ -1081,6 +1082,21 @@ func (q *quorumState) ReceivedFromWeakQuorum() bool {
 func (q *quorumState) HasStrongQuorumFor(key ChainKey) bool {
 	supportForChain, ok := q.chainSupport[key]
 	return ok && supportForChain.hasStrongQuorum
+}
+
+// couldReachStrongQuorumFor checks whether the given chain can possibly reach
+// strong quorum.
+func (q *quorumState) couldReachStrongQuorumFor(key ChainKey) bool {
+	supportingPower := new(big.Int)
+	if supportForChain, found := q.chainSupport[key]; found {
+		supportingPower.Set(supportForChain.power)
+	}
+	// A strong quorum is only feasible when the total support for the given chain,
+	// combined with the aggregate power of not yet voted participants, exceeds ⅔ of
+	// total power.
+	unvotedPower := NewStoragePower(0).Sub(q.powerTable.Total, q.sendersTotalPower)
+	possibleSupport := NewStoragePower(0).Add(supportingPower, unvotedPower)
+	return IsStrongQuorum(possibleSupport, q.powerTable.Total)
 }
 
 type QuorumResult struct {
