@@ -154,7 +154,13 @@ func verifyFinalityCertificateSignature(verifier gpbft.Verifier, powerTable gpbf
 				"finality certificate for instance %d specifies a signer %d but we only have %d entries in the power table",
 				cert.GPBFTInstance, i, len(powerTable))
 		}
-		signerPowers += scaled[i]
+		power := scaled[i]
+		if power == 0 {
+			return xerrors.Errorf(
+				"finality certificate for instance %d specifies a signer %d but they have no effective power after scaling",
+				cert.GPBFTInstance, powerTable[i].ID)
+		}
+		signerPowers += power
 		signers = append(signers, powerTable[i].PubKey)
 		return nil
 	}); err != nil {

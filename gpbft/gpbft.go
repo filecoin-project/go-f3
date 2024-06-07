@@ -561,7 +561,11 @@ func ValidateMessage(powerTable *PowerTable, beacon []byte, host Host, msg *GMes
 			if int(bit) >= len(powerTable.Entries) {
 				return fmt.Errorf("invalid signer index: %d", bit)
 			}
-			justificationPower += powerTable.ScaledPower[bit]
+			power := powerTable.ScaledPower[bit]
+			if power == 0 {
+				return xerrors.Errorf("signer %d has no power", powerTable.Entries[bit].ID)
+			}
+			justificationPower += power
 			signers = append(signers, powerTable.Entries[bit].PubKey)
 			return nil
 		}); err != nil {
