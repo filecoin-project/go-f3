@@ -1089,16 +1089,16 @@ func (q *quorumState) HasStrongQuorumFor(key ChainKey) bool {
 // couldReachStrongQuorumFor checks whether the given chain can possibly reach
 // strong quorum.
 func (q *quorumState) couldReachStrongQuorumFor(key ChainKey) bool {
-	supportingPower := new(big.Int)
+	var supportingPower uint16
 	if supportForChain, found := q.chainSupport[key]; found {
-		supportingPower.Set(supportForChain.power)
+		supportingPower = supportForChain.power
 	}
 	// A strong quorum is only feasible when the total support for the given chain,
 	// combined with the aggregate power of not yet voted participants, exceeds ⅔ of
 	// total power.
-	unvotedPower := NewStoragePower(0).Sub(q.powerTable.Total, q.sendersTotalPower)
-	possibleSupport := NewStoragePower(0).Add(supportingPower, unvotedPower)
-	return IsStrongQuorum(possibleSupport, q.powerTable.Total)
+	unvotedPower := q.powerTable.ScaledTotal - q.sendersTotalPower
+	possibleSupport := supportingPower + unvotedPower
+	return IsStrongQuorum(possibleSupport, q.powerTable.ScaledTotal)
 }
 
 type QuorumResult struct {
