@@ -71,14 +71,16 @@ func TestHonest_Agreement(t *testing.T) {
 			name := fmt.Sprintf("%s %d", test.name, participantCount)
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
-				test.options = append(test.options,
+				var opts []sim.Option
+				opts = append(opts, test.options...)
+				opts = append(opts,
 					sim.WithBaseChain(&baseChain),
 					sim.AddHonestParticipants(participantCount, sim.NewFixedECChainGenerator(targetChain), uniformOneStoragePower))
 				if test.useBLS {
 					// Initialise a new BLS backend for each test since it's not concurrent-safe.
-					test.options = append(test.options, sim.WithSigningBackend(signing.NewBLSBackend()))
+					opts = append(opts, sim.WithSigningBackend(signing.NewBLSBackend()))
 				}
-				sm, err := sim.NewSimulation(test.options...)
+				sm, err := sim.NewSimulation(opts...)
 				require.NoError(t, err)
 				require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 				requireConsensusAtFirstInstance(t, sm, test.wantConsensusOnAnyOf...)
@@ -142,12 +144,14 @@ func TestHonest_Disagreement(t *testing.T) {
 			name := fmt.Sprintf("%s %d", test.name, participantCount)
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
-				test.options = append(test.options,
+				var opts []sim.Option
+				opts = append(opts, test.options...)
+				opts = append(opts,
 					sim.WithBaseChain(&baseChain),
 					sim.AddHonestParticipants(participantCount/2, sim.NewFixedECChainGenerator(oneChain), uniformOneStoragePower),
 					sim.AddHonestParticipants(participantCount/2, sim.NewFixedECChainGenerator(anotherChain), uniformOneStoragePower),
 				)
-				sm, err := sim.NewSimulation(test.options...)
+				sm, err := sim.NewSimulation(opts...)
 				require.NoError(t, err)
 				require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 				// Insufficient majority means all should decide on base
