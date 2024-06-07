@@ -85,9 +85,20 @@ loop:
 			break loop
 		}
 
+		// prioritise alarm delivery
+		// although there is no guarantee that alarm won't fire between
+		// the two select statements
 		select {
 		case <-h.alertTimer.C:
-			h.log.Infof("alarm fired")
+			err = h.participant.ReceiveAlarm()
+		default:
+		}
+		if err != nil {
+			break loop
+		}
+
+		select {
+		case <-h.alertTimer.C:
 			err = h.participant.ReceiveAlarm()
 		case msg := <-h.selfMessageQueue:
 			err = h.deliverMessage(msg)
