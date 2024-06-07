@@ -76,7 +76,7 @@ func (mc clientImpl) Logger() Logger {
 func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.Datastore, h host.Host,
 	ps *pubsub.PubSub, sigs gpbft.SignerWithMarshaler, verif gpbft.Verifier, ec ECBackend, log Logger) (*F3, error) {
 	ds = namespace.Wrap(ds, manifest.NetworkName.DatastorePrefix())
-	cs, err := certstore.NewStore(ctx, ds)
+	cs, err := certstore.OpenOrCreateStore(ctx, ds, 0, manifest.InitialPowerTable)
 	if err != nil {
 		return nil, xerrors.Errorf("creating CertStore: %w", err)
 	}
