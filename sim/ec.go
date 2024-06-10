@@ -173,16 +173,23 @@ func (eci *ECInstance) HasReachedConsensus(exclude ...gpbft.ActorID) (*gpbft.ECC
 	return consensus, true
 }
 
-// HasCompleted checks whether all participants (except any adversary)
-// have decided on a value for an instance.
+// HasCompleted checks whether all participants, except any excluded ones, have
+// reached some decision.
 func (eci *ECInstance) HasCompleted(exclude ...gpbft.ActorID) bool {
-	expectedDecisionCount := len(eci.PowerTable.Entries)
+	exclusions := make(map[gpbft.ActorID]struct{})
 	for _, id := range exclude {
-		if eci.PowerTable.Has(id) {
-			expectedDecisionCount -= 1
+		exclusions[id] = struct{}{}
+	}
+	wantDecisions := len(eci.PowerTable.Entries)
+	var gotDecisions int
+	for _, entry := range eci.PowerTable.Entries {
+		if _, excluded := exclusions[entry.ID]; excluded {
+			wantDecisions--
+		} else if _, decided := eci.decisions[entry.ID]; decided {
+			gotDecisions++
 		}
 	}
-	return len(eci.decisions) == expectedDecisionCount
+	return wantDecisions == gotDecisions
 }
 
 func (eci *ECInstance) GetDecision(participant gpbft.ActorID) *gpbft.ECChain {
