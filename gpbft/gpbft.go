@@ -651,12 +651,16 @@ func (i *instance) tryConverge() error {
 		return nil
 	}
 
-	possibleDecisionLastRound := !i.getRound(i.round - 1).committed.HasStrongQuorumFor("")
 	winner := i.getRound(i.round).converged.FindMaxTicketProposal(i.powerTable)
 	if winner.Chain.IsZero() {
-		return fmt.Errorf("no values at CONVERGE")
+		// No CONVERGE messages have been received yet, including from this participant.
+		// Wait for at least one message to be received.
+		// The timeout has already expired, so the CONVERGE phase will immediately conclude
+		// upon receiving some value.
+		return nil
 	}
 	justification := winner.Justification
+	possibleDecisionLastRound := !i.getRound(i.round - 1).committed.HasStrongQuorumFor("")
 	// If the winner is not a candidate but it could possibly have been decided by another participant
 	// in the last round, consider it a candidate.
 	if !i.isCandidate(winner.Chain) && winner.Justification.Vote.Step == PREPARE_PHASE && possibleDecisionLastRound {
@@ -670,7 +674,10 @@ func (i *instance) tryConverge() error {
 		// Else preserve own proposal.
 		fallback, ok := i.getRound(i.round).converged.FindProposalFor(i.proposal)
 		if !ok {
-			panic("own proposal not found at CONVERGE")
+			// No message has yet carried the same proposal that this participant had.
+			// That is, the participant's own proposal has not been received by itself yet.
+			// Return now and wait for it.
+			return nil
 		}
 		justification = fallback.Justification
 	}
