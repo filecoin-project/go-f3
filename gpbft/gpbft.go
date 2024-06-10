@@ -160,6 +160,21 @@ type instance struct {
 	// For QUALITY, PREPARE, and COMMIT, this is the latest time (the phase can end sooner).
 	// For CONVERGE, this is the exact time (the timeout solely defines the phase end).
 	phaseTimeout time.Time
+	// rebroadcastTimeout is the time at which the current phase should attempt to
+	// rebroadcast messages in order to further its progress.
+	//
+	// See tryRebroadcast.
+	rebroadcastTimeout time.Time
+	// rebroadcastAttempts counts the number of times messages at a round have been
+	// rebroadcasted in order to determine the backoff duration until next rebroadcast.
+	//
+	// See tryRebroadcast.
+	rebroadcastAttempts int
+	// broadcasted selectively stores messages that have been broadcast in case
+	// rebroadcast becomes necessary.
+	//
+	// See: broadcast, tryRebroadcast.
+	broadcasted *broadcastState
 	// Supplemental data that all participants must agree on ahead of time. Messages that
 	// propose supplemental data that differs with our supplemental data will be discarded.
 	supplementalData *SupplementalData
@@ -210,6 +225,7 @@ func newInstance(
 		phase:            INITIAL_PHASE,
 		supplementalData: data,
 		proposal:         input,
+		broadcasted:      newBroadcastState(),
 		value:            ECChain{},
 		candidates:       []ECChain{input.BaseChain()},
 		quality:          newQuorumState(powerTable),
@@ -697,6 +713,7 @@ func (i *instance) beginPrepare(justification *Justification) {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony()
+
 	i.broadcast(i.round, PREPARE_PHASE, i.value, false, justification)
 }
 
@@ -709,17 +726,22 @@ func (i *instance) tryPrepare() error {
 	prepared := i.getRound(i.round).prepared
 	proposalKey := i.proposal.Key()
 	foundQuorum := prepared.HasStrongQuorumFor(proposalKey)
-	timedOut := atOrAfter(i.participant.host.Time(), i.phaseTimeout) && prepared.ReceivedFromStrongQuorum()
+	timedOut := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
 	quorumNotPossible := !prepared.couldReachStrongQuorumFor(proposalKey)
+	phaseComplete := timedOut && prepared.ReceivedFromStrongQuorum()
 
 	if foundQuorum {
 		i.value = i.proposal
-	} else if timedOut || quorumNotPossible {
+	} else if quorumNotPossible || phaseComplete {
 		i.value = ECChain{}
 	}
 
-	if foundQuorum || timedOut || quorumNotPossible {
+	if foundQuorum || quorumNotPossible || phaseComplete {
 		i.beginCommit()
+	} else if timedOut {
+		if err := i.tryRebroadcast(); err != nil {
+			return fmt.Errorf("failed to rebroadcast at %s step: %w", i.phase, err)
+		}
 	}
 
 	return nil
@@ -751,14 +773,15 @@ func (i *instance) tryCommit(round uint64) error {
 	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
 	committed := i.getRound(round).committed
 	quorumValue, foundStrongQuorum := committed.FindStrongQuorumValue()
-	timedOut := atOrAfter(i.participant.host.Time(), i.phaseTimeout) && committed.ReceivedFromStrongQuorum()
+	timedOut := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
+	phaseComplete := timedOut && committed.ReceivedFromStrongQuorum()
 
 	if foundStrongQuorum && !quorumValue.IsZero() {
 		// A participant may be forced to decide a value that's not its preferred chain.
 		// The participant isn't influencing that decision against their interest, just accepting it.
 		i.value = quorumValue
 		i.beginDecide(round)
-	} else if i.round == round && i.phase == COMMIT_PHASE && (timedOut || foundStrongQuorum) {
+	} else if i.round == round && i.phase == COMMIT_PHASE && (foundStrongQuorum || phaseComplete) {
 		if foundStrongQuorum {
 			// If there is a strong quorum for bottom, carry forward the existing proposal.
 		} else {
@@ -782,7 +805,12 @@ func (i *instance) tryCommit(round uint64) error {
 			}
 		}
 		i.beginNextRound()
+	} else if timedOut {
+		if err := i.tryRebroadcast(); err != nil {
+			return fmt.Errorf("failed to rebroadcast at %s step: %w", i.phase, err)
+		}
 	}
+
 	return nil
 }
 
@@ -823,6 +851,10 @@ func (i *instance) tryDecide() error {
 			i.terminate(decision)
 		} else {
 			panic("tryDecide with no strong quorum for value")
+		}
+	} else {
+		if err := i.tryRebroadcast(); err != nil {
+			return fmt.Errorf("failed to rebroadcast at %s step: %w", i.phase, err)
 		}
 	}
 
@@ -867,10 +899,6 @@ func (i *instance) beginNextRound() {
 func (i *instance) skipToRound(round uint64, chain ECChain, justification *Justification) {
 	i.log("skipping from round %d to round %d with %s", i.round, round, i.proposal.String())
 	i.round = round
-
-	// TODO: Also update rebroadcast timeout once implemented according to the
-	//       following pseudocode borrowed from the FIP:
-	//          107:      timeout_rebroadcast ← max(timeout+1, timeout_rebroadcast)
 
 	if justification.Vote.Step == PREPARE_PHASE {
 		i.log("⚠️ swaying from %s to %s by skip to round %d", &i.proposal, chain, i.round)
@@ -918,6 +946,92 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, createTick
 	}
 
 	_ = i.participant.host.RequestBroadcast(mb)
+	i.broadcasted.record(mb)
+}
+
+// tryRebroadcast checks whether the conditions for rebroadcasting messages are
+// met, and if so rebroadcasts messages from current and previous rounds.
+// Rebroadcast is needed when both of the following conditions are met:
+//   - There has been no progress since latest broadcast.
+//   - Rebroadcast backoff duration has elapsed.
+//
+// If there has been progress since latest broadcast this function resets the
+// number of rebroadcast attempts and returns immediately.
+func (i *instance) tryRebroadcast() error {
+	if i.progressedSinceLatestBroadcast() && i.rebroadcastAttempts != 0 {
+		// Rebroadcast is not necessary, since progress has been made. Reset rebroadcast
+		// parameters.
+		i.rebroadcastAttempts = 0
+		i.rebroadcastTimeout = time.Time{}
+		i.broadcasted.lastBroadcastRound = 0
+		i.broadcasted.lastBroadcastPhase = INITIAL_PHASE
+	}
+
+	if i.rebroadcastAttempts == 0 && i.rebroadcastTimeout.IsZero() {
+		// It is the first time that rebroadcast has become necessary; set initial
+		// rebroadcast timeout relative to the phase timeout, and schedule a rebroadcast.
+		//
+		// Determine the offset for the first rebroadcast alarm depending on current
+		// instance phase and schedule the first alarm:
+		//  * If in DECIDE phase, use current time as offset. Because, DECIDE phase does
+		//    not have any phase timeout and may be too far in the past.
+		//  * Otherwise, use the phase timeout.
+		var rebroadcastTimeoutOffset time.Time
+		if i.phase == DECIDE_PHASE {
+			rebroadcastTimeoutOffset = i.participant.host.Time()
+		} else {
+			rebroadcastTimeoutOffset = i.phaseTimeout
+		}
+		i.rebroadcastTimeout = rebroadcastTimeoutOffset.Add(i.participant.rebroadcastAfter(0))
+		i.participant.host.SetAlarm(i.rebroadcastTimeout)
+		return nil
+	}
+
+	if i.rebroadcastTimeoutElapsed() {
+		// Rebroadcast now that the corresponding timeout has elapsed, and schedule the
+		// successive rebroadcast.
+		err := i.rebroadcast()
+		i.rebroadcastAttempts++
+		i.rebroadcastTimeout = i.rebroadcastTimeout.Add(i.participant.rebroadcastAfter(i.rebroadcastAttempts))
+		i.participant.host.SetAlarm(i.rebroadcastTimeout)
+		return err
+	}
+
+	// Rebroadcast timout is set but has not elapsed yet; nothing to do.
+	return nil
+}
+
+func (i *instance) rebroadcastTimeoutElapsed() bool {
+	now := i.participant.host.Time()
+	return atOrAfter(now, i.rebroadcastTimeout)
+}
+
+func (i *instance) progressedSinceLatestBroadcast() bool {
+	if i.broadcasted.lastBroadcastPhase == DECIDE_PHASE {
+		// Progress could not have been made if the latest broadcasted phase is DECIDE.
+		// Otherwise this instance would have been terminated.
+		return false
+	}
+	return i.phase != i.broadcasted.lastBroadcastPhase || i.round != i.broadcasted.lastBroadcastRound
+}
+
+func (i *instance) rebroadcast() error {
+
+	// Rebroadcast all messages from the current and previous rounds, unless the
+	// instance has progressed to DECIDE phase. In which case, only DECIDE message is
+	// rebroadcasted.
+	//
+	// Note that the implementation here rebroadcasts more messages than FIP-0086
+	// strictly requires. Because, the cost of rebroadcasting additional messages is
+	// small compared to the reduction in need for rebroadcast.
+	for _, mbs := range i.broadcasted.messagesByRound {
+		for _, mb := range mbs {
+			if err := i.participant.host.RequestBroadcast(mb); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // Sets an alarm to be delivered after a synchrony delay.
@@ -1334,6 +1448,53 @@ func (c *convergeState) FindProposalFor(chain ECChain) (ConvergeValue, bool) {
 		return *c.self, true
 	}
 	return ConvergeValue{}, false
+}
+
+type broadcastState struct {
+	lastBroadcastPhase Phase
+	lastBroadcastRound uint64
+	messagesByRound    map[uint64][]*MessageBuilder
+}
+
+func newBroadcastState() *broadcastState {
+	return &broadcastState{
+		messagesByRound: make(map[uint64][]*MessageBuilder),
+	}
+}
+
+// record stores messages that are required should rebroadcast becomes necessary.
+// The messages stored depend on the current progress of instance. If the
+// instance progresses to DECIDE then only the decide message will be recorded.
+// Otherwise, all messages except QUALITY from the current and previous rounds
+// (i.e. the latest two rounds) are recorded.
+//
+// Note, the messages recorded are more than what FIL-00896 strictly requires at
+// the benefit of less reliance on rebroadcast and reduction in the possibility
+// of participants getting stuck.
+func (bs *broadcastState) record(mb *MessageBuilder) {
+	bs.lastBroadcastPhase = mb.payload.Step
+	// Payload round will always be zero at DECIDE step. This is OK because
+	// progressedSinceLatestBroadcast handles this complexity by always returning
+	// false if lastBroadcastPhase is DECIDE. Therefore, the actual round at which
+	// DECIDE step is reached is irrelevant.
+	bs.lastBroadcastRound = mb.payload.Round
+	switch mb.payload.Step {
+	case DECIDE_PHASE:
+		// Clear all previous messages, as only DECIDE message need to be rebroadcasted.
+		// Note that DECIDE message is not associated to any round, and is always
+		// broadcasted using round zero.
+		bs.messagesByRound = make(map[uint64][]*MessageBuilder)
+		bs.messagesByRound[0] = []*MessageBuilder{mb}
+	case COMMIT_PHASE, PREPARE_PHASE, CONVERGE_PHASE:
+		bs.messagesByRound[mb.payload.Round] = append(bs.messagesByRound[mb.payload.Round], mb)
+		// Remove all messages that are older than the latest two rounds.
+		for round := int(mb.payload.Round) - 2; round >= 0; round-- {
+			redundantRound := uint64(round)
+			delete(bs.messagesByRound, redundantRound)
+		}
+	default:
+		// No need to rebroadcast QUALITY messages.
+	}
 }
 
 ///// General helpers /////

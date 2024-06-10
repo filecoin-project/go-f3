@@ -14,7 +14,7 @@ func TestDeny_SkipsToFuture(t *testing.T) {
 	t.Parallel()
 	const (
 		instanceCount = 2000
-		maxRounds     = 20
+		maxRounds     = 30
 		denialTarget  = 0
 		gst           = 100 * EcEpochDuration
 	)

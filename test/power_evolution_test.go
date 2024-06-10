@@ -25,6 +25,9 @@ func FuzzStoragePower_AsyncIncreaseMidSimulation(f *testing.F) {
 	f.Add(-784) // Requires 29 rounds to succeed. Investigate further for potential issues.
 	f.Add(5460) // Requires 62 rounds to succeed. Investigate further for potential issues.
 	f.Add(-563) // Requires 71 rounds to succeed. Investigate further for potential issues.
+	f.Add(5513) // Took too long once on CI.
+	f.Add(5412) // Took too long on local fuzzing.
+	f.Add(-607) // Took too long on local fuzzing.
 
 	f.Fuzz(func(t *testing.T, seed int) {
 		storagePowerIncreaseMidSimulationTest(t, seed, 8, maxRounds*8, asyncOptions(seed)...)
