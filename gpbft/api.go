@@ -46,13 +46,10 @@ type MessageReceiver interface {
 // Calls to methods on this interface are expected to be serialized.
 // The methods are not safe for concurrent use, and may panic if called concurrently.
 type Receiver interface {
-	// Begins executing the protocol.
+	// Begins executing the protocol from some instance.
 	// The node will subsequently request the canonical chain to propose from the host.
-	Start() error
-	// SkipToInstance jumps directly to a given instance.
-	// This can be triggered by the reception of a valid finality certificate, or
-	// whenever a new instance for a participant want to be started.
-	SkipToInstance(uint64) error
+	// If the participant is already executing some instance, it will be abandoned.
+	StartInstance(uint64) error
 	MessageValidator
 	MessageReceiver
 }

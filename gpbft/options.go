@@ -17,7 +17,6 @@ type options struct {
 	delta                time.Duration
 	deltaBackOffExponent float64
 
-	initialInstance    uint64
 	maxLookaheadRounds uint64
 
 	// tracer traces logic logs for debugging and simulation purposes.
@@ -64,15 +63,6 @@ func WithDeltaBackOffExponent(e float64) Option {
 			return errors.New("delta backoff exponent cannot be less than zero")
 		}
 		o.deltaBackOffExponent = e
-		return nil
-	}
-}
-
-// WithInitialInstance sets the first instance number. Defaults to zero if
-// unspecified.
-func WithInitialInstance(i uint64) Option {
-	return func(o *options) error {
-		o.initialInstance = i
 		return nil
 	}
 }
