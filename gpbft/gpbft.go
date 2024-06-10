@@ -269,7 +269,7 @@ func (i *instance) ReceiveMany(msgs []*GMessage) error {
 	for _, msg := range msgs {
 		stateChanged, err := i.receiveOne(msg)
 		if err != nil {
-			if errors.Is(err, ErrValidationWrongBase) || errors.Is(err, ErrValidationWrongSupplement) {
+			if errors.As(err, &ValidationError{}) {
 				// Drop late-binding validation errors.
 				i.log("dropping invalid message: %s", err)
 			} else {
