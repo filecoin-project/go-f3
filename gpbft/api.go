@@ -25,6 +25,8 @@ type ValidatedMessage interface {
 }
 
 // Receives a Granite protocol message.
+// Calls to methods on this interface are expected to be serialized.
+// The methods are not safe for concurrent use, and may panic if called concurrently.
 type MessageReceiver interface {
 	// Receives a validated Granite message from some other participant.
 	// Returns an error, wrapping (use errors.Is()/Unwrap()):
@@ -32,21 +34,20 @@ type MessageReceiver interface {
 	// - ErrValidationWrongBase if the message has an invalid base chain
 	// - ErrReceivedAfterTermination if the message is received after the instance has terminated (a programming error)
 	// - both ErrReceivedInternalError and a cause if there was an internal error processing the message
-	// This method is not safe for concurrent use.
 	ReceiveMessage(msg ValidatedMessage) error
 	// ReceiveAlarm signals the trigger of the alarm set by Clock.SetAlarm. Note that
 	// triggering alarms takes precedence over ReceiveMessage, i.e. when an alarm is
 	// triggered at the same time as an arrival of a message ReceiveAlarm must be
 	// called before ReceiveMessage.
-	//
-	// This method is not safe for concurrent use.
 	ReceiveAlarm() error
 }
 
-// Interface which network participants must implement.
+// Interface from host to a network participant.
+// Calls to methods on this interface are expected to be serialized.
+// The methods are not safe for concurrent use, and may panic if called concurrently.
 type Receiver interface {
 	// Begins executing the protocol.
-	// The node will request the canonical chain to propose from the host.
+	// The node will subsequently request the canonical chain to propose from the host.
 	Start() error
 	// SkipToInstance jumps directly to a given instance.
 	// This can be triggered by the reception of a valid finality certificate, or
