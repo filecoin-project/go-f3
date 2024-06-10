@@ -89,6 +89,12 @@ func (p *Participant) CurrentRound() uint64 {
 	return p.gpbft.round
 }
 
+func (p *Participant) CurrentInstance() uint64 {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	return p.currentInstance
+}
+
 // Validates a message
 func (p *Participant) ValidateMessage(msg *GMessage) (valid ValidatedMessage, err error) {
 	defer func() {

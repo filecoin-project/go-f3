@@ -94,6 +94,18 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 			// The last incomplete instance is used for testing assertions.
 			currentInstance = s.ec.BeginInstance(*decidedChain, pt)
 
+			// Simulate the behaviour of an honest integrator, where upon receiving finality
+			// certificates from future rounds it signals gpbft to skip ahead.
+			for _, p := range s.participants {
+				if p.CurrentInstance() < currentInstance.Instance {
+					// TODO: enhance control over propagation of finality certificates
+					//       See: https://github.com/filecoin-project/go-f3/issues/327
+					if err := p.SkipToInstance(currentInstance.Instance); err != nil {
+						return fmt.Errorf("participant %d failed to skip to instace %d: %w", p.ID(), currentInstance.Instance, err)
+					}
+				}
+			}
+
 			// Stop after currentInstance is larger than finalInstance, which means we will
 			// instantiate one extra instance that will not complete.
 			if currentInstance.Instance > finalInstance {

@@ -10,11 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHonest_JumpsRounds(t *testing.T) {
+func TestDeny_SkipsToFuture(t *testing.T) {
 	t.Parallel()
-	// TODO: enable this test once message rebroadcast is implemented.
-	t.Skip("requires re-broadcast implementation to pass")
-
 	const (
 		instanceCount = 2000
 		maxRounds     = 20
