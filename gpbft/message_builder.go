@@ -1,10 +1,14 @@
 package gpbft
 
 import (
+	"errors"
 	"math/big"
 
 	xerrors "golang.org/x/xerrors"
 )
+
+// ErrNoPower is returned by the MessageBuilder if the specified participant has no power.
+var ErrNoPower = errors.New("no power")
 
 type MessageBuilder struct {
 	powerTable      powerTableAccessor
@@ -15,8 +19,8 @@ type MessageBuilder struct {
 
 // NewMessageBuilder creates a new message builder with the provided beacon for ticket,
 // justification and payload.
-func NewMessageBuilder(powerTable powerTableAccessor) MessageBuilder {
-	return MessageBuilder{
+func NewMessageBuilder(powerTable powerTableAccessor) *MessageBuilder {
+	return &MessageBuilder{
 		powerTable: powerTable,
 	}
 }
@@ -36,15 +40,15 @@ func (mb *MessageBuilder) SetPayload(p Payload) {
 	mb.payload = p
 }
 
-func (mb MessageBuilder) Payload() Payload {
+func (mb *MessageBuilder) Payload() Payload {
 	return mb.payload
 }
 
-func (mb MessageBuilder) BeaconForTicket() []byte {
+func (mb *MessageBuilder) BeaconForTicket() []byte {
 	return mb.beaconForTicket
 }
 
-func (mb MessageBuilder) Justification() *Justification {
+func (mb *MessageBuilder) Justification() *Justification {
 	return mb.justification
 }
 
@@ -59,7 +63,7 @@ type SignerWithMarshaler interface {
 
 // Build uses the builder and a signer interface to build GMessage
 // It is a shortcut for when separated flow is not required
-func (mt MessageBuilder) Build(networkName NetworkName, signer SignerWithMarshaler, id ActorID) (*GMessage, error) {
+func (mt *MessageBuilder) Build(networkName NetworkName, signer SignerWithMarshaler, id ActorID) (*GMessage, error) {
 	st, err := mt.PrepareSigningInputs(signer, networkName, id)
 	if err != nil {
 		return nil, xerrors.Errorf("preparing signing inputs: %w", err)
@@ -108,10 +112,10 @@ func (sb *SignatureBuilder) VRFToSign() []byte {
 	return sb.vrfToSign
 }
 
-func (mt MessageBuilder) PrepareSigningInputs(msh SigningMarshaler, networkName NetworkName, id ActorID) (SignatureBuilder, error) {
-	_, _, pubKey := mt.powerTable.Get(id)
-	if pubKey == nil {
-		return SignatureBuilder{}, xerrors.Errorf("could not find pubkey for actor %d", id)
+func (mt *MessageBuilder) PrepareSigningInputs(msh SigningMarshaler, networkName NetworkName, id ActorID) (*SignatureBuilder, error) {
+	effectivePower, _, pubKey := mt.powerTable.Get(id)
+	if pubKey == nil || effectivePower == 0 {
+		return nil, xerrors.Errorf("could not find pubkey for actor %d: %w", id, ErrNoPower)
 	}
 	sb := SignatureBuilder{
 		participantID: id,
@@ -126,22 +130,22 @@ func (mt MessageBuilder) PrepareSigningInputs(msh SigningMarshaler, networkName 
 	if mt.beaconForTicket != nil {
 		sb.vrfToSign = vrfSerializeSigInput(mt.beaconForTicket, mt.payload.Instance, mt.payload.Round, networkName)
 	}
-	return sb, nil
+	return &sb, nil
 }
 
 // NewMessageBuilderWithPowerTable allows to create a new message builder
 // from an existing power table.
 //
 // This is needed to sign forged messages in adversary hosts
-func NewMessageBuilderWithPowerTable(power *PowerTable) MessageBuilder {
-	return MessageBuilder{
+func NewMessageBuilderWithPowerTable(power *PowerTable) *MessageBuilder {
+	return &MessageBuilder{
 		powerTable: power,
 	}
 }
 
 // Sign creates the signed payload from the signature builder and returns the payload
 // and VRF signatures. These signatures can be used independent from the builder.
-func (st SignatureBuilder) sign(signer Signer) ([]byte, []byte, error) {
+func (st *SignatureBuilder) sign(signer Signer) ([]byte, []byte, error) {
 	payloadSignature, err := signer.Sign(st.pubKey, st.payloadToSign)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("signing payload: %w", err)
@@ -157,7 +161,7 @@ func (st SignatureBuilder) sign(signer Signer) ([]byte, []byte, error) {
 }
 
 // Build takes the template and signatures and builds GMessage out of them
-func (st SignatureBuilder) build(payloadSignature []byte, vrf []byte) *GMessage {
+func (st *SignatureBuilder) build(payloadSignature []byte, vrf []byte) *GMessage {
 	return &GMessage{
 		Sender:        st.participantID,
 		Vote:          st.payload,

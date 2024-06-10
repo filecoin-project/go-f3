@@ -73,7 +73,7 @@ func (s *Spam) spamAtInstance(instance uint64) {
 		mt := gpbft.NewMessageBuilderWithPowerTable(power)
 		mt.SetPayload(p)
 
-		_ = s.host.RequestBroadcast(&mt)
+		_ = s.host.RequestBroadcast(mt)
 	}
 }
 

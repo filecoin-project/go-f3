@@ -911,7 +911,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, createTick
 		mb.SetBeaconForTicket(i.beacon)
 	}
 
-	_ = i.participant.host.RequestBroadcast(&mb)
+	_ = i.participant.host.RequestBroadcast(mb)
 }
 
 // Sets an alarm to be delivered after a synchrony delay.
