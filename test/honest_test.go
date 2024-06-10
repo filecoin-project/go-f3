@@ -61,6 +61,7 @@ func TestHonest_Agreement(t *testing.T) {
 			name:                 "async pair bls",
 			options:              asyncOptions(1413),
 			useBLS:               true,
+			participantCounts:    blsParticipantCount,
 			wantConsensusOnAnyOf: []gpbft.TipSet{*baseChain.Head(), *targetChain.Head()},
 		},
 	}
