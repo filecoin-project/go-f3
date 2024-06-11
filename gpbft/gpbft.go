@@ -895,10 +895,11 @@ func (i *instance) terminated() bool {
 
 func (i *instance) broadcast(round uint64, step Phase, value ECChain, createTicket bool, justification *Justification) {
 	p := Payload{
-		Instance: i.instanceID,
-		Round:    round,
-		Step:     step,
-		Value:    value,
+		Instance:         i.instanceID,
+		Round:            round,
+		Step:             step,
+		SupplementalData: *i.supplementalData,
+		Value:            value,
 	}
 	mb := NewMessageBuilder(&i.powerTable)
 	mb.SetPayload(p)
@@ -929,10 +930,11 @@ func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase P
 	}
 	return &Justification{
 		Vote: Payload{
-			Instance: i.instanceID,
-			Round:    round,
-			Step:     phase,
-			Value:    value,
+			Instance:         i.instanceID,
+			Round:            round,
+			Step:             phase,
+			Value:            value,
+			SupplementalData: *i.supplementalData,
 		},
 		Signers:   quorum.SignersBitfield(),
 		Signature: aggSignature,

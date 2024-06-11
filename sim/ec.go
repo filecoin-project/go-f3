@@ -32,6 +32,8 @@ type ECInstance struct {
 	PowerTable *gpbft.PowerTable
 	// The beacon value to use for this instance.
 	Beacon []byte
+	// SupplementalData is the additional data for this instance.
+	SupplementalData *gpbft.SupplementalData
 
 	ec        *simEC
 	decisions map[gpbft.ActorID]*gpbft.Justification
@@ -60,13 +62,17 @@ func (ec *simEC) BeginInstance(baseChain gpbft.ECChain, pt *gpbft.PowerTable) *E
 	// Take beacon value from the head of the base chain.
 	// Note a real beacon value will come from a finalised chain with some lookback.
 	beacon := baseChain.Head().Key
+	nextInstanceID := uint64(ec.Len())
 	instance := &ECInstance{
-		Instance:   uint64(ec.Len()),
+		Instance:   nextInstanceID,
 		BaseChain:  baseChain,
 		PowerTable: pt,
 		Beacon:     beacon,
-		ec:         ec,
-		decisions:  make(map[gpbft.ActorID]*gpbft.Justification),
+		SupplementalData: &gpbft.SupplementalData{
+			PowerTable: gpbft.CID(fmt.Sprintf("supp-data-pt@%d", nextInstanceID)),
+		},
+		ec:        ec,
+		decisions: make(map[gpbft.ActorID]*gpbft.Justification),
 	}
 	ec.instances = append(ec.instances, instance)
 	return instance

@@ -59,7 +59,8 @@ func (v *simHost) GetProposalForInstance(instance uint64) (*gpbft.SupplementalDa
 	// Use the head of latest agreement chain as the base of next.
 	// TODO: use lookback to return the correct next power table commitment and commitments hash.
 	chain := v.ecg.GenerateECChain(instance, *v.ecChain.Head(), v.id)
-	return new(gpbft.SupplementalData), chain, nil
+	i := v.sim.ec.GetInstance(instance)
+	return i.SupplementalData, chain, nil
 }
 
 func (v *simHost) GetCommitteeForInstance(instance uint64) (power *gpbft.PowerTable, beacon []byte, err error) {
