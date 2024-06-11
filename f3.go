@@ -29,7 +29,7 @@ type F3 struct {
 	ec     ECBackend
 	log    Logger
 
-	client clientImpl
+	client *clientImpl
 }
 
 type clientImpl struct {
@@ -41,11 +41,11 @@ type clientImpl struct {
 	loggerWithSkip Logger
 
 	// Populated after Run is called
-	messageQueue <-chan *gpbft.GMessage
+	messageQueue <-chan gpbft.ValidatedMessage
 	topic        *pubsub.Topic
 }
 
-func (mc clientImpl) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder) error {
+func (mc *clientImpl) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder) error {
 	msg, err := mb.Build(mc.nn, mc.SignerWithMarshaler, mc.id)
 	if err != nil {
 		if errors.Is(err, gpbft.ErrNoPower) {
@@ -62,16 +62,18 @@ func (mc clientImpl) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuil
 	return mc.topic.Publish(ctx, bw.Bytes())
 }
 
-func (mc clientImpl) IncommingMessages() <-chan *gpbft.GMessage {
+func (mc *clientImpl) IncomingMessages() <-chan gpbft.ValidatedMessage {
 	return mc.messageQueue
 }
 
+var _ gpbft.Tracer = (*clientImpl)(nil)
+
 // Log fulfills the gpbft.Tracer interface
-func (mc clientImpl) Log(fmt string, args ...any) {
+func (mc *clientImpl) Log(fmt string, args ...any) {
 	mc.loggerWithSkip.Debugf(fmt, args...)
 }
 
-func (mc clientImpl) Logger() Logger {
+func (mc *clientImpl) Logger() Logger {
 	return mc.logger
 }
 
@@ -99,7 +101,7 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 		ec:     ec,
 		log:    log,
 
-		client: clientImpl{
+		client: &clientImpl{
 			nn:                  manifest.NetworkName,
 			id:                  id,
 			Verifier:            verif,
@@ -111,9 +113,32 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 
 	return &m, nil
 }
-func (m *F3) setupPubsub() error {
+func (m *F3) setupPubsub(runner *gpbftRunner) error {
 	pubsubTopicName := m.Manifest.NetworkName.PubSubTopic()
-	err := m.pubsub.RegisterTopicValidator(pubsubTopicName, m.pubsubTopicValidator)
+
+	// explicit type to typecheck the anonymous function defintion
+	// a bit ugly but I don't want gpbftRunner to know about pubsub
+	var validator pubsub.ValidatorEx = func(ctx context.Context, pID peer.ID,
+		msg *pubsub.Message) pubsub.ValidationResult {
+
+		var gmsg gpbft.GMessage
+		err := gmsg.UnmarshalCBOR(bytes.NewReader(msg.Data))
+		if err != nil {
+			return pubsub.ValidationReject
+		}
+		validatedMessage, err := runner.ValidateMessage(&gmsg)
+		if errors.Is(err, gpbft.ErrValidationInvalid) {
+			return pubsub.ValidationReject
+		}
+		if err != nil {
+			m.log.Warnf("unknown error during validation: %+v", err)
+			return pubsub.ValidationIgnore
+		}
+		msg.ValidatorData = validatedMessage
+		return pubsub.ValidationAccept
+	}
+
+	err := m.pubsub.RegisterTopicValidator(pubsubTopicName, validator)
 	if err != nil {
 		return xerrors.Errorf("registering topic validator: %w", err)
 	}
@@ -134,10 +159,16 @@ func (m *F3) teardownPubsub() error {
 }
 
 // Run start the module. It will exit when context is cancelled.
-func (m *F3) Run(ctx context.Context) error {
+func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	if err := m.setupPubsub(); err != nil {
+
+	runner, err := newRunner(m.client.id, m.Manifest, m.client)
+	if err != nil {
+		return xerrors.Errorf("creating gpbft host: %w", err)
+	}
+
+	if err := m.setupPubsub(runner); err != nil {
 		return xerrors.Errorf("setting up pubsub: %w", err)
 	}
 
@@ -146,18 +177,13 @@ func (m *F3) Run(ctx context.Context) error {
 		return xerrors.Errorf("subscribing to topic: %w", err)
 	}
 
-	messageQueue := make(chan *gpbft.GMessage, 20)
+	messageQueue := make(chan gpbft.ValidatedMessage, 20)
 	m.client.messageQueue = messageQueue
-
-	r, err := newRunner(m.client.id, m.Manifest, m.client)
-	if err != nil {
-		return xerrors.Errorf("creating gpbft host: %w", err)
-	}
 
 	runnerErrCh := make(chan error, 1)
 
 	go func() {
-		err := r.Run(ctx)
+		err := runner.Run(initialInstance, ctx)
 		m.log.Errorf("running host: %+v", err)
 		runnerErrCh <- err
 	}()
@@ -174,7 +200,7 @@ loop:
 			m.log.Errorf("pubsub subscription.Next() returned an error: %+v", err)
 			break
 		}
-		gmsg, ok := msg.ValidatorData.(*gpbft.GMessage)
+		gmsg, ok := msg.ValidatorData.(gpbft.ValidatedMessage)
 		if !ok {
 			m.log.Errorf("invalid ValidatorData: %+v", msg.ValidatorData)
 			continue
@@ -194,21 +220,6 @@ loop:
 		err = multierr.Append(err, xerrors.Errorf("shutting down pubsub: %w", err2))
 	}
 	return multierr.Append(err, ctx.Err())
-}
-
-var _ pubsub.ValidatorEx = (*F3)(nil).pubsubTopicValidator
-
-// validator for the pubsub
-func (m *F3) pubsubTopicValidator(ctx context.Context, pID peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
-	var gmsg gpbft.GMessage
-	err := gmsg.UnmarshalCBOR(bytes.NewReader(msg.Data))
-	if err != nil {
-		return pubsub.ValidationReject
-	}
-
-	// TODO more validation
-	msg.ValidatorData = &gmsg
-	return pubsub.ValidationAccept
 }
 
 type ECBackend interface{}

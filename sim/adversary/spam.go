@@ -37,8 +37,9 @@ func NewSpamGenerator(power *gpbft.StoragePower, roundsAhead uint64) Generator {
 	}
 }
 
-func (s *Spam) Start() error {
+func (s *Spam) StartInstance(instance uint64) error {
 	// Immediately start spamming the network.
+	s.latestObservedInstance = instance
 	s.spamAtInstance(s.latestObservedInstance)
 	return nil
 }
@@ -61,14 +62,19 @@ func (s *Spam) spamAtInstance(instance uint64) {
 	// Spam the network with COMMIT messages by incrementing rounds up to
 	// roundsAhead.
 	for spamRound := uint64(0); spamRound < s.roundsAhead; spamRound++ {
+		supplementalData, _, err := s.host.GetProposalForInstance(instance)
+		if err != nil {
+			panic(err)
+		}
 		power, _, err := s.host.GetCommitteeForInstance(instance)
 		if err != nil {
 			panic(err)
 		}
 		p := gpbft.Payload{
-			Instance: instance,
-			Round:    spamRound,
-			Step:     gpbft.COMMIT_PHASE,
+			Instance:         instance,
+			Round:            spamRound,
+			SupplementalData: *supplementalData,
+			Step:             gpbft.COMMIT_PHASE,
 		}
 		mt := gpbft.NewMessageBuilderWithPowerTable(power)
 		mt.SetPayload(p)
@@ -79,5 +85,4 @@ func (s *Spam) spamAtInstance(instance uint64) {
 
 func (s *Spam) ID() gpbft.ActorID                                              { return s.id }
 func (s *Spam) ReceiveAlarm() error                                            { return nil }
-func (s *Spam) SkipToInstance(uint64) error                                    { return nil }
 func (s *Spam) AllowMessage(gpbft.ActorID, gpbft.ActorID, gpbft.GMessage) bool { return true }

@@ -79,8 +79,7 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 	subject.host = gpbft.NewMockHost(t)
 	subject.Participant, err = gpbft.NewParticipant(subject.host,
 		gpbft.WithDelta(delta),
-		gpbft.WithDeltaBackOffExponent(deltaBackOffExponent),
-		gpbft.WithInitialInstance(instance))
+		gpbft.WithDeltaBackOffExponent(deltaBackOffExponent))
 	require.NoError(t, err)
 	subject.requireNotStarted()
 	return &subject
@@ -144,6 +143,9 @@ func (pt *participantTestSubject) requireStart() {
 // ReceiveAlarm() in tests that require starting instances.
 // See [participant.go:Start()] for reference
 func (pt *participantTestSubject) Start() error {
+	pt.host.On("Time").Return(pt.time)
+	pt.host.EXPECT().SetAlarm(pt.time)
+	require.NoError(pt.t, pt.Participant.StartInstance(pt.instance))
 	return pt.ReceiveAlarm()
 }
 
@@ -286,7 +288,7 @@ func TestParticipant(t *testing.T) {
 				subject.instance = fInstance
 				subject.expectBeginInstance()
 				// Receiving the certificate should skip directly to the finality instance.
-				require.NoError(t, subject.SkipToInstance(fInstance))
+				require.NoError(t, subject.StartInstance(fInstance))
 				// set subject to the finality instance to see if participant
 				// has begun the right instance.
 				require.NoError(t, subject.ReceiveAlarm())

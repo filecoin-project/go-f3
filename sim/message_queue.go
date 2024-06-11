@@ -55,12 +55,7 @@ func (pq *messageQueue) Len() int { return len(pq.mailbox) }
 func (pq *messageQueue) Less(i, j int) bool {
 	// We want Pop to give us the earliest delivery time, so we use Less to sort by
 	// deliverAt in ascending order.
-	switch one, other := pq.mailbox[i], pq.mailbox[j]; {
-	case one.deliverAt.Equal(other.deliverAt):
-		return one.isAlarm() && !other.isAlarm()
-	default:
-		return one.deliverAt.Before(other.deliverAt)
-	}
+	return pq.mailbox[i].deliverAt.Before(pq.mailbox[j].deliverAt)
 }
 
 // Swap swaps messages in-flight at index i with the one at index j.

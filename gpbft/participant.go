@@ -65,15 +65,14 @@ func NewParticipant(host Host, o ...Option) (*Participant, error) {
 		return nil, err
 	}
 	return &Participant{
-		options:         opts,
-		host:            host,
-		committees:      make(map[uint64]*committee),
-		mqueue:          newMessageQueue(opts.maxLookaheadRounds),
-		currentInstance: opts.initialInstance,
+		options:    opts,
+		host:       host,
+		committees: make(map[uint64]*committee),
+		mqueue:     newMessageQueue(opts.maxLookaheadRounds),
 	}, nil
 }
 
-func (p *Participant) Start() (err error) {
+func (p *Participant) StartInstance(instance uint64) (err error) {
 	if !p.apiMutex.TryLock() {
 		panic("concurrent API method invocation")
 	}
@@ -83,10 +82,17 @@ func (p *Participant) Start() (err error) {
 			err = &PanicError{Err: r}
 		}
 	}()
-	// Uses skipToInstance to trigger the start of the first instance,
-	// so all instances are started the same way.
-	p.doSkipToInstance(p.currentInstance)
-	return nil
+
+	// Finish current instance to clean old committees and old messages queued
+	// and prepare to begin a new instance.
+	p.finishCurrentInstance(instance)
+
+	// Set the alarm to begin a new instance immediately.
+	// This will fetch the chain, drain existing messages for that instance,
+	// and start the instance.
+	p.host.SetAlarm(p.host.Time())
+
+	return err
 }
 
 func (p *Participant) CurrentRound() uint64 {
@@ -186,33 +192,6 @@ func (p *Participant) ReceiveAlarm() (err error) {
 	return nil
 }
 
-// Triggers the start to the instance defined as an argument.
-func (p *Participant) SkipToInstance(i uint64) (err error) {
-	if !p.apiMutex.TryLock() {
-		panic("concurrent API method invocation")
-	}
-	defer p.apiMutex.Unlock()
-	defer func() {
-		if r := recover(); r != nil {
-			err = &PanicError{Err: r}
-		}
-	}()
-
-	p.doSkipToInstance(i)
-	return nil
-}
-
-func (p *Participant) doSkipToInstance(i uint64) {
-	// Finish current instance to clean old committees and old messages queued
-	// and prepare to begin a new instance.
-	p.finishCurrentInstance(i)
-
-	// Set the alarm to begin a new instance immediately.
-	// This will fetch the chain, drain existing messages for that instance,
-	// and start the instance.
-	p.host.SetAlarm(p.host.Time())
-}
-
 func (p *Participant) beginInstance() error {
 	data, chain, err := p.host.GetProposalForInstance(p.currentInstance)
 	if err != nil {
@@ -295,11 +274,13 @@ func (p *Participant) finishCurrentInstance(nextInstance uint64) {
 
 	p.instanceMutex.Lock()
 	defer p.instanceMutex.Unlock()
-	// clean all messages queued and old committees for instances below the next
-	// one
-	for i := p.currentInstance; i < nextInstance; i++ {
-		delete(p.mqueue.messages, i)
-		delete(p.committees, i)
+	// Clean all messages queued and old committees for instances below the next one.
+	// Skip if there are none to avoid iterating from instance zero when starting up.
+	if len(p.mqueue.messages) > 0 || len(p.committees) > 0 {
+		for i := p.currentInstance; i < nextInstance; i++ {
+			delete(p.mqueue.messages, i)
+			delete(p.committees, i)
+		}
 	}
 	p.currentInstance = nextInstance
 }

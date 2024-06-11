@@ -15,7 +15,7 @@ type Client interface {
 	gpbft.Tracer
 
 	BroadcastMessage(context.Context, *gpbft.MessageBuilder) error
-	IncommingMessages() <-chan *gpbft.GMessage
+	IncomingMessages() <-chan gpbft.ValidatedMessage
 	Logger() Logger
 }
 
@@ -25,8 +25,6 @@ type gpbftRunner struct {
 	client      Client
 	participant *gpbft.Participant
 	manifest    Manifest
-
-	selfMessageQueue chan *gpbft.GMessage //for the future when self messages are async
 
 	alertTimer *time.Timer
 
@@ -39,10 +37,9 @@ type gpbftHost gpbftRunner
 
 func newRunner(id gpbft.ActorID, m Manifest, client Client) (*gpbftRunner, error) {
 	runner := &gpbftRunner{
-		client:           client,
-		manifest:         m,
-		selfMessageQueue: make(chan *gpbft.GMessage, 20),
-		log:              client.Logger(),
+		client:   client,
+		manifest: m,
+		log:      client.Logger(),
 	}
 
 	// create a stopped timer to facilitate alerts requested from gpbft
@@ -60,7 +57,7 @@ func newRunner(id gpbft.ActorID, m Manifest, client Client) (*gpbftRunner, error
 	return runner, nil
 }
 
-func (h *gpbftRunner) Run(ctx context.Context) error {
+func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 	var cancel func()
 	h.runningCtx, cancel = context.WithCancel(ctx)
 	defer cancel()
@@ -68,23 +65,14 @@ func (h *gpbftRunner) Run(ctx context.Context) error {
 	// TODO(Kubuxu): temporary hack until re-broadcast and/or booststrap synchronisation are implemented
 	time.Sleep(2 * time.Second)
 
-	err := h.participant.Start()
+	err := h.participant.StartInstance(instance)
 	if err != nil {
 		return xerrors.Errorf("starting a participant: %w", err)
 	}
 
-	messageQueue := h.client.IncommingMessages()
+	messageQueue := h.client.IncomingMessages()
 loop:
 	for {
-		select {
-		case msg := <-h.selfMessageQueue:
-			err = h.deliverMessage(msg)
-		default:
-		}
-		if err != nil {
-			break loop
-		}
-
 		// prioritise alarm delivery
 		// although there is no guarantee that alarm won't fire between
 		// the two select statements
@@ -100,14 +88,12 @@ loop:
 		select {
 		case <-h.alertTimer.C:
 			err = h.participant.ReceiveAlarm()
-		case msg := <-h.selfMessageQueue:
-			err = h.deliverMessage(msg)
 		case msg, ok := <-messageQueue:
 			if !ok {
 				err = xerrors.Errorf("incoming messsage queue closed")
 				break loop
 			}
-			err = h.deliverMessage(msg)
+			err = h.participant.ReceiveMessage(msg)
 		case <-ctx.Done():
 			return nil
 		}
@@ -119,12 +105,8 @@ loop:
 	return err
 }
 
-func (h *gpbftRunner) deliverMessage(msg *gpbft.GMessage) error {
-	valid, err := h.participant.ValidateMessage(msg)
-	if err != nil {
-		return xerrors.Errorf("validating message: %w", err)
-	}
-	return h.participant.ReceiveMessage(valid)
+func (h *gpbftRunner) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
+	return h.participant.ValidateMessage(msg)
 }
 
 // Returns inputs to the next GPBFT instance.
