@@ -31,5 +31,5 @@ func TestDeny_SkipsToFuture(t *testing.T) {
 	require.NoError(t, err)
 	require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
 	chain := ecChainGenerator.GenerateECChain(instanceCount-1, gpbft.TipSet{}, math.MaxUint64)
-	requireConsensusAtInstance(t, sm, instanceCount-1, *chain.Head())
+	requireConsensusAtInstance(t, sm, instanceCount-1, chain...)
 }
