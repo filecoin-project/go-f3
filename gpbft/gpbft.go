@@ -563,7 +563,7 @@ func ValidateMessage(powerTable *PowerTable, beacon []byte, host Host, msg *GMes
 			}
 			power := powerTable.ScaledPower[bit]
 			if power == 0 {
-				return xerrors.Errorf("signer %d has no power", powerTable.Entries[bit].ID)
+				return xerrors.Errorf("signer with ID %d has no power", powerTable.Entries[bit].ID)
 			}
 			justificationPower += power
 			signers = append(signers, powerTable.Entries[bit].PubKey)
