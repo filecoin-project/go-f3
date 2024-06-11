@@ -47,3 +47,49 @@ func FuzzImmediateDecideAdversary(f *testing.F) {
 		require.Equal(t, adversaryValue.Head(), decision.Head(), "honest node did not decide the right value")
 	})
 }
+
+func TestIllegalCommittee_OutOfRange(t *testing.T) {
+	const seed = 98562314
+	t.Parallel()
+	rng := rand.New(rand.NewSource(int64(seed)))
+	tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
+	baseChain := generateECChain(t, tsg)
+	adversaryValue := baseChain.Extend(tsg.Sample())
+	sm, err := sim.NewSimulation(
+		asyncOptions(rng.Int(),
+			sim.AddHonestParticipants(
+				1,
+				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 5),
+				uniformOneStoragePower),
+			sim.WithBaseChain(&baseChain),
+			// Add the adversary to the simulation with 3/4 of total power.
+			sim.WithAdversary(adversary.NewImmediateDecideGenerator(adversaryValue, gpbft.NewStoragePower(3), adversary.ImmediateDecideWithNthParticipant(100))),
+		)...)
+	require.NoError(t, err)
+
+	err = sm.Run(1, maxRounds)
+	require.ErrorContains(t, err, "invalid signer index")
+}
+
+func TestIllegalCommittee_NoPower(t *testing.T) {
+	const seed = 98562314
+	t.Parallel()
+	rng := rand.New(rand.NewSource(int64(seed)))
+	tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
+	baseChain := generateECChain(t, tsg)
+	adversaryValue := baseChain.Extend(tsg.Sample())
+	sm, err := sim.NewSimulation(
+		asyncOptions(rng.Int(),
+			sim.AddHonestParticipants(
+				1,
+				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 5),
+				sim.UniformStoragePower(gpbft.NewStoragePower(1))),
+			sim.WithBaseChain(&baseChain),
+			// Add the adversary to the simulation with 3/4 of total power.
+			sim.WithAdversary(adversary.NewImmediateDecideGenerator(adversaryValue, gpbft.NewStoragePower(0xffff), adversary.ImmediateDecideWithNthParticipant(1))),
+		)...)
+	require.NoError(t, err)
+
+	err = sm.Run(1, maxRounds)
+	require.ErrorContains(t, err, "signer with ID 0 has no power")
+}
