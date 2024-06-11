@@ -219,14 +219,6 @@ loop:
 	return multierr.Append(err, ctx.Err())
 }
 
-var _ pubsub.ValidatorEx = (*F3)(nil).pubsubTopicValidator
-
-// validator for the pubsub
-func (m *F3) pubsubTopicValidator(ctx context.Context, pID peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
-
-	return pubsub.ValidationAccept
-}
-
 type ECBackend interface{}
 
 type Logger interface {
