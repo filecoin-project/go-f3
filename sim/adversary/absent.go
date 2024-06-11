@@ -32,9 +32,7 @@ func (a *Absent) ID() gpbft.ActorID {
 	return a.id
 }
 
-func (*Absent) Start() error {
-	return nil
-}
+func (*Absent) StartInstance(uint64) error { return nil }
 
 func (*Absent) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
 	return Validated(msg), nil
@@ -43,8 +41,6 @@ func (*Absent) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, err
 func (*Absent) ReceiveMessage(_ gpbft.ValidatedMessage) error {
 	return nil
 }
-
-func (*Absent) SkipToInstance(uint64) error { return nil }
 
 func (*Absent) ReceiveAlarm() error {
 	return nil

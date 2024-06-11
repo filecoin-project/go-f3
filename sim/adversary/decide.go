@@ -35,25 +35,25 @@ func (i *ImmediateDecide) ID() gpbft.ActorID {
 	return i.id
 }
 
-func (i *ImmediateDecide) Start() error {
-	supplementalData, _, err := i.host.GetProposalForInstance(0)
+func (i *ImmediateDecide) StartInstance(instance uint64) error {
+	supplementalData, _, err := i.host.GetProposalForInstance(instance)
 	if err != nil {
 		panic(err)
 	}
-	powertable, _, err := i.host.GetCommitteeForInstance(0)
+	powertable, _, err := i.host.GetCommitteeForInstance(instance)
 	if err != nil {
 		panic(err)
 	}
 	// Immediately send a DECIDE message
 	payload := gpbft.Payload{
-		Instance:         0,
+		Instance:         instance,
 		Round:            0,
 		Step:             gpbft.DECIDE_PHASE,
 		Value:            i.value,
 		SupplementalData: *supplementalData,
 	}
 	justificationPayload := gpbft.Payload{
-		Instance:         0,
+		Instance:         instance,
 		Round:            0,
 		Step:             gpbft.COMMIT_PHASE,
 		Value:            i.value,
@@ -94,8 +94,6 @@ func (*ImmediateDecide) ReceiveMessage(_ gpbft.ValidatedMessage) error {
 func (*ImmediateDecide) ReceiveAlarm() error {
 	return nil
 }
-
-func (*ImmediateDecide) SkipToInstance(uint64) error { return nil }
 
 func (*ImmediateDecide) AllowMessage(_ gpbft.ActorID, _ gpbft.ActorID, _ gpbft.GMessage) bool {
 	// Allow all messages

@@ -49,16 +49,15 @@ func (w *WithholdCommit) ID() gpbft.ActorID {
 	return w.id
 }
 
-func (w *WithholdCommit) Start() error {
-
+func (w *WithholdCommit) StartInstance(instance uint64) error {
 	if len(w.victims) == 0 {
 		return errors.New("victims must be set")
 	}
-	supplementalData, _, err := w.host.GetProposalForInstance(0)
+	supplementalData, _, err := w.host.GetProposalForInstance(instance)
 	if err != nil {
 		panic(err)
 	}
-	powertable, _, err := w.host.GetCommitteeForInstance(0)
+	powertable, _, err := w.host.GetCommitteeForInstance(instance)
 	if err != nil {
 		panic(err)
 	}
@@ -66,14 +65,14 @@ func (w *WithholdCommit) Start() error {
 	// All victims need to see QUALITY and PREPARE in order to send their COMMIT,
 	// but only the one victim will see our COMMIT.
 	broadcast(gpbft.Payload{
-		Instance:         0,
+		Instance:         instance,
 		Round:            0,
 		Step:             gpbft.QUALITY_PHASE,
 		Value:            w.victimValue,
 		SupplementalData: *supplementalData,
 	}, nil)
 	preparePayload := gpbft.Payload{
-		Instance:         0,
+		Instance:         instance,
 		Round:            0,
 		Step:             gpbft.PREPARE_PHASE,
 		Value:            w.victimValue,
@@ -82,7 +81,7 @@ func (w *WithholdCommit) Start() error {
 	broadcast(preparePayload, nil)
 
 	commitPayload := gpbft.Payload{
-		Instance:         0,
+		Instance:         instance,
 		Round:            0,
 		Step:             gpbft.COMMIT_PHASE,
 		Value:            w.victimValue,
@@ -129,8 +128,6 @@ func (*WithholdCommit) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMess
 func (*WithholdCommit) ReceiveMessage(_ gpbft.ValidatedMessage) error {
 	return nil
 }
-
-func (*WithholdCommit) SkipToInstance(uint64) error { return nil }
 
 func (*WithholdCommit) ReceiveAlarm() error {
 	return nil

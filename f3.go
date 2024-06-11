@@ -156,7 +156,7 @@ func (m *F3) teardownPubsub() error {
 }
 
 // Run start the module. It will exit when context is cancelled.
-func (m *F3) Run(ctx context.Context) error {
+func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -180,7 +180,7 @@ func (m *F3) Run(ctx context.Context) error {
 	runnerErrCh := make(chan error, 1)
 
 	go func() {
-		err := runner.Run(ctx)
+		err := runner.Run(initialInstance, ctx)
 		m.log.Errorf("running host: %+v", err)
 		runnerErrCh <- err
 	}()
