@@ -40,7 +40,7 @@ func NewLogNormal(seed int64, mean time.Duration) *LogNormal {
 // distribution. Latency from one participant to another may be asymmetric and
 // once generated remains constant for the lifetime of a simulation.
 //
-// Note, mean configured latency is not larger than zero the latency sample will
+// Note, when mean configured latency is not larger than zero the latency sample will
 // always be zero.
 func (l *LogNormal) Sample(_ time.Time, from gpbft.ActorID, to gpbft.ActorID) time.Duration {
 	if l.mean <= 0 {
