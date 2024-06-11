@@ -36,19 +36,28 @@ func (i *ImmediateDecide) ID() gpbft.ActorID {
 }
 
 func (i *ImmediateDecide) Start() error {
-	powertable, _, _ := i.host.GetCommitteeForInstance(0)
+	supplementalData, _, err := i.host.GetProposalForInstance(0)
+	if err != nil {
+		panic(err)
+	}
+	powertable, _, err := i.host.GetCommitteeForInstance(0)
+	if err != nil {
+		panic(err)
+	}
 	// Immediately send a DECIDE message
 	payload := gpbft.Payload{
-		Instance: 0,
-		Round:    0,
-		Step:     gpbft.DECIDE_PHASE,
-		Value:    i.value,
+		Instance:         0,
+		Round:            0,
+		Step:             gpbft.DECIDE_PHASE,
+		Value:            i.value,
+		SupplementalData: *supplementalData,
 	}
 	justificationPayload := gpbft.Payload{
-		Instance: 0,
-		Round:    0,
-		Step:     gpbft.COMMIT_PHASE,
-		Value:    i.value,
+		Instance:         0,
+		Round:            0,
+		Step:             gpbft.COMMIT_PHASE,
+		Value:            i.value,
+		SupplementalData: *supplementalData,
 	}
 	sigPayload := i.host.MarshalPayloadForSigning(i.host.NetworkName(), &justificationPayload)
 	_, pubkey := powertable.Get(i.id)

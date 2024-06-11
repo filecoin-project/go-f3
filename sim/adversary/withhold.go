@@ -54,30 +54,39 @@ func (w *WithholdCommit) Start() error {
 	if len(w.victims) == 0 {
 		return errors.New("victims must be set")
 	}
-
-	powertable, _, _ := w.host.GetCommitteeForInstance(0)
+	supplementalData, _, err := w.host.GetProposalForInstance(0)
+	if err != nil {
+		panic(err)
+	}
+	powertable, _, err := w.host.GetCommitteeForInstance(0)
+	if err != nil {
+		panic(err)
+	}
 	broadcast := w.broadcastHelper(w.id, powertable)
 	// All victims need to see QUALITY and PREPARE in order to send their COMMIT,
 	// but only the one victim will see our COMMIT.
 	broadcast(gpbft.Payload{
-		Instance: 0,
-		Round:    0,
-		Step:     gpbft.QUALITY_PHASE,
-		Value:    w.victimValue,
+		Instance:         0,
+		Round:            0,
+		Step:             gpbft.QUALITY_PHASE,
+		Value:            w.victimValue,
+		SupplementalData: *supplementalData,
 	}, nil)
 	preparePayload := gpbft.Payload{
-		Instance: 0,
-		Round:    0,
-		Step:     gpbft.PREPARE_PHASE,
-		Value:    w.victimValue,
+		Instance:         0,
+		Round:            0,
+		Step:             gpbft.PREPARE_PHASE,
+		Value:            w.victimValue,
+		SupplementalData: *supplementalData,
 	}
 	broadcast(preparePayload, nil)
 
 	commitPayload := gpbft.Payload{
-		Instance: 0,
-		Round:    0,
-		Step:     gpbft.COMMIT_PHASE,
-		Value:    w.victimValue,
+		Instance:         0,
+		Round:            0,
+		Step:             gpbft.COMMIT_PHASE,
+		Value:            w.victimValue,
+		SupplementalData: *supplementalData,
 	}
 
 	justification := gpbft.Justification{
@@ -104,7 +113,6 @@ func (w *WithholdCommit) Start() error {
 		pubKeys = append(pubKeys, entry.PubKey)
 		justification.Signers.Set(uint64(signerIndex))
 	}
-	var err error
 	justification.Signature, err = w.host.Aggregate(pubKeys, signatures)
 	if err != nil {
 		panic(err)

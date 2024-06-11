@@ -79,18 +79,21 @@ func (r *Repeat) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
 	if echoCount <= 0 {
 		return nil
 	}
-
+	supplementalData, _, err := r.host.GetProposalForInstance(0)
+	if err != nil {
+		panic(err)
+	}
 	power, beacon, _ := r.host.GetCommitteeForInstance(0)
 	p := gpbft.Payload{
-		Instance: msg.Vote.Instance,
-		Round:    msg.Vote.Round,
-		Step:     msg.Vote.Step,
-		Value:    msg.Vote.Value,
+		Instance:         msg.Vote.Instance,
+		Round:            msg.Vote.Round,
+		Step:             msg.Vote.Step,
+		SupplementalData: *supplementalData,
+		Value:            msg.Vote.Value,
 	}
 	mt := gpbft.NewMessageBuilderWithPowerTable(power)
 	mt.SetPayload(p)
 	mt.SetJustification(msg.Justification)
-
 	if len(msg.Ticket) != 0 {
 		mt.SetBeaconForTicket(beacon)
 	}
