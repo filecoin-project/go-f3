@@ -76,9 +76,6 @@ func loadManifest(path string) (f3.Manifest, error) {
 	defer f.Close()
 	var m f3.Manifest
 
-	err = json.NewDecoder(f).Decode(&m)
-	if err != nil {
-		return f3.Manifest{}, xerrors.Errorf("decoding JSON: %w", err)
-	}
+	err = m.Unmarshal(f)
 	return m, err
 }

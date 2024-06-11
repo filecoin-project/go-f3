@@ -25,10 +25,14 @@ type F3 struct {
 	ds     datastore.Datastore
 	host   host.Host
 	pubsub *pubsub.PubSub
+	runner *gpbftRunner
 	ec     ECBackend
 	log    Logger
 
 	client clientImpl
+
+	manifestServerID peer.ID
+	nextManifest     *Manifest
 }
 
 type clientImpl struct {
@@ -40,8 +44,10 @@ type clientImpl struct {
 	loggerWithSkip Logger
 
 	// Populated after Run is called
-	messageQueue <-chan *gpbft.GMessage
-	topic        *pubsub.Topic
+	messageQueue  <-chan *gpbft.GMessage
+	manifestQueue <-chan *Manifest
+	msgTopic      *pubsub.Topic
+	manifestTopic *pubsub.Topic
 }
 
 func (mc clientImpl) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder) error {
@@ -55,11 +61,15 @@ func (mc clientImpl) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuil
 	if err != nil {
 		mc.Log("marshalling GMessage: %+v", err)
 	}
-	return mc.topic.Publish(ctx, bw.Bytes())
+	return mc.msgTopic.Publish(ctx, bw.Bytes())
 }
 
-func (mc clientImpl) IncommingMessages() <-chan *gpbft.GMessage {
+func (mc clientImpl) IncomingMessages() <-chan *gpbft.GMessage {
 	return mc.messageQueue
+}
+
+func (mc clientImpl) IncomingManifests() <-chan *Manifest {
+	return mc.manifestQueue
 }
 
 // Log fulfills the gpbft.Tracer interface
@@ -73,7 +83,7 @@ func (mc clientImpl) Logger() Logger {
 
 // New creates and setups f3 with libp2p
 // The context is used for initialization not runtime.
-func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.Datastore, h host.Host,
+func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.Datastore, h host.Host, diagnosticsServer peer.ID,
 	ps *pubsub.PubSub, sigs gpbft.SignerWithMarshaler, verif gpbft.Verifier, ec ECBackend, log Logger) (*F3, error) {
 	ds = namespace.Wrap(ds, manifest.NetworkName.DatastorePrefix())
 	cs, err := certstore.OpenOrCreateStore(ctx, ds, 0, manifest.InitialPowerTable)
@@ -88,12 +98,11 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 	m := F3{
 		Manifest:  manifest,
 		CertStore: cs,
-
-		ds:     ds,
-		host:   h,
-		pubsub: ps,
-		ec:     ec,
-		log:    log,
+		ds:        ds,
+		host:      h,
+		pubsub:    ps,
+		ec:        ec,
+		log:       log,
 
 		client: clientImpl{
 			nn:                  manifest.NetworkName,
@@ -103,93 +112,206 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 			logger:              log,
 			loggerWithSkip:      loggerWithSkip,
 		},
+
+		manifestServerID: diagnosticsServer,
 	}
 
 	return &m, nil
 }
-func (m *F3) setupPubsub() error {
-	pubsubTopicName := m.Manifest.NetworkName.PubSubTopic()
-	err := m.pubsub.RegisterTopicValidator(pubsubTopicName, m.pubsubTopicValidator)
-	if err != nil {
-		return xerrors.Errorf("registering topic validator: %w", err)
-	}
-
-	topic, err := m.pubsub.Join(pubsubTopicName)
-	if err != nil {
-		return xerrors.Errorf("could not join on pubsub topic: %s: %w", pubsubTopicName, err)
-	}
-	m.client.topic = topic
-	return nil
+func (m *F3) setupMsgPubsub() (err error) {
+	pubsubTopicName := m.Manifest.PubSubTopic()
+	m.client.msgTopic, err = m.setupPubsub(pubsubTopicName)
+	return
 }
 
-func (m *F3) teardownPubsub() error {
+func (m *F3) setupPubsub(topicName string) (*pubsub.Topic, error) {
+	err := m.pubsub.RegisterTopicValidator(topicName, m.pubsubTopicValidator)
+	if err != nil {
+		return nil, xerrors.Errorf("registering topic validator: %w", err)
+	}
+
+	topic, err := m.pubsub.Join(topicName)
+	if err != nil {
+		return nil, xerrors.Errorf("could not join on pubsub topic: %s: %w", topicName, err)
+	}
+	return topic, nil
+}
+
+func (m *F3) teardownMsgPubsub() error {
+	return m.teardownPubsub(m.client.msgTopic, m.Manifest.PubSubTopic())
+}
+
+func (m *F3) teardownPubsub(topic *pubsub.Topic, topicName string) error {
 	return multierr.Combine(
-		m.pubsub.UnregisterTopicValidator(m.Manifest.NetworkName.PubSubTopic()),
-		m.client.topic.Close(),
+		m.pubsub.UnregisterTopicValidator(topicName),
+		topic.Close(),
 	)
+}
+
+func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
+	if err := m.setupMsgPubsub(); err != nil {
+		errCh <- xerrors.Errorf("setting up pubsub: %w", err)
+	}
+
+	msgSub, err := m.client.msgTopic.Subscribe()
+	if err != nil {
+		errCh <- xerrors.Errorf("subscribing to topic: %w", err)
+	}
+
+	messageQueue := make(chan *gpbft.GMessage, 20)
+	m.client.messageQueue = messageQueue
+
+	m.runner, err = newRunner(m.client.id, m.Manifest, m.client)
+	if err != nil {
+		errCh <- xerrors.Errorf("creating gpbft host: %w", err)
+	}
+
+	go func() {
+		err := m.runner.Run(ctx)
+		m.log.Errorf("running host: %+v", err)
+		errCh <- err
+	}()
+
+	m.handleIncomingMessages(ctx, msgSub, messageQueue)
+}
+
+func (m *F3) stopGpbftRunner() (err error) {
+	err = m.teardownMsgPubsub()
+	m.runner.Stop()
+	return err
 }
 
 // Run start the module. It will exit when context is cancelled.
 func (m *F3) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	if err := m.setupPubsub(); err != nil {
+
+	if err := m.setupManifestPubsub(); err != nil {
 		return xerrors.Errorf("setting up pubsub: %w", err)
 	}
 
-	sub, err := m.client.topic.Subscribe()
+	manifestSub, err := m.client.manifestTopic.Subscribe()
 	if err != nil {
 		return xerrors.Errorf("subscribing to topic: %w", err)
 	}
 
-	messageQueue := make(chan *gpbft.GMessage, 20)
-	m.client.messageQueue = messageQueue
+	manifestQueue := make(chan *Manifest, 5)
+	m.client.manifestQueue = manifestQueue
 
-	r, err := newRunner(m.client.id, m.Manifest, m.client)
+	ecSub, err := m.ec.ChainHead(ctx)
 	if err != nil {
-		return xerrors.Errorf("creating gpbft host: %w", err)
+		return xerrors.Errorf("subscribing to chain events: %w", err)
 	}
 
 	runnerErrCh := make(chan error, 1)
-
-	go func() {
-		err := r.Run(ctx)
-		m.log.Errorf("running host: %+v", err)
-		runnerErrCh <- err
-	}()
+	// start initial runner
+	go m.startGpbftRunner(ctx, runnerErrCh)
 
 loop:
 	for {
+		select {
+		case ts := <-ecSub:
+			if m.nextManifest != nil {
+				// if the upgrade epoch is reached or already passed.
+				if ts.Epoch >= m.nextManifest.UpgradeEpoch {
+					// update the current manifest
+					m.Manifest = *m.nextManifest
+					m.nextManifest = nil
+					if m.nextManifest.ReBootstrap {
+						// stop the current gpbft runner
+						m.stopGpbftRunner()
+						// bootstrap a new runner with the new configuration.
+						go m.startGpbftRunner(ctx, runnerErrCh)
+					} else {
+						// TODO: Update the corresponding configurations needed
+						// without rebootstrapping, like the power table et. al.
+						// We need to notify the host that the new manifest requires
+						// triggering a new configuration without restarting the runner
+						// TODO: We still need to restart the pubsub channel with the new
+						// name for the version.
+						manifestQueue <- &m.Manifest
+					}
+					continue
+				}
+			}
+
+		default:
+			var msg *pubsub.Message
+			msg, err = manifestSub.Next(ctx)
+			if err != nil {
+				if ctx.Err() != nil {
+					err = nil
+					break
+				}
+				m.log.Errorf("manifestPubsub subscription.Next() returned an error: %+v", err)
+				break
+			}
+			manifest, ok := msg.ValidatorData.(*Manifest)
+			if !ok {
+				m.log.Errorf("invalid manifestValidatorData: %+v", msg.ValidatorData)
+				continue
+			}
+
+			if !m.acceptNextManifest(manifest) {
+				continue
+			}
+
+			m.nextManifest = manifest
+
+			select {
+			case <-ctx.Done():
+				break loop
+			case err = <-runnerErrCh:
+				break loop
+			}
+		}
+	}
+
+	manifestSub.Cancel()
+	if err2 := m.teardownManifestPubsub(); err2 != nil {
+		err = multierr.Append(err, xerrors.Errorf("shutting down manifest pubsub: %w", err2))
+	}
+	return multierr.Append(err, ctx.Err())
+}
+
+func (m *F3) acceptNextManifest(manifest *Manifest) bool {
+
+	// if the manifest is older, skip it
+	if manifest.Sequence <= m.Manifest.Sequence ||
+		manifest.UpgradeEpoch < m.Manifest.UpgradeEpoch {
+		return false
+	}
+
+	return true
+}
+
+func (m *F3) handleIncomingMessages(ctx context.Context, sub *pubsub.Subscription, queue chan *gpbft.GMessage) {
+loop:
+	for {
 		var msg *pubsub.Message
-		msg, err = sub.Next(ctx)
+		msg, err := sub.Next(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
 				err = nil
 				break
 			}
-			m.log.Errorf("pubsub subscription.Next() returned an error: %+v", err)
+			m.log.Errorf("msgPubsub subscription.Next() returned an error: %+v", err)
 			break
 		}
 		gmsg, ok := msg.ValidatorData.(*gpbft.GMessage)
 		if !ok {
-			m.log.Errorf("invalid ValidatorData: %+v", msg.ValidatorData)
+			m.log.Errorf("invalid msgValidatorData: %+v", msg.ValidatorData)
 			continue
 		}
 
 		select {
-		case messageQueue <- gmsg:
+		case queue <- gmsg:
 		case <-ctx.Done():
-			break loop
-		case err = <-runnerErrCh:
 			break loop
 		}
 	}
 
 	sub.Cancel()
-	if err2 := m.teardownPubsub(); err2 != nil {
-		err = multierr.Append(err, xerrors.Errorf("shutting down pubsub: %w", err2))
-	}
-	return multierr.Append(err, ctx.Err())
 }
 
 var _ pubsub.ValidatorEx = (*F3)(nil).pubsubTopicValidator
@@ -207,7 +329,41 @@ func (m *F3) pubsubTopicValidator(ctx context.Context, pID peer.ID, msg *pubsub.
 	return pubsub.ValidationAccept
 }
 
-type ECBackend interface{}
+var _ pubsub.ValidatorEx = (*F3)(nil).pubsubManifestTopicValidator
+
+func (m *F3) pubsubManifestTopicValidator(ctx context.Context, pID peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
+	var manifest Manifest
+	err := manifest.Unmarshal(bytes.NewReader(msg.Data))
+	if err != nil {
+		return pubsub.ValidationReject
+	}
+
+	// manifest should come from the expected diagnostics server
+	if pID != m.manifestServerID {
+		return pubsub.ValidationReject
+	}
+
+	// TODO: Any additional validation?
+	// Expect a sequence number that is over our current sequence number.
+	// Expect an upgradeEpoch over the upgradeEpoch of the current manifests?
+	// These should probably not be ValidationRejects to avoid banning in gossipsub
+	// the centralized server in case of misconfigurations or bugs.
+	msg.ValidatorData = &manifest
+	return pubsub.ValidationAccept
+}
+
+func (m *F3) setupManifestPubsub() (err error) {
+	m.client.manifestTopic, err = m.setupPubsub(ManifestPubSubTopicName)
+	return
+}
+
+func (m *F3) teardownManifestPubsub() error {
+	return m.teardownPubsub(m.client.manifestTopic, ManifestPubSubTopicName)
+}
+
+type ECBackend interface {
+	ChainHead(context.Context) (chan gpbft.TipSet, error)
+}
 
 type Logger interface {
 	Debug(args ...interface{})

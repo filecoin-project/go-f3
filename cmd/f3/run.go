@@ -18,6 +18,10 @@ import (
 	"golang.org/x/xerrors"
 )
 
+// Id of the default manifest server
+// TODO: Make it configurable through a flag.
+var defaultManifestServerID, _ = peer.Decode("12D3KooWHQRSDFv4FvAjtU32shQ7znz7oRbLBryXzZ9NMK2feyyH")
+
 const DiscoveryTag = "f3-standalone"
 
 var log = logging.Logger("f3")
@@ -72,7 +76,7 @@ var runCmd = cli.Command{
 		signingBackend := &fakeSigner{*signing.NewFakeBackend()}
 		id := c.Uint64("id")
 		signingBackend.Allow(int(id))
-		module, err := f3.New(ctx, gpbft.ActorID(id), m, ds, h, ps, signingBackend, signingBackend, nil, log)
+		module, err := f3.New(ctx, gpbft.ActorID(id), m, ds, h, defaultManifestServerID, ps, signingBackend, signingBackend, nil, log)
 		if err != nil {
 			return xerrors.Errorf("creating module: %w", err)
 		}

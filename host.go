@@ -15,7 +15,8 @@ type Client interface {
 	gpbft.Tracer
 
 	BroadcastMessage(context.Context, *gpbft.MessageBuilder) error
-	IncommingMessages() <-chan *gpbft.GMessage
+	IncomingMessages() <-chan *gpbft.GMessage
+	IncomingManifests() <-chan *Manifest
 	Logger() Logger
 }
 
@@ -31,6 +32,7 @@ type gpbftRunner struct {
 	alertTimer *time.Timer
 
 	runningCtx context.Context
+	ctxCancel  func()
 	log        Logger
 }
 
@@ -52,7 +54,9 @@ func newRunner(id gpbft.ActorID, m Manifest, client Client) (*gpbftRunner, error
 	}
 
 	runner.log.Infof("starting host for P%d", id)
-	p, err := gpbft.NewParticipant((*gpbftHost)(runner), gpbft.WithTracer(client))
+	// configure participants according to the config from the manifest
+	opts := append(m.toGpbftOpts(), gpbft.WithTracer(client))
+	p, err := gpbft.NewParticipant((*gpbftHost)(runner), opts...)
 	if err != nil {
 		return nil, xerrors.Errorf("creating participant: %w", err)
 	}
@@ -61,9 +65,8 @@ func newRunner(id gpbft.ActorID, m Manifest, client Client) (*gpbftRunner, error
 }
 
 func (h *gpbftRunner) Run(ctx context.Context) error {
-	var cancel func()
-	h.runningCtx, cancel = context.WithCancel(ctx)
-	defer cancel()
+	h.runningCtx, h.ctxCancel = context.WithCancel(ctx)
+	defer h.ctxCancel()
 
 	// TODO(Kubuxu): temporary hack until re-broadcast and/or booststrap synchronisation are implemented
 	time.Sleep(2 * time.Second)
@@ -73,9 +76,20 @@ func (h *gpbftRunner) Run(ctx context.Context) error {
 		return xerrors.Errorf("starting a participant: %w", err)
 	}
 
-	messageQueue := h.client.IncommingMessages()
+	messageQueue := h.client.IncomingMessages()
 loop:
 	for {
+		// if there is a manifest in the queue
+		// handle it immediately as it requires a
+		// configuration change
+		select {
+		case manifest := <-h.client.IncomingManifests():
+			err = h.updateManifestConfig(manifest)
+			// TODO: What to do with this error? Should we return the runner
+			// with the error because we couldn't reconfigure it?
+		default:
+		}
+
 		select {
 		case msg := <-h.selfMessageQueue:
 			err = h.deliverMessage(msg)
@@ -119,12 +133,24 @@ loop:
 	return err
 }
 
+func (h *gpbftRunner) Stop() {
+	h.ctxCancel()
+}
+
 func (h *gpbftRunner) deliverMessage(msg *gpbft.GMessage) error {
 	valid, err := h.participant.ValidateMessage(msg)
 	if err != nil {
 		return xerrors.Errorf("validating message: %w", err)
 	}
 	return h.participant.ReceiveMessage(valid)
+}
+
+func (h *gpbftRunner) updateManifestConfig(m *Manifest) error {
+	h.manifest = *m
+	// TODO: Update the config from the manifest received. We may
+	// need to compare with the previous manifest before updating to
+	// understand the configuration changes that need to be triggered
+	panic("not implemented")
 }
 
 // Returns inputs to the next GPBFT instance.
