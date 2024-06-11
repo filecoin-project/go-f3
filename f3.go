@@ -3,6 +3,7 @@ package f3
 import (
 	"bytes"
 	"context"
+	"errors"
 
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -29,7 +30,7 @@ type F3 struct {
 	ec     ECBackend
 	log    Logger
 
-	client clientImpl
+	client *clientImpl
 
 	manifestServerID peer.ID
 	nextManifest     *Manifest
@@ -44,13 +45,13 @@ type clientImpl struct {
 	loggerWithSkip Logger
 
 	// Populated after Run is called
-	messageQueue  <-chan *gpbft.GMessage
 	manifestQueue <-chan *Manifest
+	messageQueue  <-chan gpbft.ValidatedMessage
 	msgTopic      *pubsub.Topic
 	manifestTopic *pubsub.Topic
 }
 
-func (mc clientImpl) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder) error {
+func (mc *clientImpl) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder) error {
 	msg, err := mb.Build(mc.nn, mc.SignerWithMarshaler, mc.id)
 	if err != nil {
 		mc.Log("building message for: %d: %+v", mc.id, err)
@@ -64,7 +65,7 @@ func (mc clientImpl) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuil
 	return mc.msgTopic.Publish(ctx, bw.Bytes())
 }
 
-func (mc clientImpl) IncomingMessages() <-chan *gpbft.GMessage {
+func (mc *clientImpl) IncomingMessages() <-chan gpbft.ValidatedMessage {
 	return mc.messageQueue
 }
 
@@ -72,12 +73,14 @@ func (mc clientImpl) IncomingManifests() <-chan *Manifest {
 	return mc.manifestQueue
 }
 
+var _ gpbft.Tracer = (*clientImpl)(nil)
+
 // Log fulfills the gpbft.Tracer interface
-func (mc clientImpl) Log(fmt string, args ...any) {
+func (mc *clientImpl) Log(fmt string, args ...any) {
 	mc.loggerWithSkip.Debugf(fmt, args...)
 }
 
-func (mc clientImpl) Logger() Logger {
+func (mc *clientImpl) Logger() Logger {
 	return mc.logger
 }
 
@@ -104,7 +107,7 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 		ec:        ec,
 		log:       log,
 
-		client: clientImpl{
+		client: &clientImpl{
 			nn:                  manifest.NetworkName,
 			id:                  id,
 			Verifier:            verif,
@@ -118,14 +121,37 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 
 	return &m, nil
 }
-func (m *F3) setupMsgPubsub() (err error) {
+func (m *F3) setupMsgPubsub(runner *gpbftRunner) (err error) {
 	pubsubTopicName := m.Manifest.PubSubTopic()
-	m.client.msgTopic, err = m.setupPubsub(pubsubTopicName)
+
+	// explicit type to typecheck the anonymous function defintion
+	// a bit ugly but I don't want gpbftRunner to know about pubsub
+	var validator pubsub.ValidatorEx = func(ctx context.Context, pID peer.ID,
+		msg *pubsub.Message) pubsub.ValidationResult {
+
+		var gmsg gpbft.GMessage
+		err := gmsg.UnmarshalCBOR(bytes.NewReader(msg.Data))
+		if err != nil {
+			return pubsub.ValidationReject
+		}
+		validatedMessage, err := runner.ValidateMessage(&gmsg)
+		if errors.Is(err, gpbft.ErrValidationInvalid) {
+			return pubsub.ValidationReject
+		}
+		if err != nil {
+			m.log.Warnf("unknown error during validation: %+v", err)
+			return pubsub.ValidationIgnore
+		}
+		msg.ValidatorData = validatedMessage
+		return pubsub.ValidationAccept
+	}
+
+	m.client.msgTopic, err = m.setupPubsub(pubsubTopicName, validator)
 	return
 }
 
-func (m *F3) setupPubsub(topicName string) (*pubsub.Topic, error) {
-	err := m.pubsub.RegisterTopicValidator(topicName, m.pubsubTopicValidator)
+func (m *F3) setupPubsub(topicName string, validator any) (*pubsub.Topic, error) {
+	err := m.pubsub.RegisterTopicValidator(topicName, validator)
 	if err != nil {
 		return nil, xerrors.Errorf("registering topic validator: %w", err)
 	}
@@ -149,7 +175,7 @@ func (m *F3) teardownPubsub(topic *pubsub.Topic, topicName string) error {
 }
 
 func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
-	if err := m.setupMsgPubsub(); err != nil {
+	if err := m.setupMsgPubsub(m.runner); err != nil {
 		errCh <- xerrors.Errorf("setting up pubsub: %w", err)
 	}
 
@@ -158,7 +184,7 @@ func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
 		errCh <- xerrors.Errorf("subscribing to topic: %w", err)
 	}
 
-	messageQueue := make(chan *gpbft.GMessage, 20)
+	messageQueue := make(chan gpbft.ValidatedMessage, 20)
 	m.client.messageQueue = messageQueue
 
 	m.runner, err = newRunner(m.client.id, m.Manifest, m.client)
@@ -285,7 +311,7 @@ func (m *F3) acceptNextManifest(manifest *Manifest) bool {
 	return true
 }
 
-func (m *F3) handleIncomingMessages(ctx context.Context, sub *pubsub.Subscription, queue chan *gpbft.GMessage) {
+func (m *F3) handleIncomingMessages(ctx context.Context, sub *pubsub.Subscription, queue chan gpbft.ValidatedMessage) {
 loop:
 	for {
 		var msg *pubsub.Message
@@ -298,7 +324,7 @@ loop:
 			m.log.Errorf("msgPubsub subscription.Next() returned an error: %+v", err)
 			break
 		}
-		gmsg, ok := msg.ValidatorData.(*gpbft.GMessage)
+		gmsg, ok := msg.ValidatorData.(gpbft.ValidatedMessage)
 		if !ok {
 			m.log.Errorf("invalid msgValidatorData: %+v", msg.ValidatorData)
 			continue
@@ -314,46 +340,31 @@ loop:
 	sub.Cancel()
 }
 
-var _ pubsub.ValidatorEx = (*F3)(nil).pubsubTopicValidator
-
-// validator for the pubsub
-func (m *F3) pubsubTopicValidator(ctx context.Context, pID peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
-	var gmsg gpbft.GMessage
-	err := gmsg.UnmarshalCBOR(bytes.NewReader(msg.Data))
-	if err != nil {
-		return pubsub.ValidationReject
-	}
-
-	// TODO more validation
-	msg.ValidatorData = &gmsg
-	return pubsub.ValidationAccept
-}
-
-var _ pubsub.ValidatorEx = (*F3)(nil).pubsubManifestTopicValidator
-
-func (m *F3) pubsubManifestTopicValidator(ctx context.Context, pID peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
-	var manifest Manifest
-	err := manifest.Unmarshal(bytes.NewReader(msg.Data))
-	if err != nil {
-		return pubsub.ValidationReject
-	}
-
-	// manifest should come from the expected diagnostics server
-	if pID != m.manifestServerID {
-		return pubsub.ValidationReject
-	}
-
-	// TODO: Any additional validation?
-	// Expect a sequence number that is over our current sequence number.
-	// Expect an upgradeEpoch over the upgradeEpoch of the current manifests?
-	// These should probably not be ValidationRejects to avoid banning in gossipsub
-	// the centralized server in case of misconfigurations or bugs.
-	msg.ValidatorData = &manifest
-	return pubsub.ValidationAccept
-}
-
 func (m *F3) setupManifestPubsub() (err error) {
-	m.client.manifestTopic, err = m.setupPubsub(ManifestPubSubTopicName)
+	// using the same validator approach used for the message pubsub
+	// to be homogeneous.
+	var validator pubsub.ValidatorEx = func(ctx context.Context, pID peer.ID,
+		msg *pubsub.Message) pubsub.ValidationResult {
+		var manifest Manifest
+		err := manifest.Unmarshal(bytes.NewReader(msg.Data))
+		if err != nil {
+			return pubsub.ValidationReject
+		}
+
+		// manifest should come from the expected diagnostics server
+		if pID != m.manifestServerID {
+			return pubsub.ValidationReject
+		}
+
+		// TODO: Any additional validation?
+		// Expect a sequence number that is over our current sequence number.
+		// Expect an upgradeEpoch over the upgradeEpoch of the current manifests?
+		// These should probably not be ValidationRejects to avoid banning in gossipsub
+		// the centralized server in case of misconfigurations or bugs.
+		msg.ValidatorData = &manifest
+		return pubsub.ValidationAccept
+	}
+	m.client.manifestTopic, err = m.setupPubsub(ManifestPubSubTopicName, validator)
 	return
 }
 

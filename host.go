@@ -15,7 +15,7 @@ type Client interface {
 	gpbft.Tracer
 
 	BroadcastMessage(context.Context, *gpbft.MessageBuilder) error
-	IncomingMessages() <-chan *gpbft.GMessage
+	IncomingMessages() <-chan gpbft.ValidatedMessage
 	IncomingManifests() <-chan *Manifest
 	Logger() Logger
 }
@@ -26,8 +26,6 @@ type gpbftRunner struct {
 	client      Client
 	participant *gpbft.Participant
 	manifest    Manifest
-
-	selfMessageQueue chan *gpbft.GMessage //for the future when self messages are async
 
 	alertTimer *time.Timer
 
@@ -41,10 +39,9 @@ type gpbftHost gpbftRunner
 
 func newRunner(id gpbft.ActorID, m Manifest, client Client) (*gpbftRunner, error) {
 	runner := &gpbftRunner{
-		client:           client,
-		manifest:         m,
-		selfMessageQueue: make(chan *gpbft.GMessage, 20),
-		log:              client.Logger(),
+		client:   client,
+		manifest: m,
+		log:      client.Logger(),
 	}
 
 	// create a stopped timer to facilitate alerts requested from gpbft
@@ -77,26 +74,18 @@ func (h *gpbftRunner) Run(ctx context.Context) error {
 	}
 
 	messageQueue := h.client.IncomingMessages()
+	manifestQueue := h.client.IncomingManifests()
 loop:
 	for {
 		// if there is a manifest in the queue
 		// handle it immediately as it requires a
 		// configuration change
 		select {
-		case manifest := <-h.client.IncomingManifests():
+		case manifest := <-manifestQueue:
 			err = h.updateManifestConfig(manifest)
 			// TODO: What to do with this error? Should we return the runner
 			// with the error because we couldn't reconfigure it?
 		default:
-		}
-
-		select {
-		case msg := <-h.selfMessageQueue:
-			err = h.deliverMessage(msg)
-		default:
-		}
-		if err != nil {
-			break loop
 		}
 
 		// prioritise alarm delivery
@@ -114,14 +103,12 @@ loop:
 		select {
 		case <-h.alertTimer.C:
 			err = h.participant.ReceiveAlarm()
-		case msg := <-h.selfMessageQueue:
-			err = h.deliverMessage(msg)
 		case msg, ok := <-messageQueue:
 			if !ok {
 				err = xerrors.Errorf("incoming messsage queue closed")
 				break loop
 			}
-			err = h.deliverMessage(msg)
+			err = h.participant.ReceiveMessage(msg)
 		case <-ctx.Done():
 			return nil
 		}
@@ -143,6 +130,10 @@ func (h *gpbftRunner) deliverMessage(msg *gpbft.GMessage) error {
 		return xerrors.Errorf("validating message: %w", err)
 	}
 	return h.participant.ReceiveMessage(valid)
+}
+
+func (h *gpbftRunner) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
+	return h.participant.ValidateMessage(msg)
 }
 
 func (h *gpbftRunner) updateManifestConfig(m *Manifest) error {
