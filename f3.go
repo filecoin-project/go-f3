@@ -58,7 +58,7 @@ func (mc clientImpl) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuil
 	return mc.topic.Publish(ctx, bw.Bytes())
 }
 
-func (mc clientImpl) IncommingMessages() <-chan *gpbft.GMessage {
+func (mc clientImpl) IncomingMessages() <-chan *gpbft.GMessage {
 	return mc.messageQueue
 }
 

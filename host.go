@@ -15,7 +15,7 @@ type Client interface {
 	gpbft.Tracer
 
 	BroadcastMessage(context.Context, *gpbft.MessageBuilder) error
-	IncommingMessages() <-chan *gpbft.GMessage
+	IncomingMessages() <-chan *gpbft.GMessage
 	Logger() Logger
 }
 
@@ -73,7 +73,7 @@ func (h *gpbftRunner) Run(ctx context.Context) error {
 		return xerrors.Errorf("starting a participant: %w", err)
 	}
 
-	messageQueue := h.client.IncommingMessages()
+	messageQueue := h.client.IncomingMessages()
 loop:
 	for {
 		select {
