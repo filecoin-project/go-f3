@@ -124,14 +124,6 @@ func (h *gpbftRunner) Stop() {
 	h.ctxCancel()
 }
 
-func (h *gpbftRunner) deliverMessage(msg *gpbft.GMessage) error {
-	valid, err := h.participant.ValidateMessage(msg)
-	if err != nil {
-		return xerrors.Errorf("validating message: %w", err)
-	}
-	return h.participant.ReceiveMessage(valid)
-}
-
 func (h *gpbftRunner) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
 	return h.participant.ValidateMessage(msg)
 }

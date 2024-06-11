@@ -245,7 +245,11 @@ loop:
 					m.nextManifest = nil
 					if m.nextManifest.ReBootstrap {
 						// stop the current gpbft runner
-						m.stopGpbftRunner()
+						if err := m.stopGpbftRunner(); err != nil {
+							// for now we just log the error and continue.
+							// This is not critical
+							m.log.Errorf("error stopping gpbft runner: %+v", err)
+						}
 						// bootstrap a new runner with the new configuration.
 						go m.startGpbftRunner(ctx, runnerErrCh)
 					} else {
