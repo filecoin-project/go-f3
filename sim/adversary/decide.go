@@ -60,7 +60,7 @@ func (i *ImmediateDecide) StartInstance(instance uint64) error {
 		SupplementalData: *supplementalData,
 	}
 	sigPayload := i.host.MarshalPayloadForSigning(i.host.NetworkName(), &justificationPayload)
-	_, pubkey := powertable.Get(i.id)
+	_, _, pubkey := powertable.Get(i.id)
 	sig, err := i.host.Sign(pubkey, sigPayload)
 	if err != nil {
 		panic(err)
@@ -103,7 +103,7 @@ func (*ImmediateDecide) AllowMessage(_ gpbft.ActorID, _ gpbft.ActorID, _ gpbft.G
 func (i *ImmediateDecide) broadcast(payload gpbft.Payload, justification *gpbft.Justification, powertable *gpbft.PowerTable) {
 
 	pS := i.host.MarshalPayloadForSigning(i.host.NetworkName(), &payload)
-	_, pubkey := powertable.Get(i.id)
+	_, _, pubkey := powertable.Get(i.id)
 	sig, err := i.host.Sign(pubkey, pS)
 	if err != nil {
 		panic(err)

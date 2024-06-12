@@ -141,29 +141,34 @@ func ValidateFinalityCertificates(verifier gpbft.Verifier, network gpbft.Network
 // any other parts of the certificate, just that the _value_ has been signed by a majority of the
 // power.
 func verifyFinalityCertificateSignature(verifier gpbft.Verifier, powerTable gpbft.PowerEntries, nn gpbft.NetworkName, cert FinalityCertificate) error {
-	totalPower := new(gpbft.StoragePower)
-	for i := range powerTable {
-		totalPower = totalPower.Add(totalPower, powerTable[i].Power)
+	scaled, totalScaled, err := powerTable.Scaled()
+	if err != nil {
+		return xerrors.Errorf("failed to scale power table: %w", err)
 	}
 
 	signers := make([]gpbft.PubKey, 0, len(powerTable))
-	signerPowers := new(gpbft.StoragePower)
+	var signerPowers uint16
 	if err := cert.Signers.ForEach(func(i uint64) error {
 		if i >= uint64(len(powerTable)) {
 			return xerrors.Errorf(
 				"finality certificate for instance %d specifies a signer %d but we only have %d entries in the power table",
 				cert.GPBFTInstance, i, len(powerTable))
 		}
-		signer := &powerTable[i]
-		signerPowers = signerPowers.Add(signerPowers, signer.Power)
-		signers = append(signers, signer.PubKey)
+		power := scaled[i]
+		if power == 0 {
+			return xerrors.Errorf(
+				"finality certificate for instance %d specifies a signer %d but they have no effective power after scaling",
+				cert.GPBFTInstance, powerTable[i].ID)
+		}
+		signerPowers += power
+		signers = append(signers, powerTable[i].PubKey)
 		return nil
 	}); err != nil {
 		return err
 	}
 
-	if !gpbft.IsStrongQuorum(signerPowers, totalPower) {
-		return xerrors.Errorf("finality certificate for instance %d has insufficient power: %s < 2/3 %s", cert.GPBFTInstance, signerPowers, totalPower)
+	if !gpbft.IsStrongQuorum(signerPowers, totalScaled) {
+		return xerrors.Errorf("finality certificate for instance %d has insufficient power: %d < 2/3 %d", cert.GPBFTInstance, signerPowers, totalScaled)
 	}
 
 	payload := &gpbft.Payload{

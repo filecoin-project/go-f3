@@ -48,6 +48,9 @@ type clientImpl struct {
 func (mc *clientImpl) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder) error {
 	msg, err := mb.Build(mc.nn, mc.SignerWithMarshaler, mc.id)
 	if err != nil {
+		if errors.Is(err, gpbft.ErrNoPower) {
+			return nil
+		}
 		mc.Log("building message for: %d: %+v", mc.id, err)
 		return err
 	}
