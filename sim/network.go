@@ -83,12 +83,20 @@ func (nf *networkFor) Log(format string, args ...any) {
 }
 
 func (nf *networkFor) RequestBroadcast(mb *gpbft.MessageBuilder) error {
+	return nf.requestBroadcast(mb, false)
+}
+
+func (nf *networkFor) RequestSynchronousBroadcast(mb *gpbft.MessageBuilder) error {
+	return nf.requestBroadcast(mb, true)
+}
+
+func (nf *networkFor) requestBroadcast(mb *gpbft.MessageBuilder, sync bool) error {
 	msg, err := mb.Build(nf.networkName, nf.Signer, nf.ParticipantID)
 	if err != nil {
 		nf.Log("building message for: %d: %+v", nf.ParticipantID, err)
 		return err
 	}
-	nf.broadcast(msg, false)
+	nf.broadcast(msg, sync)
 	return nil
 }
 
@@ -96,14 +104,10 @@ func (n *Network) NetworkName() gpbft.NetworkName {
 	return n.networkName
 }
 
-func (n *Network) BroadcastSynchronous(msg *gpbft.GMessage) {
-	n.broadcast(msg, true)
-}
-
 func (n *Network) broadcast(msg *gpbft.GMessage, synchronous bool) {
 	n.log(TraceSent, "P%d ↗ %v", msg.Sender, msg)
 	for _, dest := range n.participantIDs {
-		latencySample := time.Duration(0)
+		var latencySample time.Duration
 		if !synchronous {
 			latencySample = n.latency.Sample(n.Time(), msg.Sender, dest)
 		}

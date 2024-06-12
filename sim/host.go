@@ -32,11 +32,15 @@ type simHost struct {
 	spg     StoragePowerGenerator
 }
 
+func (v *simHost) RequestSynchronousBroadcast(mb *gpbft.MessageBuilder) error {
+	return v.SimNetwork.RequestSynchronousBroadcast(mb)
+}
+
 type SimNetwork interface {
 	gpbft.Network
 	gpbft.Tracer
 	// sends a message to all other participants immediately.
-	BroadcastSynchronous(msg *gpbft.GMessage)
+	RequestSynchronousBroadcast(mb *gpbft.MessageBuilder) error
 }
 
 func newHost(id gpbft.ActorID, sim *Simulation, ecg ECChainGenerator, spg StoragePowerGenerator) *simHost {

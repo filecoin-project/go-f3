@@ -61,7 +61,7 @@ func (w *WithholdCommit) StartInstance(instance uint64) error {
 	if err != nil {
 		panic(err)
 	}
-	broadcast := w.broadcastHelper(w.id, powertable)
+	broadcast := w.synchronousBroadcastRequester(powertable)
 	// All victims need to see QUALITY and PREPARE in order to send their COMMIT,
 	// but only the one victim will see our COMMIT.
 	broadcast(gpbft.Payload{
@@ -125,7 +125,7 @@ func (*WithholdCommit) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMess
 	return Validated(msg), nil
 }
 
-func (*WithholdCommit) ReceiveMessage(_ gpbft.ValidatedMessage) error {
+func (*WithholdCommit) ReceiveMessage(gpbft.ValidatedMessage) error {
 	return nil
 }
 
@@ -172,20 +172,13 @@ func (w *WithholdCommit) sign(pubkey gpbft.PubKey, msg []byte) []byte {
 	return sig
 }
 
-func (w *WithholdCommit) broadcastHelper(sender gpbft.ActorID, powertable *gpbft.PowerTable) func(gpbft.Payload, *gpbft.Justification) {
+func (w *WithholdCommit) synchronousBroadcastRequester(powertable *gpbft.PowerTable) func(gpbft.Payload, *gpbft.Justification) {
 	return func(payload gpbft.Payload, justification *gpbft.Justification) {
-		pS := w.host.MarshalPayloadForSigning(w.host.NetworkName(), &payload)
-		_, _, pubkey := powertable.Get(sender)
-		sig, err := w.host.Sign(pubkey, pS)
-		if err != nil {
+		mb := gpbft.NewMessageBuilder(powertable)
+		mb.SetPayload(payload)
+		mb.SetJustification(justification)
+		if err := w.host.RequestSynchronousBroadcast(mb); err != nil {
 			panic(err)
 		}
-
-		w.host.BroadcastSynchronous(&gpbft.GMessage{
-			Sender:        sender,
-			Vote:          payload,
-			Signature:     sig,
-			Justification: justification,
-		})
 	}
 }

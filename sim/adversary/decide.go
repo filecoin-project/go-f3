@@ -45,13 +45,14 @@ func (i *ImmediateDecide) StartInstance(instance uint64) error {
 		panic(err)
 	}
 	// Immediately send a DECIDE message
-	payload := gpbft.Payload{
+	mb := gpbft.NewMessageBuilder(powertable)
+	mb.SetPayload(gpbft.Payload{
 		Instance:         instance,
 		Round:            0,
 		Step:             gpbft.DECIDE_PHASE,
 		Value:            i.value,
 		SupplementalData: *supplementalData,
-	}
+	})
 	justificationPayload := gpbft.Payload{
 		Instance:         instance,
 		Round:            0,
@@ -72,14 +73,15 @@ func (i *ImmediateDecide) StartInstance(instance uint64) error {
 	if err != nil {
 		panic(err)
 	}
-
-	justification := gpbft.Justification{
+	mb.SetJustification(&gpbft.Justification{
 		Vote:      justificationPayload,
 		Signers:   signers,
 		Signature: aggregatedSig,
-	}
+	})
 
-	i.broadcast(payload, &justification, powertable)
+	if err := i.host.RequestSynchronousBroadcast(mb); err != nil {
+		panic(err)
+	}
 	return nil
 }
 
@@ -98,21 +100,4 @@ func (*ImmediateDecide) ReceiveAlarm() error {
 func (*ImmediateDecide) AllowMessage(_ gpbft.ActorID, _ gpbft.ActorID, _ gpbft.GMessage) bool {
 	// Allow all messages
 	return true
-}
-
-func (i *ImmediateDecide) broadcast(payload gpbft.Payload, justification *gpbft.Justification, powertable *gpbft.PowerTable) {
-
-	pS := i.host.MarshalPayloadForSigning(i.host.NetworkName(), &payload)
-	_, _, pubkey := powertable.Get(i.id)
-	sig, err := i.host.Sign(pubkey, pS)
-	if err != nil {
-		panic(err)
-	}
-
-	i.host.BroadcastSynchronous(&gpbft.GMessage{
-		Sender:        i.id,
-		Vote:          payload,
-		Signature:     sig,
-		Justification: justification,
-	})
 }
