@@ -162,6 +162,7 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 }
 
 func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable, []byte, error) {
+	// TODO: Add any additional power table entries from the manifest
 	table := gpbft.NewPowerTable()
 	err := table.Add(h.manifest.InitialPowerTable...)
 	if err != nil {
