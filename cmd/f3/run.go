@@ -18,11 +18,6 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// ID of the default manifest server which is responsible for periodically
-// publishing it on the diagnostics topic
-// TODO: Make it configurable through a flag.
-var defaultManifestServerID, _ = peer.Decode("12D3KooWHQRSDFv4FvAjtU32shQ7znz7oRbLBryXzZ9NMK2feyyH")
-
 const DiscoveryTag = "f3-standalone"
 
 var log = logging.Logger("f3")
@@ -38,6 +33,10 @@ var runCmd = cli.Command{
 		&cli.Uint64Flag{
 			Name:  "instance",
 			Value: 0,
+		},
+		&cli.StringFlag{
+			Name:  "manifest-server",
+			Value: "",
 		},
 	},
 	Action: func(c *cli.Context) error {
@@ -78,10 +77,21 @@ var runCmd = cli.Command{
 			return xerrors.Errorf("setting log level: %w", err)
 		}
 
+		// if the manifest-server ID is passed in a flag,
+		// we setup the monitoring system
+		mFlag := c.String("manifest-server")
+		manifestServer := peer.ID("")
+		if mFlag != "" {
+			manifestServer, err = peer.Decode(mFlag)
+			if err != nil {
+				return xerrors.Errorf("parsing manifest server ID: %w", err)
+			}
+		}
+
 		signingBackend := &fakeSigner{*signing.NewFakeBackend()}
 		id := c.Uint64("id")
 		signingBackend.Allow(int(id))
-		module, err := f3.New(ctx, gpbft.ActorID(id), m, ds, h, defaultManifestServerID, ps, signingBackend, signingBackend, nil, log)
+		module, err := f3.New(ctx, gpbft.ActorID(id), m, ds, h, manifestServer, ps, signingBackend, signingBackend, nil, log)
 		if err != nil {
 			return xerrors.Errorf("creating module: %w", err)
 		}

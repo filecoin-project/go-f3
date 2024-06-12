@@ -235,8 +235,8 @@ func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 	// bootstrap runner for the initial manifest
 	go m.setupGpbftRunner(ctx, initialInstance, true, runnerErrCh)
 
-	// only start manifest service if the diagnostics server id is set
-	if m.manifestServerID != "" {
+	// only start manifest service if the manifest server id is set
+	if m.manifestServerID != peer.ID("") {
 		manifestQueue := make(chan *Manifest, 5)
 		m.client.manifestQueue = manifestQueue
 		go m.handleIncomingManifests(ctx, manifestQueue, manifestErrCh)
