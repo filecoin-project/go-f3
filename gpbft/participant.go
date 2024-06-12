@@ -3,6 +3,7 @@ package gpbft
 import (
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"sort"
 	"sync"
 
@@ -51,12 +52,20 @@ func (v *validatedMessage) Message() *GMessage {
 
 var _ Receiver = (*Participant)(nil)
 
+func newPanicError(panicCause any) *PanicError {
+	return &PanicError{
+		Err:        panicCause,
+		stackTrace: string(debug.Stack()),
+	}
+}
+
 type PanicError struct {
-	Err any
+	Err        any
+	stackTrace string
 }
 
 func (e *PanicError) Error() string {
-	return fmt.Sprintf("participant panicked: %v", e.Err)
+	return fmt.Sprintf("participant panicked: %v\n%v", e.Err, e.stackTrace)
 }
 
 func NewParticipant(host Host, o ...Option) (*Participant, error) {
@@ -79,7 +88,7 @@ func (p *Participant) StartInstance(instance uint64) (err error) {
 	defer p.apiMutex.Unlock()
 	defer func() {
 		if r := recover(); r != nil {
-			err = &PanicError{Err: r}
+			err = newPanicError(r)
 		}
 	}()
 
@@ -122,7 +131,7 @@ func (p *Participant) ValidateMessage(msg *GMessage) (valid ValidatedMessage, er
 	// The instance mutex is taken when appropriate by inner methods.
 	defer func() {
 		if r := recover(); r != nil {
-			err = &PanicError{Err: r}
+			err = newPanicError(r)
 		}
 	}()
 
@@ -146,7 +155,7 @@ func (p *Participant) ReceiveMessage(vmsg ValidatedMessage) (err error) {
 	defer p.apiMutex.Unlock()
 	defer func() {
 		if r := recover(); r != nil {
-			err = &PanicError{Err: r}
+			err = newPanicError(r)
 		}
 	}()
 	msg := vmsg.Message()
@@ -177,7 +186,7 @@ func (p *Participant) ReceiveAlarm() (err error) {
 	defer p.apiMutex.Unlock()
 	defer func() {
 		if r := recover(); r != nil {
-			err = &PanicError{Err: r}
+			err = newPanicError(r)
 		}
 	}()
 

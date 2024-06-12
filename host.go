@@ -4,25 +4,16 @@ import (
 	"context"
 	"time"
 
+	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim"
 	"golang.org/x/xerrors"
 )
 
-type Client interface {
-	gpbft.SignerWithMarshaler
-	gpbft.Verifier
-	gpbft.Tracer
-
-	BroadcastMessage(context.Context, *gpbft.MessageBuilder) error
-	IncomingMessages() <-chan gpbft.ValidatedMessage
-	Logger() Logger
-}
-
 // gpbftRunner is responsible for running gpbft.Participant, taking in all concurrent events and
 // passing them to gpbft in a single thread.
 type gpbftRunner struct {
-	client      Client
+	client      *client
 	participant *gpbft.Participant
 	manifest    Manifest
 
@@ -35,7 +26,7 @@ type gpbftRunner struct {
 // gpbftHost is a newtype of gpbftRunner exposing APIs required by the gpbft.Participant
 type gpbftHost gpbftRunner
 
-func newRunner(id gpbft.ActorID, m Manifest, client Client) (*gpbftRunner, error) {
+func newRunner(id gpbft.ActorID, m Manifest, client *client) (*gpbftRunner, error) {
 	runner := &gpbftRunner{
 		client:   client,
 		manifest: m,
@@ -118,14 +109,30 @@ func (h *gpbftRunner) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessa
 // ReceiveDecision (or known to be final via some other channel).
 func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.SupplementalData, gpbft.ECChain, error) {
 	// TODO: this is just a complete fake
-	ts := sim.NewTipSetGenerator(1)
-	chain, err := gpbft.NewChain(gpbft.TipSet{Epoch: 0, Key: ts.Sample()}, gpbft.TipSet{Epoch: 1, Key: ts.Sample()})
+
+	pt, _, err := h.GetCommitteeForInstance(0)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, xerrors.Errorf("getting power table: %w", err)
+	}
+	ptCid, err := certs.MakePowerTableCID(pt.Entries)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("computing power table CID: %w", err)
+	}
+
+	ts := sim.NewTipSetGenerator(1)
+	chain, err := gpbft.NewChain(
+		gpbft.TipSet{Epoch: 0, Key: ts.Sample(), PowerTable: ptCid},
+		gpbft.TipSet{Epoch: 1, Key: ts.Sample(), PowerTable: ptCid},
+	)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("geenrating chain: %w", err)
+	}
+	sd := &gpbft.SupplementalData{
+		PowerTable: ptCid,
 	}
 
 	// TODO: use lookback to return the correct next power table commitment and commitments hash.
-	return new(gpbft.SupplementalData), chain, nil
+	return sd, chain, nil
 }
 
 func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable, []byte, error) {
@@ -178,8 +185,41 @@ func (h *gpbftHost) SetAlarm(at time.Time) {
 // E.g. this might be: finalised tipset timestamp + epoch duration + stabilisation delay.
 func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 	h.log.Infof("got decision: %+v", decision)
-	//TODO propagate and save this for use in GetCanonicalChain
+	err := h.saveDecision(decision)
+	if err != nil {
+		h.log.Errorf("error while saving decision: %+v", err)
+	}
+
 	return time.Now().Add(2 * time.Second)
+}
+
+func (h *gpbftHost) saveDecision(decision *gpbft.Justification) error {
+	instance := decision.Vote.Instance
+	current, _, err := h.GetCommitteeForInstance(instance)
+	if err != nil {
+		return xerrors.Errorf("getting commitee for current instance %d: %w", instance, err)
+	}
+
+	next, _, err := h.GetCommitteeForInstance(instance + 1)
+	if err != nil {
+		return xerrors.Errorf("getting commitee for next instance %d: %w", instance+1, err)
+	}
+	powerDiff := certs.MakePowerTableDiff(current.Entries, next.Entries)
+
+	cert, err := certs.NewFinalityCertificate(powerDiff, decision)
+	if err != nil {
+		return xerrors.Errorf("forming certificate out of decision: %w", err)
+	}
+	_, _, _, err = certs.ValidateFinalityCertificates(h, h.NetworkName(), current.Entries, decision.Vote.Instance, cert.ECChain.Base())
+	if err != nil {
+		return xerrors.Errorf("certificate is invalid: %w", err)
+	}
+
+	err = h.client.certstore.Put(h.runningCtx, cert)
+	if err != nil {
+		return xerrors.Errorf("saving ceritifcate in a store: %w", err)
+	}
+	return nil
 }
 
 // MarshalPayloadForSigning marshals the given payload into the bytes that should be signed.
