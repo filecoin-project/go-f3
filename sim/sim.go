@@ -55,14 +55,15 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 	if err := s.initParticipants(); err != nil {
 		return err
 	}
-	pt, err := s.getPowerTable(0)
+	initialInstance := uint64(0)
+	pt, err := s.getPowerTable(initialInstance)
 	if err != nil {
 		return err
 	}
 	currentInstance := s.ec.BeginInstance(*s.baseChain, pt)
-	s.startParticipants()
+	s.startParticipants(initialInstance)
 
-	finalInstance := instanceCount - 1
+	finalInstance := initialInstance + instanceCount - 1
 
 	// Exclude adversary ID when checking for decision or instance completion.
 	if s.adversary != nil {
@@ -100,7 +101,7 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 				if p.CurrentInstance() < currentInstance.Instance {
 					// TODO: enhance control over propagation of finality certificates
 					//       See: https://github.com/filecoin-project/go-f3/issues/327
-					if err := p.SkipToInstance(currentInstance.Instance); err != nil {
+					if err := p.StartInstance(currentInstance.Instance); err != nil {
 						return fmt.Errorf("participant %d failed to skip to instace %d: %w", p.ID(), currentInstance.Instance, err)
 					}
 				}
@@ -121,16 +122,16 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 	return nil
 }
 
-func (s *Simulation) startParticipants() {
+func (s *Simulation) startParticipants(instance uint64) {
 	// Start participants.
 	for _, p := range s.participants {
-		if err := p.Start(); err != nil {
+		if err := p.StartInstance(instance); err != nil {
 			panic(fmt.Errorf("participant %d failed starting: %w", p.ID(), err))
 		}
 	}
 	// Start adversary
 	if s.adversary != nil {
-		if err := s.adversary.Start(); err != nil {
+		if err := s.adversary.StartInstance(instance); err != nil {
 			panic(fmt.Errorf("adversary %d failed starting: %w", s.adversary.ID(), err))
 		}
 	}

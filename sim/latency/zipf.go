@@ -34,11 +34,6 @@ func NewZipf(seed int64, s, v float64, max time.Duration) (*Zipf, error) {
 // Sample returns latency samples that correspond to this ZipF numerical
 // distribution. The samples returned disregard time and participants, i.e. the
 // distribution does not vary over time nor for specific participants.
-//
-// Note, here from and to are the same the latency sample will always be zero.
 func (l *Zipf) Sample(_ time.Time, from gpbft.ActorID, to gpbft.ActorID) time.Duration {
-	if from == to {
-		return 0
-	}
 	return time.Duration(l.dist.Uint64())
 }

@@ -637,6 +637,11 @@ func (i *instance) beginConverge(justification *Justification) {
 	i.phase = CONVERGE_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony()
 
+	// Notify the round's convergeState that the self participant has begun the
+	// CONVERGE phase. Because, we cannot guarantee that the CONVERGE message
+	// broadcasts are delivered to self synchronously.
+	i.getRound(i.round).converged.SetSelfValue(i.proposal, justification)
+
 	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, true, justification)
 }
 
@@ -895,10 +900,11 @@ func (i *instance) terminated() bool {
 
 func (i *instance) broadcast(round uint64, step Phase, value ECChain, createTicket bool, justification *Justification) {
 	p := Payload{
-		Instance: i.instanceID,
-		Round:    round,
-		Step:     step,
-		Value:    value,
+		Instance:         i.instanceID,
+		Round:            round,
+		Step:             step,
+		SupplementalData: *i.supplementalData,
+		Value:            value,
 	}
 	mb := NewMessageBuilder(&i.powerTable)
 	mb.SetPayload(p)
@@ -929,10 +935,11 @@ func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase P
 	}
 	return &Justification{
 		Vote: Payload{
-			Instance: i.instanceID,
-			Round:    round,
-			Step:     phase,
-			Value:    value,
+			Instance:         i.instanceID,
+			Round:            round,
+			Step:             phase,
+			Value:            value,
+			SupplementalData: *i.supplementalData,
 		},
 		Signers:   quorum.SignersBitfield(),
 		Signature: aggSignature,
@@ -1215,6 +1222,9 @@ func (q *quorumState) FindStrongQuorumValue() (quorumValue ECChain, foundQuorum 
 //// CONVERGE phase helper /////
 
 type convergeState struct {
+	// Stores this participant's value so the participant can use it even if it doesn't receive its own
+	// CONVERGE message (which carries the ticket) in a timely fashion.
+	self *ConvergeValue
 	// Participants from which a message has been received.
 	senders map[ActorID]struct{}
 	// Chains indexed by key.
@@ -1241,6 +1251,22 @@ func newConvergeState() *convergeState {
 	}
 }
 
+// SetSelfValue sets the participant's locally-proposed converge value.
+// This means the participant need not rely on messages broadcast to be received by itself.
+// See HasSelfValue.
+func (c *convergeState) SetSelfValue(value ECChain, justification *Justification) {
+	c.self = &ConvergeValue{
+		Chain:         value,
+		Justification: justification,
+	}
+}
+
+// HasSelfValue checks whether the participant recorded a converge value.
+// See SetSelfValue.
+func (c *convergeState) HasSelfValue() bool {
+	return c.self != nil
+}
+
 // Receives a new CONVERGE value from a sender.
 // Ignores any subsequent value from a sender from which a value has already been received.
 func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket, justification *Justification) error {
@@ -1262,11 +1288,14 @@ func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket, ju
 }
 
 // Returns the value with the highest ticket, weighted by sender power.
-// Non-determinism here (in case of matching tickets from equivocation) is ok.
-// If the same ticket is used for two different values then either we get a decision on one of them
-// only or we go to a new round. Eventually there is a round where the max ticket is held by a
-// correct participant, who will not double vote.
+// Returns the self value (which may be zero) if and only if no other value is found.
+// Note that introduces a brief possibility where the nodes own value may be ignored
+// while waiting to learn its ticket after receiving a message from some other.
 func (c *convergeState) FindMaxTicketProposal(table PowerTable) ConvergeValue {
+	// Non-determinism in case of matching tickets from an equivocation is ok.
+	// If the same ticket is used for two different values then either we get a decision on one of them
+	// only or we go to a new round. Eventually there is a round where the max ticket is held by a
+	// correct participant, who will not double vote.
 	var maxTicket *big.Int
 	var maxValue ConvergeValue
 
@@ -1281,15 +1310,25 @@ func (c *convergeState) FindMaxTicketProposal(table PowerTable) ConvergeValue {
 			}
 		}
 	}
+
+	if maxTicket == nil && c.HasSelfValue() {
+		return *c.self
+	}
 	return maxValue
 }
 
 // Finds some proposal which matches a specific value.
+// This searches values received in messages first, falling back to the participant's self value
+// only if necessary.
 func (c *convergeState) FindProposalFor(chain ECChain) (ConvergeValue, bool) {
 	for _, value := range c.values {
 		if value.Chain.Eq(chain) {
 			return value, true
 		}
+	}
+
+	if c.HasSelfValue() && c.self.Chain.Eq(chain) {
+		return *c.self, true
 	}
 	return ConvergeValue{}, false
 }

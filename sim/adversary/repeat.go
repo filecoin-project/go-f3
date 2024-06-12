@@ -79,18 +79,21 @@ func (r *Repeat) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
 	if echoCount <= 0 {
 		return nil
 	}
-
+	supplementalData, _, err := r.host.GetProposalForInstance(0)
+	if err != nil {
+		panic(err)
+	}
 	power, beacon, _ := r.host.GetCommitteeForInstance(0)
 	p := gpbft.Payload{
-		Instance: msg.Vote.Instance,
-		Round:    msg.Vote.Round,
-		Step:     msg.Vote.Step,
-		Value:    msg.Vote.Value,
+		Instance:         msg.Vote.Instance,
+		Round:            msg.Vote.Round,
+		Step:             msg.Vote.Step,
+		SupplementalData: *supplementalData,
+		Value:            msg.Vote.Value,
 	}
 	mt := gpbft.NewMessageBuilderWithPowerTable(power)
 	mt.SetPayload(p)
 	mt.SetJustification(msg.Justification)
-
 	if len(msg.Ticket) != 0 {
 		mt.SetBeaconForTicket(beacon)
 	}
@@ -104,7 +107,6 @@ func (r *Repeat) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
 }
 
 func (r *Repeat) ID() gpbft.ActorID                                              { return r.id }
-func (r *Repeat) Start() error                                                   { return nil }
+func (r *Repeat) StartInstance(uint64) error                                     { return nil }
 func (r *Repeat) ReceiveAlarm() error                                            { return nil }
-func (r *Repeat) SkipToInstance(uint64) error                                    { return nil }
 func (r *Repeat) AllowMessage(gpbft.ActorID, gpbft.ActorID, gpbft.GMessage) bool { return true }

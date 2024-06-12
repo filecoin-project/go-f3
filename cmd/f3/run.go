@@ -34,6 +34,10 @@ var runCmd = cli.Command{
 			Name:  "id",
 			Value: 0,
 		},
+		&cli.Uint64Flag{
+			Name:  "instance",
+			Value: 0,
+		},
 	},
 	Action: func(c *cli.Context) error {
 		ctx := c.Context
@@ -81,7 +85,8 @@ var runCmd = cli.Command{
 			return xerrors.Errorf("creating module: %w", err)
 		}
 
-		return module.Run(ctx)
+		initialInstance := c.Uint64("id")
+		return module.Run(initialInstance, ctx)
 	},
 }
 

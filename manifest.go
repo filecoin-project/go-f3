@@ -85,7 +85,6 @@ func (m Manifest) PubSubTopic() string {
 func (m Manifest) toGpbftOpts() []gpbft.Option {
 	var opts []gpbft.Option
 
-	opts = append(opts, gpbft.WithInitialInstance(uint64(m.UpgradeEpoch)))
 	if m.Delta != 0 {
 		opts = append(opts, gpbft.WithDelta(m.Delta))
 	}

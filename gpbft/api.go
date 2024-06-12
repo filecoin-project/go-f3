@@ -35,10 +35,7 @@ type MessageReceiver interface {
 	// - ErrReceivedAfterTermination if the message is received after the instance has terminated (a programming error)
 	// - both ErrReceivedInternalError and a cause if there was an internal error processing the message
 	ReceiveMessage(msg ValidatedMessage) error
-	// ReceiveAlarm signals the trigger of the alarm set by Clock.SetAlarm. Note that
-	// triggering alarms takes precedence over ReceiveMessage, i.e. when an alarm is
-	// triggered at the same time as an arrival of a message ReceiveAlarm must be
-	// called before ReceiveMessage.
+	// ReceiveAlarm signals the trigger of the alarm set by Clock.SetAlarm.
 	ReceiveAlarm() error
 }
 
@@ -46,13 +43,10 @@ type MessageReceiver interface {
 // Calls to methods on this interface are expected to be serialized.
 // The methods are not safe for concurrent use, and may panic if called concurrently.
 type Receiver interface {
-	// Begins executing the protocol.
+	// Begins executing the protocol from some instance.
 	// The node will subsequently request the canonical chain to propose from the host.
-	Start() error
-	// SkipToInstance jumps directly to a given instance.
-	// This can be triggered by the reception of a valid finality certificate, or
-	// whenever a new instance for a participant want to be started.
-	SkipToInstance(uint64) error
+	// If the participant is already executing some instance, it will be abandoned.
+	StartInstance(uint64) error
 	MessageValidator
 	MessageReceiver
 }
@@ -89,9 +83,6 @@ type Clock interface {
 	// can be set at a time. Setting an alarm replaces any previous alarm that has
 	// not yet fired. The timestamp may be in the past, in which case the alarm will
 	// fire as soon as possible (but not synchronously).
-	//
-	// Note that delivery of triggered alarms must take precedence over messages
-	// that may arrive at the same time.
 	SetAlarm(at time.Time)
 }
 

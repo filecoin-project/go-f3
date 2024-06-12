@@ -174,7 +174,7 @@ func (m *F3) teardownPubsub(topic *pubsub.Topic, topicName string) error {
 	)
 }
 
-func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
+func (m *F3) startGpbftRunner(ctx context.Context, initialInstance uint64, errCh chan error) {
 	if err := m.setupMsgPubsub(m.runner); err != nil {
 		errCh <- xerrors.Errorf("setting up pubsub: %w", err)
 	}
@@ -193,7 +193,7 @@ func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
 	}
 
 	go func() {
-		err := m.runner.Run(ctx)
+		err := m.runner.Run(initialInstance, ctx)
 		m.log.Errorf("running host: %+v", err)
 		errCh <- err
 	}()
@@ -208,7 +208,7 @@ func (m *F3) stopGpbftRunner() (err error) {
 }
 
 // Run start the module. It will exit when context is cancelled.
-func (m *F3) Run(ctx context.Context) error {
+func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -231,7 +231,7 @@ func (m *F3) Run(ctx context.Context) error {
 
 	runnerErrCh := make(chan error, 1)
 	// start initial runner
-	go m.startGpbftRunner(ctx, runnerErrCh)
+	go m.startGpbftRunner(ctx, initialInstance, runnerErrCh)
 
 loop:
 	for {
@@ -251,7 +251,7 @@ loop:
 							m.log.Errorf("error stopping gpbft runner: %+v", err)
 						}
 						// bootstrap a new runner with the new configuration.
-						go m.startGpbftRunner(ctx, runnerErrCh)
+						go m.startGpbftRunner(ctx, uint64(m.Manifest.UpgradeEpoch), runnerErrCh)
 					} else {
 						// TODO: Update the corresponding configurations needed
 						// without rebootstrapping, like the power table et. al.
