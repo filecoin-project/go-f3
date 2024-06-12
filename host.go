@@ -73,10 +73,15 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 		return xerrors.Errorf("starting a participant: %w", err)
 	}
 
-	messageQueue := h.client.IncomingMessages()
 	manifestQueue := h.client.IncomingManifest()
 loop:
 	for {
+
+		// we need to retrieve the queue again in every
+		// iteration in case there has been a manifest change
+		// and we are subscribed to a new topic
+		messageQueue := h.client.IncomingMessages()
+
 		// if there is a manifest in the queue
 		// handle it immediately as it requires a
 		// configuration change

@@ -174,10 +174,12 @@ func (m *F3) teardownPubsub(topic *pubsub.Topic, topicName string) error {
 	)
 }
 
-// Starts a new gpbftRunner for a specific manifest configuration
+// Sets up the gpbft runner, this is triggered at initialization or when a new config manifest is received.
+// If the rebootstrap flag is enabled, it starts a new gpbftRunner for a specific manifest configuration
+// If not, it just starts the message processing loop for the new pubsub topic for the manifest version.
 // This function is responsible for setting up the pubsub topic for the
 // network, starting the runner, and starting the message processing loop
-func (m *F3) startGpbftRunner(ctx context.Context, initialInstance uint64, errCh chan error) {
+func (m *F3) setupGpbftRunner(ctx context.Context, initialInstance uint64, rebootstrap bool, errCh chan error) {
 	if err := m.setupMsgPubsub(m.runner); err != nil {
 		errCh <- xerrors.Errorf("setting up pubsub: %w", err)
 	}
@@ -190,25 +192,33 @@ func (m *F3) startGpbftRunner(ctx context.Context, initialInstance uint64, errCh
 	messageQueue := make(chan gpbft.ValidatedMessage, 20)
 	m.client.messageQueue = messageQueue
 
-	m.runner, err = newRunner(m.client.id, m.Manifest, m.client)
-	if err != nil {
-		errCh <- xerrors.Errorf("creating gpbft host: %w", err)
-	}
+	if rebootstrap {
+		m.runner, err = newRunner(m.client.id, m.Manifest, m.client)
+		if err != nil {
+			errCh <- xerrors.Errorf("creating gpbft host: %w", err)
+		}
 
-	go func() {
-		err := m.runner.Run(initialInstance, ctx)
-		m.log.Errorf("running host: %+v", err)
-		errCh <- err
-	}()
+		go func() {
+			err := m.runner.Run(initialInstance, ctx)
+			m.log.Errorf("running host: %+v", err)
+			errCh <- err
+		}()
+	}
 
 	m.handleIncomingMessages(ctx, msgSub, messageQueue)
 }
 
-// Stops the gpbft runner and closes the message pubsub topic
-func (m *F3) stopGpbftRunner() (err error) {
-	err = m.teardownMsgPubsub()
-	m.runner.Stop()
-	return err
+// Logic triggered when a new manifest is received
+func (m *F3) onManifestChange(ctx context.Context, initialInstance uint64, rebootstrap bool, errCh chan error) {
+	if err := m.teardownMsgPubsub(); err != nil {
+		// for now we just log the error and continue.
+		// This is not critical, but alternative approaches welcome.
+		m.log.Errorf("error stopping gpbft runner: %+v", err)
+	}
+	if rebootstrap {
+		m.runner.Stop()
+	}
+	m.setupGpbftRunner(ctx, initialInstance, rebootstrap, errCh)
 }
 
 // Run start the module. It will exit when context is cancelled.
@@ -236,8 +246,8 @@ func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 	}
 
 	runnerErrCh := make(chan error, 1)
-	// start runner for the initial manifest to
-	go m.startGpbftRunner(ctx, initialInstance, runnerErrCh)
+	// bootstrap runner for the initial manifest to
+	go m.setupGpbftRunner(ctx, initialInstance, true, runnerErrCh)
 
 	// Once the initial runner is started, we start the manifest processing loop
 loop:
@@ -251,18 +261,13 @@ loop:
 					// update the current manifest
 					m.Manifest = *m.nextManifest
 					m.nextManifest = nil
-					if m.nextManifest.ReBootstrap {
-						// stop the current gpbft runner
-						if err := m.stopGpbftRunner(); err != nil {
-							// for now we just log the error and continue.
-							// This is not critical, but alternative approaches welcome.
-							m.log.Errorf("error stopping gpbft runner: %+v", err)
-						}
-						// bootstrap a new runner with for the new manifest.
-						go m.startGpbftRunner(ctx, uint64(m.Manifest.UpgradeEpoch), runnerErrCh)
-					} else {
+					// stop existing pubsub and subscribe to the new one
+					// if the re-bootstrap flag is enabled, it will setup a new runner with the new config.
+					go m.onManifestChange(ctx, uint64(m.Manifest.UpgradeEpoch), m.nextManifest.ReBootstrap, runnerErrCh)
+					if !m.nextManifest.ReBootstrap {
 						// TODO: If the manifest doesn't have the re-bootstrap flagged
-						// enabled, we need to pass the manifest to the runner to notify
+						// enabled, no new runner is setup, we reuse the existing one.
+						// We need to pass the manifest to the runner to notify
 						// that there is a new configuration to be applied without
 						// restarting the runner.
 						// Some of the configurations that we expect to run in this way are
