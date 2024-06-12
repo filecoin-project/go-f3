@@ -182,11 +182,13 @@ func (m *F3) teardownPubsub(topic *pubsub.Topic, topicName string) error {
 func (m *F3) setupGpbftRunner(ctx context.Context, initialInstance uint64, rebootstrap bool, errCh chan error) {
 	if err := m.setupMsgPubsub(m.runner); err != nil {
 		errCh <- xerrors.Errorf("setting up pubsub: %w", err)
+		return
 	}
 
 	msgSub, err := m.client.msgTopic.Subscribe()
 	if err != nil {
 		errCh <- xerrors.Errorf("subscribing to topic: %w", err)
+		return
 	}
 
 	messageQueue := make(chan gpbft.ValidatedMessage, 20)
@@ -196,6 +198,7 @@ func (m *F3) setupGpbftRunner(ctx context.Context, initialInstance uint64, reboo
 		m.runner, err = newRunner(m.client.id, m.Manifest, m.client)
 		if err != nil {
 			errCh <- xerrors.Errorf("creating gpbft host: %w", err)
+			return
 		}
 
 		go func() {
@@ -226,30 +229,66 @@ func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	runnerErrCh := make(chan error, 1)
+	manifestErrCh := make(chan error, 1)
+
+	// bootstrap runner for the initial manifest
+	go m.setupGpbftRunner(ctx, initialInstance, true, runnerErrCh)
+
+	// only start manifest service if the diagnostics server id is set
+	if m.manifestServerID != "" {
+		manifestQueue := make(chan *Manifest, 5)
+		m.client.manifestQueue = manifestQueue
+		go m.handleIncomingManifests(ctx, manifestQueue, manifestErrCh)
+	}
+
+	var err error
+	select {
+	case <-ctx.Done():
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+	case err = <-runnerErrCh:
+		return err
+	case err = <-manifestErrCh:
+		return err
+	}
+
+	return nil
+}
+
+// Checks if we should accept the manifest that we received through pubsub
+func (m *F3) acceptNextManifest(manifest *Manifest) bool {
+
+	// if the manifest is older, skip it
+	if manifest.Sequence <= m.Manifest.Sequence ||
+		manifest.UpgradeEpoch < m.Manifest.UpgradeEpoch {
+		return false
+	}
+
+	return true
+}
+
+func (m *F3) handleIncomingManifests(ctx context.Context, manifestQueue chan *Manifest, errCh chan error) {
 	if err := m.setupManifestPubsub(); err != nil {
-		return xerrors.Errorf("setting up pubsub: %w", err)
+		errCh <- xerrors.Errorf("setting up pubsub: %w", err)
+		return
 	}
 
 	manifestSub, err := m.client.manifestTopic.Subscribe()
 	if err != nil {
-		return xerrors.Errorf("subscribing to topic: %w", err)
+		errCh <- xerrors.Errorf("subscribing to topic: %w", err)
+		return
 	}
-
-	manifestQueue := make(chan *Manifest, 5)
-	m.client.manifestQueue = manifestQueue
 
 	// FIXME; This is a stub and should be replaced with whatever
 	// function allow us to subscribe to new epochs coming from EC.
 	ecSub, err := m.ec.ChainHead(ctx)
 	if err != nil {
-		return xerrors.Errorf("subscribing to chain events: %w", err)
+		errCh <- xerrors.Errorf("subscribing to chain events: %w", err)
+		return
 	}
 
-	runnerErrCh := make(chan error, 1)
-	// bootstrap runner for the initial manifest to
-	go m.setupGpbftRunner(ctx, initialInstance, true, runnerErrCh)
-
-	// Once the initial runner is started, we start the manifest processing loop
 loop:
 	for {
 		select {
@@ -263,7 +302,7 @@ loop:
 					m.nextManifest = nil
 					// stop existing pubsub and subscribe to the new one
 					// if the re-bootstrap flag is enabled, it will setup a new runner with the new config.
-					go m.onManifestChange(ctx, uint64(m.Manifest.UpgradeEpoch), m.nextManifest.ReBootstrap, runnerErrCh)
+					go m.onManifestChange(ctx, uint64(m.Manifest.UpgradeEpoch), m.nextManifest.ReBootstrap, errCh)
 					if !m.nextManifest.ReBootstrap {
 						// TODO: If the manifest doesn't have the re-bootstrap flagged
 						// enabled, no new runner is setup, we reuse the existing one.
@@ -306,29 +345,15 @@ loop:
 			select {
 			case <-ctx.Done():
 				break loop
-			case err = <-runnerErrCh:
-				break loop
+			default:
 			}
 		}
 	}
 
 	manifestSub.Cancel()
-	if err2 := m.teardownManifestPubsub(); err2 != nil {
-		err = multierr.Append(err, xerrors.Errorf("shutting down manifest pubsub: %w", err2))
+	if err := m.teardownManifestPubsub(); err != nil {
+		errCh <- xerrors.Errorf("shutting down manifest pubsub: %w", err)
 	}
-	return multierr.Append(err, ctx.Err())
-}
-
-// Checks if we should accept the manifest that we received through pubsub
-func (m *F3) acceptNextManifest(manifest *Manifest) bool {
-
-	// if the manifest is older, skip it
-	if manifest.Sequence <= m.Manifest.Sequence ||
-		manifest.UpgradeEpoch < m.Manifest.UpgradeEpoch {
-		return false
-	}
-
-	return true
 }
 
 func (m *F3) handleIncomingMessages(ctx context.Context, sub *pubsub.Subscription, queue chan gpbft.ValidatedMessage) {
