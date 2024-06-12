@@ -18,7 +18,8 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// Id of the default manifest server
+// ID of the default manifest server which is responsible for periodically
+// publishing it on the diagnostics topic
 // TODO: Make it configurable through a flag.
 var defaultManifestServerID, _ = peer.Decode("12D3KooWHQRSDFv4FvAjtU32shQ7znz7oRbLBryXzZ9NMK2feyyH")
 

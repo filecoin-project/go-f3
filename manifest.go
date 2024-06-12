@@ -50,8 +50,6 @@ type Manifest struct {
 }
 
 // Version that uniquely identifies the manifest.
-// This is added to GPBFT messages to identify the configuration that was
-// being used when broadcasting that message.
 func (m Manifest) Version() (Version, error) {
 	b, err := json.Marshal(m)
 	if err != nil {
@@ -77,6 +75,9 @@ func (m *Manifest) Unmarshal(r io.Reader) error {
 	return nil
 }
 
+// PubSubTopic returns the pubsub topic name for the manifest
+// which includes a version subpath that allows to unique
+// identify the configuration manifest used for the network.
 func (m Manifest) PubSubTopic() string {
 	v, _ := m.Version()
 	return m.NetworkName.PubSubTopic() + string(v)

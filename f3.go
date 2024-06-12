@@ -69,7 +69,7 @@ func (mc *clientImpl) IncomingMessages() <-chan gpbft.ValidatedMessage {
 	return mc.messageQueue
 }
 
-func (mc clientImpl) IncomingManifests() <-chan *Manifest {
+func (mc clientImpl) IncomingManifest() <-chan *Manifest {
 	return mc.manifestQueue
 }
 
@@ -86,7 +86,7 @@ func (mc *clientImpl) Logger() Logger {
 
 // New creates and setups f3 with libp2p
 // The context is used for initialization not runtime.
-func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.Datastore, h host.Host, diagnosticsServer peer.ID,
+func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.Datastore, h host.Host, manifestServer peer.ID,
 	ps *pubsub.PubSub, sigs gpbft.SignerWithMarshaler, verif gpbft.Verifier, ec ECBackend, log Logger) (*F3, error) {
 	ds = namespace.Wrap(ds, manifest.NetworkName.DatastorePrefix())
 	cs, err := certstore.OpenOrCreateStore(ctx, ds, 0, manifest.InitialPowerTable)
@@ -116,7 +116,7 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 			loggerWithSkip:      loggerWithSkip,
 		},
 
-		manifestServerID: diagnosticsServer,
+		manifestServerID: manifestServer,
 	}
 
 	return &m, nil
@@ -150,6 +150,10 @@ func (m *F3) setupMsgPubsub(runner *gpbftRunner) (err error) {
 	return
 }
 
+func (m *F3) teardownMsgPubsub() error {
+	return m.teardownPubsub(m.client.msgTopic, m.Manifest.PubSubTopic())
+}
+
 func (m *F3) setupPubsub(topicName string, validator any) (*pubsub.Topic, error) {
 	err := m.pubsub.RegisterTopicValidator(topicName, validator)
 	if err != nil {
@@ -163,10 +167,6 @@ func (m *F3) setupPubsub(topicName string, validator any) (*pubsub.Topic, error)
 	return topic, nil
 }
 
-func (m *F3) teardownMsgPubsub() error {
-	return m.teardownPubsub(m.client.msgTopic, m.Manifest.PubSubTopic())
-}
-
 func (m *F3) teardownPubsub(topic *pubsub.Topic, topicName string) error {
 	return multierr.Combine(
 		m.pubsub.UnregisterTopicValidator(topicName),
@@ -174,6 +174,9 @@ func (m *F3) teardownPubsub(topic *pubsub.Topic, topicName string) error {
 	)
 }
 
+// Starts a new gpbftRunner for a specific manifest configuration
+// This function is responsible for setting up the pubsub topic for the
+// network, starting the runner, and starting the message processing loop
 func (m *F3) startGpbftRunner(ctx context.Context, initialInstance uint64, errCh chan error) {
 	if err := m.setupMsgPubsub(m.runner); err != nil {
 		errCh <- xerrors.Errorf("setting up pubsub: %w", err)
@@ -201,6 +204,7 @@ func (m *F3) startGpbftRunner(ctx context.Context, initialInstance uint64, errCh
 	m.handleIncomingMessages(ctx, msgSub, messageQueue)
 }
 
+// Stops the gpbft runner and closes the message pubsub topic
 func (m *F3) stopGpbftRunner() (err error) {
 	err = m.teardownMsgPubsub()
 	m.runner.Stop()
@@ -224,18 +228,22 @@ func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 	manifestQueue := make(chan *Manifest, 5)
 	m.client.manifestQueue = manifestQueue
 
+	// FIXME; This is a stub and should be replaced with whatever
+	// function allow us to subscribe to new epochs coming from EC.
 	ecSub, err := m.ec.ChainHead(ctx)
 	if err != nil {
 		return xerrors.Errorf("subscribing to chain events: %w", err)
 	}
 
 	runnerErrCh := make(chan error, 1)
-	// start initial runner
+	// start runner for the initial manifest to
 	go m.startGpbftRunner(ctx, initialInstance, runnerErrCh)
 
+	// Once the initial runner is started, we start the manifest processing loop
 loop:
 	for {
 		select {
+		// Check first if there is a new configuration manifest that needs to be applied.
 		case ts := <-ecSub:
 			if m.nextManifest != nil {
 				// if the upgrade epoch is reached or already passed.
@@ -247,18 +255,20 @@ loop:
 						// stop the current gpbft runner
 						if err := m.stopGpbftRunner(); err != nil {
 							// for now we just log the error and continue.
-							// This is not critical
+							// This is not critical, but alternative approaches welcome.
 							m.log.Errorf("error stopping gpbft runner: %+v", err)
 						}
-						// bootstrap a new runner with the new configuration.
+						// bootstrap a new runner with for the new manifest.
 						go m.startGpbftRunner(ctx, uint64(m.Manifest.UpgradeEpoch), runnerErrCh)
 					} else {
-						// TODO: Update the corresponding configurations needed
-						// without rebootstrapping, like the power table et. al.
-						// We need to notify the host that the new manifest requires
-						// triggering a new configuration without restarting the runner
-						// TODO: We still need to restart the pubsub channel with the new
-						// name for the version.
+						// TODO: If the manifest doesn't have the re-bootstrap flagged
+						// enabled, we need to pass the manifest to the runner to notify
+						// that there is a new configuration to be applied without
+						// restarting the runner.
+						// Some of the configurations that we expect to run in this way are
+						// - Updates to the power table
+						// - ECStabilisationDelay
+						// - more?
 						manifestQueue <- &m.Manifest
 					}
 					continue
@@ -304,6 +314,7 @@ loop:
 	return multierr.Append(err, ctx.Err())
 }
 
+// Checks if we should accept the manifest that we received through pubsub
 func (m *F3) acceptNextManifest(manifest *Manifest) bool {
 
 	// if the manifest is older, skip it

@@ -16,7 +16,7 @@ type Client interface {
 
 	BroadcastMessage(context.Context, *gpbft.MessageBuilder) error
 	IncomingMessages() <-chan gpbft.ValidatedMessage
-	IncomingManifests() <-chan *Manifest
+	IncomingManifest() <-chan *Manifest
 	Logger() Logger
 }
 
@@ -74,7 +74,7 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 	}
 
 	messageQueue := h.client.IncomingMessages()
-	manifestQueue := h.client.IncomingManifests()
+	manifestQueue := h.client.IncomingManifest()
 loop:
 	for {
 		// if there is a manifest in the queue
@@ -128,6 +128,7 @@ func (h *gpbftRunner) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessa
 	return h.participant.ValidateMessage(msg)
 }
 
+// Updates the runner to apply the configuration a new manifest
 func (h *gpbftRunner) updateManifestConfig(m *Manifest) error {
 	h.manifest = *m
 	// TODO: Update the config from the manifest received. We may
