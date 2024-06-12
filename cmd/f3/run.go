@@ -81,7 +81,7 @@ var runCmd = cli.Command{
 			return xerrors.Errorf("creating module: %w", err)
 		}
 
-		initialInstance := c.Uint64("id")
+		initialInstance := c.Uint64("instance")
 		return module.Run(initialInstance, ctx)
 	},
 }
