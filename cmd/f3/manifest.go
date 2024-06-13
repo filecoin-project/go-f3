@@ -34,7 +34,9 @@ var manifestGenCmd = cli.Command{
 		path := c.String("manifest")
 		rng := make([]byte, 4)
 		_, _ = rand.Read(rng)
-		var m f3.Manifest
+		m := f3.Manifest{
+			BootstrapEpoch: 1000,
+		}
 		m.NetworkName = gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng))
 		fsig := signing.NewFakeBackend()
 		for i := 0; i < c.Int("N"); i++ {
@@ -43,7 +45,7 @@ var manifestGenCmd = cli.Command{
 			m.InitialPowerTable = append(m.InitialPowerTable, gpbft.PowerEntry{
 				ID:     gpbft.ActorID(i),
 				PubKey: pubkey,
-				Power:  big.NewInt(1),
+				Power:  big.NewInt(1000),
 			})
 		}
 		f, err := os.OpenFile(path, os.O_WRONLY, 0666)

@@ -3,7 +3,6 @@ package gpbft
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -36,9 +35,14 @@ func MakeCid(data []byte) []byte {
 	// We construct this CID manually to avoid depending on go-cid (it's also a _bit_ faster).
 	digest := blake2b.Sum256(data)
 
-	out := make([]byte, 0, 38)
+	return DigestToCid(digest[:])
+}
+
+// DigestToCid turns a digest into CBOR + blake2b-256 CID
+func DigestToCid(digest []byte) []byte {
+	out := make([]byte, 0, CID_MAX_LEN)
 	out = append(out, cidPrefix...)
-	out = append(out, digest[:]...)
+	out = append(out, digest...)
 	return out
 }
 
@@ -103,7 +107,7 @@ func (ts *TipSet) String() string {
 		return "<nil>"
 	}
 
-	return fmt.Sprintf("%d@%s", ts.Epoch, hex.EncodeToString(ts.Key))
+	return fmt.Sprintf("@%d", ts.Epoch)
 }
 
 // A chain of tipsets comprising a base (the last finalised tipset from which the chain extends).
@@ -263,7 +267,7 @@ func (c ECChain) Validate() error {
 			return fmt.Errorf("tipset %d: %w", i, err)
 		}
 		if ts.Epoch <= lastEpoch {
-			return errors.New("chain must have increasing epochs")
+			return fmt.Errorf("chain must have increasing epochs %d <= %d", ts.Epoch, lastEpoch)
 		}
 		lastEpoch = ts.Epoch
 	}
@@ -300,5 +304,9 @@ func (c ECChain) String() string {
 		}
 	}
 	b.WriteString("]")
-	return b.String()
+	str := b.String()
+	if len(str) > 77 {
+		str = str[:77] + "..."
+	}
+	return str
 }
