@@ -146,7 +146,6 @@ loop:
 			msg, err = manifestSub.Next(ctx)
 			if err != nil {
 				if ctx.Err() != nil {
-					err = nil
 					break
 				}
 				log.Errorf("manifestPubsub subscription.Next() returned an error: %+v", err)
