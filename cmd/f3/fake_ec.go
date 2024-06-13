@@ -55,6 +55,7 @@ func (ec *FakeEC) genTipset(epoch int64) *Tipset {
 	rng := h.Sum(nil)
 	var size uint8
 	size, rng = rng[0]%8, rng[1:]
+	_ = rng
 	tsk := make([]byte, 0, size*gpbft.CID_MAX_LEN)
 
 	if size == 0 {
@@ -66,7 +67,7 @@ func (ec *FakeEC) genTipset(epoch int64) *Tipset {
 		digest := h.Sum(nil)
 		if i == 0 {
 			//encode epoch in the first block hash
-			binary.BigEndian.PutUint64(digest, uint64(epoch))
+			binary.BigEndian.PutUint64(digest[32-8:], uint64(epoch))
 		}
 		tsk = append(tsk, gpbft.DigestToCid(digest)...)
 	}
@@ -112,6 +113,6 @@ func (ec *FakeEC) GetPowerTable(ctx context.Context, tsk gpbft.TipSetKey) (gpbft
 }
 
 func (ec *FakeEC) GetTipset(ctx context.Context, tsk gpbft.TipSetKey) (f3.TipSet, error) {
-	epoch := binary.BigEndian.Uint64(tsk[6 : 6+8])
+	epoch := binary.BigEndian.Uint64(tsk[6+32-8 : 6+32])
 	return ec.genTipset(int64(epoch)), nil
 }

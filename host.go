@@ -192,6 +192,10 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 
 	var supplData gpbft.SupplementalData
 	pt, _, err := h.GetCommitteeForInstance(instance + 1)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("getting commite for %d: %w", instance+1, err)
+	}
+
 	supplData.PowerTable, err = certs.MakePowerTableCID(pt.Entries)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("making power table cid for supplemental data: %w", err)
