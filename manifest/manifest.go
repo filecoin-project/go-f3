@@ -1,6 +1,7 @@
-package f3
+package manifest
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -8,12 +9,29 @@ import (
 
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/ipfs/go-datastore"
 	"golang.org/x/xerrors"
 )
 
-const (
-	ManifestPubSubTopicName = "/f3/manifests/0.0.1"
-)
+type OnManifestChange func(ctx context.Context, initialInstance uint64, rebootstrap bool, errCh chan error)
+
+type ManifestProvider interface {
+	// Run starts any background tasks required for the operation
+	// of the manifest provider.
+	Run(context.Context, chan error)
+	// Returns the list of gpbft options that should be used
+	GpbftOptions() []gpbft.Option
+	// suscribe to manifest updates
+	Subscribe() <-chan struct{}
+	// Set callback for manifest changes
+	SetManifestChangeCb(OnManifestChange)
+
+	// Manifest accessors
+	MsgPubSubTopic() string
+	NetworkName() gpbft.NetworkName
+	DatastorePrefix() datastore.Key
+	InitialPowerTable() []gpbft.PowerEntry
+}
 
 type Version string
 
@@ -75,15 +93,15 @@ func (m *Manifest) Unmarshal(r io.Reader) error {
 	return nil
 }
 
-// PubSubTopic returns the pubsub topic name for the manifest
-// which includes a version subpath that allows to unique
-// identify the configuration manifest used for the network.
-func (m Manifest) PubSubTopic() string {
-	v, _ := m.Version()
-	return m.NetworkName.PubSubTopic() + string(v)
+func (m Manifest) DatastorePrefix() datastore.Key {
+	return datastore.NewKey("/f3/" + string(m.NetworkName))
 }
 
-func (m Manifest) toGpbftOpts() []gpbft.Option {
+func (m Manifest) PubSubTopic() string {
+	return "/f3/granite/0.0.1/" + string(m.NetworkName)
+}
+
+func (m Manifest) GpbftOptions() []gpbft.Option {
 	var opts []gpbft.Option
 
 	if m.Delta != 0 {

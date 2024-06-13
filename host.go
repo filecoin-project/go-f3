@@ -6,6 +6,7 @@ import (
 
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/filecoin-project/go-f3/sim"
 	"golang.org/x/xerrors"
 )
@@ -15,7 +16,7 @@ import (
 type gpbftRunner struct {
 	client      *client
 	participant *gpbft.Participant
-	manifest    Manifest
+	manifest    manifest.ManifestProvider
 
 	alertTimer *time.Timer
 
@@ -27,7 +28,7 @@ type gpbftRunner struct {
 // gpbftHost is a newtype of gpbftRunner exposing APIs required by the gpbft.Participant
 type gpbftHost gpbftRunner
 
-func newRunner(id gpbft.ActorID, m Manifest, client *client) (*gpbftRunner, error) {
+func newRunner(id gpbft.ActorID, m manifest.ManifestProvider, client *client) (*gpbftRunner, error) {
 	runner := &gpbftRunner{
 		client:   client,
 		manifest: m,
@@ -42,7 +43,7 @@ func newRunner(id gpbft.ActorID, m Manifest, client *client) (*gpbftRunner, erro
 
 	runner.log.Infof("starting host for P%d", id)
 	// configure participants according to the config from the manifest
-	opts := append(m.toGpbftOpts(), gpbft.WithTracer(client))
+	opts := append(m.GpbftOptions(), gpbft.WithTracer(client))
 	p, err := gpbft.NewParticipant((*gpbftHost)(runner), opts...)
 	if err != nil {
 		return nil, xerrors.Errorf("creating participant: %w", err)
@@ -63,7 +64,7 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 		return xerrors.Errorf("starting a participant: %w", err)
 	}
 
-	manifestQueue := h.client.IncomingManifest()
+	manifestUpdates := h.manifest.Subscribe()
 loop:
 	for {
 
@@ -72,14 +73,14 @@ loop:
 		// and we are subscribed to a new topic
 		messageQueue := h.client.IncomingMessages()
 
-		// if there is a manifest in the queue
-		// handle it immediately as it requires a
-		// configuration change
+		// if there is a manifest update handle it immediately
 		select {
-		case manifest := <-manifestQueue:
-			err = h.updateManifestConfig(manifest)
-			// TODO: What to do with this error? Should we return the runner
-			// with the error because we couldn't reconfigure it?
+		case <-manifestUpdates:
+			// TODO: Perform configuration changes to the runner host
+			// - Power table updates
+			// - MaxLookBack and ECStabilizationDelay
+			// i.e. anything that doesn't require a re-bootstrap.
+			continue
 		default:
 		}
 
@@ -123,15 +124,6 @@ func (h *gpbftRunner) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessa
 	return h.participant.ValidateMessage(msg)
 }
 
-// Updates the runner to apply the configuration a new manifest
-func (h *gpbftRunner) updateManifestConfig(m *Manifest) error {
-	h.manifest = *m
-	// TODO: Update the config from the manifest received. We may
-	// need to compare with the previous manifest before updating to
-	// understand the configuration changes that need to be triggered
-	panic("not implemented")
-}
-
 // Returns inputs to the next GPBFT instance.
 // These are:
 // - the supplemental data.
@@ -170,7 +162,7 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable, []byte, error) {
 	// TODO: Add any additional power table entries from the manifest
 	table := gpbft.NewPowerTable()
-	err := table.Add(h.manifest.InitialPowerTable...)
+	err := table.Add(h.manifest.InitialPowerTable()...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -179,7 +171,7 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 
 // Returns the network's name (for signature separation)
 func (h *gpbftHost) NetworkName() gpbft.NetworkName {
-	return h.manifest.NetworkName
+	return h.manifest.NetworkName()
 }
 
 // Sends a message to all other participants.

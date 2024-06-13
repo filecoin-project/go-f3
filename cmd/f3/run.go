@@ -6,6 +6,8 @@ import (
 
 	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/manifest"
+	"github.com/filecoin-project/go-f3/passive"
 	"github.com/filecoin-project/go-f3/sim/signing"
 	leveldb "github.com/ipfs/go-ds-leveldb"
 	logging "github.com/ipfs/go-log/v2"
@@ -81,22 +83,27 @@ var runCmd = cli.Command{
 		// we setup the monitoring system
 		mFlag := c.String("manifest-server")
 		manifestServer := peer.ID("")
+		var mprovider manifest.ManifestProvider
 		if mFlag != "" {
 			manifestServer, err = peer.Decode(mFlag)
 			if err != nil {
 				return xerrors.Errorf("parsing manifest server ID: %w", err)
 			}
+			mprovider = passive.NewDynamicManifest(&m, ps, nil, manifestServer)
+		} else {
+			mprovider = manifest.NewStaticManifest(&m)
 		}
 
 		signingBackend := &fakeSigner{*signing.NewFakeBackend()}
 		id := c.Uint64("id")
 		signingBackend.Allow(int(id))
-		module, err := f3.New(ctx, gpbft.ActorID(id), m, ds, h, manifestServer, ps, signingBackend, signingBackend, nil, log)
+		module, err := f3.New(ctx, gpbft.ActorID(id), mprovider, ds, h, manifestServer, ps, signingBackend, signingBackend, nil, log)
 		if err != nil {
 			return xerrors.Errorf("creating module: %w", err)
 		}
 
 		initialInstance := c.Uint64("instance")
+		mprovider.SetManifestChangeCb(f3.ManifestChangeCallback(module))
 		return module.Run(initialInstance, ctx)
 	},
 }

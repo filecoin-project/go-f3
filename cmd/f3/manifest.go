@@ -7,8 +7,8 @@ import (
 	"math/big"
 	"os"
 
-	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/filecoin-project/go-f3/sim/signing"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
@@ -34,7 +34,7 @@ var manifestGenCmd = cli.Command{
 		path := c.String("manifest")
 		rng := make([]byte, 4)
 		_, _ = rand.Read(rng)
-		var m f3.Manifest
+		var m manifest.Manifest
 		m.NetworkName = gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng))
 		fsig := signing.NewFakeBackend()
 		for i := 0; i < c.Int("N"); i++ {
@@ -63,18 +63,18 @@ var manifestGenCmd = cli.Command{
 	},
 }
 
-func getManifest(c *cli.Context) (f3.Manifest, error) {
+func getManifest(c *cli.Context) (manifest.Manifest, error) {
 	manifestPath := c.String("manifest")
 	return loadManifest(manifestPath)
 }
 
-func loadManifest(path string) (f3.Manifest, error) {
+func loadManifest(path string) (manifest.Manifest, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return f3.Manifest{}, xerrors.Errorf("opening %s to load manifest: %w", path, err)
+		return manifest.Manifest{}, xerrors.Errorf("opening %s to load manifest: %w", path, err)
 	}
 	defer f.Close()
-	var m f3.Manifest
+	var m manifest.Manifest
 
 	err = m.Unmarshal(f)
 	return m, err

@@ -1,18 +1,19 @@
-package f3_test
+package manifest_test
 
 import (
 	"bytes"
 	"fmt"
 	"math/big"
+	"strings"
 	"testing"
 
-	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/stretchr/testify/require"
 )
 
-var baseManifest f3.Manifest = f3.Manifest{
+var baseManifest manifest.Manifest = manifest.Manifest{
 	Sequence:             0,
 	UpgradeEpoch:         10,
 	ReBootstrap:          true,
@@ -42,7 +43,7 @@ var baseManifest f3.Manifest = f3.Manifest{
 			SigningKey:    gpbft.PubKey{1},
 		},
 	},
-	GpbftConfig: &f3.GpbftConfig{
+	GpbftConfig: &manifest.GpbftConfig{
 		Delta:                10,
 		DeltaBackOffExponent: 0.2,
 		MaxLookaheadRounds:   10,
@@ -53,7 +54,7 @@ func TestManifestSerialiation(t *testing.T) {
 	b, err := baseManifest.Marshal()
 	require.NoError(t, err)
 
-	var m2 f3.Manifest
+	var m2 manifest.Manifest
 	fmt.Println(string(b))
 
 	err = m2.Unmarshal(bytes.NewReader(b))
@@ -75,4 +76,32 @@ func TestManifestVersion(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, v1, v2)
 
+}
+
+func TestNetworkName(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		subject gpbft.NetworkName
+	}{
+		{
+			name: "zero",
+		},
+		{
+			name:    "non-zero",
+			subject: "fish",
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			m := manifest.Manifest{NetworkName: test.subject}
+			gotDsPrefix := m.DatastorePrefix().String()
+			require.True(t, strings.HasPrefix(gotDsPrefix, "/f3"))
+			require.True(t, strings.HasSuffix(gotDsPrefix, string(test.subject)))
+			gotPubSubTopic := m.PubSubTopic()
+			require.True(t, strings.HasPrefix(gotPubSubTopic, "/f3/granite/0.0.1/"))
+			require.True(t, strings.HasSuffix(gotPubSubTopic, string(test.subject)))
+		})
+	}
 }
