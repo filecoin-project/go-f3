@@ -338,17 +338,40 @@ func TestBadFinalityCertificates(t *testing.T) {
 		require.Empty(t, chain)
 	}
 
+	// Give one signer enough power such that all others round to zero.
+	{
+		powerTableCpy := slices.Clone(powerTable)
+		for i := range powerTableCpy {
+			powerTableCpy[i].Power = gpbft.NewStoragePower(1)
+		}
+
+		firstSigner, err := certificate.Signers.First()
+		require.NoError(t, err)
+		powerTableCpy[firstSigner].Power = gpbft.NewStoragePower(0xffff)
+
+		nextInstance, chain, _, err := certs.ValidateFinalityCertificates(backend, networkName, powerTableCpy, 1, nil, *certificate)
+		require.ErrorContains(t, err, "no effective power after scaling")
+		require.EqualValues(t, 1, nextInstance)
+		require.Empty(t, chain)
+	}
+
 	// Reduce active power to 1, can't have quorum.
 	{
 		powerTableCpy := slices.Clone(powerTable)
-		count := 0
 		require.NoError(t, certificate.Signers.ForEach(func(i uint64) error {
 			powerTableCpy[i].Power = gpbft.NewStoragePower(1)
-			count++
 			return nil
 		}))
+		scaledPowerTable, totalPower, err := powerTableCpy.Scaled()
+		require.NoError(t, err)
+		var activePower uint16
+		require.NoError(t, certificate.Signers.ForEach(func(i uint64) error {
+			activePower += scaledPowerTable[i]
+			return nil
+		}))
+
 		nextInstance, chain, _, err := certs.ValidateFinalityCertificates(backend, networkName, powerTableCpy, 1, nil, *certificate)
-		require.ErrorContains(t, err, fmt.Sprintf("has insufficient power: %d", count))
+		require.ErrorContains(t, err, fmt.Sprintf("has insufficient power: %d < 2/3 %d", activePower, totalPower))
 		require.EqualValues(t, 1, nextInstance)
 		require.Empty(t, chain)
 	}

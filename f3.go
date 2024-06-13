@@ -30,15 +30,17 @@ type F3 struct {
 	ec     ECBackend
 	log    Logger
 
-	client *clientImpl
+	client *client
 
 	manifestServerID peer.ID
 	nextManifest     *Manifest
 }
 
-type clientImpl struct {
-	id gpbft.ActorID
-	nn gpbft.NetworkName
+type client struct {
+	certstore *certstore.Store
+	id        gpbft.ActorID
+	nn        gpbft.NetworkName
+
 	gpbft.Verifier
 	gpbft.SignerWithMarshaler
 	logger         Logger
@@ -51,9 +53,12 @@ type clientImpl struct {
 	manifestTopic *pubsub.Topic
 }
 
-func (mc *clientImpl) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder) error {
+func (mc *client) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder) error {
 	msg, err := mb.Build(mc.nn, mc.SignerWithMarshaler, mc.id)
 	if err != nil {
+		if errors.Is(err, gpbft.ErrNoPower) {
+			return nil
+		}
 		mc.Log("building message for: %d: %+v", mc.id, err)
 		return err
 	}
@@ -62,25 +67,29 @@ func (mc *clientImpl) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBui
 	if err != nil {
 		mc.Log("marshalling GMessage: %+v", err)
 	}
-	return mc.msgTopic.Publish(ctx, bw.Bytes())
+	err = mc.msgTopic.Publish(ctx, bw.Bytes())
+	if err != nil {
+		return xerrors.Errorf("publishing on topic: %w", err)
+	}
+	return nil
 }
 
-func (mc *clientImpl) IncomingMessages() <-chan gpbft.ValidatedMessage {
+func (mc *client) IncomingMessages() <-chan gpbft.ValidatedMessage {
 	return mc.messageQueue
 }
 
-func (mc clientImpl) IncomingManifest() <-chan *Manifest {
+func (mc client) IncomingManifest() <-chan *Manifest {
 	return mc.manifestQueue
 }
 
-var _ gpbft.Tracer = (*clientImpl)(nil)
+var _ gpbft.Tracer = (*client)(nil)
 
 // Log fulfills the gpbft.Tracer interface
-func (mc *clientImpl) Log(fmt string, args ...any) {
+func (mc *client) Log(fmt string, args ...any) {
 	mc.loggerWithSkip.Debugf(fmt, args...)
 }
 
-func (mc *clientImpl) Logger() Logger {
+func (mc *client) Logger() Logger {
 	return mc.logger
 }
 
@@ -107,7 +116,8 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 		ec:        ec,
 		log:       log,
 
-		client: &clientImpl{
+		client: &client{
+			certstore:           cs,
 			nn:                  manifest.NetworkName,
 			id:                  id,
 			Verifier:            verif,
@@ -136,6 +146,7 @@ func (m *F3) setupMsgPubsub(runner *gpbftRunner) (err error) {
 		}
 		validatedMessage, err := runner.ValidateMessage(&gmsg)
 		if errors.Is(err, gpbft.ErrValidationInvalid) {
+			m.log.Debugf("validation error during validation: %+v", err)
 			return pubsub.ValidationReject
 		}
 		if err != nil {

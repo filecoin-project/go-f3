@@ -1,6 +1,7 @@
 package gpbft_test
 
 import (
+	"slices"
 	"sort"
 	"testing"
 
@@ -11,11 +12,11 @@ import (
 func TestPowerTable(t *testing.T) {
 
 	var (
-		oneValidEntry        = gpbft.PowerEntry{ID: 1413, Power: gpbft.NewStoragePower(1414), PubKey: []byte("fish")}
-		anotherValidEntry    = gpbft.PowerEntry{ID: 1513, Power: gpbft.NewStoragePower(1514), PubKey: []byte("lobster")}
-		yetAnotherValidEntry = gpbft.PowerEntry{ID: 1490, Power: gpbft.NewStoragePower(1491), PubKey: []byte("lobster")}
+		oneValidEntry        = gpbft.PowerEntry{ID: 1413, Power: gpbft.NewStoragePower(1414000), PubKey: []byte("fish")}
+		anotherValidEntry    = gpbft.PowerEntry{ID: 1513, Power: gpbft.NewStoragePower(1514000), PubKey: []byte("lobster")}
+		yetAnotherValidEntry = gpbft.PowerEntry{ID: 1490, Power: gpbft.NewStoragePower(1491000), PubKey: []byte("lobster")}
 		zeroPowerEntry       = gpbft.PowerEntry{ID: 1613, Power: gpbft.NewStoragePower(0), PubKey: []byte("fish")}
-		noPubKeyEntry        = gpbft.PowerEntry{ID: 1613, Power: gpbft.NewStoragePower(1614)}
+		noPubKeyEntry        = gpbft.PowerEntry{ID: 1613, Power: gpbft.NewStoragePower(1614000)}
 	)
 
 	t.Run("empty table", func(t *testing.T) {
@@ -25,7 +26,7 @@ func TestPowerTable(t *testing.T) {
 		})
 		t.Run("gets nil", func(t *testing.T) {
 			subject := gpbft.NewPowerTable()
-			gotPower, gotKey := subject.Get(1413)
+			_, gotPower, gotKey := subject.Get(1413)
 			require.Nil(t, gotPower)
 			require.Nil(t, gotKey)
 		})
@@ -98,7 +99,7 @@ func TestPowerTable(t *testing.T) {
 				name: "inconsistent lookup map is error",
 				subject: func() *gpbft.PowerTable {
 					subject := gpbft.NewPowerTable()
-					subject.Entries = append(subject.Entries, oneValidEntry)
+					require.NoError(t, subject.Add(oneValidEntry))
 					subject.Lookup[oneValidEntry.ID] = 14
 					return subject
 				},
@@ -108,8 +109,8 @@ func TestPowerTable(t *testing.T) {
 				name: "incorrect total is error",
 				subject: func() *gpbft.PowerTable {
 					subject := gpbft.NewPowerTable()
-					subject.Entries = append(subject.Entries, oneValidEntry)
-					subject.Lookup[oneValidEntry.ID] = 0
+					require.NoError(t, subject.Add(oneValidEntry, anotherValidEntry))
+					subject.Total.Sub(subject.Total, gpbft.NewStoragePower(1))
 					return subject
 				},
 				wantErr: "total power does not match",
@@ -119,6 +120,7 @@ func TestPowerTable(t *testing.T) {
 				subject: func() *gpbft.PowerTable {
 					subject := gpbft.NewPowerTable()
 					subject.Entries = append(subject.Entries, zeroPowerEntry)
+					subject.ScaledPower = append(subject.ScaledPower, 0)
 					subject.Lookup[zeroPowerEntry.ID] = 0
 					return subject
 				},
@@ -129,6 +131,7 @@ func TestPowerTable(t *testing.T) {
 				subject: func() *gpbft.PowerTable {
 					subject := gpbft.NewPowerTable()
 					subject.Entries = append(subject.Entries, noPubKeyEntry)
+					subject.ScaledPower = append(subject.ScaledPower, 0)
 					subject.Lookup[noPubKeyEntry.ID] = 0
 					subject.Total.Add(subject.Total, noPubKeyEntry.Power)
 					return subject
@@ -155,6 +158,8 @@ func TestPowerTable(t *testing.T) {
 					require.ErrorContains(t, gotErr, test.wantErr)
 				} else {
 					require.NoError(t, gotErr)
+					// Scaling power shouldn't change relative power.
+					require.True(t, slices.IsSorted(subject.ScaledPower))
 				}
 			})
 		}
@@ -194,7 +199,7 @@ func TestPowerTable(t *testing.T) {
 func requireAddedToPowerTable(t *testing.T, subject *gpbft.PowerTable, entry gpbft.PowerEntry) {
 	t.Helper()
 	require.True(t, subject.Has(entry.ID))
-	gotPower, gotKey := subject.Get(entry.ID)
+	_, gotPower, gotKey := subject.Get(entry.ID)
 	require.Equal(t, entry.Power, gotPower)
 	require.Equal(t, entry.PubKey, gotKey)
 }
