@@ -178,6 +178,14 @@ func (m *F3) teardownPubsub(topic *pubsub.Topic, topicName string) error {
 // This function is responsible for setting up the pubsub topic for the
 // network, starting the runner, and starting the message processing loop
 func (m *F3) setupGpbftRunner(ctx context.Context, initialInstance uint64, rebootstrap bool, errCh chan error) {
+	var err error
+	if rebootstrap {
+		m.runner, err = newRunner(m.client.id, m.Manifest, m.client)
+		if err != nil {
+			errCh <- xerrors.Errorf("creating gpbft host: %w", err)
+			return
+		}
+	}
 	if err := m.setupMsgPubsub(m.runner); err != nil {
 		errCh <- xerrors.Errorf("setting up pubsub: %w", err)
 		return
@@ -193,11 +201,6 @@ func (m *F3) setupGpbftRunner(ctx context.Context, initialInstance uint64, reboo
 	m.client.messageQueue = messageQueue
 
 	if rebootstrap {
-		m.runner, err = newRunner(m.client.id, m.Manifest, m.client)
-		if err != nil {
-			errCh <- xerrors.Errorf("creating gpbft host: %w", err)
-			return
-		}
 
 		go func() {
 			err := m.runner.Run(initialInstance, ctx)
