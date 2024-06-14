@@ -11,9 +11,6 @@ import (
 	"golang.org/x/xerrors"
 )
 
-const instanceLookback = 5
-const finality = 900
-
 // gpbftRunner is responsible for running gpbft.Participant, taking in all concurrent events and
 // passing them to gpbft in a single thread.
 type gpbftRunner struct {
@@ -131,7 +128,7 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 	var baseTsk gpbft.TipSetKey
 	if instance == 0 {
 		ts, err := h.client.ec.GetTipsetByEpoch(h.runningCtx,
-			h.manifest.BootstrapEpoch-finality)
+			h.manifest.BootstrapEpoch-h.manifest.ECFinality)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("getting boostrap base: %w", err)
 		}
@@ -172,7 +169,7 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 	}
 
 	suffix := make([]gpbft.TipSet, min(gpbft.CHAIN_MAX_LEN-1, len(collectedChain))) // -1 because of base
-	for i := 0; i < len(suffix) && i < len(collectedChain); i++ {
+	for i := range suffix {
 		suffix[i].Key = collectedChain[i].Key()
 		suffix[i].Epoch = collectedChain[i].Epoch()
 
@@ -206,25 +203,37 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 
 func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable, []byte, error) {
 	var powerTsk gpbft.TipSetKey
+	var powerEntries gpbft.PowerEntries
+	var err error
 
-	if instance < instanceLookback {
+	if instance < h.manifest.CommiteeLookback {
 		//boostrap phase
-		ts, err := h.client.ec.GetTipsetByEpoch(h.runningCtx, h.manifest.BootstrapEpoch-finality)
+		ts, err := h.client.ec.GetTipsetByEpoch(h.runningCtx, h.manifest.BootstrapEpoch-h.manifest.ECFinality)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("getting tipset for boostrap epoch with lookback: %w", err)
 		}
 		powerTsk = ts.Key()
+		powerEntries, err = h.client.ec.GetPowerTable(h.runningCtx, powerTsk)
+		if err != nil {
+			return nil, nil, xerrors.Errorf("getting power table: %w", err)
+		}
 	} else {
-		// TODO: optimize to use saved power tables
-		cert, err := h.client.certstore.Get(h.runningCtx, instance-instanceLookback)
+		cert, err := h.client.certstore.Get(h.runningCtx, instance-h.manifest.CommiteeLookback)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("getting finality certificate: %w", err)
 		}
 		powerTsk = cert.ECChain.Head().Key
-	}
-	powerEntries, err := h.client.ec.GetPowerTable(h.runningCtx, powerTsk)
-	if err != nil {
-		return nil, nil, xerrors.Errorf("getting power table: %w", err)
+
+		powerEntries, err = h.client.certstore.GetPowerTable(h.runningCtx, instance)
+		if err != nil {
+			// this fires every round, is this correct?
+			h.log.Infof("failed getting power table from certstore: %v, falling back to EC", err)
+
+			powerEntries, err = h.client.ec.GetPowerTable(h.runningCtx, powerTsk)
+			if err != nil {
+				return nil, nil, xerrors.Errorf("getting power table: %w", err)
+			}
+		}
 	}
 
 	ts, err := h.client.ec.GetTipset(h.runningCtx, powerTsk)
@@ -281,14 +290,18 @@ func (h *gpbftHost) SetAlarm(at time.Time) {
 // based on the decision received (which may be in the past).
 // E.g. this might be: finalised tipset timestamp + epoch duration + stabilisation delay.
 func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
-	h.log.Errorf("got decision, finalized head at epoch: %d", decision.Vote.Value.Head().Epoch)
+	h.log.Infof("got decision, finalized head at epoch: %d", decision.Vote.Value.Head().Epoch)
 	err := h.saveDecision(decision)
 	if err != nil {
 		h.log.Errorf("error while saving decision: %+v", err)
 	}
+	ts, err := h.client.ec.GetTipset(h.runningCtx, decision.Vote.Value.Head().Key)
+	if err != nil {
+		h.log.Errorf("could not get timestamp of just finalized tipset: %+v", err)
+		return time.Now().Add(h.manifest.ECDelay)
+	}
 
-	//TODO: proper timing
-	return time.Now().Add(2 * time.Second)
+	return ts.Timestamp().Add(h.manifest.ECDelay)
 }
 
 func (h *gpbftHost) saveDecision(decision *gpbft.Justification) error {

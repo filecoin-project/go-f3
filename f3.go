@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"time"
 
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -248,6 +249,7 @@ type TipSet interface {
 	Key() gpbft.TipSetKey
 	Beacon() []byte
 	Epoch() int64
+	Timestamp() time.Time
 }
 
 type Logger interface {

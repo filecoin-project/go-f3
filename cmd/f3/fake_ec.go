@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"time"
 
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/xerrors"
@@ -13,13 +14,16 @@ import (
 
 type FakeEC struct {
 	seed              []byte
-	currentEpoch      func() int64
 	initialPowerTable gpbft.PowerEntries
+
+	ecPeriod time.Duration
+	ecStart  time.Time
 }
 
 type Tipset struct {
-	tsk   []byte
-	epoch int64
+	tsk       []byte
+	epoch     int64
+	timestamp time.Time
 }
 
 func (ts *Tipset) Key() gpbft.TipSetKey {
@@ -38,11 +42,17 @@ func (ts *Tipset) Beacon() []byte {
 	return h.Sum(nil)
 }
 
-func NewFakeEC(seed uint64, currentEpoch func() int64, initialPowerTable gpbft.PowerEntries) *FakeEC {
+func (ts *Tipset) Timestamp() time.Time {
+	return ts.timestamp
+}
+
+func NewFakeEC(seed uint64, m f3.Manifest) *FakeEC {
 	return &FakeEC{
 		seed:              binary.BigEndian.AppendUint64(nil, seed),
-		currentEpoch:      currentEpoch,
-		initialPowerTable: initialPowerTable,
+		initialPowerTable: m.InitialPowerTable,
+
+		ecPeriod: m.ECPeriod,
+		ecStart:  m.ECBoostrapTimestamp,
 	}
 }
 
@@ -72,9 +82,14 @@ func (ec *FakeEC) genTipset(epoch int64) *Tipset {
 		tsk = append(tsk, gpbft.DigestToCid(digest)...)
 	}
 	return &Tipset{
-		tsk:   tsk,
-		epoch: epoch,
+		tsk:       tsk,
+		epoch:     epoch,
+		timestamp: ec.ecStart.Add(time.Duration(epoch) * ec.ecPeriod),
 	}
+}
+
+func (ec *FakeEC) currentEpoch() int64 {
+	return int64(time.Since(ec.ecStart) / ec.ecPeriod)
 }
 
 // GetTipsetByHeight should return a tipset or nil/empty byte array if it does not exists
@@ -105,7 +120,7 @@ func (ec *FakeEC) GetParent(ctx context.Context, ts f3.TipSet) (f3.TipSet, error
 }
 
 func (ec *FakeEC) GetHead(ctx context.Context) (f3.TipSet, error) {
-	return ec.genTipset(ec.currentEpoch()), nil
+	return ec.GetTipsetByEpoch(ctx, ec.currentEpoch())
 }
 
 func (ec *FakeEC) GetPowerTable(ctx context.Context, tsk gpbft.TipSetKey) (gpbft.PowerEntries, error) {

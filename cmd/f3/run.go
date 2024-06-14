@@ -77,7 +77,7 @@ var runCmd = cli.Command{
 		id := c.Uint64("id")
 		signingBackend.Allow(int(id))
 
-		ec := NewFakeEC(1, func() int64 { return 2000 }, m.InitialPowerTable)
+		ec := NewFakeEC(1, m)
 		module, err := f3.New(ctx, gpbft.ActorID(id), m, ds, h, ps,
 			signingBackend, signingBackend, ec, log)
 		if err != nil {

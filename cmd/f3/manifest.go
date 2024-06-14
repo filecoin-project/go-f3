@@ -1,9 +1,7 @@
 package main
 
 import (
-	"crypto/rand"
 	"encoding/json"
-	"fmt"
 	"math/big"
 	"os"
 
@@ -30,14 +28,11 @@ var manifestGenCmd = cli.Command{
 			Value: 2,
 		},
 	},
+
 	Action: func(c *cli.Context) error {
 		path := c.String("manifest")
-		rng := make([]byte, 4)
-		_, _ = rand.Read(rng)
-		m := f3.Manifest{
-			BootstrapEpoch: 1000,
-		}
-		m.NetworkName = gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng))
+		m := f3.LocalnetManifest()
+
 		fsig := signing.NewFakeBackend()
 		for i := 0; i < c.Int("N"); i++ {
 			pubkey, _ := fsig.GenerateKey()
@@ -48,6 +43,7 @@ var manifestGenCmd = cli.Command{
 				Power:  big.NewInt(1000),
 			})
 		}
+
 		f, err := os.OpenFile(path, os.O_WRONLY, 0666)
 		if err != nil {
 			return xerrors.Errorf("opening manifest file for writing: %w", err)

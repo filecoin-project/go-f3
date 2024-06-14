@@ -2,6 +2,7 @@ package gpbft
 
 import (
 	"bytes"
+	"encoding/base32"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -40,6 +41,9 @@ func MakeCid(data []byte) []byte {
 
 // DigestToCid turns a digest into CBOR + blake2b-256 CID
 func DigestToCid(digest []byte) []byte {
+	if len(digest) != 32 {
+		panic(fmt.Sprintf("wrong length of digest, expected 32, got %d", len(digest)))
+	}
 	out := make([]byte, 0, CID_MAX_LEN)
 	out = append(out, cidPrefix...)
 	out = append(out, digest...)
@@ -106,8 +110,9 @@ func (ts *TipSet) String() string {
 	if ts == nil {
 		return "<nil>"
 	}
+	encTs := base32.StdEncoding.EncodeToString(ts.Key)
 
-	return fmt.Sprintf("@%d", ts.Epoch)
+	return fmt.Sprintf("%s@%d", encTs[:16], ts.Epoch)
 }
 
 // A chain of tipsets comprising a base (the last finalised tipset from which the chain extends).
