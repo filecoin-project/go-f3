@@ -210,7 +210,7 @@ func (p *Participant) beginInstance() error {
 	if chain.IsZero() {
 		return errors.New("canonical chain cannot be zero-valued")
 	}
-	chain = chain.Prefix(CHAIN_MAX_LEN - 1)
+	chain = chain.Prefix(ChainMaxLength - 1)
 	if err := chain.Validate(); err != nil {
 		return fmt.Errorf("invalid canonical chain: %w", err)
 	}
@@ -295,7 +295,7 @@ func (p *Participant) finishCurrentInstance(nextInstance uint64) {
 }
 
 func (p *Participant) terminated() bool {
-	return p.gpbft != nil && p.gpbft.phase == TERMINATED_PHASE
+	return p.gpbft != nil && p.gpbft.phase == TerminatedPhase
 }
 
 func (p *Participant) Describe() string {

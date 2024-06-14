@@ -263,7 +263,7 @@ func TestBadFinalityCertificates(t *testing.T) {
 	// Alter the step
 	{
 		jCopy := *justification
-		jCopy.Vote.Step = gpbft.COMMIT_PHASE
+		jCopy.Vote.Step = gpbft.CommitPhase
 		_, err = certs.NewFinalityCertificate(nil, &jCopy)
 		require.ErrorContains(t, err, "can only create a finality certificate from a decide vote")
 	}
@@ -497,7 +497,7 @@ func makeJustification(t *testing.T, rng *rand.Rand, tsg *sim.TipSetGenerator, b
 	payload := gpbft.Payload{
 		Instance: instance,
 		Round:    0,
-		Step:     gpbft.DECIDE_PHASE,
+		Step:     gpbft.DecidePhase,
 		SupplementalData: gpbft.SupplementalData{
 			PowerTable: powerTableCid,
 		},

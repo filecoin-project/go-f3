@@ -52,7 +52,7 @@ type FinalityCertificate struct {
 // certificate (beyond verifying that it is a justification for the correct round). You can do so by
 // immediately calling `ValidateFinalityCertificates` on the result.
 func NewFinalityCertificate(powerDelta []PowerTableDelta, justification *gpbft.Justification) (*FinalityCertificate, error) {
-	if justification.Vote.Step != gpbft.DECIDE_PHASE {
+	if justification.Vote.Step != gpbft.DecidePhase {
 		return nil, xerrors.Errorf("can only create a finality certificate from a decide vote, got phase %s", justification.Vote.Step)
 	}
 
@@ -175,7 +175,7 @@ func verifyFinalityCertificateSignature(verifier gpbft.Verifier, powerTable gpbf
 		Instance:         cert.GPBFTInstance,
 		Round:            0,
 		SupplementalData: cert.SupplementalData,
-		Step:             gpbft.DECIDE_PHASE,
+		Step:             gpbft.DecidePhase,
 		Value:            cert.ECChain,
 	}
 

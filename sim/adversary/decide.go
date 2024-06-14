@@ -49,14 +49,14 @@ func (i *ImmediateDecide) StartInstance(instance uint64) error {
 	mb.SetPayload(gpbft.Payload{
 		Instance:         instance,
 		Round:            0,
-		Step:             gpbft.DECIDE_PHASE,
+		Step:             gpbft.DecidePhase,
 		Value:            i.value,
 		SupplementalData: *supplementalData,
 	})
 	justificationPayload := gpbft.Payload{
 		Instance:         instance,
 		Round:            0,
-		Step:             gpbft.COMMIT_PHASE,
+		Step:             gpbft.CommitPhase,
 		Value:            i.value,
 		SupplementalData: *supplementalData,
 	}

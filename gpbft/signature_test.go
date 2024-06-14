@@ -37,7 +37,7 @@ func TestPayloadMarshalForSigning(t *testing.T) {
 	encoded = (&gpbft.Payload{
 		Instance: 29,
 		Round:    0,
-		Step:     gpbft.DECIDE_PHASE,
+		Step:     gpbft.DecidePhase,
 		SupplementalData: gpbft.SupplementalData{
 			Commitments: [32]byte{},
 			PowerTable:  powerTableCid,
@@ -58,7 +58,7 @@ func TestPayloadMarshalForSigning(t *testing.T) {
 
 func BenchmarkPayloadMarshalForSigning(b *testing.B) {
 	nn := gpbft.NetworkName("filecoin")
-	maxChain := make([]gpbft.TipSet, gpbft.CHAIN_MAX_LEN)
+	maxChain := make([]gpbft.TipSet, gpbft.ChainMaxLength)
 	for i := range maxChain {
 		ts := make([]byte, 38*5)
 		binary.BigEndian.PutUint64(ts, uint64(i))

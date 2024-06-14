@@ -96,7 +96,7 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	// Without the `Maybe` the tests immediately fails here:
 	// https://github.com/filecoin-project/go-f3/blob/d27d281109d31485fc4ac103e2af58afb86c158f/gpbft/gpbft.go#L395
 	pt.host.On("MarshalPayloadForSigning", pt.networkName, mock.AnythingOfType("*gpbft.Payload")).
-		Return([]byte(gpbft.DOMAIN_SEPARATION_TAG + ":" + pt.networkName)).Maybe()
+		Return([]byte(gpbft.DomainSeparationTagGPBFT + ":" + pt.networkName)).Maybe()
 
 	// Expect calls to get the host state prior to beginning of an instance.
 	pt.host.EXPECT().GetProposalForInstance(pt.instance)
@@ -111,7 +111,7 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	wantQualityPhaseBroadcastBuilder.SetPayload(
 		gpbft.Payload{
 			Instance: pt.instance,
-			Step:     gpbft.QUALITY_PHASE,
+			Step:     gpbft.QualityPhase,
 			Value:    pt.canonicalChain,
 		},
 	)
@@ -135,7 +135,7 @@ func (pt *participantTestSubject) requireStart() {
 	pt.expectBeginInstance()
 	require.NoError(pt.t, pt.Start())
 	pt.assertHostExpectations()
-	pt.requireInstanceRoundPhase(pt.instance, 0, gpbft.QUALITY_PHASE)
+	pt.requireInstanceRoundPhase(pt.instance, 0, gpbft.QualityPhase)
 }
 
 // Participants start new instances asynchronously by setting an alarm
@@ -169,7 +169,7 @@ func (pt *participantTestSubject) mockInvalidTicket(target gpbft.PubKey, ticket 
 		"Verify",
 		target,
 		mock.MatchedBy(func(msg []byte) bool {
-			return bytes.HasPrefix(msg, []byte(gpbft.DOMAIN_SEPARATION_TAG_VRF+":"+pt.networkName))
+			return bytes.HasPrefix(msg, []byte(gpbft.DomainSeparationTagVRF+":"+pt.networkName))
 		}), []byte(ticket)).
 		Return(errors.New("mock verification failure"))
 }
@@ -192,13 +192,13 @@ func (pt *participantTestSubject) mockCommitteeUnavailableForInstance(instance u
 
 func (pt *participantTestSubject) matchMessageSigningPayload() any {
 	return mock.MatchedBy(func(msg []byte) bool {
-		return bytes.HasPrefix(msg, []byte(gpbft.DOMAIN_SEPARATION_TAG+":"+pt.networkName))
+		return bytes.HasPrefix(msg, []byte(gpbft.DomainSeparationTagGPBFT+":"+pt.networkName))
 	})
 }
 
 func (pt *participantTestSubject) matchTicketSigningPayload() any {
 	return mock.MatchedBy(func(msg []byte) bool {
-		return bytes.HasPrefix(msg, []byte(gpbft.DOMAIN_SEPARATION_TAG_VRF+":"+pt.networkName))
+		return bytes.HasPrefix(msg, []byte(gpbft.DomainSeparationTagVRF+":"+pt.networkName))
 	})
 }
 
@@ -269,14 +269,14 @@ func TestParticipant(t *testing.T) {
 				subject.expectBeginInstance()
 				require.NoError(t, subject.ReceiveAlarm())
 				subject.assertHostExpectations()
-				subject.requireInstanceRoundPhase(0, 0, gpbft.QUALITY_PHASE)
+				subject.requireInstanceRoundPhase(0, 0, gpbft.QualityPhase)
 			})
 			t.Run("on Start", func(t *testing.T) {
 				subject := newParticipantTestSubject(t, seed, 47)
 				subject.expectBeginInstance()
 				require.NoError(t, subject.Start())
 				subject.assertHostExpectations()
-				subject.requireInstanceRoundPhase(47, 0, gpbft.QUALITY_PHASE)
+				subject.requireInstanceRoundPhase(47, 0, gpbft.QualityPhase)
 			})
 			t.Run("on SkipTToInstance", func(t *testing.T) {
 				// initialize participant in instance 47
@@ -293,7 +293,7 @@ func TestParticipant(t *testing.T) {
 				// has begun the right instance.
 				require.NoError(t, subject.ReceiveAlarm())
 				subject.assertHostExpectations()
-				subject.requireInstanceRoundPhase(57, 0, gpbft.QUALITY_PHASE)
+				subject.requireInstanceRoundPhase(57, 0, gpbft.QualityPhase)
 			})
 		})
 		t.Run("instance is not begun", func(t *testing.T) {
@@ -368,7 +368,7 @@ func TestParticipant(t *testing.T) {
 							Sender: somePowerEntry.ID,
 							Vote: gpbft.Payload{
 								Instance:         initialInstance,
-								Step:             gpbft.QUALITY_PHASE,
+								Step:             gpbft.QualityPhase,
 								SupplementalData: *subject.supplementalData,
 								Value:            gpbft.ECChain{gpbft.TipSet{Epoch: 0, Key: []byte("wrong")}},
 							},
@@ -385,7 +385,7 @@ func TestParticipant(t *testing.T) {
 							Sender: somePowerEntry.ID,
 							Vote: gpbft.Payload{
 								Instance: initialInstance,
-								Step:     gpbft.QUALITY_PHASE,
+								Step:     gpbft.QualityPhase,
 								SupplementalData: gpbft.SupplementalData{
 									Commitments: [32]byte{},
 									PowerTable:  []byte("wrong"),
@@ -406,7 +406,7 @@ func TestParticipant(t *testing.T) {
 							Sender: somePowerEntry.ID,
 							Vote: gpbft.Payload{
 								Instance:         initialInstance + 1,
-								Step:             gpbft.QUALITY_PHASE,
+								Step:             gpbft.QualityPhase,
 								SupplementalData: *subject.supplementalData,
 								Value:            gpbft.ECChain{gpbft.TipSet{Epoch: 0, Key: []byte("wrong")}},
 							},
@@ -422,7 +422,7 @@ func TestParticipant(t *testing.T) {
 							Sender: somePowerEntry.ID,
 							Vote: gpbft.Payload{
 								Instance:         initialInstance,
-								Step:             gpbft.QUALITY_PHASE,
+								Step:             gpbft.QualityPhase,
 								SupplementalData: *subject.supplementalData,
 								Value:            subject.canonicalChain,
 							},
@@ -475,7 +475,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance: initialInstanceNumber,
-						Step:     gpbft.QUALITY_PHASE,
+						Step:     gpbft.QualityPhase,
 						Value:    subject.canonicalChain,
 					},
 					Signature: signature,
@@ -536,7 +536,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance: initialInstanceNumber,
-						Step:     gpbft.QUALITY_PHASE,
+						Step:     gpbft.QualityPhase,
 						Value:    gpbft.ECChain{*subject.canonicalChain.Base(), gpbft.TipSet{}},
 					},
 				}
@@ -575,7 +575,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance: initialInstanceNumber,
-						Step:     gpbft.QUALITY_PHASE,
+						Step:     gpbft.QualityPhase,
 						Round:    7,
 					},
 				}
@@ -589,7 +589,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance: initialInstanceNumber,
-						Step:     gpbft.QUALITY_PHASE,
+						Step:     gpbft.QualityPhase,
 					},
 				}
 			},
@@ -602,7 +602,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance: initialInstanceNumber,
-						Step:     gpbft.CONVERGE_PHASE,
+						Step:     gpbft.ConvergePhase,
 					},
 				}
 			},
@@ -615,7 +615,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance: initialInstanceNumber,
-						Step:     gpbft.CONVERGE_PHASE,
+						Step:     gpbft.ConvergePhase,
 						Round:    42,
 					},
 				}
@@ -629,7 +629,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance: initialInstanceNumber,
-						Step:     gpbft.CONVERGE_PHASE,
+						Step:     gpbft.ConvergePhase,
 						Round:    42,
 						Value:    gpbft.ECChain{*subject.canonicalChain.Base(), gpbft.TipSet{}},
 					},
@@ -646,7 +646,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance: initialInstanceNumber,
-						Step:     gpbft.CONVERGE_PHASE,
+						Step:     gpbft.ConvergePhase,
 						Round:    42,
 						Value:    subject.canonicalChain,
 					},
@@ -662,7 +662,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance: initialInstanceNumber,
-						Step:     gpbft.DECIDE_PHASE,
+						Step:     gpbft.DecidePhase,
 						Round:    42,
 					},
 				}
@@ -676,7 +676,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance: initialInstanceNumber,
-						Step:     gpbft.DECIDE_PHASE,
+						Step:     gpbft.DecidePhase,
 					},
 				}
 			},
@@ -690,7 +690,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance: initialInstanceNumber,
-						Step:     gpbft.DECIDE_PHASE,
+						Step:     gpbft.DecidePhase,
 						Value:    subject.canonicalChain,
 					},
 					Signature: signature,
@@ -708,7 +708,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Sender: somePowerEntry.ID,
 						Vote: gpbft.Payload{
 							Instance: initialInstanceNumber,
-							Step:     gpbft.PREPARE_PHASE,
+							Step:     gpbft.PreparePhase,
 						},
 						Signature:     signature,
 						Justification: nonNilJustification,
@@ -717,7 +717,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Sender: somePowerEntry.ID,
 						Vote: gpbft.Payload{
 							Instance: initialInstanceNumber,
-							Step:     gpbft.QUALITY_PHASE,
+							Step:     gpbft.QualityPhase,
 							Value:    subject.canonicalChain,
 						},
 						Signature:     signature,
@@ -727,7 +727,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Sender: somePowerEntry.ID,
 						Vote: gpbft.Payload{
 							Instance: initialInstanceNumber,
-							Step:     gpbft.COMMIT_PHASE,
+							Step:     gpbft.CommitPhase,
 						},
 						Signature:     signature,
 						Justification: nonNilJustification,
@@ -745,7 +745,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Sender: somePowerEntry.ID,
 						Vote: gpbft.Payload{
 							Instance: initialInstanceNumber,
-							Step:     gpbft.DECIDE_PHASE,
+							Step:     gpbft.DecidePhase,
 							Value:    subject.canonicalChain,
 						},
 						Signature: signature,
@@ -754,7 +754,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Sender: somePowerEntry.ID,
 						Vote: gpbft.Payload{
 							Instance: initialInstanceNumber,
-							Step:     gpbft.COMMIT_PHASE,
+							Step:     gpbft.CommitPhase,
 							Value:    subject.canonicalChain,
 						},
 						Signature: signature,
@@ -774,7 +774,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Sender: somePowerEntry.ID,
 						Vote: gpbft.Payload{
 							Instance: initialInstanceNumber,
-							Step:     gpbft.CONVERGE_PHASE,
+							Step:     gpbft.ConvergePhase,
 							Round:    4,
 							Value:    subject.canonicalChain,
 						},
@@ -794,7 +794,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Sender: somePowerEntry.ID,
 						Vote: gpbft.Payload{
 							Instance: initialInstanceNumber,
-							Step:     gpbft.COMMIT_PHASE,
+							Step:     gpbft.CommitPhase,
 							Value:    subject.canonicalChain,
 						},
 						Signature: signature,
@@ -819,13 +819,13 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Vote: gpbft.Payload{
 							Instance: initialInstanceNumber,
 							Round:    22,
-							Step:     gpbft.CONVERGE_PHASE,
+							Step:     gpbft.ConvergePhase,
 							Value:    subject.canonicalChain,
 						},
 						Signature: signature,
 						Justification: &gpbft.Justification{
 							Vote: gpbft.Payload{
-								Step:     gpbft.CONVERGE_PHASE,
+								Step:     gpbft.ConvergePhase,
 								Instance: initialInstanceNumber,
 							},
 						},
@@ -835,13 +835,13 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Sender: somePowerEntry.ID,
 						Vote: gpbft.Payload{
 							Instance: initialInstanceNumber,
-							Step:     gpbft.COMMIT_PHASE,
+							Step:     gpbft.CommitPhase,
 							Value:    subject.canonicalChain,
 						},
 						Signature: signature,
 						Justification: &gpbft.Justification{
 							Vote: gpbft.Payload{
-								Step:     gpbft.DECIDE_PHASE,
+								Step:     gpbft.DecidePhase,
 								Instance: initialInstanceNumber,
 							},
 						},
@@ -851,13 +851,13 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Sender: somePowerEntry.ID,
 						Vote: gpbft.Payload{
 							Instance: initialInstanceNumber,
-							Step:     gpbft.DECIDE_PHASE,
+							Step:     gpbft.DecidePhase,
 							Value:    subject.canonicalChain,
 						},
 						Signature: signature,
 						Justification: &gpbft.Justification{
 							Vote: gpbft.Payload{
-								Step:     gpbft.QUALITY_PHASE,
+								Step:     gpbft.QualityPhase,
 								Instance: initialInstanceNumber,
 							},
 						},
@@ -878,13 +878,13 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Vote: gpbft.Payload{
 							Instance: initialInstanceNumber,
 							Round:    22,
-							Step:     gpbft.CONVERGE_PHASE,
+							Step:     gpbft.ConvergePhase,
 							Value:    subject.canonicalChain,
 						},
 						Signature: signature,
 						Justification: &gpbft.Justification{
 							Vote: gpbft.Payload{
-								Step:     gpbft.COMMIT_PHASE,
+								Step:     gpbft.CommitPhase,
 								Round:    22,
 								Instance: initialInstanceNumber,
 							},
@@ -896,13 +896,13 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Vote: gpbft.Payload{
 							Instance: initialInstanceNumber,
 							Round:    22,
-							Step:     gpbft.CONVERGE_PHASE,
+							Step:     gpbft.ConvergePhase,
 							Value:    subject.canonicalChain,
 						},
 						Signature: signature,
 						Justification: &gpbft.Justification{
 							Vote: gpbft.Payload{
-								Step:     gpbft.PREPARE_PHASE,
+								Step:     gpbft.PreparePhase,
 								Round:    22,
 								Instance: initialInstanceNumber,
 							},
@@ -921,7 +921,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance: initialInstanceNumber,
-						Step:     gpbft.COMMIT_PHASE,
+						Step:     gpbft.CommitPhase,
 						Value:    subject.canonicalChain,
 					},
 					Signature: signature,
@@ -990,7 +990,7 @@ func TestParticipant_ValidateMessageParallel(t *testing.T) {
 			Sender: somePowerEntry.ID,
 			Vote: gpbft.Payload{
 				Instance: initialInstanceNumber + (i % instanceCount),
-				Step:     gpbft.QUALITY_PHASE,
+				Step:     gpbft.QualityPhase,
 				Value:    subject.canonicalChain,
 			},
 			Signature: signature,
