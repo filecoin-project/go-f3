@@ -76,7 +76,10 @@ var runCmd = cli.Command{
 		signingBackend := &fakeSigner{*signing.NewFakeBackend()}
 		id := c.Uint64("id")
 		signingBackend.Allow(int(id))
-		module, err := f3.New(ctx, gpbft.ActorID(id), m, ds, h, ps, signingBackend, signingBackend, nil, log)
+
+		ec := NewFakeEC(1, m)
+		module, err := f3.New(ctx, gpbft.ActorID(id), m, ds, h, ps,
+			signingBackend, signingBackend, ec, log)
 		if err != nil {
 			return xerrors.Errorf("creating module: %w", err)
 		}

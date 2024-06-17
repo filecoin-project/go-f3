@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"time"
 
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -36,6 +37,7 @@ type client struct {
 	certstore *certstore.Store
 	id        gpbft.ActorID
 	nn        gpbft.NetworkName
+	ec        ECBackend
 
 	gpbft.Verifier
 	gpbft.SignerWithMarshaler
@@ -110,6 +112,7 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 
 		client: &client{
 			certstore:           cs,
+			ec:                  ec,
 			nn:                  manifest.NetworkName,
 			id:                  id,
 			Verifier:            verif,
@@ -231,7 +234,23 @@ loop:
 	return multierr.Append(err, ctx.Err())
 }
 
-type ECBackend interface{}
+type ECBackend interface {
+	// GetTipsetByEpoch should return a tipset before the one requested if the requested
+	// tipset does not exist due to null epochs
+	GetTipsetByEpoch(ctx context.Context, epoch int64) (TipSet, error)
+	GetTipset(context.Context, gpbft.TipSetKey) (TipSet, error)
+	GetHead(context.Context) (TipSet, error)
+	GetParent(context.Context, TipSet) (TipSet, error)
+
+	GetPowerTable(context.Context, gpbft.TipSetKey) (gpbft.PowerEntries, error)
+}
+
+type TipSet interface {
+	Key() gpbft.TipSetKey
+	Beacon() []byte
+	Epoch() int64
+	Timestamp() time.Time
+}
 
 type Logger interface {
 	Debug(args ...interface{})

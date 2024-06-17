@@ -84,7 +84,6 @@ func (p PowerEntries) Scaled() (scaled []uint16, total uint16, err error) {
 
 // NewPowerTable creates a new PowerTable from a slice of PowerEntry .
 // It is more efficient than Add, as it only needs to sort the entries once.
-// Note that the function takes ownership of the slice - it must not be modified afterwards.
 func NewPowerTable() *PowerTable {
 	return &PowerTable{
 		Lookup: make(map[ActorID]int),
