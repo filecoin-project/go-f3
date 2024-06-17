@@ -112,7 +112,7 @@ func (ts *TipSet) String() string {
 	}
 	encTs := base32.StdEncoding.EncodeToString(ts.Key)
 
-	return fmt.Sprintf("%s@%d", encTs[:16], ts.Epoch)
+	return fmt.Sprintf("%s@%d", encTs[:max(16, len(encTs))], ts.Epoch)
 }
 
 // A chain of tipsets comprising a base (the last finalised tipset from which the chain extends).
