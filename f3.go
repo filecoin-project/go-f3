@@ -287,6 +287,10 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 	}
 }
 
+func (m *F3) CurrentGpbftInstace() uint64 {
+	return m.runner.participant.UnsafeCurrentInstance()
+}
+
 type ECBackend interface {
 	ChainHead(context.Context) (chan gpbft.TipSet, error)
 }

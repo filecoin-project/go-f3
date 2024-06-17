@@ -105,7 +105,7 @@ func (m Manifest) GpbftOptions() []gpbft.Option {
 	var opts []gpbft.Option
 
 	if m.Delta != 0 {
-		opts = append(opts, gpbft.WithDelta(m.Delta))
+		opts = append(opts, gpbft.WithDelta(m.Delta*time.Second))
 	}
 	if m.DeltaBackOffExponent != 0 {
 		opts = append(opts, gpbft.WithDeltaBackOffExponent(m.DeltaBackOffExponent))
