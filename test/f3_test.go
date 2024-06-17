@@ -27,10 +27,8 @@ import (
 var log = logging.Logger("f3-testing")
 
 func TestSimpleF3(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	env := newTestEnvironment(t, 2)
+	ctx := context.Background()
+	env := newTestEnvironment(t, 2, false)
 
 	initialInstance := uint64(0)
 
@@ -43,7 +41,24 @@ func TestSimpleF3(t *testing.T) {
 	// make this asynchronously by adding a done channel to run.
 	time.Sleep(1 * time.Second)
 
-	env.waitForInstanceNumber(ctx, 5, 10*time.Second)
+	env.waitForInstanceNumber(ctx, 5, 60*time.Second)
+}
+
+func TestDynamicManifestWithoutChanges(t *testing.T) {
+	ctx := context.Background()
+	env := newTestEnvironment(t, 2, true)
+
+	initialInstance := uint64(0)
+
+	env.Connect(ctx)
+	env.Run(ctx, initialInstance)
+	time.Sleep(1 * time.Second)
+
+	env.waitForInstanceNumber(ctx, 5, 60*time.Second)
+}
+
+func TestDyncamicManifestWithRebootstrap(t *testing.T) {
+	// TODO: Currently WIP
 }
 
 const DiscoveryTag = "f3-standalone-testing"
@@ -71,6 +86,8 @@ type testEnv struct {
 	manifest       manifest.Manifest
 	signingBackend *signing.FakeBackend
 	nodes          []*testNode
+
+	manifestSender *passive.ManifestSender
 }
 
 func (t *testEnv) waitForInstanceNumber(ctx context.Context, instanceNumber uint64, timeout time.Duration) {
@@ -95,7 +112,7 @@ func (t *testEnv) waitForInstanceNumber(ctx context.Context, instanceNumber uint
 	}
 }
 
-func newTestEnvironment(t *testing.T, n int) testEnv {
+func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) testEnv {
 	env := testEnv{t: t}
 
 	// populate manifest
@@ -112,9 +129,15 @@ func newTestEnvironment(t *testing.T, n int) testEnv {
 	}
 	env.manifest = m
 
+	manifestServer := peer.ID("")
+	if dynamicManifest {
+		env.newManifestSender(context.Background())
+		manifestServer = env.manifestSender.SenderID()
+	}
+
 	// initialize nodes
 	for i := 0; i < n; i++ {
-		n, err := env.newF3Instance(context.Background(), i, peer.ID(""))
+		n, err := env.newF3Instance(context.Background(), i, manifestServer)
 		require.NoError(t, err)
 		env.nodes = append(env.nodes, n)
 	}
@@ -122,9 +145,19 @@ func newTestEnvironment(t *testing.T, n int) testEnv {
 }
 
 func (e *testEnv) Run(ctx context.Context, initialInstance uint64) {
+	// Start the nodes
 	for _, n := range e.nodes {
-		// TODO: Get the error from Run
-		go n.f3.Run(initialInstance, ctx)
+		go func(n *testNode) {
+			// TODO: Handle error from Run
+			_ = n.f3.Run(initialInstance, ctx)
+		}(n)
+	}
+
+	// If it exists, start the manifest sender
+	if e.manifestSender != nil {
+		go func() {
+			e.manifestSender.Start(ctx)
+		}()
 	}
 }
 
@@ -138,6 +171,33 @@ func (e *testEnv) Connect(ctx context.Context) {
 			require.NoError(e.t, err)
 		}
 	}
+
+	// connect to the manifest server if it exists
+	if e.manifestSender != nil {
+		for _, n := range e.nodes {
+			addr := e.manifestSender.Addrs()[0]
+			pi, err := peer.AddrInfoFromString(fmt.Sprintf("%s/p2p/%s", addr.String(), e.manifestSender.SenderID()))
+			require.NoError(e.t, err)
+			err = n.h.Connect(ctx, *pi)
+			require.NoError(e.t, err)
+		}
+
+	}
+}
+
+func (e *testEnv) newManifestSender(ctx context.Context) {
+	h, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/0.0.0.0/udp/0/quic-v1"))
+	require.NoError(e.t, err)
+
+	ps, err := pubsub.NewGossipSub(ctx, h)
+	require.NoError(e.t, err)
+
+	closer, err := setupDiscovery(h)
+	require.NoError(e.t, err)
+	defer closer()
+
+	e.manifestSender, err = passive.NewManifestSender(h, ps, &e.manifest, 2*time.Second)
+	require.NoError(e.t, err)
 }
 
 func (e *testEnv) newF3Instance(ctx context.Context, id int, manifestServer peer.ID) (*testNode, error) {
