@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3"
+	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/filecoin-project/go-f3/passive"
@@ -75,10 +76,11 @@ func TestDynamicManifestWithRebootstrap(t *testing.T) {
 	env.Run(ctx, initialInstance)
 	time.Sleep(1 * time.Second)
 
-	env.manifest.UpgradeEpoch = 5
+	env.manifest.BootstrapEpoch = 5
 	env.manifest.Sequence = 1
 	env.manifestSender.UpdateManifest(&env.manifest)
-	env.ec.newTipsetForEpoch(5)
+	// FIXME:
+	// env.ec.genTipset(5)
 
 	env.waitForInstanceNumber(ctx, 10, 60*time.Second)
 
@@ -97,15 +99,21 @@ func TestDynamicManifestWithRebootstrap(t *testing.T) {
 const DiscoveryTag = "f3-standalone-testing"
 
 var baseManifest manifest.Manifest = manifest.Manifest{
-	Sequence:             0,
-	UpgradeEpoch:         0,
-	ReBootstrap:          true,
-	NetworkName:          gpbft.NetworkName("test"),
-	EcStabilisationDelay: 10,
+	Sequence:       0,
+	BootstrapEpoch: 0,
+	ReBootstrap:    true,
+	NetworkName:    gpbft.NetworkName("test"),
 	GpbftConfig: &manifest.GpbftConfig{
 		Delta:                3,
 		DeltaBackOffExponent: 2.0,
 		MaxLookaheadRounds:   10,
+	},
+	EcConfig: &manifest.EcConfig{
+		ECFinality:       900,
+		CommiteeLookback: 5,
+		ECDelay:          30 * time.Second,
+
+		ECPeriod: 30 * time.Second,
 	},
 }
 
@@ -119,7 +127,7 @@ type testEnv struct {
 	manifest       manifest.Manifest
 	signingBackend *signing.FakeBackend
 	nodes          []*testNode
-	ec             *fakeEcBackend
+	ec             *ec.FakeEC
 
 	manifestSender *passive.ManifestSender
 }
@@ -151,7 +159,8 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) testEnv {
 
 	// populate manifest
 	m := baseManifest
-	env.ec = newFakeBackend()
+
+	env.ec = ec.NewFakeEC(1, m)
 	env.signingBackend = signing.NewFakeBackend()
 	for i := 0; i < n; i++ {
 		pubkey, _ := env.signingBackend.GenerateKey()
@@ -300,26 +309,4 @@ func setupDiscovery(h host.Host) (closer func(), err error) {
 	// setup mDNS discovery to find local peers
 	s := mdns.NewMdnsService(h, DiscoveryTag, &discoveryNotifee{h: h})
 	return func() { s.Close() }, s.Start()
-}
-
-var _ passive.ECBackend = (*fakeEcBackend)(nil)
-
-type fakeEcBackend struct {
-	passive.ECBackend
-
-	ch chan gpbft.TipSet
-}
-
-func newFakeBackend() *fakeEcBackend {
-	return &fakeEcBackend{ch: make(chan gpbft.TipSet)}
-}
-
-// TODO: Do not use a channel and periodically get the tipset to
-// see which one is the current one
-func (ec *fakeEcBackend) ChainHead(context.Context) (chan gpbft.TipSet, error) {
-	return ec.ch, nil
-}
-
-func (ec *fakeEcBackend) newTipsetForEpoch(e int64) {
-	ec.ch <- gpbft.TipSet{Epoch: e}
 }

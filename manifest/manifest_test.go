@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -14,11 +15,10 @@ import (
 )
 
 var baseManifest manifest.Manifest = manifest.Manifest{
-	Sequence:             0,
-	UpgradeEpoch:         10,
-	ReBootstrap:          true,
-	NetworkName:          gpbft.NetworkName("test"),
-	EcStabilisationDelay: 10,
+	Sequence:       0,
+	BootstrapEpoch: 10,
+	ReBootstrap:    true,
+	NetworkName:    gpbft.NetworkName("test"),
 	InitialPowerTable: []gpbft.PowerEntry{
 		{
 			ID:     0,
@@ -47,6 +47,13 @@ var baseManifest manifest.Manifest = manifest.Manifest{
 		Delta:                10,
 		DeltaBackOffExponent: 0.2,
 		MaxLookaheadRounds:   10,
+	},
+	EcConfig: &manifest.EcConfig{
+		ECFinality:       900,
+		CommiteeLookback: 5,
+		ECDelay:          30 * time.Second,
+
+		ECPeriod: 30 * time.Second,
 	},
 }
 

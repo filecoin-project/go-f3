@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 
+	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/ipfs/go-datastore"
@@ -25,7 +26,7 @@ var _ manifest.ManifestProvider = (*DynamicManifest)(nil)
 type DynamicManifest struct {
 	manifest         *manifest.Manifest
 	pubsub           *pubsub.PubSub
-	ec               ECBackend
+	ec               ec.ECBackend
 	manifestServerID peer.ID
 
 	// these are populate in runtime
@@ -35,7 +36,7 @@ type DynamicManifest struct {
 	manifestTopic    *pubsub.Topic
 }
 
-func NewDynamicManifest(manifest *manifest.Manifest, pubsub *pubsub.PubSub, ec ECBackend, manifestServerID peer.ID) manifest.ManifestProvider {
+func NewDynamicManifest(manifest *manifest.Manifest, pubsub *pubsub.PubSub, ec ec.ECBackend, manifestServerID peer.ID) manifest.ManifestProvider {
 	return &DynamicManifest{
 		manifest:         manifest,
 		pubsub:           pubsub,
@@ -44,16 +45,20 @@ func NewDynamicManifest(manifest *manifest.Manifest, pubsub *pubsub.PubSub, ec E
 	}
 }
 
-type ECBackend interface {
-	ChainHead(context.Context) (chan gpbft.TipSet, error)
-}
-
 func (m *DynamicManifest) GpbftOptions() []gpbft.Option {
 	return m.manifest.GpbftOptions()
 }
 
 func (m *DynamicManifest) DatastorePrefix() datastore.Key {
 	return m.manifest.DatastorePrefix()
+}
+
+func (m *DynamicManifest) EcConfig() *manifest.EcConfig {
+	return m.manifest.EcConfig
+}
+
+func (m *DynamicManifest) BootstrapEpoch() int64 {
+	return m.manifest.BootstrapEpoch
 }
 
 func (m *DynamicManifest) NetworkName() gpbft.NetworkName {
@@ -103,11 +108,12 @@ func (m *DynamicManifest) handleIncomingManifests(ctx context.Context, manifestQ
 
 	// FIXME; This is a stub and should be replaced with whatever
 	// function allow us to subscribe to new epochs coming from EC.
-	ecSub, err := m.ec.ChainHead(ctx)
-	if err != nil {
-		errCh <- xerrors.Errorf("subscribing to chain events: %w", err)
-		return
-	}
+	// ecSub, err := m.ec.ChainHead(ctx)
+	// if err != nil {
+	// 	errCh <- xerrors.Errorf("subscribing to chain events: %w", err)
+	// 	return
+	// }
+	ecSub := make(chan ec.TipSet)
 
 loop:
 	for {
@@ -116,13 +122,13 @@ loop:
 		case ts := <-ecSub:
 			if m.nextManifest != nil {
 				// if the upgrade epoch is reached or already passed.
-				if ts.Epoch >= m.nextManifest.UpgradeEpoch {
+				if ts.Epoch() >= m.nextManifest.BootstrapEpoch {
 					// update the current manifest
 					m.manifest = m.nextManifest
 					m.nextManifest = nil
 					// stop existing pubsub and subscribe to the new one
 					// if the re-bootstrap flag is enabled, it will setup a new runner with the new config.
-					go m.onManifestChange(ctx, uint64(m.manifest.UpgradeEpoch), m.nextManifest.ReBootstrap, errCh)
+					go m.onManifestChange(ctx, uint64(m.manifest.BootstrapEpoch), m.nextManifest.ReBootstrap, errCh)
 					if !m.nextManifest.ReBootstrap {
 						// TODO: If the manifest doesn't have the re-bootstrap flagged
 						// enabled, no new runner is setup, we reuse the existing one.
@@ -186,7 +192,7 @@ func (m *DynamicManifest) teardownManifestPubsub() error {
 func (m *DynamicManifest) acceptNextManifest(manifest *manifest.Manifest) bool {
 	// if the manifest is older, skip it
 	if manifest.Sequence <= m.manifest.Sequence ||
-		manifest.UpgradeEpoch < m.manifest.UpgradeEpoch {
+		manifest.BootstrapEpoch < m.manifest.BootstrapEpoch {
 		return false
 	}
 
@@ -212,7 +218,7 @@ func (m *DynamicManifest) setupManifestPubsub() (err error) {
 
 		// TODO: Any additional validation?
 		// Expect a sequence number that is over our current sequence number.
-		// Expect an upgradeEpoch over the upgradeEpoch of the current manifests?
+		// Expect an BootstrapEpoch over the BootstrapEpoch of the current manifests?
 		// These should probably not be ValidationRejects to avoid banning in gossipsub
 		// the centralized server in case of misconfigurations or bugs.
 		msg.ValidatorData = &manifest

@@ -2,8 +2,10 @@ package manifest
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"time"
 
@@ -29,8 +31,10 @@ type ManifestProvider interface {
 	// Manifest accessors
 	MsgPubSubTopic() string
 	NetworkName() gpbft.NetworkName
+	BootstrapEpoch() int64
 	DatastorePrefix() datastore.Key
 	InitialPowerTable() []gpbft.PowerEntry
+	EcConfig() *EcConfig
 }
 
 type Version string
@@ -41,30 +45,58 @@ type GpbftConfig struct {
 	MaxLookaheadRounds   uint64
 }
 
+type EcConfig struct {
+	ECFinality       int64
+	ECDelay          time.Duration
+	CommiteeLookback uint64
+
+	//Temporary
+	ECPeriod            time.Duration
+	ECBoostrapTimestamp time.Time
+}
+
 // Manifest identifies the specific configuration for
 // the F3 instance currently running.
 type Manifest struct {
 	// Sequence number of the manifest.
 	// This is used to identify if a new config needs to be applied
 	Sequence uint64
-	// UpgradeEpoch from which the manifest should be applied
-	UpgradeEpoch int64
+	// BootstrapEpoch from which the manifest should be applied
+	BootstrapEpoch int64
 	// Flag to determine if the peer should rebootstrap in this configuration
-	// change at UpgradeEpoch
+	// change at BootstrapEpoch
 	ReBootstrap bool
 	// Network name to apply for this manifest.
 	NetworkName gpbft.NetworkName
-	// Time to wait after EC epoch before starting next instance.
-	EcStabilisationDelay time.Duration
 	// Initial power table used when bootstrapping. This is used for test
 	// networks or if we want to force a specific power table when
 	// rebootstrapping. If nil, the power table is fetched from the host
-	InitialPowerTable []gpbft.PowerEntry
+	InitialPowerTable gpbft.PowerEntries
 	// Updates to perform over the power table retrieved by the host
-	// starting from UpgradeEpoch.
+	// starting from BootstrapEpoch.
 	PowerUpdate []certs.PowerTableDelta
 	// Config parameters for gpbft
 	*GpbftConfig
+	// EC-specific parameters
+	*EcConfig
+}
+
+func LocalnetManifest() Manifest {
+	rng := make([]byte, 4)
+	_, _ = rand.Read(rng)
+	m := Manifest{
+		NetworkName:    gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng)),
+		BootstrapEpoch: 1000,
+		EcConfig: &EcConfig{
+			ECFinality:       900,
+			CommiteeLookback: 5,
+			ECDelay:          30 * time.Second,
+
+			ECPeriod: 30 * time.Second,
+		},
+	}
+	m.ECBoostrapTimestamp = time.Now().Add(-time.Duration(m.BootstrapEpoch) * m.ECPeriod)
+	return m
 }
 
 // Version that uniquely identifies the manifest.

@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/filecoin-project/go-f3/certstore"
+	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/ipfs/go-datastore"
@@ -28,7 +29,7 @@ type F3 struct {
 	host   host.Host
 	pubsub *pubsub.PubSub
 	runner *gpbftRunner
-	ec     ECBackend
+	ec     ec.ECBackend
 	log    Logger
 
 	client *client
@@ -38,6 +39,7 @@ type client struct {
 	certstore *certstore.Store
 	id        gpbft.ActorID
 	nn        gpbft.NetworkName
+	ec        ec.ECBackend
 
 	gpbft.Verifier
 	gpbft.SignerWithMarshaler
@@ -88,7 +90,7 @@ func (mc *client) Logger() Logger {
 // New creates and setups f3 with libp2p
 // The context is used for initialization not runtime.
 func New(ctx context.Context, id gpbft.ActorID, manifest manifest.ManifestProvider, ds datastore.Datastore, h host.Host, manifestServer peer.ID,
-	ps *pubsub.PubSub, sigs gpbft.SignerWithMarshaler, verif gpbft.Verifier, ec ECBackend, log Logger) (*F3, error) {
+	ps *pubsub.PubSub, sigs gpbft.SignerWithMarshaler, verif gpbft.Verifier, ec ec.ECBackend, log Logger) (*F3, error) {
 	ds = namespace.Wrap(ds, manifest.DatastorePrefix())
 	cs, err := certstore.OpenOrCreateStore(ctx, ds, 0, manifest.InitialPowerTable())
 	if err != nil {
@@ -110,6 +112,7 @@ func New(ctx context.Context, id gpbft.ActorID, manifest manifest.ManifestProvid
 
 		client: &client{
 			certstore:           cs,
+			ec:                  ec,
 			nn:                  manifest.NetworkName(),
 			id:                  id,
 			Verifier:            verif,
@@ -289,10 +292,6 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 
 func (m *F3) CurrentGpbftInstace() uint64 {
 	return m.runner.participant.UnsafeCurrentInstance()
-}
-
-type ECBackend interface {
-	ChainHead(context.Context) (chan gpbft.TipSet, error)
 }
 
 type Logger interface {

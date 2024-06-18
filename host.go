@@ -1,13 +1,15 @@
 package f3
 
 import (
+	"bytes"
 	"context"
+	"slices"
 	"time"
 
 	"github.com/filecoin-project/go-f3/certs"
+	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/manifest"
-	"github.com/filecoin-project/go-f3/sim"
 	"golang.org/x/xerrors"
 )
 
@@ -124,6 +126,22 @@ func (h *gpbftRunner) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessa
 	return h.participant.ValidateMessage(msg)
 }
 
+func (h *gpbftHost) collectChain(base ec.TipSet, head ec.TipSet) ([]ec.TipSet, error) {
+	// TODO: optimize when head is way beyond base
+	res := make([]ec.TipSet, 0, 2*gpbft.CHAIN_MAX_LEN)
+	res = append(res, head)
+	for !bytes.Equal(head.Key(), base.Key()) {
+		var err error
+		head, err = h.client.ec.GetParent(h.runningCtx, head)
+		if err != nil {
+			return nil, xerrors.Errorf("walking back the chain: %w", err)
+		}
+		res = append(res, head)
+	}
+	slices.Reverse(res)
+	return res[1:], nil
+}
+
 // Returns inputs to the next GPBFT instance.
 // These are:
 // - the supplemental data.
@@ -132,41 +150,129 @@ func (h *gpbftRunner) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessa
 // The chain should be a suffix of the last chain notified to the host via
 // ReceiveDecision (or known to be final via some other channel).
 func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.SupplementalData, gpbft.ECChain, error) {
-	// TODO: this is just a complete fake
-
-	pt, _, err := h.GetCommitteeForInstance(0)
-	if err != nil {
-		return nil, nil, xerrors.Errorf("getting power table: %w", err)
-	}
-	ptCid, err := certs.MakePowerTableCID(pt.Entries)
-	if err != nil {
-		return nil, nil, xerrors.Errorf("computing power table CID: %w", err)
-	}
-
-	ts := sim.NewTipSetGenerator(1)
-	chain, err := gpbft.NewChain(
-		gpbft.TipSet{Epoch: 0, Key: ts.Sample(), PowerTable: ptCid},
-		gpbft.TipSet{Epoch: 1, Key: ts.Sample(), PowerTable: ptCid},
-	)
-	if err != nil {
-		return nil, nil, xerrors.Errorf("geenrating chain: %w", err)
-	}
-	sd := &gpbft.SupplementalData{
-		PowerTable: ptCid,
+	var baseTsk gpbft.TipSetKey
+	if instance == 0 {
+		ts, err := h.client.ec.GetTipsetByEpoch(h.runningCtx,
+			h.manifest.BootstrapEpoch()-h.manifest.EcConfig().ECFinality)
+		if err != nil {
+			return nil, nil, xerrors.Errorf("getting boostrap base: %w", err)
+		}
+		baseTsk = ts.Key()
+	} else {
+		cert, err := h.client.certstore.Get(h.runningCtx, instance-1)
+		if err != nil {
+			return nil, nil, xerrors.Errorf("getting cert for previous instance(%d): %w", instance-1, err)
+		}
+		baseTsk = cert.ECChain.Head().Key
 	}
 
-	// TODO: use lookback to return the correct next power table commitment and commitments hash.
-	return sd, chain, nil
+	baseTs, err := h.client.ec.GetTipset(h.runningCtx, baseTsk)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("getting base TS: %w", err)
+	}
+	headTs, err := h.client.ec.GetHead(h.runningCtx)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("getting head TS: %w", err)
+	}
+
+	collectedChain, err := h.collectChain(baseTs, headTs)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("collecting chain: %w", err)
+	}
+
+	base := gpbft.TipSet{
+		Epoch: baseTs.Epoch(),
+		Key:   baseTs.Key(),
+	}
+	pte, err := h.client.ec.GetPowerTable(h.runningCtx, baseTs.Key())
+	if err != nil {
+		return nil, nil, xerrors.Errorf("getting power table for base: %w", err)
+	}
+	base.PowerTable, err = certs.MakePowerTableCID(pte)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("computing powertable CID for base: %w", err)
+	}
+
+	suffix := make([]gpbft.TipSet, min(gpbft.CHAIN_MAX_LEN-1, len(collectedChain))) // -1 because of base
+	for i := range suffix {
+		suffix[i].Key = collectedChain[i].Key()
+		suffix[i].Epoch = collectedChain[i].Epoch()
+
+		pte, err = h.client.ec.GetPowerTable(h.runningCtx, suffix[i].Key)
+		if err != nil {
+			return nil, nil, xerrors.Errorf("getting power table for suffix %d: %w", i, err)
+		}
+		suffix[i].PowerTable, err = certs.MakePowerTableCID(pte)
+		if err != nil {
+			return nil, nil, xerrors.Errorf("computing powertable CID for base: %w", err)
+		}
+	}
+	chain, err := gpbft.NewChain(base, suffix...)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("making new chain: %w", err)
+	}
+
+	var supplData gpbft.SupplementalData
+	pt, _, err := h.GetCommitteeForInstance(instance + 1)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("getting commite for %d: %w", instance+1, err)
+	}
+
+	supplData.PowerTable, err = certs.MakePowerTableCID(pt.Entries)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("making power table cid for supplemental data: %w", err)
+	}
+
+	return &supplData, chain, nil
 }
 
 func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable, []byte, error) {
-	// TODO: Add any additional power table entries from the manifest
-	table := gpbft.NewPowerTable()
-	err := table.Add(h.manifest.InitialPowerTable()...)
-	if err != nil {
-		return nil, nil, err
+	var powerTsk gpbft.TipSetKey
+	var powerEntries gpbft.PowerEntries
+	var err error
+
+	if instance < h.manifest.EcConfig().CommiteeLookback {
+		//boostrap phase
+		ts, err := h.client.ec.GetTipsetByEpoch(h.runningCtx, h.manifest.BootstrapEpoch()-h.manifest.EcConfig().ECFinality)
+		if err != nil {
+			return nil, nil, xerrors.Errorf("getting tipset for boostrap epoch with lookback: %w", err)
+		}
+		powerTsk = ts.Key()
+		powerEntries, err = h.client.ec.GetPowerTable(h.runningCtx, powerTsk)
+		if err != nil {
+			return nil, nil, xerrors.Errorf("getting power table: %w", err)
+		}
+	} else {
+		cert, err := h.client.certstore.Get(h.runningCtx, instance-h.manifest.EcConfig().CommiteeLookback)
+		if err != nil {
+			return nil, nil, xerrors.Errorf("getting finality certificate: %w", err)
+		}
+		powerTsk = cert.ECChain.Head().Key
+
+		powerEntries, err = h.client.certstore.GetPowerTable(h.runningCtx, instance)
+		if err != nil {
+			// this fires every round, is this correct?
+			h.log.Infof("failed getting power table from certstore: %v, falling back to EC", err)
+
+			powerEntries, err = h.client.ec.GetPowerTable(h.runningCtx, powerTsk)
+			if err != nil {
+				return nil, nil, xerrors.Errorf("getting power table: %w", err)
+			}
+		}
 	}
-	return table, []byte{'A'}, nil
+
+	ts, err := h.client.ec.GetTipset(h.runningCtx, powerTsk)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("getting tipset: %w", err)
+	}
+
+	table := gpbft.NewPowerTable()
+	err = table.Add(powerEntries...)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("adding entries to power table: %w", err)
+	}
+
+	return table, ts.Beacon(), nil
 }
 
 // Returns the network's name (for signature separation)
@@ -209,13 +315,18 @@ func (h *gpbftHost) SetAlarm(at time.Time) {
 // based on the decision received (which may be in the past).
 // E.g. this might be: finalised tipset timestamp + epoch duration + stabilisation delay.
 func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
-	h.log.Infof("got decision: %+v", decision)
+	h.log.Infof("got decision, finalized head at epoch: %d", decision.Vote.Value.Head().Epoch)
 	err := h.saveDecision(decision)
 	if err != nil {
 		h.log.Errorf("error while saving decision: %+v", err)
 	}
+	ts, err := h.client.ec.GetTipset(h.runningCtx, decision.Vote.Value.Head().Key)
+	if err != nil {
+		h.log.Errorf("could not get timestamp of just finalized tipset: %+v", err)
+		return time.Now().Add(h.manifest.EcConfig().ECDelay)
+	}
 
-	return time.Now().Add(2 * time.Second)
+	return ts.Timestamp().Add(h.manifest.EcConfig().ECDelay)
 }
 
 func (h *gpbftHost) saveDecision(decision *gpbft.Justification) error {

@@ -25,6 +25,14 @@ func (m *Static) DatastorePrefix() datastore.Key {
 	return m.manifest.DatastorePrefix()
 }
 
+func (m *Static) EcConfig() *EcConfig {
+	return m.manifest.EcConfig
+}
+
+func (m *Static) BootstrapEpoch() int64 {
+	return m.manifest.BootstrapEpoch
+}
+
 func (m *Static) NetworkName() gpbft.NetworkName {
 	return m.manifest.NetworkName
 }

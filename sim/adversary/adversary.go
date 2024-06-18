@@ -14,7 +14,7 @@ type Host interface {
 	// Sends a message to all other participants, immediately.
 	// Note that the adversary can subsequently delay delivery to some participants,
 	// before messages are actually received.
-	BroadcastSynchronous(msg *gpbft.GMessage)
+	RequestSynchronousBroadcast(mb *gpbft.MessageBuilder) error
 }
 
 type Generator func(gpbft.ActorID, Host) *Adversary
