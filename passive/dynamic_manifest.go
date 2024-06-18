@@ -84,4 +84,7 @@ func (m *DynamicManifest) MsgPubSubTopic() string {
 	return m.manifest.PubSubTopic() + string(v)
 }
 
-func (m *DynamicManifest) Run(context.Context, chan error) {}
+func (m *DynamicManifest) Run(context.Context, chan error) {
+	log.Debug("running dynamic manifest")
+	// TODO: Implementation coming in the next PR.
+}
