@@ -5,7 +5,10 @@ import (
 	"os"
 
 	"github.com/filecoin-project/go-f3"
+	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/manifest"
+	"github.com/filecoin-project/go-f3/passive"
 	"github.com/filecoin-project/go-f3/sim/signing"
 	leveldb "github.com/ipfs/go-ds-leveldb"
 	logging "github.com/ipfs/go-log/v2"
@@ -73,12 +76,27 @@ var runCmd = cli.Command{
 			return xerrors.Errorf("setting log level: %w", err)
 		}
 
+		// if the manifest-server ID is passed in a flag,
+		// we setup the monitoring system
+		mFlag := c.String("manifest-server")
+		manifestServer := peer.ID("")
+		var mprovider manifest.ManifestProvider
+		if mFlag != "" {
+			manifestServer, err = peer.Decode(mFlag)
+			if err != nil {
+				return xerrors.Errorf("parsing manifest server ID: %w", err)
+			}
+			mprovider = passive.NewDynamicManifest(&m, ps, nil, manifestServer)
+		} else {
+			mprovider = manifest.NewStaticManifest(&m)
+		}
+
 		signingBackend := &fakeSigner{*signing.NewFakeBackend()}
 		id := c.Uint64("id")
 		signingBackend.Allow(int(id))
 
-		ec := NewFakeEC(1, m)
-		module, err := f3.New(ctx, gpbft.ActorID(id), m, ds, h, ps,
+		ec := ec.NewFakeEC(1, m)
+		module, err := f3.New(ctx, gpbft.ActorID(id), mprovider, ds, h, manifestServer, ps,
 			signingBackend, signingBackend, ec, log)
 		if err != nil {
 			return xerrors.Errorf("creating module: %w", err)

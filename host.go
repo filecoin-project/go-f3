@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3/certs"
+	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/manifest"
 	"golang.org/x/xerrors"
 )
 
@@ -16,7 +18,7 @@ import (
 type gpbftRunner struct {
 	client      *client
 	participant *gpbft.Participant
-	manifest    Manifest
+	manifest    manifest.ManifestProvider
 
 	alertTimer *time.Timer
 
@@ -27,7 +29,7 @@ type gpbftRunner struct {
 // gpbftHost is a newtype of gpbftRunner exposing APIs required by the gpbft.Participant
 type gpbftHost gpbftRunner
 
-func newRunner(id gpbft.ActorID, m Manifest, client *client) (*gpbftRunner, error) {
+func newRunner(id gpbft.ActorID, m manifest.ManifestProvider, client *client) (*gpbftRunner, error) {
 	runner := &gpbftRunner{
 		client:   client,
 		manifest: m,
@@ -101,9 +103,9 @@ func (h *gpbftRunner) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessa
 	return h.participant.ValidateMessage(msg)
 }
 
-func (h *gpbftHost) collectChain(base TipSet, head TipSet) ([]TipSet, error) {
+func (h *gpbftHost) collectChain(base ec.TipSet, head ec.TipSet) ([]ec.TipSet, error) {
 	// TODO: optimize when head is way beyond base
-	res := make([]TipSet, 0, 2*gpbft.CHAIN_MAX_LEN)
+	res := make([]ec.TipSet, 0, 2*gpbft.CHAIN_MAX_LEN)
 	res = append(res, head)
 	for !bytes.Equal(head.Key(), base.Key()) {
 		var err error
@@ -128,7 +130,7 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 	var baseTsk gpbft.TipSetKey
 	if instance == 0 {
 		ts, err := h.client.ec.GetTipsetByEpoch(h.runningCtx,
-			h.manifest.BootstrapEpoch-h.manifest.ECFinality)
+			h.manifest.BootstrapEpoch()-h.manifest.EcConfig().ECFinality)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("getting boostrap base: %w", err)
 		}
@@ -206,9 +208,9 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 	var powerEntries gpbft.PowerEntries
 	var err error
 
-	if instance < h.manifest.CommiteeLookback {
+	if instance < h.manifest.EcConfig().CommiteeLookback {
 		//boostrap phase
-		ts, err := h.client.ec.GetTipsetByEpoch(h.runningCtx, h.manifest.BootstrapEpoch-h.manifest.ECFinality)
+		ts, err := h.client.ec.GetTipsetByEpoch(h.runningCtx, h.manifest.BootstrapEpoch()-h.manifest.EcConfig().ECFinality)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("getting tipset for boostrap epoch with lookback: %w", err)
 		}
@@ -218,7 +220,7 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 			return nil, nil, xerrors.Errorf("getting power table: %w", err)
 		}
 	} else {
-		cert, err := h.client.certstore.Get(h.runningCtx, instance-h.manifest.CommiteeLookback)
+		cert, err := h.client.certstore.Get(h.runningCtx, instance-h.manifest.EcConfig().CommiteeLookback)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("getting finality certificate: %w", err)
 		}
@@ -252,7 +254,7 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 
 // Returns the network's name (for signature separation)
 func (h *gpbftHost) NetworkName() gpbft.NetworkName {
-	return h.manifest.NetworkName
+	return h.manifest.NetworkName()
 }
 
 // Sends a message to all other participants.
@@ -298,10 +300,10 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 	ts, err := h.client.ec.GetTipset(h.runningCtx, decision.Vote.Value.Head().Key)
 	if err != nil {
 		h.log.Errorf("could not get timestamp of just finalized tipset: %+v", err)
-		return time.Now().Add(h.manifest.ECDelay)
+		return time.Now().Add(h.manifest.EcConfig().ECDelay)
 	}
 
-	return ts.Timestamp().Add(h.manifest.ECDelay)
+	return ts.Timestamp().Add(h.manifest.EcConfig().ECDelay)
 }
 
 func (h *gpbftHost) saveDecision(decision *gpbft.Justification) error {

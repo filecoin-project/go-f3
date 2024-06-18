@@ -1,4 +1,4 @@
-package main
+package ec
 
 import (
 	"context"
@@ -8,8 +8,8 @@ import (
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/manifest"
 )
 
 type FakeEC struct {
@@ -46,7 +46,7 @@ func (ts *Tipset) Timestamp() time.Time {
 	return ts.timestamp
 }
 
-func NewFakeEC(seed uint64, m f3.Manifest) *FakeEC {
+func NewFakeEC(seed uint64, m manifest.Manifest) *FakeEC {
 	return &FakeEC{
 		seed:              binary.BigEndian.AppendUint64(nil, seed),
 		initialPowerTable: m.InitialPowerTable,
@@ -93,7 +93,7 @@ func (ec *FakeEC) currentEpoch() int64 {
 }
 
 // GetTipsetByHeight should return a tipset or nil/empty byte array if it does not exists
-func (ec *FakeEC) GetTipsetByEpoch(ctx context.Context, epoch int64) (f3.TipSet, error) {
+func (ec *FakeEC) GetTipsetByEpoch(ctx context.Context, epoch int64) (TipSet, error) {
 	if ec.currentEpoch() < epoch {
 		return nil, xerrors.Errorf("does not yet exist")
 	}
@@ -105,7 +105,7 @@ func (ec *FakeEC) GetTipsetByEpoch(ctx context.Context, epoch int64) (f3.TipSet,
 	return ts, nil
 }
 
-func (ec *FakeEC) GetParent(ctx context.Context, ts f3.TipSet) (f3.TipSet, error) {
+func (ec *FakeEC) GetParent(ctx context.Context, ts TipSet) (TipSet, error) {
 
 	for epoch := ts.Epoch() - 1; epoch > 0; epoch-- {
 		ts, err := ec.GetTipsetByEpoch(ctx, epoch)
@@ -119,7 +119,7 @@ func (ec *FakeEC) GetParent(ctx context.Context, ts f3.TipSet) (f3.TipSet, error
 	return nil, xerrors.Errorf("parent not found")
 }
 
-func (ec *FakeEC) GetHead(ctx context.Context) (f3.TipSet, error) {
+func (ec *FakeEC) GetHead(ctx context.Context) (TipSet, error) {
 	return ec.GetTipsetByEpoch(ctx, ec.currentEpoch())
 }
 
@@ -127,7 +127,7 @@ func (ec *FakeEC) GetPowerTable(ctx context.Context, tsk gpbft.TipSetKey) (gpbft
 	return ec.initialPowerTable, nil
 }
 
-func (ec *FakeEC) GetTipset(ctx context.Context, tsk gpbft.TipSetKey) (f3.TipSet, error) {
+func (ec *FakeEC) GetTipset(ctx context.Context, tsk gpbft.TipSetKey) (TipSet, error) {
 	epoch := binary.BigEndian.Uint64(tsk[6+32-8 : 6+32])
 	return ec.genTipset(int64(epoch)), nil
 }

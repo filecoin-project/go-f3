@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"time"
 
 	"github.com/filecoin-project/go-f3/certstore"
+	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
 
@@ -21,13 +22,13 @@ import (
 )
 
 type F3 struct {
-	Manifest  Manifest
+	Manifest  manifest.ManifestProvider
 	CertStore *certstore.Store
 
 	ds     datastore.Datastore
 	host   host.Host
 	pubsub *pubsub.PubSub
-	ec     ECBackend
+	ec     ec.ECBackend
 	log    Logger
 
 	client *client
@@ -37,7 +38,7 @@ type client struct {
 	certstore *certstore.Store
 	id        gpbft.ActorID
 	nn        gpbft.NetworkName
-	ec        ECBackend
+	ec        ec.ECBackend
 
 	gpbft.Verifier
 	gpbft.SignerWithMarshaler
@@ -88,10 +89,10 @@ func (mc *client) Logger() Logger {
 
 // New creates and setups f3 with libp2p
 // The context is used for initialization not runtime.
-func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.Datastore, h host.Host,
-	ps *pubsub.PubSub, sigs gpbft.SignerWithMarshaler, verif gpbft.Verifier, ec ECBackend, log Logger) (*F3, error) {
-	ds = namespace.Wrap(ds, manifest.NetworkName.DatastorePrefix())
-	cs, err := certstore.OpenOrCreateStore(ctx, ds, 0, manifest.InitialPowerTable)
+func New(ctx context.Context, id gpbft.ActorID, manifest manifest.ManifestProvider, ds datastore.Datastore, h host.Host, manifestServer peer.ID,
+	ps *pubsub.PubSub, sigs gpbft.SignerWithMarshaler, verif gpbft.Verifier, ec ec.ECBackend, log Logger) (*F3, error) {
+	ds = namespace.Wrap(ds, manifest.DatastorePrefix())
+	cs, err := certstore.OpenOrCreateStore(ctx, ds, 0, manifest.InitialPowerTable())
 	if err != nil {
 		return nil, xerrors.Errorf("creating CertStore: %w", err)
 	}
@@ -113,7 +114,7 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 		client: &client{
 			certstore:           cs,
 			ec:                  ec,
-			nn:                  manifest.NetworkName,
+			nn:                  manifest.NetworkName(),
 			id:                  id,
 			Verifier:            verif,
 			SignerWithMarshaler: sigs,
@@ -125,7 +126,7 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 	return &m, nil
 }
 func (m *F3) setupPubsub(runner *gpbftRunner) error {
-	pubsubTopicName := m.Manifest.NetworkName.PubSubTopic()
+	pubsubTopicName := m.Manifest.MsgPubSubTopic()
 
 	// explicit type to typecheck the anonymous function defintion
 	// a bit ugly but I don't want gpbftRunner to know about pubsub
@@ -165,7 +166,7 @@ func (m *F3) setupPubsub(runner *gpbftRunner) error {
 
 func (m *F3) teardownPubsub() error {
 	return multierr.Combine(
-		m.pubsub.UnregisterTopicValidator(m.Manifest.NetworkName.PubSubTopic()),
+		m.pubsub.UnregisterTopicValidator(m.Manifest.MsgPubSubTopic()),
 		m.client.topic.Close(),
 	)
 }
@@ -232,24 +233,6 @@ loop:
 		err = multierr.Append(err, xerrors.Errorf("shutting down pubsub: %w", err2))
 	}
 	return multierr.Append(err, ctx.Err())
-}
-
-type ECBackend interface {
-	// GetTipsetByEpoch should return a tipset before the one requested if the requested
-	// tipset does not exist due to null epochs
-	GetTipsetByEpoch(ctx context.Context, epoch int64) (TipSet, error)
-	GetTipset(context.Context, gpbft.TipSetKey) (TipSet, error)
-	GetHead(context.Context) (TipSet, error)
-	GetParent(context.Context, TipSet) (TipSet, error)
-
-	GetPowerTable(context.Context, gpbft.TipSetKey) (gpbft.PowerEntries, error)
-}
-
-type TipSet interface {
-	Key() gpbft.TipSetKey
-	Beacon() []byte
-	Epoch() int64
-	Timestamp() time.Time
 }
 
 type Logger interface {
