@@ -17,11 +17,14 @@ type TipSetKey = []byte
 
 type CID = []byte
 
-const CID_MAX_LEN = 38
-
-// Allow ample space for an impossibly-unlikely number of blocks in a tipset,
-// while maintaining a practical limit to prevent abuse.
-const TIPSET_KEY_MAX_LEN = 20 * CID_MAX_LEN
+const (
+	CIDMaxLength = 38
+	// Allow ample space for an impossibly-unlikely number of blocks in a tipset,
+	// while maintaining a practical limit to prevent abuse.
+	TipsetKeyMaxLength = 20 * CIDMaxLength
+	// Maximum length of a chain value.
+	ChainMaxLength = 100
+)
 
 // This the CID "prefix" of a v1-DagCBOR-Blake2b256-32 CID. That is:
 //
@@ -68,13 +71,13 @@ func (ts *TipSet) Validate() error {
 	if len(ts.Key) == 0 {
 		return errors.New("tipset key must not be empty")
 	}
-	if len(ts.Key) > TIPSET_KEY_MAX_LEN {
+	if len(ts.Key) > TipsetKeyMaxLength {
 		return errors.New("tipset key too long")
 	}
 	if len(ts.PowerTable) == 0 {
 		return errors.New("power table CID must not be empty")
 	}
-	if len(ts.PowerTable) > CID_MAX_LEN {
+	if len(ts.PowerTable) > CIDMaxLength {
 		return errors.New("power table CID too long")
 	}
 	return nil
@@ -125,9 +128,6 @@ type ECChain []TipSet
 
 // A map key for a chain. The zero value means "bottom".
 type ChainKey string
-
-// Maximum length of a chain value.
-const CHAIN_MAX_LEN = 100
 
 // Creates a new chain.
 func NewChain(base TipSet, suffix ...TipSet) (ECChain, error) {
@@ -256,13 +256,13 @@ func (c ECChain) HasTipset(t *TipSet) bool {
 // A chain is valid if it meets the following criteria:
 // 1) All contained tipsets are non-empty.
 // 2) All epochs are >= 0 and increasing.
-// 3) The chain is not longer than CHAIN_MAX_LEN.
+// 3) The chain is not longer than ChainMaxLength.
 // An entirely zero-valued chain itself is deemed valid. See ECChain.IsZero.
 func (c ECChain) Validate() error {
 	if c.IsZero() {
 		return nil
 	}
-	if len(c) > CHAIN_MAX_LEN {
+	if len(c) > ChainMaxLength {
 		return errors.New("chain too long")
 	}
 	var lastEpoch int64 = -1

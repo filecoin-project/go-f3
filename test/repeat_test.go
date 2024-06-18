@@ -29,7 +29,7 @@ var (
 	repeatBoundedQuality = func(seed int) adversary.RepetitionSampler {
 		boundedRepeater := newBoundedRepeater(int64(seed), 10, 50)
 		return func(msg *gpbft.GMessage) int {
-			if msg.Vote.Step != gpbft.QUALITY_PHASE {
+			if msg.Vote.Step != gpbft.QualityPhase {
 				return 0
 			}
 			return boundedRepeater(msg)
@@ -38,7 +38,7 @@ var (
 	repeatBoundedCommit = func(seed int) adversary.RepetitionSampler {
 		boundedRepeater := newBoundedRepeater(int64(seed), 10, 50)
 		return func(msg *gpbft.GMessage) int {
-			if msg.Vote.Step != gpbft.COMMIT_PHASE {
+			if msg.Vote.Step != gpbft.CommitPhase {
 				return 0
 			}
 			return boundedRepeater(msg)

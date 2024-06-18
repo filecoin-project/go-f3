@@ -74,7 +74,7 @@ func (s *Spam) spamAtInstance(instance uint64) {
 			Instance:         instance,
 			Round:            spamRound,
 			SupplementalData: *supplementalData,
-			Step:             gpbft.COMMIT_PHASE,
+			Step:             gpbft.CommitPhase,
 		}
 		mt := gpbft.NewMessageBuilderWithPowerTable(power)
 		mt.SetPayload(p)
