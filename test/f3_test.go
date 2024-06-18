@@ -1,3 +1,7 @@
+//go:build !race
+
+// Note: We don't run these tests with race because UnsafeCurrentInstance
+// would trigger the race detector.
 package test
 
 import (
@@ -22,6 +26,10 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/xerrors"
+)
+
+const (
+	ManifestSenderTimeout = 1 * time.Second
 )
 
 var log = logging.Logger("f3-testing")
@@ -57,15 +65,40 @@ func TestDynamicManifestWithoutChanges(t *testing.T) {
 	env.waitForInstanceNumber(ctx, 5, 60*time.Second)
 }
 
-func TestDyncamicManifestWithRebootstrap(t *testing.T) {
+func TestDynamicManifestWithRebootstrap(t *testing.T) {
+	ctx := context.Background()
+	env := newTestEnvironment(t, 2, true)
+
+	initialInstance := uint64(0)
+
+	env.Connect(ctx)
+	env.Run(ctx, initialInstance)
+	time.Sleep(1 * time.Second)
+
+	env.manifest.UpgradeEpoch = 5
+	env.manifest.Sequence = 1
+	env.manifestSender.UpdateManifest(&env.manifest)
+	env.ec.newTipsetForEpoch(5)
+
+	env.waitForInstanceNumber(ctx, 10, 60*time.Second)
+
+	time.Sleep(10 * ManifestSenderTimeout)
+	env.waitForInstanceNumber(ctx, 3, 60*time.Second)
+	require.True(t, env.nodes[0].f3.CurrentGpbftInstace() < 10)
+
+	// TODO: Check that the network name has changed.
 	// TODO: Currently WIP
+
+	// I need to trigger changes in the current epoch to trigger the manifest change
+	// Check that the instance number is restarted and the pubsub topic is refreshed to
+	// the right name.
 }
 
 const DiscoveryTag = "f3-standalone-testing"
 
 var baseManifest manifest.Manifest = manifest.Manifest{
 	Sequence:             0,
-	UpgradeEpoch:         10,
+	UpgradeEpoch:         0,
 	ReBootstrap:          true,
 	NetworkName:          gpbft.NetworkName("test"),
 	EcStabilisationDelay: 10,
@@ -86,6 +119,7 @@ type testEnv struct {
 	manifest       manifest.Manifest
 	signingBackend *signing.FakeBackend
 	nodes          []*testNode
+	ec             *fakeEcBackend
 
 	manifestSender *passive.ManifestSender
 }
@@ -117,6 +151,7 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) testEnv {
 
 	// populate manifest
 	m := baseManifest
+	env.ec = newFakeBackend()
 	env.signingBackend = signing.NewFakeBackend()
 	for i := 0; i < n; i++ {
 		pubkey, _ := env.signingBackend.GenerateKey()
@@ -196,7 +231,7 @@ func (e *testEnv) newManifestSender(ctx context.Context) {
 	require.NoError(e.t, err)
 	defer closer()
 
-	e.manifestSender, err = passive.NewManifestSender(h, ps, &e.manifest, 2*time.Second)
+	e.manifestSender, err = passive.NewManifestSender(h, ps, &e.manifest, ManifestSenderTimeout)
 	require.NoError(e.t, err)
 }
 
@@ -232,17 +267,15 @@ func (e *testEnv) newF3Instance(ctx context.Context, id int, manifestServer peer
 		return nil, xerrors.Errorf("creating a datastore: %w", err)
 	}
 
-	ec := fakeEcBackend{}
-
 	var mprovider manifest.ManifestProvider
 	if manifestServer != peer.ID("") {
-		mprovider = passive.NewDynamicManifest(&e.manifest, ps, ec, manifestServer)
+		mprovider = passive.NewDynamicManifest(&e.manifest, ps, e.ec, manifestServer)
 	} else {
 		mprovider = manifest.NewStaticManifest(&e.manifest)
 	}
 
 	e.signingBackend.Allow(int(id))
-	module, err := f3.New(ctx, gpbft.ActorID(id), mprovider, ds, h, manifestServer, ps, e.signingBackend, e.signingBackend, ec, log)
+	module, err := f3.New(ctx, gpbft.ActorID(id), mprovider, ds, h, manifestServer, ps, e.signingBackend, e.signingBackend, e.ec, log)
 	if err != nil {
 		return nil, xerrors.Errorf("creating module: %w", err)
 	}
@@ -269,10 +302,24 @@ func setupDiscovery(h host.Host) (closer func(), err error) {
 	return func() { s.Close() }, s.Start()
 }
 
+var _ passive.ECBackend = (*fakeEcBackend)(nil)
+
 type fakeEcBackend struct {
 	passive.ECBackend
+
+	ch chan gpbft.TipSet
 }
 
-func (fakeEcBackend) ChainHead(context.Context) (chan gpbft.TipSet, error) {
-	return nil, nil
+func newFakeBackend() *fakeEcBackend {
+	return &fakeEcBackend{ch: make(chan gpbft.TipSet)}
+}
+
+// TODO: Do not use a channel and periodically get the tipset to
+// see which one is the current one
+func (ec *fakeEcBackend) ChainHead(context.Context) (chan gpbft.TipSet, error) {
+	return ec.ch, nil
+}
+
+func (ec *fakeEcBackend) newTipsetForEpoch(e int64) {
+	ec.ch <- gpbft.TipSet{Epoch: e}
 }
