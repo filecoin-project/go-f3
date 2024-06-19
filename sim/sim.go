@@ -91,11 +91,24 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 				return err
 			}
 
+			// Simulate the behaviour of an honest integrator, where upon receiving finality
+			// certificates from future rounds, i.e. the instance that just completed in
+			// simulation, it signals the participant to skip ahead.
+			for _, p := range s.participants {
+				if p.CurrentInstance() < currentInstance.Instance {
+					// TODO: enhance control over propagation of finality certificates
+					//       See: https://github.com/filecoin-project/go-f3/issues/327
+					if err := p.StartInstance(currentInstance.Instance); err != nil {
+						return fmt.Errorf("participant %d failed to skip to instace %d: %w", p.ID(), currentInstance.Instance, err)
+					}
+				}
+			}
+
 			// Check if the next instance exists already as a participant might have started
 			// the next instance early. This can happen in scenarios where:
 			//  * justifications for the termination of an instance reaches some nodes before
 			//    others due to partial connectivity, e.g. Deny or Drop adversaries, and
-			//  * the simulation stabilisation delay is not long enough to halt the stat of
+			//  * the simulation stabilisation delay is not long enough to halt the start of
 			//    next instance for those nodes before others have caught up.
 			//
 			// See simHost.GetProposalForInstance.
@@ -108,18 +121,6 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 				// Assert that the instance that has already started uses the same base chain as
 				// the one consistently decided among participants.
 				return fmt.Errorf("network is partitioned")
-			}
-
-			// Simulate the behaviour of an honest integrator, where upon receiving finality
-			// certificates from future rounds it signals gpbft to skip ahead.
-			for _, p := range s.participants {
-				if p.CurrentInstance() < currentInstance.Instance {
-					// TODO: enhance control over propagation of finality certificates
-					//       See: https://github.com/filecoin-project/go-f3/issues/327
-					if err := p.StartInstance(currentInstance.Instance); err != nil {
-						return fmt.Errorf("participant %d failed to skip to instace %d: %w", p.ID(), currentInstance.Instance, err)
-					}
-				}
 			}
 
 			// Stop after currentInstance is larger than finalInstance, which means we will

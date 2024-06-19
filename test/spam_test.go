@@ -44,15 +44,17 @@ func TestSpamAdversary(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
 				ecChainGenerator := sim.NewUniformECChainGenerator(651651, 1, 10)
+				var gpbdtOpts []gpbft.Option
+				gpbdtOpts = append(gpbdtOpts, testGpbftOptions...)
+				gpbdtOpts = append(gpbdtOpts, gpbft.WithMaxLookaheadRounds(test.maxLookaheadRounds))
 				sm, err := sim.NewSimulation(
 					sim.WithLatencyModeler(func() (latency.Model, error) {
 						return latency.NewLogNormal(455454, time.Second), nil
 					}),
 					sim.WithECEpochDuration(EcEpochDuration),
 					sim.WitECStabilisationDelay(EcStabilisationDelay),
-					sim.WithGpbftOptions(testGpbftOptions...),
+					sim.WithGpbftOptions(gpbdtOpts...),
 					sim.AddHonestParticipants(hc, ecChainGenerator, uniformOneStoragePower),
-					sim.WithGpbftOptions(gpbft.WithMaxLookaheadRounds(test.maxLookaheadRounds)),
 					sim.WithAdversary(adversary.NewSpamGenerator(lessThanOneThirdAdversaryStoragePower, test.spamAheadRounds)),
 				)
 				require.NoError(t, err)

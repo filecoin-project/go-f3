@@ -2,6 +2,8 @@ package gpbft
 
 import (
 	"errors"
+	"fmt"
+	"math"
 	"time"
 )
 
@@ -18,6 +20,7 @@ type options struct {
 	deltaBackOffExponent float64
 
 	maxLookaheadRounds uint64
+	rebroadcastAfter   func(int) time.Duration
 
 	// tracer traces logic logs for debugging and simulation purposes.
 	tracer Tracer
@@ -27,6 +30,7 @@ func newOptions(o ...Option) (*options, error) {
 	opts := &options{
 		delta:                defaultDelta,
 		deltaBackOffExponent: defaultDeltaBackOffExponent,
+		rebroadcastAfter:     defaultRebroadcastAfter,
 	}
 	for _, apply := range o {
 		if err := apply(opts); err != nil {
@@ -85,5 +89,36 @@ func WithMaxLookaheadRounds(r uint64) Option {
 	return func(o *options) error {
 		o.maxLookaheadRounds = r
 		return nil
+	}
+}
+
+var defaultRebroadcastAfter = exponentialBackoffer(1.3, 3*time.Second, 30*time.Second)
+
+// WithRebroadcastBackoff sets the duration after the gPBFT timeout has elapsed, at
+// which all messages in the current round are rebroadcast if the round cannot be
+// terminated, i.e. a strong quorum of senders has not yet been achieved.
+//
+// The backoff duration grows exponentially up to the configured max. Defaults to
+// exponent of 1.3 with 3s base backoff growing to a maximum of 30s.
+func WithRebroadcastBackoff(exponent float64, base, max time.Duration) Option {
+	return func(o *options) error {
+		if base <= 0 {
+			return fmt.Errorf("rebroadcast backoff duration must be greater than zero; got: %s", base)
+		}
+		if max < base {
+			return fmt.Errorf("rebroadcast backoff max duration must be greater than base; got: %s", max)
+		}
+		o.rebroadcastAfter = exponentialBackoffer(exponent, base, max)
+		return nil
+	}
+}
+
+func exponentialBackoffer(exponent float64, base, max time.Duration) func(attempt int) time.Duration {
+	return func(attempt int) time.Duration {
+		nextBackoff := time.Duration(float64(base) * math.Pow(exponent, float64(attempt)))
+		if nextBackoff > max {
+			return max
+		}
+		return nextBackoff
 	}
 }
