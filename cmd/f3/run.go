@@ -86,9 +86,9 @@ var runCmd = cli.Command{
 			if err != nil {
 				return xerrors.Errorf("parsing manifest server ID: %w", err)
 			}
-			mprovider = passive.NewDynamicManifest(&m, ps, nil, manifestServer)
+			mprovider = passive.NewDynamicManifestProvider(m, ps, nil, manifestServer)
 		} else {
-			mprovider = manifest.NewStaticManifest(&m)
+			mprovider = manifest.NewStaticManifestProvider(m)
 		}
 
 		signingBackend := &fakeSigner{*signing.NewFakeBackend()}

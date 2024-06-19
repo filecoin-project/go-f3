@@ -9,48 +9,48 @@ import (
 
 // Static manifest provider that doesn't allow any changes
 // in runtime to the initial manifest set in the provider
-type Static struct {
-	manifest *Manifest
+type StaticManifestProvider struct {
+	manifest Manifest
 }
 
-var _ ManifestProvider = (*Static)(nil)
+var _ ManifestProvider = (*StaticManifestProvider)(nil)
 
-func NewStaticManifest(m *Manifest) ManifestProvider {
-	return &Static{manifest: m}
+func NewStaticManifestProvider(m Manifest) ManifestProvider {
+	return &StaticManifestProvider{manifest: m}
 }
 
-func (m *Static) GpbftOptions() []gpbft.Option {
+func (m *StaticManifestProvider) GpbftOptions() []gpbft.Option {
 	return m.manifest.GpbftOptions()
 }
 
-func (m *Static) DatastorePrefix() datastore.Key {
+func (m *StaticManifestProvider) Manifest() Manifest {
+	return m.manifest
+}
+
+func (m *StaticManifestProvider) DatastorePrefix() datastore.Key {
 	return m.manifest.DatastorePrefix()
 }
 
-func (m *Static) EcConfig() *EcConfig {
+func (m *StaticManifestProvider) EcConfig() *EcConfig {
 	return m.manifest.EcConfig
 }
 
-func (m *Static) BootstrapEpoch() int64 {
+func (m *StaticManifestProvider) BootstrapEpoch() int64 {
 	return m.manifest.BootstrapEpoch
 }
 
-func (m *Static) NetworkName() gpbft.NetworkName {
+func (m *StaticManifestProvider) NetworkName() gpbft.NetworkName {
 	return m.manifest.NetworkName
 }
 
-func (m *Static) InitialPowerTable() []gpbft.PowerEntry {
+func (m *StaticManifestProvider) InitialPowerTable() []gpbft.PowerEntry {
 	return m.manifest.InitialPowerTable
 }
 
-func (m *Static) Subscribe() <-chan struct{} {
+func (m *StaticManifestProvider) ManifestQueue() <-chan struct{} {
 	return nil
 }
 
-func (m *Static) MsgPubSubTopic() string {
-	return m.manifest.PubSubTopic()
-}
+func (m *StaticManifestProvider) Run(ctx context.Context, errCh chan error) {}
 
-func (m *Static) Run(ctx context.Context, errCh chan error) {}
-
-func (m *Static) SetManifestChangeCb(mc OnManifestChange) {}
+func (m *StaticManifestProvider) SetManifestChangeCallback(mc OnManifestChange) {}

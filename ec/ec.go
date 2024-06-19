@@ -7,7 +7,7 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
-type ECBackend interface {
+type Backend interface {
 	// GetTipsetByEpoch should return a tipset before the one requested if the requested
 	// tipset does not exist due to null epochs
 	GetTipsetByEpoch(ctx context.Context, epoch int64) (TipSet, error)

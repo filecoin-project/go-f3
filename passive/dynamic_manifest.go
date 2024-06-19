@@ -8,7 +8,6 @@ import (
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/manifest"
-	"github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log/v2"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -22,14 +21,14 @@ const (
 	ManifestPubSubTopicName = "/f3/manifests/0.0.1"
 )
 
-var _ manifest.ManifestProvider = (*DynamicManifest)(nil)
+var _ manifest.ManifestProvider = (*DynamicManifestProvider)(nil)
 
-// DynamicManifest is a manifest provider that allows
+// DynamicManifestProvider is a manifest provider that allows
 // the manifest to be changed at runtime.
-type DynamicManifest struct {
-	manifest         *manifest.Manifest
+type DynamicManifestProvider struct {
+	manifest         manifest.Manifest
 	pubsub           *pubsub.PubSub
-	ec               ec.ECBackend
+	ec               ec.Backend
 	manifestServerID peer.ID
 
 	// these are populate in runtime
@@ -39,8 +38,8 @@ type DynamicManifest struct {
 	manifestTopic    *pubsub.Topic
 }
 
-func NewDynamicManifest(manifest *manifest.Manifest, pubsub *pubsub.PubSub, ec ec.ECBackend, manifestServerID peer.ID) manifest.ManifestProvider {
-	return &DynamicManifest{
+func NewDynamicManifestProvider(manifest manifest.Manifest, pubsub *pubsub.PubSub, ec ec.Backend, manifestServerID peer.ID) manifest.ManifestProvider {
+	return &DynamicManifestProvider{
 		manifest:         manifest,
 		pubsub:           pubsub,
 		ec:               ec,
@@ -48,47 +47,31 @@ func NewDynamicManifest(manifest *manifest.Manifest, pubsub *pubsub.PubSub, ec e
 	}
 }
 
-func (m *DynamicManifest) GpbftOptions() []gpbft.Option {
+func (m *DynamicManifestProvider) Manifest() manifest.Manifest {
+	return m.manifest
+}
+
+func (m *DynamicManifestProvider) GpbftOptions() []gpbft.Option {
 	return m.manifest.GpbftOptions()
 }
 
-func (m *DynamicManifest) DatastorePrefix() datastore.Key {
-	return m.manifest.DatastorePrefix()
-}
-
-func (m *DynamicManifest) EcConfig() *manifest.EcConfig {
-	return m.manifest.EcConfig
-}
-
-func (m *DynamicManifest) BootstrapEpoch() int64 {
-	return m.manifest.BootstrapEpoch
-}
-
-func (m *DynamicManifest) NetworkName() gpbft.NetworkName {
-	return m.manifest.NetworkName
-}
-
-func (m *DynamicManifest) InitialPowerTable() []gpbft.PowerEntry {
-	return m.manifest.InitialPowerTable
-}
-
-func (m *DynamicManifest) Subscribe() <-chan struct{} {
+func (m *DynamicManifestProvider) ManifestQueue() <-chan struct{} {
 	return m.manifestUpdates
 }
 
-func (m *DynamicManifest) SetManifestChangeCb(mc manifest.OnManifestChange) {
+func (m *DynamicManifestProvider) SetManifestChangeCallback(mc manifest.OnManifestChange) {
 	m.onManifestChange = mc
 }
 
 // Returns the pubsub topic name for the manifest
 // which includes a version subpath that allows to unique
 // identify the configuration manifest used for the network.
-func (m *DynamicManifest) MsgPubSubTopic() string {
+func (m *DynamicManifestProvider) PubSubTopic() string {
 	v, _ := m.manifest.Version()
 	return m.manifest.PubSubTopic() + string(v)
 }
 
-func (m *DynamicManifest) Run(ctx context.Context, errCh chan error) {
+func (m *DynamicManifestProvider) Run(ctx context.Context, errCh chan error) {
 	if m.onManifestChange == nil {
 		errCh <- xerrors.New("onManifestChange is nil. Callback for manifest change required")
 	}
@@ -98,7 +81,7 @@ func (m *DynamicManifest) Run(ctx context.Context, errCh chan error) {
 	m.handleApplyManifest(ctx, manifestQueue, errCh)
 }
 
-func (m *DynamicManifest) handleApplyManifest(ctx context.Context, manifestQueue chan struct{}, errCh chan error) {
+func (m *DynamicManifestProvider) handleApplyManifest(ctx context.Context, manifestQueue chan struct{}, errCh chan error) {
 	// add a timer for EC period
 	ticker := time.NewTicker(m.manifest.ECPeriod)
 	defer ticker.Stop()
@@ -116,7 +99,7 @@ func (m *DynamicManifest) handleApplyManifest(ctx context.Context, manifestQueue
 				// if the upgrade epoch is reached or already passed.
 				if ts.Epoch() >= m.nextManifest.BootstrapEpoch {
 					// update the current manifest
-					m.manifest = m.nextManifest
+					m.manifest = *m.nextManifest
 					m.nextManifest = nil
 					// stop existing pubsub and subscribe to the new one
 					// if the re-bootstrap flag is enabled, it will setup a new runner with the new config.
@@ -143,7 +126,7 @@ func (m *DynamicManifest) handleApplyManifest(ctx context.Context, manifestQueue
 }
 
 // listen to manifests being broadcast through the network.
-func (m *DynamicManifest) handleIncomingManifests(ctx context.Context, errCh chan error) {
+func (m *DynamicManifestProvider) handleIncomingManifests(ctx context.Context, errCh chan error) {
 	if err := m.setupManifestPubsub(); err != nil {
 		errCh <- xerrors.Errorf("setting up pubsub: %w", err)
 		return
@@ -191,19 +174,19 @@ loop:
 	}
 }
 
-func (m *DynamicManifest) teardownPubsub(topic *pubsub.Topic, topicName string) error {
+func (m *DynamicManifestProvider) teardownPubsub(topic *pubsub.Topic, topicName string) error {
 	return multierr.Combine(
 		m.pubsub.UnregisterTopicValidator(topicName),
 		topic.Close(),
 	)
 }
 
-func (m *DynamicManifest) teardownManifestPubsub() error {
+func (m *DynamicManifestProvider) teardownManifestPubsub() error {
 	return m.teardownPubsub(m.manifestTopic, ManifestPubSubTopicName)
 }
 
 // Checks if we should accept the manifest that we received through pubsub
-func (m *DynamicManifest) acceptNextManifest(manifest *manifest.Manifest) bool {
+func (m *DynamicManifestProvider) acceptNextManifest(manifest *manifest.Manifest) bool {
 	// if the manifest is older, skip it
 	if manifest.Sequence <= m.manifest.Sequence ||
 		manifest.BootstrapEpoch < m.manifest.BootstrapEpoch {
@@ -213,7 +196,7 @@ func (m *DynamicManifest) acceptNextManifest(manifest *manifest.Manifest) bool {
 	return true
 }
 
-func (m *DynamicManifest) setupManifestPubsub() (err error) {
+func (m *DynamicManifestProvider) setupManifestPubsub() (err error) {
 	topicName := ManifestPubSubTopicName
 	// using the same validator approach used for the message pubsub
 	// to be homogeneous.

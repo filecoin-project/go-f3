@@ -15,26 +15,45 @@ import (
 	"golang.org/x/xerrors"
 )
 
+var (
+	// Default configuration for the EC Backend
+	DefaultEcConfig = &EcConfig{
+		ECFinality:       900,
+		CommiteeLookback: 5,
+		ECDelay:          30 * time.Second,
+
+		ECPeriod: 30 * time.Second,
+	}
+
+	DefaultGpbftConfig = &GpbftConfig{
+		Delta:                3 * time.Second,
+		DeltaBackOffExponent: 2.0,
+		MaxLookaheadRounds:   5,
+	}
+
+	DefaultGpbftOptions = []gpbft.Option{
+		gpbft.WithMaxLookaheadRounds(DefaultGpbftConfig.MaxLookaheadRounds),
+		gpbft.WithDelta(time.Duration(DefaultGpbftConfig.Delta) * time.Second),
+		gpbft.WithDeltaBackOffExponent(DefaultGpbftConfig.DeltaBackOffExponent),
+	}
+)
+
 type OnManifestChange func(ctx context.Context, initialInstance uint64, rebootstrap bool, errCh chan error)
 
 type ManifestProvider interface {
 	// Run starts any background tasks required for the operation
 	// of the manifest provider.
 	Run(context.Context, chan error)
-	// Returns the list of gpbft options that should be used
+	// Returns the list of gpbft options to be used for gpbft configuration
 	GpbftOptions() []gpbft.Option
-	// suscribe to manifest updates
-	Subscribe() <-chan struct{}
-	// Set callback for manifest changes
-	SetManifestChangeCb(OnManifestChange)
-
-	// Manifest accessors
-	MsgPubSubTopic() string
-	NetworkName() gpbft.NetworkName
-	BootstrapEpoch() int64
-	DatastorePrefix() datastore.Key
-	InitialPowerTable() []gpbft.PowerEntry
-	EcConfig() *EcConfig
+	// manifest queue used by the runner to get notifications about when a
+	// new manifest has been accepted.
+	// Only the gpbft runner is expected to subscribe to this queue.
+	ManifestQueue() <-chan struct{}
+	// Set callback to trigger to apply new manifests from F3.
+	SetManifestChangeCallback(OnManifestChange)
+	// Manifest accessor
+	Manifest() Manifest
 }
 
 type Version string
@@ -81,19 +100,13 @@ type Manifest struct {
 	*EcConfig
 }
 
-func LocalnetManifest() Manifest {
+func LocalDevnettManifest() Manifest {
 	rng := make([]byte, 4)
 	_, _ = rand.Read(rng)
 	m := Manifest{
 		NetworkName:    gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng)),
 		BootstrapEpoch: 1000,
-		EcConfig: &EcConfig{
-			ECFinality:       900,
-			CommiteeLookback: 5,
-			ECDelay:          30 * time.Second,
-
-			ECPeriod: 30 * time.Second,
-		},
+		EcConfig:       DefaultEcConfig,
 	}
 	m.ECBoostrapTimestamp = time.Now().Add(-time.Duration(m.BootstrapEpoch) * m.ECPeriod)
 	return m
@@ -136,15 +149,15 @@ func (m Manifest) PubSubTopic() string {
 func (m Manifest) GpbftOptions() []gpbft.Option {
 	var opts []gpbft.Option
 
+	if m.GpbftConfig == nil {
+		return DefaultGpbftOptions
+	}
+
 	if m.Delta != 0 {
 		opts = append(opts, gpbft.WithDelta(m.Delta*time.Second))
 	}
-	if m.DeltaBackOffExponent != 0 {
-		opts = append(opts, gpbft.WithDeltaBackOffExponent(m.DeltaBackOffExponent))
-	}
-	if m.MaxLookaheadRounds != 0 {
-		opts = append(opts, gpbft.WithMaxLookaheadRounds(m.MaxLookaheadRounds))
-	}
+	opts = append(opts, gpbft.WithDeltaBackOffExponent(m.DeltaBackOffExponent))
+	opts = append(opts, gpbft.WithMaxLookaheadRounds(m.MaxLookaheadRounds))
 
 	return opts
 }

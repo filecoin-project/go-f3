@@ -279,9 +279,9 @@ func (e *testEnv) newF3Instance(ctx context.Context, id int, manifestServer peer
 
 	var mprovider manifest.ManifestProvider
 	if manifestServer != peer.ID("") {
-		mprovider = passive.NewDynamicManifest(&e.manifest, ps, e.ec, manifestServer)
+		mprovider = passive.NewDynamicManifestProvider(e.manifest, ps, e.ec, manifestServer)
 	} else {
-		mprovider = manifest.NewStaticManifest(&e.manifest)
+		mprovider = manifest.NewStaticManifestProvider(e.manifest)
 	}
 
 	e.signingBackend.Allow(int(id))
@@ -290,7 +290,7 @@ func (e *testEnv) newF3Instance(ctx context.Context, id int, manifestServer peer
 		return nil, xerrors.Errorf("creating module: %w", err)
 	}
 
-	mprovider.SetManifestChangeCb(f3.ManifestChangeCallback(module))
+	mprovider.SetManifestChangeCallback(f3.ManifestChangeCallback(module))
 	return &testNode{h, module}, nil
 }
 

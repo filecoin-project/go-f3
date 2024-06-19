@@ -57,7 +57,7 @@ var baseManifest manifest.Manifest = manifest.Manifest{
 	},
 }
 
-func TestManifestSerialiation(t *testing.T) {
+func TestManifest_Serialization(t *testing.T) {
 	b, err := baseManifest.Marshal()
 	require.NoError(t, err)
 
@@ -69,7 +69,7 @@ func TestManifestSerialiation(t *testing.T) {
 	require.Equal(t, baseManifest, m2)
 }
 
-func TestManifestVersion(t *testing.T) {
+func TestManifest_Version(t *testing.T) {
 	m := baseManifest
 	v1, err := m.Version()
 	require.NoError(t, err)
@@ -85,7 +85,7 @@ func TestManifestVersion(t *testing.T) {
 
 }
 
-func TestNetworkName(t *testing.T) {
+func TestManifest_NetworkName(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
