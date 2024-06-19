@@ -91,18 +91,13 @@ func (mc *client) Logger() Logger {
 func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.Datastore, h host.Host,
 	ps *pubsub.PubSub, sigs gpbft.SignerWithMarshaler, verif gpbft.Verifier, ec ECBackend, log Logger) (*F3, error) {
 	ds = namespace.Wrap(ds, manifest.NetworkName.DatastorePrefix())
-	cs, err := certstore.OpenOrCreateStore(ctx, ds, 0, manifest.InitialPowerTable)
-	if err != nil {
-		return nil, xerrors.Errorf("creating CertStore: %w", err)
-	}
 	loggerWithSkip := log
 	if zapLogger, ok := log.(*logging.ZapEventLogger); ok {
 		loggerWithSkip = logging.WithSkip(zapLogger, 1)
 	}
 
 	m := F3{
-		Manifest:  manifest,
-		CertStore: cs,
+		Manifest: manifest,
 
 		ds:     ds,
 		host:   h,
@@ -111,7 +106,6 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 		log:    log,
 
 		client: &client{
-			certstore:           cs,
 			ec:                  ec,
 			nn:                  manifest.NetworkName,
 			id:                  id,
@@ -122,8 +116,21 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 		},
 	}
 
+	cs, err := certstore.OpenStore(ctx, ds)
+	if err != nil {
+		log.Warnf("opening CertStore, it might not have been created: %+v", err)
+	} else {
+		m.setCertStore(cs)
+	}
+
 	return &m, nil
 }
+
+func (m *F3) setCertStore(cs *certstore.Store) {
+	m.CertStore = cs
+	m.client.certstore = cs
+}
+
 func (m *F3) setupPubsub(runner *gpbftRunner) error {
 	pubsubTopicName := m.Manifest.NetworkName.PubSubTopic()
 
@@ -170,10 +177,68 @@ func (m *F3) teardownPubsub() error {
 	)
 }
 
+func (m *F3) boostrap(ctx context.Context, initialInstance uint64) error {
+	head, err := m.ec.GetHead(ctx)
+	if err != nil {
+		return xerrors.Errorf("failed to get the head: %w", err)
+	}
+
+	if head.Epoch() < m.Manifest.BootstrapEpoch {
+		// wait for bootstrap epoch
+		for {
+			head, err := m.ec.GetHead(ctx)
+			if err != nil {
+				return xerrors.Errorf("getting head: %w", err)
+			}
+			if head.Epoch() >= m.Manifest.BootstrapEpoch {
+				break
+			}
+
+			m.log.Infof("wating for bootstrap epoch (%d): currently at epoch %d", m.Manifest.BootstrapEpoch, head.Epoch())
+			aim := time.Until(head.Timestamp().Add(m.Manifest.ECPeriod))
+			// correct for null epochs
+			for aim < 0 {
+				aim += m.Manifest.ECPeriod
+			}
+
+			select {
+			case <-time.After(aim):
+			case <-ctx.Done():
+				return nil
+			}
+		}
+	}
+
+	ts, err := m.ec.GetTipsetByEpoch(ctx, m.Manifest.BootstrapEpoch-m.Manifest.ECFinality)
+	if err != nil {
+		return xerrors.Errorf("getting initial power tipset: %w", err)
+	}
+
+	initialPowerTable, err := m.ec.GetPowerTable(ctx, ts.Key())
+	if err != nil {
+		return xerrors.Errorf("getting initial power table: %w", err)
+	}
+
+	cs, err := certstore.CreateStore(ctx, m.ds, initialInstance, initialPowerTable)
+	if err != nil {
+		return xerrors.Errorf("creating certstore: %w", err)
+	}
+	m.setCertStore(cs)
+	return nil
+}
+
 // Run start the module. It will exit when context is cancelled.
 func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	if m.CertStore == nil {
+		err := m.boostrap(ctx, initialInstance)
+		if err != nil {
+			return xerrors.Errorf("failed to boostrap: %w", err)
+		}
+
+	}
 
 	runner, err := newRunner(m.client.id, m.Manifest, m.client)
 	if err != nil {
@@ -187,30 +252,6 @@ func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 	sub, err := m.client.topic.Subscribe()
 	if err != nil {
 		return xerrors.Errorf("subscribing to topic: %w", err)
-	}
-
-	// wait for bootstrap epoch
-	for {
-		head, err := m.ec.GetHead(ctx)
-		if err != nil {
-			return xerrors.Errorf("getting head: %w", err)
-		}
-		if head.Epoch() >= m.Manifest.BootstrapEpoch {
-			break
-		}
-
-		m.log.Infof("wating for bootstrap epoch (%d): currently at epoch %d", m.Manifest.BootstrapEpoch, head.Epoch())
-		aim := time.Until(head.Timestamp().Add(m.Manifest.ECPeriod))
-		// correct for null epochs
-		for aim < 0 {
-			aim += m.Manifest.ECPeriod
-		}
-
-		select {
-		case <-time.After(aim):
-		case <-ctx.Done():
-			return nil
-		}
 	}
 
 	messageQueue := make(chan gpbft.ValidatedMessage, 20)
