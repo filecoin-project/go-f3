@@ -28,7 +28,7 @@ type F3 struct {
 	ds     datastore.Datastore
 	host   host.Host
 	pubsub *pubsub.PubSub
-	ec     ec.ECBackend
+	ec     ec.Backend
 	log    Logger
 
 	client *client
@@ -38,7 +38,7 @@ type client struct {
 	certstore *certstore.Store
 	id        gpbft.ActorID
 	nn        gpbft.NetworkName
-	ec        ec.ECBackend
+	ec        ec.Backend
 
 	gpbft.Verifier
 	gpbft.SignerWithMarshaler
@@ -90,9 +90,9 @@ func (mc *client) Logger() Logger {
 // New creates and setups f3 with libp2p
 // The context is used for initialization not runtime.
 func New(ctx context.Context, id gpbft.ActorID, manifest manifest.ManifestProvider, ds datastore.Datastore, h host.Host, manifestServer peer.ID,
-	ps *pubsub.PubSub, sigs gpbft.SignerWithMarshaler, verif gpbft.Verifier, ec ec.ECBackend, log Logger) (*F3, error) {
-	ds = namespace.Wrap(ds, manifest.DatastorePrefix())
-	cs, err := certstore.OpenOrCreateStore(ctx, ds, 0, manifest.InitialPowerTable())
+	ps *pubsub.PubSub, sigs gpbft.SignerWithMarshaler, verif gpbft.Verifier, ec ec.Backend, log Logger) (*F3, error) {
+	ds = namespace.Wrap(ds, manifest.Manifest().DatastorePrefix())
+	cs, err := certstore.OpenOrCreateStore(ctx, ds, 0, manifest.Manifest().InitialPowerTable)
 	if err != nil {
 		return nil, xerrors.Errorf("creating CertStore: %w", err)
 	}
@@ -114,7 +114,7 @@ func New(ctx context.Context, id gpbft.ActorID, manifest manifest.ManifestProvid
 		client: &client{
 			certstore:           cs,
 			ec:                  ec,
-			nn:                  manifest.NetworkName(),
+			nn:                  manifest.Manifest().NetworkName,
 			id:                  id,
 			Verifier:            verif,
 			SignerWithMarshaler: sigs,
@@ -126,7 +126,7 @@ func New(ctx context.Context, id gpbft.ActorID, manifest manifest.ManifestProvid
 	return &m, nil
 }
 func (m *F3) setupPubsub(runner *gpbftRunner) error {
-	pubsubTopicName := m.Manifest.MsgPubSubTopic()
+	pubsubTopicName := m.Manifest.Manifest().PubSubTopic()
 
 	// explicit type to typecheck the anonymous function defintion
 	// a bit ugly but I don't want gpbftRunner to know about pubsub
@@ -166,7 +166,7 @@ func (m *F3) setupPubsub(runner *gpbftRunner) error {
 
 func (m *F3) teardownPubsub() error {
 	return multierr.Combine(
-		m.pubsub.UnregisterTopicValidator(m.Manifest.MsgPubSubTopic()),
+		m.pubsub.UnregisterTopicValidator(m.Manifest.Manifest().PubSubTopic()),
 		m.client.topic.Close(),
 	)
 }
