@@ -43,7 +43,8 @@ func newRunner(id gpbft.ActorID, m manifest.ManifestProvider, client *client) (*
 	}
 
 	runner.log.Infof("starting host for P%d", id)
-	p, err := gpbft.NewParticipant((*gpbftHost)(runner), gpbft.WithTracer(client))
+	opts := append(m.GpbftOptions(), gpbft.WithTracer(client))
+	p, err := gpbft.NewParticipant((*gpbftHost)(runner), opts...)
 	if err != nil {
 		return nil, xerrors.Errorf("creating participant: %w", err)
 	}
