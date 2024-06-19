@@ -125,6 +125,13 @@ func (p *Participant) CurrentInstance() uint64 {
 	return p.currentInstance
 }
 
+// UnsafeCurrentInstance returns the current instance identifier without locking.
+// This should only be used for testing purposes in order to get a sense
+// if the participant is making progress or not.
+func (p *Participant) UnsafeCurrentInstance() uint64 {
+	return p.currentInstance
+}
+
 // Validates a message
 func (p *Participant) ValidateMessage(msg *GMessage) (valid ValidatedMessage, err error) {
 	// This method is not protected by the API mutex, it is intended for concurrent use.

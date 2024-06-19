@@ -23,6 +23,7 @@ type gpbftRunner struct {
 	alertTimer *time.Timer
 
 	runningCtx context.Context
+	ctxCancel  func()
 	log        Logger
 }
 
@@ -53,9 +54,8 @@ func newRunner(id gpbft.ActorID, m manifest.ManifestProvider, client *client) (*
 }
 
 func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
-	var cancel func()
-	h.runningCtx, cancel = context.WithCancel(ctx)
-	defer cancel()
+	h.runningCtx, h.ctxCancel = context.WithCancel(ctx)
+	defer h.ctxCancel()
 
 	// TODO(Kubuxu): temporary hack until re-broadcast and/or booststrap synchronisation are implemented
 	time.Sleep(2 * time.Second)
@@ -65,9 +65,25 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 		return xerrors.Errorf("starting a participant: %w", err)
 	}
 
-	messageQueue := h.client.IncomingMessages()
+	manifestUpdates := h.manifest.Subscribe()
 loop:
 	for {
+		// we need to retrieve the queue again in every
+		// iteration in case there has been a manifest change
+		// and we are subscribed to a new topic
+		messageQueue := h.client.IncomingMessages()
+
+		// if there is a manifest update handle it immediately
+		select {
+		case <-manifestUpdates:
+			// TODO: Perform configuration changes to the runner host
+			// - Power table updates
+			// - MaxLookBack and ECStabilizationDelay
+			// i.e. anything that doesn't require a re-bootstrap.
+			continue
+		default:
+		}
+
 		// prioritise alarm delivery
 		// although there is no guarantee that alarm won't fire between
 		// the two select statements
@@ -118,6 +134,10 @@ func (h *gpbftHost) collectChain(base ec.TipSet, head ec.TipSet) ([]ec.TipSet, e
 	}
 	slices.Reverse(res)
 	return res[1:], nil
+}
+
+func (h *gpbftRunner) Stop() {
+	h.ctxCancel()
 }
 
 // Returns inputs to the next GPBFT instance.
