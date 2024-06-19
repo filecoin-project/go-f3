@@ -49,8 +49,7 @@ func TestSimpleF3(t *testing.T) {
 	// Small wait for nodes to initialize. In the future we can probably
 	// make this asynchronously
 	time.Sleep(1 * time.Second)
-
-	env.waitForInstanceNumber(ctx, 5, 60*time.Second)
+	env.waitForInstanceNumber(ctx, 5, 10*time.Second)
 }
 
 func TestDynamicManifestWithoutChanges(t *testing.T) {
@@ -63,7 +62,7 @@ func TestDynamicManifestWithoutChanges(t *testing.T) {
 	env.Run(ctx, initialInstance)
 	time.Sleep(1 * time.Second)
 
-	env.waitForInstanceNumber(ctx, 5, 60*time.Second)
+	env.waitForInstanceNumber(ctx, 5, 10*time.Second)
 }
 
 func TestDynamicManifestWithRebootstrap(t *testing.T) {
@@ -82,10 +81,10 @@ func TestDynamicManifestWithRebootstrap(t *testing.T) {
 	// FIXME:
 	// env.ec.genTipset(5)
 
-	env.waitForInstanceNumber(ctx, 10, 60*time.Second)
+	env.waitForInstanceNumber(ctx, 10, 30*time.Second)
 
 	time.Sleep(10 * ManifestSenderTimeout)
-	env.waitForInstanceNumber(ctx, 3, 60*time.Second)
+	env.waitForInstanceNumber(ctx, 3, 30*time.Second)
 	require.True(t, env.nodes[0].f3.CurrentGpbftInstace() < 10)
 
 	// TODO: Check that the network name has changed.
@@ -138,7 +137,7 @@ func (t *testEnv) waitForInstanceNumber(ctx context.Context, instanceNumber uint
 	for {
 		select {
 		case <-ctx.Done():
-			t.t.Error("instance number not reached before timeout")
+			t.t.Fatal("instance number not reached before timeout")
 		default:
 			reached := 0
 			for i := 0; i < len(t.nodes); i++ {
@@ -161,7 +160,6 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) testEnv {
 	m := baseManifest
 	m.ECBoostrapTimestamp = time.Now().Add(-time.Duration(m.BootstrapEpoch) * m.ECPeriod)
 
-	env.ec = ec.NewFakeEC(1, m)
 	env.signingBackend = signing.NewFakeBackend()
 	for i := 0; i < n; i++ {
 		pubkey, _ := env.signingBackend.GenerateKey()
@@ -173,6 +171,7 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) testEnv {
 		})
 	}
 	env.manifest = m
+	env.ec = ec.NewFakeEC(1, m)
 
 	manifestServer := peer.ID("")
 	if dynamicManifest {
