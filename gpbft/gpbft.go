@@ -992,7 +992,14 @@ func (i *instance) tryRebroadcast() error {
 		// successive rebroadcast.
 		err := i.rebroadcast()
 		i.rebroadcastAttempts++
-		i.rebroadcastTimeout = i.rebroadcastTimeout.Add(i.participant.rebroadcastAfter(i.rebroadcastAttempts))
+
+		// Use current host time as the offset for the next alarm to assure that rate of
+		// broadcasted messages grows relative to the actual time at which an alarm is
+		// triggered , not the absolute alarm time. This would avoid a "runaway
+		// rebroadcast" scenario where rebroadcast timeout consistently remains behind
+		// current time due to the discrepancy between set alarm time and the actual time
+		// at which the alarm is triggered.
+		i.rebroadcastTimeout = i.participant.host.Time().Add(i.participant.rebroadcastAfter(i.rebroadcastAttempts))
 		i.participant.host.SetAlarm(i.rebroadcastTimeout)
 		return err
 	}
