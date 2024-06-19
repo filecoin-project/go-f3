@@ -47,7 +47,7 @@ func TestSimpleF3(t *testing.T) {
 	env.Connect(ctx)
 	env.Run(ctx, initialInstance)
 	// Small wait for nodes to initialize. In the future we can probably
-	// make this asynchronously by adding a done channel to run.
+	// make this asynchronously
 	time.Sleep(1 * time.Second)
 
 	env.waitForInstanceNumber(ctx, 5, 60*time.Second)
@@ -100,7 +100,7 @@ const DiscoveryTag = "f3-standalone-testing"
 
 var baseManifest manifest.Manifest = manifest.Manifest{
 	Sequence:       0,
-	BootstrapEpoch: 0,
+	BootstrapEpoch: 1000,
 	ReBootstrap:    true,
 	NetworkName:    gpbft.NetworkName("test"),
 	GpbftConfig: &manifest.GpbftConfig{
@@ -159,6 +159,7 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) testEnv {
 
 	// populate manifest
 	m := baseManifest
+	m.ECBoostrapTimestamp = time.Now().Add(-time.Duration(m.BootstrapEpoch) * m.ECPeriod)
 
 	env.ec = ec.NewFakeEC(1, m)
 	env.signingBackend = signing.NewFakeBackend()
@@ -168,7 +169,7 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) testEnv {
 		m.InitialPowerTable = append(m.InitialPowerTable, gpbft.PowerEntry{
 			ID:     gpbft.ActorID(i),
 			PubKey: pubkey,
-			Power:  big.NewInt(1),
+			Power:  big.NewInt(1000),
 		})
 	}
 	env.manifest = m

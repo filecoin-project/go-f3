@@ -3,6 +3,7 @@ package passive
 import (
 	"bytes"
 	"context"
+	"time"
 
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -93,36 +94,25 @@ func (m *DynamicManifest) Run(ctx context.Context, errCh chan error) {
 	}
 	manifestQueue := make(chan struct{}, 5)
 	m.manifestUpdates = manifestQueue
-	m.handleIncomingManifests(ctx, manifestQueue, errCh)
+	go m.handleIncomingManifests(ctx, errCh)
+	m.handleApplyManifest(ctx, manifestQueue, errCh)
 }
 
-func (m *DynamicManifest) handleIncomingManifests(ctx context.Context, manifestQueue chan struct{}, errCh chan error) {
-	if err := m.setupManifestPubsub(); err != nil {
-		errCh <- xerrors.Errorf("setting up pubsub: %w", err)
-		return
-	}
+func (m *DynamicManifest) handleApplyManifest(ctx context.Context, manifestQueue chan struct{}, errCh chan error) {
+	// add a timer for EC period
+	ticker := time.NewTicker(m.manifest.ECPeriod)
+	defer ticker.Stop()
 
-	manifestSub, err := m.manifestTopic.Subscribe()
-	if err != nil {
-		errCh <- xerrors.Errorf("subscribing to topic: %w", err)
-		return
-	}
-
-	// FIXME; This is a stub and should be replaced with whatever
-	// function allow us to subscribe to new epochs coming from EC.
-	// ecSub, err := m.ec.ChainHead(ctx)
-	// if err != nil {
-	// 	errCh <- xerrors.Errorf("subscribing to chain events: %w", err)
-	// 	return
-	// }
-	ecSub := make(chan ec.TipSet)
-
-loop:
 	for {
 		select {
-		// Check first if there is a new configuration manifest that needs to be applied.
-		case ts := <-ecSub:
+		case <-ticker.C:
 			if m.nextManifest != nil {
+				ts, err := m.ec.GetHead(ctx)
+				if err != nil {
+					log.Errorf("error fetching chain head: %+v", err)
+					continue
+				}
+
 				// if the upgrade epoch is reached or already passed.
 				if ts.Epoch() >= m.nextManifest.BootstrapEpoch {
 					// update the current manifest
@@ -146,6 +136,28 @@ loop:
 					continue
 				}
 			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// listen to manifests being broadcast through the network.
+func (m *DynamicManifest) handleIncomingManifests(ctx context.Context, errCh chan error) {
+	if err := m.setupManifestPubsub(); err != nil {
+		errCh <- xerrors.Errorf("setting up pubsub: %w", err)
+		return
+	}
+
+	manifestSub, err := m.manifestTopic.Subscribe()
+	if err != nil {
+		errCh <- xerrors.Errorf("subscribing to topic: %w", err)
+		return
+	}
+
+loop:
+	for {
+		select {
 		case <-ctx.Done():
 			break loop
 
