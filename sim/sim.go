@@ -91,9 +91,24 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 				return err
 			}
 
-			// Instantiate the next instance even if it goes beyond finalInstance.
-			// The last incomplete instance is used for testing assertions.
-			currentInstance = s.ec.BeginInstance(*decidedChain, pt)
+			// Check if the next instance exists already as a participant might have started
+			// the next instance early. This can happen in scenarios where:
+			//  * justifications for the termination of an instance reaches some nodes before
+			//    others due to partial connectivity, e.g. Deny or Drop adversaries, and
+			//  * the simulation stabilisation delay is not long enough to halt the stat of
+			//    next instance for those nodes before others have caught up.
+			//
+			// See simHost.GetProposalForInstance.
+			currentInstance = s.ec.GetInstance(currentInstance.Instance + 1)
+			if currentInstance == nil {
+				// Instantiate the next instance even if it goes beyond finalInstance.
+				// The last incomplete instance is used for testing assertions.
+				currentInstance = s.ec.BeginInstance(*decidedChain, pt)
+			} else if !currentInstance.BaseChain.Eq(*decidedChain) {
+				// Assert that the instance that has already started uses the same base chain as
+				// the one consistently decided among participants.
+				return fmt.Errorf("network is partitioned")
+			}
 
 			// Simulate the behaviour of an honest integrator, where upon receiving finality
 			// certificates from future rounds it signals gpbft to skip ahead.
