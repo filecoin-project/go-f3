@@ -14,6 +14,7 @@ func FuzzAbsentAdversary(f *testing.F) {
 	f.Add(-56)
 	f.Add(22)
 	f.Add(0)
+	f.Add(-855) // Takes 12 rounds to complete.
 	f.Fuzz(func(t *testing.T, latencySeed int) {
 		t.Parallel()
 		sm, err := sim.NewSimulation(
@@ -26,7 +27,7 @@ func FuzzAbsentAdversary(f *testing.F) {
 				sim.WithAdversary(adversary.NewAbsentGenerator(oneStoragePower)),
 			)...)
 		require.NoError(t, err)
-		require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
+		require.NoErrorf(t, sm.Run(1, maxRounds+2), "%s", sm.Describe())
 	},
 	)
 }

@@ -10,6 +10,11 @@ var _ Receiver = (*Deny)(nil)
 
 // Deny adversary denies all messages to/from a given set of participants for a
 // configured duration of time.
+//
+// For this adversary to take effect global stabilisation time must be configured
+// to be at least as long as the configured deny duration.
+//
+// See  sim.WithGlobalStabilizationTime.
 type Deny struct {
 	id          gpbft.ActorID
 	host        Host

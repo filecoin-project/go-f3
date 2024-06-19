@@ -79,13 +79,14 @@ func (r *Repeat) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
 	if echoCount <= 0 {
 		return nil
 	}
-	supplementalData, _, err := r.host.GetProposalForInstance(0)
+	instance := msg.Vote.Instance
+	supplementalData, _, err := r.host.GetProposalForInstance(instance)
 	if err != nil {
 		panic(err)
 	}
-	power, beacon, _ := r.host.GetCommitteeForInstance(0)
+	power, beacon, _ := r.host.GetCommitteeForInstance(instance)
 	p := gpbft.Payload{
-		Instance:         msg.Vote.Instance,
+		Instance:         instance,
 		Round:            msg.Vote.Round,
 		Step:             msg.Vote.Step,
 		SupplementalData: *supplementalData,

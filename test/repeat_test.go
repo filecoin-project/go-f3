@@ -80,12 +80,13 @@ func FuzzRepeatAdversary(f *testing.F) {
 		{
 			name:              "COMMIT Repeater",
 			repetitionSampler: repeatBoundedCommit,
-			maxRounds:         maxRounds * 2,
+			maxRounds:         maxRounds * 3,
 		},
 	}
 	f.Add(68465)
 	f.Add(-5)
 	f.Add(-5454)
+	f.Add(-5467)
 	f.Fuzz(func(t *testing.T, seed int) {
 		t.Parallel()
 		for _, hc := range repeatAdversaryTestHonestCounts {
