@@ -64,6 +64,23 @@ func (v *simHost) GetProposalForInstance(instance uint64) (*gpbft.SupplementalDa
 	// TODO: use lookback to return the correct next power table commitment and commitments hash.
 	chain := v.ecg.GenerateECChain(instance, *v.ecChain.Head(), v.id)
 	i := v.sim.ec.GetInstance(instance)
+	if i == nil {
+		// It is possible for one node to start the next instance before others have
+		// completed theirs, e.g. in the case of partial connectivity across nodes.
+		//
+		// Check for errors and if there isn't any start the next instance early. Use the
+		// decision of this participant as the base of next instance. sim.Run will check
+		// if the base is inconsistent with the decision of the rest of the network.
+		// Therefore, it is safe to optimistically start the next instance here.
+		if err := v.sim.ec.Err(); err != nil {
+			return nil, nil, err
+		}
+		table, err := v.sim.getPowerTable(instance)
+		if err != nil {
+			return nil, nil, err
+		}
+		i = v.sim.ec.BeginInstance(v.ecChain, table)
+	}
 	return i.SupplementalData, chain, nil
 }
 
