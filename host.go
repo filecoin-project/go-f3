@@ -40,7 +40,7 @@ func newRunner(id gpbft.ActorID, m Manifest, client *client) (*gpbftRunner, erro
 		<-runner.alertTimer.C
 	}
 
-	runner.log.Infof("starting host for P%d", id)
+	runner.log.Infof("starting runner for P%d", id)
 	p, err := gpbft.NewParticipant((*gpbftHost)(runner), gpbft.WithTracer(client))
 	if err != nil {
 		return nil, xerrors.Errorf("creating participant: %w", err)

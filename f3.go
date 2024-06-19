@@ -189,6 +189,30 @@ func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 		return xerrors.Errorf("subscribing to topic: %w", err)
 	}
 
+	// wait for bootstrap epoch
+	for {
+		head, err := m.ec.GetHead(ctx)
+		if err != nil {
+			return xerrors.Errorf("getting head: %w", err)
+		}
+		if head.Epoch() >= m.Manifest.BootstrapEpoch {
+			break
+		}
+
+		m.log.Infof("wating for bootstrap epoch (%d): currently at epoch %d", m.Manifest.BootstrapEpoch, head.Epoch())
+		aim := time.Until(head.Timestamp().Add(m.Manifest.ECPeriod))
+		// correct for null epochs
+		for aim < 0 {
+			aim += m.Manifest.ECPeriod
+		}
+
+		select {
+		case <-time.After(aim):
+		case <-ctx.Done():
+			return nil
+		}
+	}
+
 	messageQueue := make(chan gpbft.ValidatedMessage, 20)
 	m.client.messageQueue = messageQueue
 
