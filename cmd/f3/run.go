@@ -86,7 +86,7 @@ var runCmd = cli.Command{
 			if err != nil {
 				return xerrors.Errorf("parsing manifest server ID: %w", err)
 			}
-			mprovider = passive.NewDyncamicManifestProvider(m, ps, nil, manifestServer)
+			mprovider = passive.NewDynamicManifestProvider(m, ps, nil, manifestServer)
 		} else {
 			mprovider = manifest.NewStaticManifestProvider(m)
 		}

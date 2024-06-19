@@ -17,11 +17,11 @@ const (
 	ManifestPubSubTopicName = "/f3/manifests/0.0.1"
 )
 
-var _ manifest.ManifestProvider = (*DyncamicManifestProvider)(nil)
+var _ manifest.ManifestProvider = (*DynamicManifestProvider)(nil)
 
-// DyncamicManifestProvider is a manifest provider that allows
+// DynamicManifestProvider is a manifest provider that allows
 // the manifest to be changed at runtime.
-type DyncamicManifestProvider struct {
+type DynamicManifestProvider struct {
 	manifest         manifest.Manifest
 	pubsub           *pubsub.PubSub
 	ec               ec.Backend
@@ -34,8 +34,8 @@ type DyncamicManifestProvider struct {
 	// manifestTopic    *pubsub.Topic
 }
 
-func NewDyncamicManifestProvider(manifest manifest.Manifest, pubsub *pubsub.PubSub, ec ec.Backend, manifestServerID peer.ID) manifest.ManifestProvider {
-	return &DyncamicManifestProvider{
+func NewDynamicManifestProvider(manifest manifest.Manifest, pubsub *pubsub.PubSub, ec ec.Backend, manifestServerID peer.ID) manifest.ManifestProvider {
+	return &DynamicManifestProvider{
 		manifest:         manifest,
 		pubsub:           pubsub,
 		ec:               ec,
@@ -43,31 +43,31 @@ func NewDyncamicManifestProvider(manifest manifest.Manifest, pubsub *pubsub.PubS
 	}
 }
 
-func (m *DyncamicManifestProvider) Manifest() manifest.Manifest {
+func (m *DynamicManifestProvider) Manifest() manifest.Manifest {
 	return m.manifest
 }
 
-func (m *DyncamicManifestProvider) GpbftOptions() []gpbft.Option {
+func (m *DynamicManifestProvider) GpbftOptions() []gpbft.Option {
 	return m.manifest.GpbftOptions()
 }
 
-func (m *DyncamicManifestProvider) ManifestQueue() <-chan struct{} {
+func (m *DynamicManifestProvider) ManifestQueue() <-chan struct{} {
 	return m.manifestUpdates
 }
 
-func (m *DyncamicManifestProvider) SetManifestChangeCallback(mc manifest.OnManifestChange) {
+func (m *DynamicManifestProvider) SetManifestChangeCallback(mc manifest.OnManifestChange) {
 	m.onManifestChange = mc
 }
 
 // Returns the pubsub topic name for the manifest
 // which includes a version subpath that allows to unique
 // identify the configuration manifest used for the network.
-func (m *DyncamicManifestProvider) PubSubTopic() string {
+func (m *DynamicManifestProvider) PubSubTopic() string {
 	v, _ := m.manifest.Version()
 	return m.manifest.PubSubTopic() + string(v)
 }
 
-func (m *DyncamicManifestProvider) Run(context.Context, chan error) {
+func (m *DynamicManifestProvider) Run(context.Context, chan error) {
 	log.Debug("running dynamic manifest")
 	// TODO: Implementation coming in the next PR.
 }
