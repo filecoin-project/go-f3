@@ -759,6 +759,12 @@ func (i *instance) beginCommit() {
 		if quorum, ok := i.getRound(i.round).prepared.FindStrongQuorumFor(i.value.Key()); ok {
 			// Found a strong quorum of PREPARE, build the justification for it.
 			justification = i.buildJustification(quorum, i.round, PREPARE_PHASE, i.value)
+
+			// Update the round's committed quorumState with the self participant
+			// justification for non-zero value. This is to relax the need for guarantee that
+			// the justification from COMMIT message broadcasts are delivered to self
+			// synchronously.
+			i.getRound(i.round).committed.ReceiveJustification(i.value, justification)
 		} else {
 			panic("beginCommit with no strong quorum for non-bottom value")
 		}
