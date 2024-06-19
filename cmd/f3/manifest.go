@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"os"
 
@@ -9,7 +10,6 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim/signing"
 	"github.com/urfave/cli/v2"
-	"golang.org/x/xerrors"
 )
 
 var manifestCmd = cli.Command{
@@ -46,15 +46,15 @@ var manifestGenCmd = cli.Command{
 
 		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0666)
 		if err != nil {
-			return xerrors.Errorf("opening manifest file for writing: %w", err)
+			return fmt.Errorf("opening manifest file for writing: %w", err)
 		}
 		err = json.NewEncoder(f).Encode(m)
 		if err != nil {
-			return xerrors.Errorf("encoding manifest: %w", err)
+			return fmt.Errorf("encoding manifest: %w", err)
 		}
 		err = f.Close()
 		if err != nil {
-			return xerrors.Errorf("closing file: %w", err)
+			return fmt.Errorf("closing file: %w", err)
 		}
 
 		return nil
@@ -69,14 +69,14 @@ func getManifest(c *cli.Context) (f3.Manifest, error) {
 func loadManifest(path string) (f3.Manifest, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return f3.Manifest{}, xerrors.Errorf("opening %s to load manifest: %w", path, err)
+		return f3.Manifest{}, fmt.Errorf("opening %s to load manifest: %w", path, err)
 	}
 	defer f.Close()
 	var m f3.Manifest
 
 	err = json.NewDecoder(f).Decode(&m)
 	if err != nil {
-		return f3.Manifest{}, xerrors.Errorf("decoding JSON: %w", err)
+		return f3.Manifest{}, fmt.Errorf("decoding JSON: %w", err)
 	}
 	return m, err
 }

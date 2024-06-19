@@ -2,9 +2,8 @@ package gpbft
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
-
-	xerrors "golang.org/x/xerrors"
 )
 
 // ErrNoPower is returned by the MessageBuilder if the specified participant has no power.
@@ -66,12 +65,12 @@ type SignerWithMarshaler interface {
 func (mt *MessageBuilder) Build(networkName NetworkName, signer SignerWithMarshaler, id ActorID) (*GMessage, error) {
 	st, err := mt.PrepareSigningInputs(signer, networkName, id)
 	if err != nil {
-		return nil, xerrors.Errorf("preparing signing inputs: %w", err)
+		return nil, fmt.Errorf("preparing signing inputs: %w", err)
 	}
 
 	payloadSig, vrf, err := st.sign(signer)
 	if err != nil {
-		return nil, xerrors.Errorf("signing message builder: %w", err)
+		return nil, fmt.Errorf("signing message builder: %w", err)
 	}
 
 	return st.build(payloadSig, vrf), nil
@@ -115,7 +114,7 @@ func (sb *SignatureBuilder) VRFToSign() []byte {
 func (mt *MessageBuilder) PrepareSigningInputs(msh SigningMarshaler, networkName NetworkName, id ActorID) (*SignatureBuilder, error) {
 	effectivePower, _, pubKey := mt.powerTable.Get(id)
 	if pubKey == nil || effectivePower == 0 {
-		return nil, xerrors.Errorf("could not find pubkey for actor %d: %w", id, ErrNoPower)
+		return nil, fmt.Errorf("could not find pubkey for actor %d: %w", id, ErrNoPower)
 	}
 	sb := SignatureBuilder{
 		participantID: id,
@@ -148,13 +147,13 @@ func NewMessageBuilderWithPowerTable(power *PowerTable) *MessageBuilder {
 func (st *SignatureBuilder) sign(signer Signer) ([]byte, []byte, error) {
 	payloadSignature, err := signer.Sign(st.pubKey, st.payloadToSign)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("signing payload: %w", err)
+		return nil, nil, fmt.Errorf("signing payload: %w", err)
 	}
 	var vrf []byte
 	if st.vrfToSign != nil {
 		vrf, err = signer.Sign(st.pubKey, st.vrfToSign)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("signing vrf: %w", err)
+			return nil, nil, fmt.Errorf("signing vrf: %w", err)
 		}
 	}
 	return payloadSignature, vrf, nil

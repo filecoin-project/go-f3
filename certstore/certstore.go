@@ -15,7 +15,6 @@ import (
 	"github.com/Kubuxu/go-broadcast"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
-	"golang.org/x/xerrors"
 )
 
 var ErrCertNotFound = errors.New("certificate not found")
@@ -49,12 +48,12 @@ func open(ctx context.Context, ds datastore.Datastore) (*Store, error) {
 	if errors.Is(err, datastore.ErrNotFound) {
 		return cs, nil
 	} else if err != nil {
-		return nil, xerrors.Errorf("determining latest cert: %w", err)
+		return nil, fmt.Errorf("determining latest cert: %w", err)
 	}
 
 	latestCert, err := cs.Get(ctx, latestInstance)
 	if err != nil {
-		return nil, xerrors.Errorf("loading latest cert: %w", err)
+		return nil, fmt.Errorf("loading latest cert: %w", err)
 	}
 
 	cs.busCerts.Publish(latestCert)
@@ -69,7 +68,7 @@ func open(ctx context.Context, ds datastore.Datastore) (*Store, error) {
 // The passed Datastore has to be thread safe.
 func OpenOrCreateStore(ctx context.Context, ds datastore.Datastore, firstInstance uint64, initialPowerTable gpbft.PowerEntries) (*Store, error) {
 	if len(initialPowerTable) == 0 {
-		return nil, xerrors.New("cannot construct certificate store with an empty initial power table")
+		return nil, errors.New("cannot construct certificate store with an empty initial power table")
 	}
 	cs, err := open(ctx, ds)
 	if err != nil {
@@ -78,34 +77,34 @@ func OpenOrCreateStore(ctx context.Context, ds datastore.Datastore, firstInstanc
 	dbFirstInstance, err := cs.readInstanceNumber(ctx, certStoreFirstKey)
 	if err == nil {
 		if firstInstance != dbFirstInstance {
-			return nil, xerrors.Errorf("certificate store re-initialized with a different initial instance %d != %d", dbFirstInstance, firstInstance)
+			return nil, fmt.Errorf("certificate store re-initialized with a different initial instance %d != %d", dbFirstInstance, firstInstance)
 		}
 		var buf bytes.Buffer
 		if err := initialPowerTable.MarshalCBOR(&buf); err != nil {
-			return nil, xerrors.Errorf("failed to martial initial power table: %w", err)
+			return nil, fmt.Errorf("failed to martial initial power table: %w", err)
 		}
 		pb, err := cs.ds.Get(ctx, cs.keyForPowerTable(firstInstance))
 		if err != nil {
-			return nil, xerrors.Errorf("failed to load initial power table: %w", err)
+			return nil, fmt.Errorf("failed to load initial power table: %w", err)
 		}
 		if !bytes.Equal(buf.Bytes(), pb) {
 			return nil, errors.New("certificate store re-initialized with the wrong power table")
 		}
 	} else if errors.Is(err, datastore.ErrNotFound) {
 		if err := cs.putPowerTable(ctx, firstInstance, initialPowerTable); err != nil {
-			return nil, xerrors.Errorf("while storing the initial power table: %w", err)
+			return nil, fmt.Errorf("while storing the initial power table: %w", err)
 		}
 		if err := cs.writeInstanceNumber(ctx, certStoreFirstKey, firstInstance); err != nil {
-			return nil, xerrors.Errorf("while recording the first instance: %w", err)
+			return nil, fmt.Errorf("while recording the first instance: %w", err)
 		}
 	} else {
-		return nil, xerrors.Errorf("failed to read initial instance number: %w", err)
+		return nil, fmt.Errorf("failed to read initial instance number: %w", err)
 	}
 	cs.firstInstance = firstInstance
 	if latest := cs.Latest(); latest != nil {
 		cs.latestPowerTable, err = cs.GetPowerTable(ctx, latest.GPBFTInstance+1)
 		if err != nil {
-			return nil, xerrors.Errorf("failed to load latest power table: %w", err)
+			return nil, fmt.Errorf("failed to load latest power table: %w", err)
 		}
 	} else {
 		cs.latestPowerTable = initialPowerTable
@@ -118,7 +117,7 @@ func OpenOrCreateStore(ctx context.Context, ds datastore.Datastore, firstInstanc
 // The passed Datastore has to be thread safe.
 func CreateStore(ctx context.Context, ds datastore.Datastore, firstInstance uint64, initialPowerTable gpbft.PowerEntries) (*Store, error) {
 	if len(initialPowerTable) == 0 {
-		return nil, xerrors.New("cannot construct certificate store with an empty initial power table")
+		return nil, errors.New("cannot construct certificate store with an empty initial power table")
 	}
 	cs, err := open(ctx, ds)
 	if err != nil {
@@ -128,10 +127,10 @@ func CreateStore(ctx context.Context, ds datastore.Datastore, firstInstance uint
 		return nil, errors.New("certificate store already initialized")
 	}
 	if err := cs.putPowerTable(ctx, firstInstance, initialPowerTable); err != nil {
-		return nil, xerrors.Errorf("while storing the initial power table: %w", err)
+		return nil, fmt.Errorf("while storing the initial power table: %w", err)
 	}
 	if err := cs.writeInstanceNumber(ctx, certStoreFirstKey, firstInstance); err != nil {
-		return nil, xerrors.Errorf("while recording the first instance: %w", err)
+		return nil, fmt.Errorf("while recording the first instance: %w", err)
 	}
 	cs.firstInstance = firstInstance
 	cs.latestPowerTable = initialPowerTable
@@ -148,7 +147,7 @@ func OpenStore(ctx context.Context, ds datastore.Datastore) (*Store, error) {
 	}
 	cs.firstInstance, err = cs.readInstanceNumber(ctx, certStoreFirstKey)
 	if err != nil {
-		return nil, xerrors.Errorf("getting first instance: %w", err)
+		return nil, fmt.Errorf("getting first instance: %w", err)
 	}
 	latestPowerTable := cs.firstInstance
 	if latest := cs.Latest(); latest != nil {
@@ -156,7 +155,7 @@ func OpenStore(ctx context.Context, ds datastore.Datastore) (*Store, error) {
 	}
 	cs.latestPowerTable, err = cs.GetPowerTable(ctx, latestPowerTable)
 	if err != nil {
-		return nil, xerrors.Errorf("getting latest power table: %w", err)
+		return nil, fmt.Errorf("getting latest power table: %w", err)
 	}
 	return cs, nil
 }
@@ -165,10 +164,10 @@ func OpenStore(ctx context.Context, ds datastore.Datastore) (*Store, error) {
 func (cs *Store) readInstanceNumber(ctx context.Context, key datastore.Key) (uint64, error) {
 	b, err := cs.ds.Get(ctx, key)
 	if err != nil {
-		return 0, xerrors.Errorf("failed to read instance number at %q: %w", key, err)
+		return 0, fmt.Errorf("failed to read instance number at %q: %w", key, err)
 	}
 	if len(b) != 8 {
-		return 0, xerrors.Errorf("unexpected instance number len %d != 8 at %q", len(b), key)
+		return 0, fmt.Errorf("unexpected instance number len %d != 8 at %q", len(b), key)
 	}
 	return binary.BigEndian.Uint64(b), nil
 }
@@ -177,7 +176,7 @@ func (cs *Store) readInstanceNumber(ctx context.Context, key datastore.Key) (uin
 func (cs *Store) writeInstanceNumber(ctx context.Context, key datastore.Key, value uint64) error {
 	err := cs.ds.Put(ctx, key, binary.BigEndian.AppendUint64(nil, value))
 	if err != nil {
-		return xerrors.Errorf("failed to write instance number at %q: %w", key, err)
+		return fmt.Errorf("failed to write instance number at %q: %w", key, err)
 	}
 	return nil
 }
@@ -193,15 +192,15 @@ func (cs *Store) Get(ctx context.Context, instance uint64) (*certs.FinalityCerti
 	b, err := cs.ds.Get(ctx, cs.keyForCert(instance))
 
 	if errors.Is(err, datastore.ErrNotFound) {
-		return nil, xerrors.Errorf("cert at %d: %w", instance, ErrCertNotFound)
+		return nil, fmt.Errorf("cert at %d: %w", instance, ErrCertNotFound)
 	}
 	if err != nil {
-		return nil, xerrors.Errorf("accessing cert in datastore: %w", err)
+		return nil, fmt.Errorf("accessing cert in datastore: %w", err)
 	}
 
 	var c certs.FinalityCertificate
 	if err := c.UnmarshalCBOR(bytes.NewReader(b)); err != nil {
-		return nil, xerrors.Errorf("unmarshalling cert: %w", err)
+		return nil, fmt.Errorf("unmarshalling cert: %w", err)
 	}
 	return &c, err
 }
@@ -212,10 +211,10 @@ func (cs *Store) Get(ctx context.Context, instance uint64) (*certs.FinalityCerti
 // If it encounters missing cert, it returns a wrapped ErrCertNotFound and the available certs.
 func (cs *Store) GetRange(ctx context.Context, start uint64, end uint64) ([]certs.FinalityCertificate, error) {
 	if start > end {
-		return nil, xerrors.Errorf("start is larger then end: %d > %d", start, end)
+		return nil, fmt.Errorf("start is larger then end: %d > %d", start, end)
 	}
 	if end-start > uint64(math.MaxInt)-1 {
-		return nil, xerrors.Errorf("range %d to %d is too large", start, end)
+		return nil, fmt.Errorf("range %d to %d is too large", start, end)
 	}
 
 	bCerts := make([][]byte, 0, end-start+1)
@@ -226,7 +225,7 @@ func (cs *Store) GetRange(ctx context.Context, start uint64, end uint64) ([]cert
 			break
 		}
 		if err != nil {
-			return nil, xerrors.Errorf("accessing cert at %d for range request: %w", i, err)
+			return nil, fmt.Errorf("accessing cert at %d for range request: %w", i, err)
 		}
 
 		bCerts = append(bCerts, b)
@@ -236,12 +235,12 @@ func (cs *Store) GetRange(ctx context.Context, start uint64, end uint64) ([]cert
 	for j, bCert := range bCerts {
 		err := certs[j].UnmarshalCBOR(bytes.NewReader(bCert))
 		if err != nil {
-			return nil, xerrors.Errorf("unmarshalling a cert at j=%d, instance %d: %w", j, start+uint64(j), err)
+			return nil, fmt.Errorf("unmarshalling a cert at j=%d, instance %d: %w", j, start+uint64(j), err)
 		}
 	}
 
 	if len(certs) < cap(bCerts) {
-		return certs, xerrors.Errorf("cert at %d: %w", start+uint64(len(bCerts)), ErrCertNotFound)
+		return certs, fmt.Errorf("cert at %d: %w", start+uint64(len(bCerts)), ErrCertNotFound)
 	}
 	return certs, nil
 }
@@ -249,9 +248,9 @@ func (cs *Store) GetRange(ctx context.Context, start uint64, end uint64) ([]cert
 func (cs *Store) readPowerTable(ctx context.Context, instance uint64) (gpbft.PowerEntries, error) {
 	var powerTable gpbft.PowerEntries
 	if b, err := cs.ds.Get(ctx, cs.keyForPowerTable(instance)); err != nil {
-		return nil, xerrors.Errorf("failed to load power table at instance %d: %w", instance, err)
+		return nil, fmt.Errorf("failed to load power table at instance %d: %w", instance, err)
 	} else if err := powerTable.UnmarshalCBOR(bytes.NewReader(b)); err != nil {
-		return nil, xerrors.Errorf("failed to unmarshal power table at instance %d: %w", instance, err)
+		return nil, fmt.Errorf("failed to unmarshal power table at instance %d: %w", instance, err)
 	}
 	return powerTable, nil
 }
@@ -260,10 +259,10 @@ func (cs *Store) readPowerTable(ctx context.Context, instance uint64) (gpbft.Pow
 func (cs *Store) putPowerTable(ctx context.Context, instance uint64, powerTable gpbft.PowerEntries) error {
 	var buf bytes.Buffer
 	if err := powerTable.MarshalCBOR(&buf); err != nil {
-		return xerrors.Errorf("marshalling power table instance %d: %w", instance, err)
+		return fmt.Errorf("marshalling power table instance %d: %w", instance, err)
 	}
 	if err := cs.ds.Put(ctx, cs.keyForPowerTable(instance), buf.Bytes()); err != nil {
-		return xerrors.Errorf("putting power table instance %d: %w", instance, err)
+		return fmt.Errorf("putting power table instance %d: %w", instance, err)
 	}
 	return nil
 }
@@ -288,7 +287,7 @@ func (cs *Store) GetPowerTable(ctx context.Context, instance uint64) (gpbft.Powe
 
 	powerTable, err := cs.readPowerTable(ctx, startInstance)
 	if err != nil {
-		return nil, xerrors.Errorf("failed fo find expected power table for instance %d: %w", startInstance, err)
+		return nil, fmt.Errorf("failed fo find expected power table for instance %d: %w", startInstance, err)
 	}
 	if startInstance == instance {
 		return powerTable, nil
@@ -306,7 +305,7 @@ func (cs *Store) GetPowerTable(ctx context.Context, instance uint64) (gpbft.Powe
 	}
 	powerTable, err = certs.ApplyPowerTableDiffs(powerTable, deltas...)
 	if err != nil {
-		return nil, xerrors.Errorf("applying power deltas: %w", err)
+		return nil, fmt.Errorf("applying power deltas: %w", err)
 	}
 	return powerTable, err
 }
@@ -326,7 +325,7 @@ func (*Store) keyForPowerTable(i uint64) datastore.Key {
 // 2. More than one instance after the last certificate stored.
 func (cs *Store) Put(ctx context.Context, cert *certs.FinalityCertificate) error {
 	if cert.GPBFTInstance < cs.firstInstance {
-		return xerrors.Errorf("certificate store only stores certificates on or after instance %d", cs.firstInstance)
+		return fmt.Errorf("certificate store only stores certificates on or after instance %d", cs.firstInstance)
 	}
 
 	// Take a lock to ensure ordering.
@@ -338,7 +337,7 @@ func (cs *Store) Put(ctx context.Context, cert *certs.FinalityCertificate) error
 		nextCert = latestCert.GPBFTInstance + 1
 	}
 	if cert.GPBFTInstance > nextCert {
-		return xerrors.Errorf("attempted to add cert at %d, expected %d", cert.GPBFTInstance, nextCert)
+		return fmt.Errorf("attempted to add cert at %d, expected %d", cert.GPBFTInstance, nextCert)
 	}
 	if cert.GPBFTInstance < nextCert {
 		return nil
@@ -352,7 +351,7 @@ func (cs *Store) Put(ctx context.Context, cert *certs.FinalityCertificate) error
 		var err error
 		newPowerTable, err = certs.ApplyPowerTableDiffs(cs.latestPowerTable, cert.PowerTableDelta)
 		if err != nil {
-			return xerrors.Errorf("failed to apply power table delta for instance %d: %w", cert.GPBFTInstance, err)
+			return fmt.Errorf("failed to apply power table delta for instance %d: %w", cert.GPBFTInstance, err)
 		}
 	}
 
@@ -362,22 +361,22 @@ func (cs *Store) Put(ctx context.Context, cert *certs.FinalityCertificate) error
 	if ptCid, err := certs.MakePowerTableCID(newPowerTable); err != nil {
 		return err
 	} else if !bytes.Equal(ptCid, cert.SupplementalData.PowerTable) {
-		return xerrors.Errorf("new power table differs from expected power table")
+		return fmt.Errorf("new power table differs from expected power table")
 	}
 
 	// Double check that we're not killing the network.
 	if len(newPowerTable) == 0 {
-		return xerrors.Errorf("finality certificate for instance %d would empty the power table", cert.GPBFTInstance)
+		return fmt.Errorf("finality certificate for instance %d would empty the power table", cert.GPBFTInstance)
 	}
 
 	// Write the cert/power table.
 	var buf bytes.Buffer
 	if err := cert.MarshalCBOR(&buf); err != nil {
-		return xerrors.Errorf("marshalling cert instance %d: %w", cert.GPBFTInstance, err)
+		return fmt.Errorf("marshalling cert instance %d: %w", cert.GPBFTInstance, err)
 	}
 
 	if err := cs.ds.Put(ctx, cs.keyForCert(cert.GPBFTInstance), buf.Bytes()); err != nil {
-		return xerrors.Errorf("putting the cert: %w", err)
+		return fmt.Errorf("putting the cert: %w", err)
 	}
 
 	if cert.GPBFTInstance%cs.powerTableFrequency == 0 {
@@ -388,7 +387,7 @@ func (cs *Store) Put(ctx context.Context, cert *certs.FinalityCertificate) error
 
 	// Finally, advance the latest instance pointer (always do this last) and publish.
 	if err := cs.writeInstanceNumber(ctx, certStoreLatestKey, cert.GPBFTInstance); err != nil {
-		return xerrors.Errorf("putting recording the latest GPBFT instance: %w", err)
+		return fmt.Errorf("putting recording the latest GPBFT instance: %w", err)
 	}
 
 	cs.latestPowerTable = newPowerTable

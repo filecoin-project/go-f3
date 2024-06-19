@@ -1,8 +1,9 @@
 package gpbft
 
 import (
-	"github.com/ipfs/go-datastore"
 	"math/big"
+
+	"github.com/ipfs/go-datastore"
 )
 
 type ActorID uint64

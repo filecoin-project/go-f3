@@ -15,7 +15,6 @@ import (
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/filecoin-project/go-f3/sim/signing"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/xerrors"
 )
 
 const networkName = "f3test"
@@ -23,7 +22,7 @@ const networkName = "f3test"
 func makePowerTableCID(pt gpbft.PowerEntries) (gpbft.CID, error) {
 	var buf bytes.Buffer
 	if err := pt.MarshalCBOR(&buf); err != nil {
-		return nil, xerrors.Errorf("failed to serialize power table: %w", err)
+		return nil, fmt.Errorf("failed to serialize power table: %w", err)
 	}
 	return gpbft.MakeCid(buf.Bytes()), nil
 }

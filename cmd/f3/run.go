@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/filecoin-project/go-f3"
@@ -15,7 +16,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	"github.com/urfave/cli/v2"
-	"golang.org/x/xerrors"
 )
 
 const DiscoveryTag = "f3-standalone"
@@ -39,38 +39,38 @@ var runCmd = cli.Command{
 		ctx := c.Context
 		h, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/0.0.0.0/udp/0/quic-v1"))
 		if err != nil {
-			return xerrors.Errorf("creating libp2p host: %w", err)
+			return fmt.Errorf("creating libp2p host: %w", err)
 		}
 
 		ps, err := pubsub.NewGossipSub(ctx, h)
 		if err != nil {
-			return xerrors.Errorf("creating gossipsub: %w", err)
+			return fmt.Errorf("creating gossipsub: %w", err)
 		}
 
 		closer, err := setupDiscovery(h)
 		if err != nil {
-			return xerrors.Errorf("setting up discovery: %w", err)
+			return fmt.Errorf("setting up discovery: %w", err)
 		}
 		defer closer()
 
 		tmpdir, err := os.MkdirTemp("", "f3-*")
 		if err != nil {
-			return xerrors.Errorf("creating temp dir: %w", err)
+			return fmt.Errorf("creating temp dir: %w", err)
 		}
 
 		ds, err := leveldb.NewDatastore(tmpdir, nil)
 		if err != nil {
-			return xerrors.Errorf("creating a datastore: %w", err)
+			return fmt.Errorf("creating a datastore: %w", err)
 		}
 
 		m, err := getManifest(c)
 		if err != nil {
-			return xerrors.Errorf("loading manifest: %w", err)
+			return fmt.Errorf("loading manifest: %w", err)
 		}
 
 		err = logging.SetLogLevel("f3", "debug")
 		if err != nil {
-			return xerrors.Errorf("setting log level: %w", err)
+			return fmt.Errorf("setting log level: %w", err)
 		}
 
 		signingBackend := &fakeSigner{*signing.NewFakeBackend()}
@@ -81,7 +81,7 @@ var runCmd = cli.Command{
 		module, err := f3.New(ctx, gpbft.ActorID(id), m, ds, h, ps,
 			signingBackend, signingBackend, ec, log)
 		if err != nil {
-			return xerrors.Errorf("creating module: %w", err)
+			return fmt.Errorf("creating module: %w", err)
 		}
 
 		initialInstance := c.Uint64("instance")

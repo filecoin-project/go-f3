@@ -3,12 +3,12 @@ package f3
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"slices"
 	"time"
 
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
-	"golang.org/x/xerrors"
 )
 
 // gpbftRunner is responsible for running gpbft.Participant, taking in all concurrent events and
@@ -43,7 +43,7 @@ func newRunner(id gpbft.ActorID, m Manifest, client *client) (*gpbftRunner, erro
 	runner.log.Infof("starting host for P%d", id)
 	p, err := gpbft.NewParticipant((*gpbftHost)(runner), gpbft.WithTracer(client))
 	if err != nil {
-		return nil, xerrors.Errorf("creating participant: %w", err)
+		return nil, fmt.Errorf("creating participant: %w", err)
 	}
 	runner.participant = p
 	return runner, nil
@@ -59,7 +59,7 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 
 	err := h.participant.StartInstance(instance)
 	if err != nil {
-		return xerrors.Errorf("starting a participant: %w", err)
+		return fmt.Errorf("starting a participant: %w", err)
 	}
 
 	messageQueue := h.client.IncomingMessages()
@@ -82,7 +82,7 @@ loop:
 			err = h.participant.ReceiveAlarm()
 		case msg, ok := <-messageQueue:
 			if !ok {
-				err = xerrors.Errorf("incoming messsage queue closed")
+				err = fmt.Errorf("incoming messsage queue closed")
 				break loop
 			}
 			err = h.participant.ReceiveMessage(msg)
@@ -109,7 +109,7 @@ func (h *gpbftHost) collectChain(base TipSet, head TipSet) ([]TipSet, error) {
 		var err error
 		head, err = h.client.ec.GetParent(h.runningCtx, head)
 		if err != nil {
-			return nil, xerrors.Errorf("walking back the chain: %w", err)
+			return nil, fmt.Errorf("walking back the chain: %w", err)
 		}
 		res = append(res, head)
 	}
@@ -130,29 +130,29 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 		ts, err := h.client.ec.GetTipsetByEpoch(h.runningCtx,
 			h.manifest.BootstrapEpoch-h.manifest.ECFinality)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("getting boostrap base: %w", err)
+			return nil, nil, fmt.Errorf("getting boostrap base: %w", err)
 		}
 		baseTsk = ts.Key()
 	} else {
 		cert, err := h.client.certstore.Get(h.runningCtx, instance-1)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("getting cert for previous instance(%d): %w", instance-1, err)
+			return nil, nil, fmt.Errorf("getting cert for previous instance(%d): %w", instance-1, err)
 		}
 		baseTsk = cert.ECChain.Head().Key
 	}
 
 	baseTs, err := h.client.ec.GetTipset(h.runningCtx, baseTsk)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("getting base TS: %w", err)
+		return nil, nil, fmt.Errorf("getting base TS: %w", err)
 	}
 	headTs, err := h.client.ec.GetHead(h.runningCtx)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("getting head TS: %w", err)
+		return nil, nil, fmt.Errorf("getting head TS: %w", err)
 	}
 
 	collectedChain, err := h.collectChain(baseTs, headTs)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("collecting chain: %w", err)
+		return nil, nil, fmt.Errorf("collecting chain: %w", err)
 	}
 
 	base := gpbft.TipSet{
@@ -161,11 +161,11 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 	}
 	pte, err := h.client.ec.GetPowerTable(h.runningCtx, baseTs.Key())
 	if err != nil {
-		return nil, nil, xerrors.Errorf("getting power table for base: %w", err)
+		return nil, nil, fmt.Errorf("getting power table for base: %w", err)
 	}
 	base.PowerTable, err = certs.MakePowerTableCID(pte)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("computing powertable CID for base: %w", err)
+		return nil, nil, fmt.Errorf("computing powertable CID for base: %w", err)
 	}
 
 	suffix := make([]gpbft.TipSet, min(gpbft.CHAIN_MAX_LEN-1, len(collectedChain))) // -1 because of base
@@ -175,27 +175,27 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 
 		pte, err = h.client.ec.GetPowerTable(h.runningCtx, suffix[i].Key)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("getting power table for suffix %d: %w", i, err)
+			return nil, nil, fmt.Errorf("getting power table for suffix %d: %w", i, err)
 		}
 		suffix[i].PowerTable, err = certs.MakePowerTableCID(pte)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("computing powertable CID for base: %w", err)
+			return nil, nil, fmt.Errorf("computing powertable CID for base: %w", err)
 		}
 	}
 	chain, err := gpbft.NewChain(base, suffix...)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("making new chain: %w", err)
+		return nil, nil, fmt.Errorf("making new chain: %w", err)
 	}
 
 	var supplData gpbft.SupplementalData
 	pt, _, err := h.GetCommitteeForInstance(instance + 1)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("getting commite for %d: %w", instance+1, err)
+		return nil, nil, fmt.Errorf("getting commite for %d: %w", instance+1, err)
 	}
 
 	supplData.PowerTable, err = certs.MakePowerTableCID(pt.Entries)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("making power table cid for supplemental data: %w", err)
+		return nil, nil, fmt.Errorf("making power table cid for supplemental data: %w", err)
 	}
 
 	return &supplData, chain, nil
@@ -210,17 +210,17 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 		//boostrap phase
 		ts, err := h.client.ec.GetTipsetByEpoch(h.runningCtx, h.manifest.BootstrapEpoch-h.manifest.ECFinality)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("getting tipset for boostrap epoch with lookback: %w", err)
+			return nil, nil, fmt.Errorf("getting tipset for boostrap epoch with lookback: %w", err)
 		}
 		powerTsk = ts.Key()
 		powerEntries, err = h.client.ec.GetPowerTable(h.runningCtx, powerTsk)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("getting power table: %w", err)
+			return nil, nil, fmt.Errorf("getting power table: %w", err)
 		}
 	} else {
 		cert, err := h.client.certstore.Get(h.runningCtx, instance-h.manifest.CommiteeLookback)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("getting finality certificate: %w", err)
+			return nil, nil, fmt.Errorf("getting finality certificate: %w", err)
 		}
 		powerTsk = cert.ECChain.Head().Key
 
@@ -231,20 +231,20 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 
 			powerEntries, err = h.client.ec.GetPowerTable(h.runningCtx, powerTsk)
 			if err != nil {
-				return nil, nil, xerrors.Errorf("getting power table: %w", err)
+				return nil, nil, fmt.Errorf("getting power table: %w", err)
 			}
 		}
 	}
 
 	ts, err := h.client.ec.GetTipset(h.runningCtx, powerTsk)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("getting tipset: %w", err)
+		return nil, nil, fmt.Errorf("getting tipset: %w", err)
 	}
 
 	table := gpbft.NewPowerTable()
 	err = table.Add(powerEntries...)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("adding entries to power table: %w", err)
+		return nil, nil, fmt.Errorf("adding entries to power table: %w", err)
 	}
 
 	return table, ts.Beacon(), nil
@@ -308,27 +308,27 @@ func (h *gpbftHost) saveDecision(decision *gpbft.Justification) error {
 	instance := decision.Vote.Instance
 	current, _, err := h.GetCommitteeForInstance(instance)
 	if err != nil {
-		return xerrors.Errorf("getting commitee for current instance %d: %w", instance, err)
+		return fmt.Errorf("getting commitee for current instance %d: %w", instance, err)
 	}
 
 	next, _, err := h.GetCommitteeForInstance(instance + 1)
 	if err != nil {
-		return xerrors.Errorf("getting commitee for next instance %d: %w", instance+1, err)
+		return fmt.Errorf("getting commitee for next instance %d: %w", instance+1, err)
 	}
 	powerDiff := certs.MakePowerTableDiff(current.Entries, next.Entries)
 
 	cert, err := certs.NewFinalityCertificate(powerDiff, decision)
 	if err != nil {
-		return xerrors.Errorf("forming certificate out of decision: %w", err)
+		return fmt.Errorf("forming certificate out of decision: %w", err)
 	}
 	_, _, _, err = certs.ValidateFinalityCertificates(h, h.NetworkName(), current.Entries, decision.Vote.Instance, cert.ECChain.Base())
 	if err != nil {
-		return xerrors.Errorf("certificate is invalid: %w", err)
+		return fmt.Errorf("certificate is invalid: %w", err)
 	}
 
 	err = h.client.certstore.Put(h.runningCtx, cert)
 	if err != nil {
-		return xerrors.Errorf("saving ceritifcate in a store: %w", err)
+		return fmt.Errorf("saving ceritifcate in a store: %w", err)
 	}
 	return nil
 }

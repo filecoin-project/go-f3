@@ -8,13 +8,13 @@ import (
 	"math"
 	"sort"
 
+	big "math/big"
+
 	cid "github.com/ipfs/go-cid"
 	cbg "github.com/whyrusleeping/cbor-gen"
-	xerrors "golang.org/x/xerrors"
-	big "math/big"
 )
 
-var _ = xerrors.Errorf
+var _ = fmt.Errorf
 var _ = cid.Undef
 var _ = math.E
 var _ = sort.Sort
@@ -46,7 +46,7 @@ func (t *TipSet) MarshalCBOR(w io.Writer) error {
 
 	// t.Key ([]uint8) (slice)
 	if len(t.Key) > 760 {
-		return xerrors.Errorf("Byte array in field t.Key was too long")
+		return fmt.Errorf("Byte array in field t.Key was too long")
 	}
 
 	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.Key))); err != nil {
@@ -59,7 +59,7 @@ func (t *TipSet) MarshalCBOR(w io.Writer) error {
 
 	// t.PowerTable ([]uint8) (slice)
 	if len(t.PowerTable) > 38 {
-		return xerrors.Errorf("Byte array in field t.PowerTable was too long")
+		return fmt.Errorf("Byte array in field t.PowerTable was too long")
 	}
 
 	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.PowerTable))); err != nil {
@@ -72,7 +72,7 @@ func (t *TipSet) MarshalCBOR(w io.Writer) error {
 
 	// t.Commitments ([32]uint8) (array)
 	if len(t.Commitments) > 2097152 {
-		return xerrors.Errorf("Byte array in field t.Commitments was too long")
+		return fmt.Errorf("Byte array in field t.Commitments was too long")
 	}
 
 	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.Commitments))); err != nil {
@@ -228,7 +228,7 @@ func (t *GMessage) MarshalCBOR(w io.Writer) error {
 
 	// t.Signature ([]uint8) (slice)
 	if len(t.Signature) > 2097152 {
-		return xerrors.Errorf("Byte array in field t.Signature was too long")
+		return fmt.Errorf("Byte array in field t.Signature was too long")
 	}
 
 	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.Signature))); err != nil {
@@ -241,7 +241,7 @@ func (t *GMessage) MarshalCBOR(w io.Writer) error {
 
 	// t.Ticket (gpbft.Ticket) (slice)
 	if len(t.Ticket) > 2097152 {
-		return xerrors.Errorf("Byte array in field t.Ticket was too long")
+		return fmt.Errorf("Byte array in field t.Ticket was too long")
 	}
 
 	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.Ticket))); err != nil {
@@ -301,7 +301,7 @@ func (t *GMessage) UnmarshalCBOR(r io.Reader) (err error) {
 	{
 
 		if err := t.Vote.UnmarshalCBOR(cr); err != nil {
-			return xerrors.Errorf("unmarshaling t.Vote: %w", err)
+			return fmt.Errorf("unmarshaling t.Vote: %w", err)
 		}
 
 	}
@@ -363,7 +363,7 @@ func (t *GMessage) UnmarshalCBOR(r io.Reader) (err error) {
 			}
 			t.Justification = new(Justification)
 			if err := t.Justification.UnmarshalCBOR(cr); err != nil {
-				return xerrors.Errorf("unmarshaling t.Justification pointer: %w", err)
+				return fmt.Errorf("unmarshaling t.Justification pointer: %w", err)
 			}
 		}
 
@@ -387,7 +387,7 @@ func (t *SupplementalData) MarshalCBOR(w io.Writer) error {
 
 	// t.Commitments ([32]uint8) (array)
 	if len(t.Commitments) > 2097152 {
-		return xerrors.Errorf("Byte array in field t.Commitments was too long")
+		return fmt.Errorf("Byte array in field t.Commitments was too long")
 	}
 
 	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.Commitments))); err != nil {
@@ -400,7 +400,7 @@ func (t *SupplementalData) MarshalCBOR(w io.Writer) error {
 
 	// t.PowerTable ([]uint8) (slice)
 	if len(t.PowerTable) > 38 {
-		return xerrors.Errorf("Byte array in field t.PowerTable was too long")
+		return fmt.Errorf("Byte array in field t.PowerTable was too long")
 	}
 
 	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.PowerTable))); err != nil {
@@ -521,7 +521,7 @@ func (t *Payload) MarshalCBOR(w io.Writer) error {
 
 	// t.Value (gpbft.ECChain) (slice)
 	if len(t.Value) > 8192 {
-		return xerrors.Errorf("Slice value in field t.Value was too long")
+		return fmt.Errorf("Slice value in field t.Value was too long")
 	}
 
 	if err := cw.WriteMajorTypeHeader(cbg.MajArray, uint64(len(t.Value))); err != nil {
@@ -605,7 +605,7 @@ func (t *Payload) UnmarshalCBOR(r io.Reader) (err error) {
 	{
 
 		if err := t.SupplementalData.UnmarshalCBOR(cr); err != nil {
-			return xerrors.Errorf("unmarshaling t.SupplementalData: %w", err)
+			return fmt.Errorf("unmarshaling t.SupplementalData: %w", err)
 		}
 
 	}
@@ -640,7 +640,7 @@ func (t *Payload) UnmarshalCBOR(r io.Reader) (err error) {
 			{
 
 				if err := t.Value[i].UnmarshalCBOR(cr); err != nil {
-					return xerrors.Errorf("unmarshaling t.Value[i]: %w", err)
+					return fmt.Errorf("unmarshaling t.Value[i]: %w", err)
 				}
 
 			}
@@ -676,7 +676,7 @@ func (t *Justification) MarshalCBOR(w io.Writer) error {
 
 	// t.Signature ([]uint8) (slice)
 	if len(t.Signature) > 2097152 {
-		return xerrors.Errorf("Byte array in field t.Signature was too long")
+		return fmt.Errorf("Byte array in field t.Signature was too long")
 	}
 
 	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.Signature))); err != nil {
@@ -718,7 +718,7 @@ func (t *Justification) UnmarshalCBOR(r io.Reader) (err error) {
 	{
 
 		if err := t.Vote.UnmarshalCBOR(cr); err != nil {
-			return xerrors.Errorf("unmarshaling t.Vote: %w", err)
+			return fmt.Errorf("unmarshaling t.Vote: %w", err)
 		}
 
 	}
@@ -727,7 +727,7 @@ func (t *Justification) UnmarshalCBOR(r io.Reader) (err error) {
 	{
 
 		if err := t.Signers.UnmarshalCBOR(cr); err != nil {
-			return xerrors.Errorf("unmarshaling t.Signers: %w", err)
+			return fmt.Errorf("unmarshaling t.Signers: %w", err)
 		}
 
 	}
@@ -796,7 +796,7 @@ func (t *PowerEntry) MarshalCBOR(w io.Writer) error {
 
 	// t.PubKey (gpbft.PubKey) (slice)
 	if len(t.PubKey) > 2097152 {
-		return xerrors.Errorf("Byte array in field t.PubKey was too long")
+		return fmt.Errorf("Byte array in field t.PubKey was too long")
 	}
 
 	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.PubKey))); err != nil {
@@ -910,7 +910,7 @@ func (t *PowerEntries) MarshalCBOR(w io.Writer) error {
 
 	// (*t) (gpbft.PowerEntries) (slice)
 	if len((*t)) > 8192 {
-		return xerrors.Errorf("Slice value in field (*t) was too long")
+		return fmt.Errorf("Slice value in field (*t) was too long")
 	}
 
 	if err := cw.WriteMajorTypeHeader(cbg.MajArray, uint64(len((*t)))); err != nil {
@@ -964,7 +964,7 @@ func (t *PowerEntries) UnmarshalCBOR(r io.Reader) (err error) {
 			{
 
 				if err := (*t)[i].UnmarshalCBOR(cr); err != nil {
-					return xerrors.Errorf("unmarshaling (*t)[i]: %w", err)
+					return fmt.Errorf("unmarshaling (*t)[i]: %w", err)
 				}
 
 			}

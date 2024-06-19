@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/filecoin-project/go-f3/certstore"
@@ -17,7 +18,6 @@ import (
 	peer "github.com/libp2p/go-libp2p/core/peer"
 
 	"go.uber.org/multierr"
-	"golang.org/x/xerrors"
 )
 
 type F3 struct {
@@ -65,7 +65,7 @@ func (mc *client) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder
 	}
 	err = mc.topic.Publish(ctx, bw.Bytes())
 	if err != nil {
-		return xerrors.Errorf("publishing on topic: %w", err)
+		return fmt.Errorf("publishing on topic: %w", err)
 	}
 	return nil
 
@@ -93,7 +93,7 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 	ds = namespace.Wrap(ds, manifest.NetworkName.DatastorePrefix())
 	cs, err := certstore.OpenOrCreateStore(ctx, ds, 0, manifest.InitialPowerTable)
 	if err != nil {
-		return nil, xerrors.Errorf("creating CertStore: %w", err)
+		return nil, fmt.Errorf("creating CertStore: %w", err)
 	}
 	loggerWithSkip := log
 	if zapLogger, ok := log.(*logging.ZapEventLogger); ok {
@@ -152,12 +152,12 @@ func (m *F3) setupPubsub(runner *gpbftRunner) error {
 
 	err := m.pubsub.RegisterTopicValidator(pubsubTopicName, validator)
 	if err != nil {
-		return xerrors.Errorf("registering topic validator: %w", err)
+		return fmt.Errorf("registering topic validator: %w", err)
 	}
 
 	topic, err := m.pubsub.Join(pubsubTopicName)
 	if err != nil {
-		return xerrors.Errorf("could not join on pubsub topic: %s: %w", pubsubTopicName, err)
+		return fmt.Errorf("could not join on pubsub topic: %s: %w", pubsubTopicName, err)
 	}
 	m.client.topic = topic
 	return nil
@@ -177,16 +177,16 @@ func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 
 	runner, err := newRunner(m.client.id, m.Manifest, m.client)
 	if err != nil {
-		return xerrors.Errorf("creating gpbft host: %w", err)
+		return fmt.Errorf("creating gpbft host: %w", err)
 	}
 
 	if err := m.setupPubsub(runner); err != nil {
-		return xerrors.Errorf("setting up pubsub: %w", err)
+		return fmt.Errorf("setting up pubsub: %w", err)
 	}
 
 	sub, err := m.client.topic.Subscribe()
 	if err != nil {
-		return xerrors.Errorf("subscribing to topic: %w", err)
+		return fmt.Errorf("subscribing to topic: %w", err)
 	}
 
 	messageQueue := make(chan gpbft.ValidatedMessage, 20)
@@ -229,7 +229,7 @@ loop:
 
 	sub.Cancel()
 	if err2 := m.teardownPubsub(); err2 != nil {
-		err = multierr.Append(err, xerrors.Errorf("shutting down pubsub: %w", err2))
+		err = multierr.Append(err, fmt.Errorf("shutting down pubsub: %w", err2))
 	}
 	return multierr.Append(err, ctx.Err())
 }
