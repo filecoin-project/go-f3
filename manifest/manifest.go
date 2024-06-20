@@ -38,7 +38,7 @@ var (
 	}
 )
 
-type OnManifestChange func(ctx context.Context, initialInstance uint64, rebootstrap bool, errCh chan error)
+type OnManifestChange func(ctx context.Context, prevManifest Manifest, errCh chan error)
 
 type ManifestProvider interface {
 	// Run starts any background tasks required for the operation
@@ -46,10 +46,6 @@ type ManifestProvider interface {
 	Run(context.Context, chan error)
 	// Returns the list of gpbft options to be used for gpbft configuration
 	GpbftOptions() []gpbft.Option
-	// manifest queue used by the runner to get notifications about when a
-	// new manifest has been accepted.
-	// Only the gpbft runner is expected to subscribe to this queue.
-	ManifestQueue() <-chan struct{}
 	// Set callback to trigger to apply new manifests from F3.
 	SetManifestChangeCallback(OnManifestChange)
 	// Manifest accessor
@@ -100,7 +96,7 @@ type Manifest struct {
 	*EcConfig
 }
 
-func LocalDevnettManifest() Manifest {
+func LocalDevnetManifest() Manifest {
 	rng := make([]byte, 4)
 	_, _ = rand.Read(rng)
 	m := Manifest{

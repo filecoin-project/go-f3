@@ -65,24 +65,9 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 		return xerrors.Errorf("starting a participant: %w", err)
 	}
 
-	manifestUpdates := h.manifest.ManifestQueue()
+	messageQueue := h.client.IncomingMessages()
 loop:
 	for {
-		// we need to retrieve the queue again in every
-		// iteration in case there has been a manifest change
-		// and we are subscribed to a new topic
-		messageQueue := h.client.IncomingMessages()
-
-		// if there is a manifest update handle it immediately
-		select {
-		case <-manifestUpdates:
-			// TODO: Perform configuration changes to the runner host
-			// - Power table updates
-			// - MaxLookBack and ECStabilizationDelay
-			// i.e. anything that doesn't require a re-bootstrap.
-			continue
-		default:
-		}
 
 		// prioritise alarm delivery
 		// although there is no guarantee that alarm won't fire between

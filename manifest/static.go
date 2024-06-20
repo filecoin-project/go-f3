@@ -47,10 +47,6 @@ func (m *StaticManifestProvider) InitialPowerTable() []gpbft.PowerEntry {
 	return m.manifest.InitialPowerTable
 }
 
-func (m *StaticManifestProvider) ManifestQueue() <-chan struct{} {
-	return nil
-}
-
 func (m *StaticManifestProvider) Run(ctx context.Context, errCh chan error) {}
 
 func (m *StaticManifestProvider) SetManifestChangeCallback(mc OnManifestChange) {}

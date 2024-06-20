@@ -24,7 +24,6 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/xerrors"
 )
@@ -40,10 +39,6 @@ func TestSimpleF3(t *testing.T) {
 	env := newTestEnvironment(t, 2, false)
 
 	initialInstance := uint64(0)
-
-	// For some reason, peers do not discover each other through MDNS
-	// so I decided to connect them manually to ensure that they are connected
-	// for the test.
 	env.Connect(ctx)
 	env.Run(ctx, initialInstance)
 	// Small wait for nodes to initialize. In the future we can probably
@@ -60,9 +55,13 @@ func TestDynamicManifestWithoutChanges(t *testing.T) {
 
 	env.Connect(ctx)
 	env.Run(ctx, initialInstance)
+	prev := env.nodes[0].f3.Manifest.Manifest()
 	time.Sleep(1 * time.Second)
 
 	env.waitForInstanceNumber(ctx, 5, 10*time.Second)
+	// no changes in manifest
+	require.Equal(t, prev, env.nodes[0].f3.Manifest.Manifest())
+	env.requireEqualManifests()
 }
 
 func TestDynamicManifestWithRebootstrap(t *testing.T) {
@@ -75,44 +74,43 @@ func TestDynamicManifestWithRebootstrap(t *testing.T) {
 	env.Run(ctx, initialInstance)
 	time.Sleep(1 * time.Second)
 
-	env.manifest.BootstrapEpoch = 5
+	prev := env.nodes[0].f3.Manifest.Manifest()
+
+	env.waitForInstanceNumber(ctx, 3, 15*time.Second)
+	prevInstance := env.nodes[0].f3.CurrentGpbftInstace()
+
+	// Update the manifest. Bootstrap from an epoch over
+	// 953 so we start receiving a new head from fakeEC
+	// every second
+	env.manifest.BootstrapEpoch = 953
 	env.manifest.Sequence = 1
+	env.manifest.ReBootstrap = true
 	env.manifestSender.UpdateManifest(&env.manifest)
-	// FIXME:
-	// env.ec.genTipset(5)
 
-	env.waitForInstanceNumber(ctx, 10, 30*time.Second)
+	env.waitForManifestChange(ctx, prev, 15*time.Second)
 
-	time.Sleep(10 * ManifestSenderTimeout)
-	env.waitForInstanceNumber(ctx, 3, 30*time.Second)
-	require.True(t, env.nodes[0].f3.CurrentGpbftInstace() < 10)
-
-	// TODO: Check that the network name has changed.
-	// TODO: Currently WIP
-
-	// I need to trigger changes in the current epoch to trigger the manifest change
-	// Check that the instance number is restarted and the pubsub topic is refreshed to
-	// the right name.
+	// check that it rebootstrapped and the number of instances is below prevInstance
+	require.True(t, env.nodes[0].f3.CurrentGpbftInstace() < prevInstance)
+	env.waitForInstanceNumber(ctx, 3, 15*time.Second)
+	require.NotEqual(t, prev, env.nodes[0].f3.Manifest.Manifest())
+	env.requireEqualManifests()
 }
 
 const DiscoveryTag = "f3-standalone-testing"
 
 var baseManifest manifest.Manifest = manifest.Manifest{
 	Sequence:       0,
-	BootstrapEpoch: 1000,
+	BootstrapEpoch: 950,
 	ReBootstrap:    true,
-	NetworkName:    gpbft.NetworkName("test"),
-	GpbftConfig: &manifest.GpbftConfig{
-		Delta:                3,
-		DeltaBackOffExponent: 2.0,
-		MaxLookaheadRounds:   10,
-	},
+	NetworkName:    gpbft.NetworkName("f3-test"),
+	GpbftConfig:    manifest.DefaultGpbftConfig,
+	// EcConfig:       manifest.DefaultEcConfig,
 	EcConfig: &manifest.EcConfig{
-		ECFinality:       900,
+		ECFinality:       10,
 		CommiteeLookback: 5,
-		ECDelay:          30 * time.Second,
+		ECDelay:          1 * time.Second,
 
-		ECPeriod: 30 * time.Second,
+		ECPeriod: 1 * time.Second,
 	},
 }
 
@@ -142,6 +140,30 @@ func (t *testEnv) waitForInstanceNumber(ctx context.Context, instanceNumber uint
 			reached := 0
 			for i := 0; i < len(t.nodes); i++ {
 				if t.nodes[i].f3.CurrentGpbftInstace() >= instanceNumber {
+					reached++
+				}
+				if reached == len(t.nodes) {
+					return
+				}
+			}
+			time.Sleep(time.Second)
+		}
+	}
+}
+
+func (t *testEnv) waitForManifestChange(ctx context.Context, prev manifest.Manifest, timeout time.Duration) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	for {
+		select {
+		case <-ctx.Done():
+			t.t.Fatal("manifest change not reached before timeout")
+		default:
+			reached := 0
+			for i := 0; i < len(t.nodes); i++ {
+				v1, _ := t.nodes[i].f3.Manifest.Manifest().Version()
+				v2, _ := prev.Version()
+				if v1 != v2 {
 					reached++
 				}
 				if reached == len(t.nodes) {
@@ -186,6 +208,13 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) testEnv {
 		env.nodes = append(env.nodes, n)
 	}
 	return env
+}
+
+func (e *testEnv) requireEqualManifests() {
+	m := e.nodes[0].f3.Manifest
+	for _, n := range e.nodes {
+		require.Equal(e.t, n.f3.Manifest.Manifest(), m.Manifest())
+	}
 }
 
 func (e *testEnv) Run(ctx context.Context, initialInstance uint64) {
@@ -236,10 +265,6 @@ func (e *testEnv) newManifestSender(ctx context.Context) {
 	ps, err := pubsub.NewGossipSub(ctx, h)
 	require.NoError(e.t, err)
 
-	closer, err := setupDiscovery(h)
-	require.NoError(e.t, err)
-	defer closer()
-
 	e.manifestSender, err = passive.NewManifestSender(h, ps, &e.manifest, ManifestSenderTimeout)
 	require.NoError(e.t, err)
 }
@@ -254,12 +279,6 @@ func (e *testEnv) newF3Instance(ctx context.Context, id int, manifestServer peer
 	if err != nil {
 		return nil, xerrors.Errorf("creating gossipsub: %w", err)
 	}
-
-	closer, err := setupDiscovery(h)
-	if err != nil {
-		return nil, xerrors.Errorf("setting up discovery: %w", err)
-	}
-	defer closer()
 
 	tmpdir, err := os.MkdirTemp("", "f3-*")
 	if err != nil {
@@ -291,22 +310,4 @@ func (e *testEnv) newF3Instance(ctx context.Context, id int, manifestServer peer
 
 	mprovider.SetManifestChangeCallback(f3.ManifestChangeCallback(module))
 	return &testNode{h, module}, nil
-}
-
-type discoveryNotifee struct {
-	h host.Host
-}
-
-func (n *discoveryNotifee) HandlePeerFound(pi peer.AddrInfo) {
-	fmt.Printf("discovered new peer %s\n", pi.ID)
-	err := n.h.Connect(context.Background(), pi)
-	if err != nil {
-		fmt.Printf("error connecting to peer %s: %s\n", pi.ID, err)
-	}
-}
-
-func setupDiscovery(h host.Host) (closer func(), err error) {
-	// setup mDNS discovery to find local peers
-	s := mdns.NewMdnsService(h, DiscoveryTag, &discoveryNotifee{h: h})
-	return func() { s.Close() }, s.Start()
 }

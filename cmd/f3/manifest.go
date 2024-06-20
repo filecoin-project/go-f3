@@ -31,7 +31,7 @@ var manifestGenCmd = cli.Command{
 
 	Action: func(c *cli.Context) error {
 		path := c.String("manifest")
-		m := manifest.LocalDevnettManifest()
+		m := manifest.LocalDevnetManifest()
 
 		fsig := signing.NewFakeBackend()
 		for i := 0; i < c.Int("N"); i++ {

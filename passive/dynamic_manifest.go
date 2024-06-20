@@ -19,6 +19,7 @@ var log = logging.Logger("f3-dynamic-manifest")
 
 const (
 	ManifestPubSubTopicName = "/f3/manifests/0.0.1"
+	ManifestCheckTick       = 5 * time.Second
 )
 
 var _ manifest.ManifestProvider = (*DynamicManifestProvider)(nil)
@@ -34,7 +35,6 @@ type DynamicManifestProvider struct {
 	// these are populate in runtime
 	onManifestChange manifest.OnManifestChange
 	nextManifest     *manifest.Manifest
-	manifestUpdates  <-chan struct{}
 	manifestTopic    *pubsub.Topic
 }
 
@@ -55,35 +55,29 @@ func (m *DynamicManifestProvider) GpbftOptions() []gpbft.Option {
 	return m.manifest.GpbftOptions()
 }
 
-func (m *DynamicManifestProvider) ManifestQueue() <-chan struct{} {
-	return m.manifestUpdates
-}
-
 func (m *DynamicManifestProvider) SetManifestChangeCallback(mc manifest.OnManifestChange) {
 	m.onManifestChange = mc
 }
 
-// Returns the pubsub topic name for the manifest
-// which includes a version subpath that allows to unique
-// identify the configuration manifest used for the network.
-func (m *DynamicManifestProvider) PubSubTopic() string {
+// When a manifest configuration changes, a new network name
+// is set that depends on the manifest version of the previous version to avoid
+// overlapping previous configurations.
+func (m *DynamicManifestProvider) networkNameOnChange() gpbft.NetworkName {
 	v, _ := m.manifest.Version()
-	return m.manifest.PubSubTopic() + string(v)
+	return gpbft.NetworkName(string(m.manifest.NetworkName) + "/" + string(v))
 }
 
 func (m *DynamicManifestProvider) Run(ctx context.Context, errCh chan error) {
 	if m.onManifestChange == nil {
 		errCh <- xerrors.New("onManifestChange is nil. Callback for manifest change required")
 	}
-	manifestQueue := make(chan struct{}, 5)
-	m.manifestUpdates = manifestQueue
 	go m.handleIncomingManifests(ctx, errCh)
-	m.handleApplyManifest(ctx, manifestQueue, errCh)
+	m.handleApplyManifest(ctx, errCh)
 }
 
-func (m *DynamicManifestProvider) handleApplyManifest(ctx context.Context, manifestQueue chan struct{}, errCh chan error) {
+func (m *DynamicManifestProvider) handleApplyManifest(ctx context.Context, errCh chan error) {
 	// add a timer for EC period
-	ticker := time.NewTicker(m.manifest.ECPeriod)
+	ticker := time.NewTicker(ManifestCheckTick)
 	defer ticker.Stop()
 
 	for {
@@ -98,24 +92,16 @@ func (m *DynamicManifestProvider) handleApplyManifest(ctx context.Context, manif
 
 				// if the upgrade epoch is reached or already passed.
 				if ts.Epoch() >= m.nextManifest.BootstrapEpoch {
+					log.Debugf("reached bootstrap epoch, triggering manifest change: %d", ts.Epoch())
 					// update the current manifest
+					prevManifest := m.manifest
 					m.manifest = *m.nextManifest
+					nn := m.networkNameOnChange()
+					m.manifest.NetworkName = nn
 					m.nextManifest = nil
 					// stop existing pubsub and subscribe to the new one
 					// if the re-bootstrap flag is enabled, it will setup a new runner with the new config.
-					go m.onManifestChange(ctx, uint64(m.manifest.BootstrapEpoch), m.nextManifest.ReBootstrap, errCh)
-					if !m.nextManifest.ReBootstrap {
-						// TODO: If the manifest doesn't have the re-bootstrap flagged
-						// enabled, no new runner is setup, we reuse the existing one.
-						// We need to pass the manifest to the runner to notify
-						// that there is a new configuration to be applied without
-						// restarting the runner.
-						// Some of the configurations that we expect to run in this way are
-						// - Updates to the power table
-						// - ECStabilisationDelay
-						// - more?
-						manifestQueue <- struct{}{}
-					}
+					go m.onManifestChange(ctx, prevManifest, errCh)
 					continue
 				}
 			}
