@@ -269,7 +269,9 @@ loop:
 		}
 	}
 
-	m.teardownPubsub(m.Manifest.Manifest())
+	if err := m.teardownPubsub(m.Manifest.Manifest()); err != nil {
+		m.log.Errorf("tearing down message pubsub returned an error: %+v", err)
+	}
 }
 
 // Callback to be triggered when there is a dynamic manifest change
