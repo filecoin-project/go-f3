@@ -69,47 +69,23 @@ func (mt *MessageBuilder) Build(networkName NetworkName, signer SignerWithMarsha
 		return nil, xerrors.Errorf("preparing signing inputs: %w", err)
 	}
 
-	payloadSig, vrf, err := st.sign(signer)
+	payloadSig, vrf, err := st.Sign(signer)
 	if err != nil {
 		return nil, xerrors.Errorf("signing message builder: %w", err)
 	}
 
-	return st.build(payloadSig, vrf), nil
+	return st.Build(payloadSig, vrf), nil
 }
 
 type SignatureBuilder struct {
 	NetworkName NetworkName
 
-	participantID ActorID
-	payload       Payload
-	justification *Justification
-	pubKey        PubKey
-	payloadToSign []byte
-	vrfToSign     []byte
-}
-
-func (sb *SignatureBuilder) ParticipantID() ActorID {
-	return sb.participantID
-}
-
-func (sb *SignatureBuilder) Payload() Payload {
-	return sb.payload
-}
-
-func (sb *SignatureBuilder) Justification() *Justification {
-	return sb.justification
-}
-
-func (sb *SignatureBuilder) PubKey() PubKey {
-	return sb.pubKey
-}
-
-func (sb *SignatureBuilder) PayloadToSign() []byte {
-	return sb.payloadToSign
-}
-
-func (sb *SignatureBuilder) VRFToSign() []byte {
-	return sb.vrfToSign
+	ParticipantID ActorID
+	Payload       Payload
+	Justification *Justification
+	PubKey        PubKey
+	PayloadToSign []byte
+	VrfToSign     []byte
 }
 
 func (mt *MessageBuilder) PrepareSigningInputs(msh SigningMarshaler, networkName NetworkName, id ActorID) (*SignatureBuilder, error) {
@@ -118,17 +94,17 @@ func (mt *MessageBuilder) PrepareSigningInputs(msh SigningMarshaler, networkName
 		return nil, xerrors.Errorf("could not find pubkey for actor %d: %w", id, ErrNoPower)
 	}
 	sb := SignatureBuilder{
-		participantID: id,
+		ParticipantID: id,
 		NetworkName:   networkName,
-		payload:       mt.payload,
-		justification: mt.justification,
+		Payload:       mt.payload,
+		Justification: mt.justification,
 
-		pubKey: pubKey,
+		PubKey: pubKey,
 	}
 
-	sb.payloadToSign = msh.MarshalPayloadForSigning(networkName, &mt.payload)
+	sb.PayloadToSign = msh.MarshalPayloadForSigning(networkName, &mt.payload)
 	if mt.beaconForTicket != nil {
-		sb.vrfToSign = vrfSerializeSigInput(mt.beaconForTicket, mt.payload.Instance, mt.payload.Round, networkName)
+		sb.VrfToSign = vrfSerializeSigInput(mt.beaconForTicket, mt.payload.Instance, mt.payload.Round, networkName)
 	}
 	return &sb, nil
 }
@@ -145,14 +121,14 @@ func NewMessageBuilderWithPowerTable(power *PowerTable) *MessageBuilder {
 
 // Sign creates the signed payload from the signature builder and returns the payload
 // and VRF signatures. These signatures can be used independent from the builder.
-func (st *SignatureBuilder) sign(signer Signer) ([]byte, []byte, error) {
-	payloadSignature, err := signer.Sign(st.pubKey, st.payloadToSign)
+func (st *SignatureBuilder) Sign(signer Signer) ([]byte, []byte, error) {
+	payloadSignature, err := signer.Sign(st.PubKey, st.PayloadToSign)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("signing payload: %w", err)
 	}
 	var vrf []byte
-	if st.vrfToSign != nil {
-		vrf, err = signer.Sign(st.pubKey, st.vrfToSign)
+	if st.VrfToSign != nil {
+		vrf, err = signer.Sign(st.PubKey, st.VrfToSign)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("signing vrf: %w", err)
 		}
@@ -161,12 +137,12 @@ func (st *SignatureBuilder) sign(signer Signer) ([]byte, []byte, error) {
 }
 
 // Build takes the template and signatures and builds GMessage out of them
-func (st *SignatureBuilder) build(payloadSignature []byte, vrf []byte) *GMessage {
+func (st *SignatureBuilder) Build(payloadSignature []byte, vrf []byte) *GMessage {
 	return &GMessage{
-		Sender:        st.participantID,
-		Vote:          st.payload,
+		Sender:        st.ParticipantID,
+		Vote:          st.Payload,
 		Signature:     payloadSignature,
 		Ticket:        vrf,
-		Justification: st.justification,
+		Justification: st.Justification,
 	}
 }

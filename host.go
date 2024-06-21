@@ -334,7 +334,7 @@ func (h *gpbftHost) saveDecision(decision *gpbft.Justification) error {
 // This should usually call `Payload.MarshalForSigning(NetworkName)` except when testing as
 // that method is slow (computes a merkle tree that's necessary for testing).
 func (h *gpbftHost) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Payload) []byte {
-	return h.client.MarshalPayloadForSigning(nn, p)
+	return p.MarshalForSigning(nn)
 }
 
 // Verifies a signature for the given public key.

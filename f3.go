@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/Kubuxu/go-broadcast"
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/ipfs/go-datastore"
@@ -41,8 +42,9 @@ type client struct {
 	nn        gpbft.NetworkName
 	ec        ECBackend
 
+	busBroadcast broadcast.Channel[*gpbft.MessageBuilder]
+
 	gpbft.Verifier
-	gpbft.SignerWithMarshaler
 	logger         Logger
 	loggerWithSkip Logger
 
@@ -52,25 +54,8 @@ type client struct {
 }
 
 func (mc *client) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder) error {
-	msg, err := mb.Build(mc.nn, mc.SignerWithMarshaler, mc.id)
-	if err != nil {
-		if errors.Is(err, gpbft.ErrNoPower) {
-			return nil
-		}
-		mc.Log("building message for: %d: %+v", mc.id, err)
-		return err
-	}
-	var bw bytes.Buffer
-	err = msg.MarshalCBOR(&bw)
-	if err != nil {
-		mc.Log("marshalling GMessage: %+v", err)
-	}
-	err = mc.topic.Publish(ctx, bw.Bytes())
-	if err != nil {
-		return xerrors.Errorf("publishing on topic: %w", err)
-	}
+	mc.busBroadcast.Publish(mb)
 	return nil
-
 }
 
 func (mc *client) IncomingMessages() <-chan gpbft.ValidatedMessage {
@@ -119,6 +104,32 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 	}
 
 	return &m, nil
+}
+
+// SubscribeForMessagesToSign is used to subscribe to the message broadcast channel.
+// After perparing inputs and signing over them, Broadcast should be called.
+//
+// If the passed channel is full at any point, it will be dropped from subscription and closed.
+// To stop subscribing, either the closer function can be used, or the channel can be abandoned.
+// Passing a channel multiple times to the Subscribe function will result in a panic.
+func (m *F3) SubscribeForMessagesToSign(ch chan<- *gpbft.MessageBuilder) (closer func()) {
+	_, closer = m.client.busBroadcast.Subscribe(ch)
+	return closer
+}
+
+func (m *F3) Broadcast(ctx context.Context, signatureBuilder *gpbft.SignatureBuilder, msgSig []byte, vrf []byte) {
+	msg := signatureBuilder.Build(msgSig, vrf)
+
+	var bw bytes.Buffer
+	err := msg.MarshalCBOR(&bw)
+	if err != nil {
+		m.log.Errorf("marshalling GMessage: %+v", err)
+		return
+	}
+	err = m.client.topic.Publish(ctx, bw.Bytes())
+	if err != nil {
+		m.log.Errorf("publishing on topic: %w", err)
+	}
 }
 
 func (m *F3) setCertStore(cs *certstore.Store) {
