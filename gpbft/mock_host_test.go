@@ -433,65 +433,6 @@ func (_c *MockHost_SetAlarm_Call) RunAndReturn(run func(time.Time)) *MockHost_Se
 	return _c
 }
 
-// Sign provides a mock function with given fields: sender, msg
-func (_m *MockHost) Sign(sender PubKey, msg []byte) ([]byte, error) {
-	ret := _m.Called(sender, msg)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Sign")
-	}
-
-	var r0 []byte
-	var r1 error
-	if rf, ok := ret.Get(0).(func(PubKey, []byte) ([]byte, error)); ok {
-		return rf(sender, msg)
-	}
-	if rf, ok := ret.Get(0).(func(PubKey, []byte) []byte); ok {
-		r0 = rf(sender, msg)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]byte)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(PubKey, []byte) error); ok {
-		r1 = rf(sender, msg)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockHost_Sign_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Sign'
-type MockHost_Sign_Call struct {
-	*mock.Call
-}
-
-// Sign is a helper method to define mock.On call
-//   - sender PubKey
-//   - msg []byte
-func (_e *MockHost_Expecter) Sign(sender interface{}, msg interface{}) *MockHost_Sign_Call {
-	return &MockHost_Sign_Call{Call: _e.mock.On("Sign", sender, msg)}
-}
-
-func (_c *MockHost_Sign_Call) Run(run func(sender PubKey, msg []byte)) *MockHost_Sign_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(PubKey), args[1].([]byte))
-	})
-	return _c
-}
-
-func (_c *MockHost_Sign_Call) Return(_a0 []byte, _a1 error) *MockHost_Sign_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockHost_Sign_Call) RunAndReturn(run func(PubKey, []byte) ([]byte, error)) *MockHost_Sign_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // Time provides a mock function with given fields:
 func (_m *MockHost) Time() time.Time {
 	ret := _m.Called()

@@ -31,27 +31,29 @@ func TestMessageBuilder(t *testing.T) {
 
 	mt := NewMessageBuilder(pt)
 	mt.SetPayload(payload)
-	msh := &marshaler{}
-	_, err = mt.PrepareSigningInputs(msh, nn, 2)
+	mt.SetNetworkName(nn)
+	mt.SetSigningMarshaler(DefaultSigningMarshaller)
+
+	_, err = mt.PrepareSigningInputs(2)
 	require.Error(t, err, "unknown ID should return an error")
 
-	st, err := mt.PrepareSigningInputs(msh, nn, 0)
+	st, err := mt.PrepareSigningInputs(0)
 	require.NoError(t, err)
 
-	require.Equal(t, st.Payload(), payload)
-	require.Equal(t, st.ParticipantID(), ActorID(0))
-	require.Equal(t, st.PubKey(), PubKey{0})
-	require.NotNil(t, st.PayloadToSign())
-	require.Nil(t, st.VRFToSign())
+	require.Equal(t, st.Payload, payload)
+	require.Equal(t, st.ParticipantID, ActorID(0))
+	require.Equal(t, st.PubKey, PubKey{0})
+	require.NotNil(t, st.PayloadToSign)
+	require.Nil(t, st.VRFToSign)
 
-	st, err = mt.PrepareSigningInputs(msh, nn, 1)
+	st, err = mt.PrepareSigningInputs(1)
 	require.NoError(t, err)
 
-	require.Equal(t, st.Payload(), payload)
-	require.Equal(t, st.ParticipantID(), ActorID(1))
-	require.Equal(t, st.PubKey(), PubKey{1})
-	require.NotNil(t, st.PayloadToSign())
-	require.Nil(t, st.VRFToSign())
+	require.Equal(t, st.Payload, payload)
+	require.Equal(t, st.ParticipantID, ActorID(1))
+	require.Equal(t, st.PubKey, PubKey{1})
+	require.NotNil(t, st.PayloadToSign)
+	require.Nil(t, st.VRFToSign)
 }
 
 func TestMessageBuilderWithVRF(t *testing.T) {
@@ -75,31 +77,27 @@ func TestMessageBuilderWithVRF(t *testing.T) {
 	}
 
 	nn := NetworkName("test")
-	msh := &marshaler{}
 	mt := NewMessageBuilder(pt)
 	mt.SetPayload(payload)
+	mt.SetNetworkName(nn)
+	mt.SetSigningMarshaler(DefaultSigningMarshaller)
 	mt.SetBeaconForTicket([]byte{0xbe, 0xac, 0x04})
-	st, err := mt.PrepareSigningInputs(msh, nn, 0)
+
+	st, err := mt.PrepareSigningInputs(0)
 	require.NoError(t, err)
 
-	require.Equal(t, st.Payload(), payload)
-	require.Equal(t, st.ParticipantID(), ActorID(0))
-	require.Equal(t, st.PubKey(), PubKey{0})
-	require.NotNil(t, st.PayloadToSign())
-	require.NotNil(t, st.VRFToSign())
+	require.Equal(t, st.Payload, payload)
+	require.Equal(t, st.ParticipantID, ActorID(0))
+	require.Equal(t, st.PubKey, PubKey{0})
+	require.NotNil(t, st.PayloadToSign)
+	require.NotNil(t, st.VRFToSign)
 
-	st, err = mt.PrepareSigningInputs(msh, nn, 1)
+	st, err = mt.PrepareSigningInputs(1)
 	require.NoError(t, err)
 
-	require.Equal(t, st.Payload(), payload)
-	require.Equal(t, st.ParticipantID(), ActorID(1))
-	require.Equal(t, st.PubKey(), PubKey{1})
-	require.NotNil(t, st.PayloadToSign())
-	require.NotNil(t, st.VRFToSign())
-}
-
-type marshaler struct{}
-
-func (*marshaler) MarshalPayloadForSigning(nn NetworkName, p *Payload) []byte {
-	return p.MarshalForSigning(nn)
+	require.Equal(t, st.Payload, payload)
+	require.Equal(t, st.ParticipantID, ActorID(1))
+	require.Equal(t, st.PubKey, PubKey{1})
+	require.NotNil(t, st.PayloadToSign)
+	require.NotNil(t, st.VRFToSign)
 }
