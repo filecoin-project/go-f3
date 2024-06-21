@@ -21,8 +21,9 @@ import (
 )
 
 type F3 struct {
-	Manifest  Manifest
-	CertStore *certstore.Store
+	Manifest Manifest
+	// certStore is nil until Run is called on the F3
+	certStore *certstore.Store
 
 	ds     datastore.Datastore
 	host   host.Host
@@ -34,7 +35,8 @@ type F3 struct {
 }
 
 type client struct {
-	certstore *certstore.Store
+	// certStore is nil until Run is called on the F3
+	certStore *certstore.Store
 	id        gpbft.ActorID
 	nn        gpbft.NetworkName
 	ec        ECBackend
@@ -116,19 +118,12 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 		},
 	}
 
-	cs, err := certstore.OpenStore(ctx, ds)
-	if err != nil {
-		log.Warnf("opening CertStore, it might not have been created: %+v", err)
-	} else {
-		m.setCertStore(cs)
-	}
-
 	return &m, nil
 }
 
 func (m *F3) setCertStore(cs *certstore.Store) {
-	m.CertStore = cs
-	m.client.certstore = cs
+	m.certStore = cs
+	m.client.certStore = cs
 }
 
 func (m *F3) setupPubsub(runner *gpbftRunner) error {
@@ -232,12 +227,17 @@ func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	if m.CertStore == nil {
+	cs, err := certstore.OpenStore(ctx, m.ds)
+	if err == nil {
+		m.setCertStore(cs)
+	} else if errors.Is(err, certstore.ErrNotInitialized) {
 		err := m.boostrap(ctx, initialInstance)
 		if err != nil {
 			return xerrors.Errorf("failed to boostrap: %w", err)
 		}
 
+	} else {
+		return xerrors.Errorf("opening certstore: %w", err)
 	}
 
 	runner, err := newRunner(m.client.id, m.Manifest, m.client)
