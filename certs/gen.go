@@ -8,14 +8,14 @@ import (
 	"math"
 	"sort"
 
-	big "math/big"
-
 	gpbft "github.com/filecoin-project/go-f3/gpbft"
 	cid "github.com/ipfs/go-cid"
 	cbg "github.com/whyrusleeping/cbor-gen"
+	xerrors "golang.org/x/xerrors"
+	big "math/big"
 )
 
-var _ = fmt.Errorf
+var _ = xerrors.Errorf
 var _ = cid.Undef
 var _ = math.E
 var _ = sort.Sort
@@ -60,7 +60,7 @@ func (t *PowerTableDelta) MarshalCBOR(w io.Writer) error {
 
 	// t.SigningKey (gpbft.PubKey) (slice)
 	if len(t.SigningKey) > 2097152 {
-		return fmt.Errorf("Byte array in field t.SigningKey was too long")
+		return xerrors.Errorf("Byte array in field t.SigningKey was too long")
 	}
 
 	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.SigningKey))); err != nil {
@@ -191,7 +191,7 @@ func (t *FinalityCertificate) MarshalCBOR(w io.Writer) error {
 
 	// t.ECChain (gpbft.ECChain) (slice)
 	if len(t.ECChain) > 8192 {
-		return fmt.Errorf("Slice value in field t.ECChain was too long")
+		return xerrors.Errorf("Slice value in field t.ECChain was too long")
 	}
 
 	if err := cw.WriteMajorTypeHeader(cbg.MajArray, uint64(len(t.ECChain))); err != nil {
@@ -216,7 +216,7 @@ func (t *FinalityCertificate) MarshalCBOR(w io.Writer) error {
 
 	// t.Signature ([]uint8) (slice)
 	if len(t.Signature) > 2097152 {
-		return fmt.Errorf("Byte array in field t.Signature was too long")
+		return xerrors.Errorf("Byte array in field t.Signature was too long")
 	}
 
 	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.Signature))); err != nil {
@@ -229,7 +229,7 @@ func (t *FinalityCertificate) MarshalCBOR(w io.Writer) error {
 
 	// t.PowerTableDelta ([]certs.PowerTableDelta) (slice)
 	if len(t.PowerTableDelta) > 8192 {
-		return fmt.Errorf("Slice value in field t.PowerTableDelta was too long")
+		return xerrors.Errorf("Slice value in field t.PowerTableDelta was too long")
 	}
 
 	if err := cw.WriteMajorTypeHeader(cbg.MajArray, uint64(len(t.PowerTableDelta))); err != nil {
@@ -312,7 +312,7 @@ func (t *FinalityCertificate) UnmarshalCBOR(r io.Reader) (err error) {
 			{
 
 				if err := t.ECChain[i].UnmarshalCBOR(cr); err != nil {
-					return fmt.Errorf("unmarshaling t.ECChain[i]: %w", err)
+					return xerrors.Errorf("unmarshaling t.ECChain[i]: %w", err)
 				}
 
 			}
@@ -324,7 +324,7 @@ func (t *FinalityCertificate) UnmarshalCBOR(r io.Reader) (err error) {
 	{
 
 		if err := t.SupplementalData.UnmarshalCBOR(cr); err != nil {
-			return fmt.Errorf("unmarshaling t.SupplementalData: %w", err)
+			return xerrors.Errorf("unmarshaling t.SupplementalData: %w", err)
 		}
 
 	}
@@ -333,7 +333,7 @@ func (t *FinalityCertificate) UnmarshalCBOR(r io.Reader) (err error) {
 	{
 
 		if err := t.Signers.UnmarshalCBOR(cr); err != nil {
-			return fmt.Errorf("unmarshaling t.Signers: %w", err)
+			return xerrors.Errorf("unmarshaling t.Signers: %w", err)
 		}
 
 	}
@@ -390,7 +390,7 @@ func (t *FinalityCertificate) UnmarshalCBOR(r io.Reader) (err error) {
 			{
 
 				if err := t.PowerTableDelta[i].UnmarshalCBOR(cr); err != nil {
-					return fmt.Errorf("unmarshaling t.PowerTableDelta[i]: %w", err)
+					return xerrors.Errorf("unmarshaling t.PowerTableDelta[i]: %w", err)
 				}
 
 			}
