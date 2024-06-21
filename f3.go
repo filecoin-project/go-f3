@@ -37,10 +37,12 @@ type F3 struct {
 
 type client struct {
 	// certStore is nil until Run is called on the F3
-	certStore *certstore.Store
-	id        gpbft.ActorID
-	nn        gpbft.NetworkName
-	ec        ECBackend
+	certStore   *certstore.Store
+	id          gpbft.ActorID
+	networkName gpbft.NetworkName
+	ec          ECBackend
+
+	signingMarshaller gpbft.SigningMarshaler
 
 	busBroadcast broadcast.Channel[*gpbft.MessageBuilder]
 
@@ -54,6 +56,8 @@ type client struct {
 }
 
 func (mc *client) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder) error {
+	mb.SetNetworkName(mc.networkName)
+	mb.SetSigningMarshaler(mc.signingMarshaller)
 	mc.busBroadcast.Publish(mb)
 	return nil
 }
@@ -75,12 +79,16 @@ func (mc *client) Logger() Logger {
 
 // New creates and setups f3 with libp2p
 // The context is used for initialization not runtime.
+// signingMarshaller can be nil for default SigningMarshaler
 func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.Datastore, h host.Host,
-	ps *pubsub.PubSub, sigs gpbft.SignerWithMarshaler, verif gpbft.Verifier, ec ECBackend, log Logger) (*F3, error) {
+	ps *pubsub.PubSub, verif gpbft.Verifier, ec ECBackend, log Logger, signingMarshaller gpbft.SigningMarshaler) (*F3, error) {
 	ds = namespace.Wrap(ds, manifest.NetworkName.DatastorePrefix())
 	loggerWithSkip := log
 	if zapLogger, ok := log.(*logging.ZapEventLogger); ok {
 		loggerWithSkip = logging.WithSkip(zapLogger, 1)
+	}
+	if signingMarshaller == nil {
+		signingMarshaller = gpbft.DefaultSigningMarshaller
 	}
 
 	m := F3{
@@ -93,13 +101,13 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 		log:    log,
 
 		client: &client{
-			ec:                  ec,
-			nn:                  manifest.NetworkName,
-			id:                  id,
-			Verifier:            verif,
-			SignerWithMarshaler: sigs,
-			logger:              log,
-			loggerWithSkip:      loggerWithSkip,
+			ec:                ec,
+			networkName:       manifest.NetworkName,
+			id:                id,
+			Verifier:          verif,
+			logger:            log,
+			loggerWithSkip:    loggerWithSkip,
+			signingMarshaller: signingMarshaller,
 		},
 	}
 

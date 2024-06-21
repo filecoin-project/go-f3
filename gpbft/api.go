@@ -112,7 +112,6 @@ type Verifier interface {
 
 type Signatures interface {
 	SigningMarshaler
-	Signer
 	Verifier
 }
 

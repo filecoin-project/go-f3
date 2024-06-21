@@ -11,10 +11,13 @@ import (
 var ErrNoPower = errors.New("no power")
 
 type MessageBuilder struct {
+	networkName     NetworkName
 	powerTable      powerTableAccessor
 	payload         Payload
 	beaconForTicket []byte
 	justification   *Justification
+
+	signingMarshaller SigningMarshaler
 }
 
 // NewMessageBuilder creates a new message builder with the provided beacon for ticket,
@@ -52,6 +55,18 @@ func (mb *MessageBuilder) Justification() *Justification {
 	return mb.justification
 }
 
+func (mb *MessageBuilder) SetNetworkName(nn NetworkName) {
+	mb.networkName = nn
+}
+
+func (mb *MessageBuilder) NetworkName() NetworkName {
+	return mb.networkName
+}
+
+func (mb *MessageBuilder) SetSigningMarshaler(sm SigningMarshaler) {
+	mb.signingMarshaller = sm
+}
+
 type powerTableAccessor interface {
 	Get(ActorID) (uint16, *big.Int, PubKey)
 }
@@ -63,8 +78,8 @@ type SignerWithMarshaler interface {
 
 // Build uses the builder and a signer interface to build GMessage
 // It is a shortcut for when separated flow is not required
-func (mt *MessageBuilder) Build(networkName NetworkName, signer SignerWithMarshaler, id ActorID) (*GMessage, error) {
-	st, err := mt.PrepareSigningInputs(signer, networkName, id)
+func (mt *MessageBuilder) Build(signer Signer, id ActorID) (*GMessage, error) {
+	st, err := mt.PrepareSigningInputs(id)
 	if err != nil {
 		return nil, xerrors.Errorf("preparing signing inputs: %w", err)
 	}
@@ -77,6 +92,7 @@ func (mt *MessageBuilder) Build(networkName NetworkName, signer SignerWithMarsha
 	return st.Build(payloadSig, vrf), nil
 }
 
+// SignatureBuilder's fields are eposed to facilitate JSON encoding
 type SignatureBuilder struct {
 	NetworkName NetworkName
 
@@ -85,26 +101,26 @@ type SignatureBuilder struct {
 	Justification *Justification
 	PubKey        PubKey
 	PayloadToSign []byte
-	VrfToSign     []byte
+	VRFToSign     []byte
 }
 
-func (mt *MessageBuilder) PrepareSigningInputs(msh SigningMarshaler, networkName NetworkName, id ActorID) (*SignatureBuilder, error) {
-	effectivePower, _, pubKey := mt.powerTable.Get(id)
+func (mb *MessageBuilder) PrepareSigningInputs(id ActorID) (*SignatureBuilder, error) {
+	effectivePower, _, pubKey := mb.powerTable.Get(id)
 	if pubKey == nil || effectivePower == 0 {
 		return nil, xerrors.Errorf("could not find pubkey for actor %d: %w", id, ErrNoPower)
 	}
 	sb := SignatureBuilder{
 		ParticipantID: id,
-		NetworkName:   networkName,
-		Payload:       mt.payload,
-		Justification: mt.justification,
+		NetworkName:   mb.networkName,
+		Payload:       mb.payload,
+		Justification: mb.justification,
 
 		PubKey: pubKey,
 	}
 
-	sb.PayloadToSign = msh.MarshalPayloadForSigning(networkName, &mt.payload)
-	if mt.beaconForTicket != nil {
-		sb.VrfToSign = vrfSerializeSigInput(mt.beaconForTicket, mt.payload.Instance, mt.payload.Round, networkName)
+	sb.PayloadToSign = mb.signingMarshaller.MarshalPayloadForSigning(mb.networkName, &mb.payload)
+	if mb.beaconForTicket != nil {
+		sb.VRFToSign = vrfSerializeSigInput(mb.beaconForTicket, mb.payload.Instance, mb.payload.Round, mb.networkName)
 	}
 	return &sb, nil
 }
@@ -127,8 +143,8 @@ func (st *SignatureBuilder) Sign(signer Signer) ([]byte, []byte, error) {
 		return nil, nil, xerrors.Errorf("signing payload: %w", err)
 	}
 	var vrf []byte
-	if st.VrfToSign != nil {
-		vrf, err = signer.Sign(st.PubKey, st.VrfToSign)
+	if st.VRFToSign != nil {
+		vrf, err = signer.Sign(st.PubKey, st.VRFToSign)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("signing vrf: %w", err)
 		}
@@ -145,4 +161,16 @@ func (st *SignatureBuilder) Build(payloadSignature []byte, vrf []byte) *GMessage
 		Ticket:        vrf,
 		Justification: st.Justification,
 	}
+}
+
+type defaultSigningMarshaller struct{}
+
+var DefaultSigningMarshaller SigningMarshaler = defaultSigningMarshaller{}
+
+// MarshalPayloadForSigning marshals the given payload into the bytes that should be signed.
+// This should usually call `Payload.MarshalForSigning(NetworkName)` except when testing as
+// that method is slow (computes a merkle tree that's necessary for testing).
+// Implementations must be safe for concurrent use.
+func (defaultSigningMarshaller) MarshalPayloadForSigning(nn NetworkName, p *Payload) []byte {
+	return p.MarshalForSigning(nn)
 }
