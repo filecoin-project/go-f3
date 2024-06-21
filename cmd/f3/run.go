@@ -87,45 +87,47 @@ var runCmd = cli.Command{
 
 		actorID := gpbft.ActorID(c.Uint64("id"))
 
-		go func() {
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-				}
-
-				ch := make(chan *gpbft.MessageBuilder, 4)
-				module.SubscribeForMessagesToSign(ch)
-			inner:
-				for {
-					select {
-					case mb, ok := <-ch:
-						if !ok {
-							// the broadcast bus kicked us out
-							log.Infof("lost message bus subsription, retrying")
-							break inner
-						}
-						sb, err := mb.PrepareSigningInputs(actorID)
-						if err != nil {
-							log.Errorf("preparing signing inputs: %+v", err)
-						}
-						payloadSig, vrfSig, err := sb.Sign(signingBackend)
-						if err != nil {
-							log.Errorf("signing message: %+v", err)
-						}
-						module.Broadcast(ctx, sb, payloadSig, vrfSig)
-					case <-ctx.Done():
-						return
-					}
-				}
-
-			}
-		}()
+		go runMessageSubscription(ctx, module, actorID, signingBackend)
 
 		initialInstance := c.Uint64("instance")
 		return module.Run(initialInstance, ctx)
 	},
+}
+
+func runMessageSubscription(ctx context.Context, module *f3.F3, actorID gpbft.ActorID, signer gpbft.Signer) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		ch := make(chan *gpbft.MessageBuilder, 4)
+		module.SubscribeForMessagesToSign(ch)
+	inner:
+		for {
+			select {
+			case mb, ok := <-ch:
+				if !ok {
+					// the broadcast bus kicked us out
+					log.Infof("lost message bus subscription, retrying")
+					break inner
+				}
+				sb, err := mb.PrepareSigningInputs(actorID)
+				if err != nil {
+					log.Errorf("preparing signing inputs: %+v", err)
+				}
+				payloadSig, vrfSig, err := sb.Sign(signer)
+				if err != nil {
+					log.Errorf("signing message: %+v", err)
+				}
+				module.Broadcast(ctx, sb, payloadSig, vrfSig)
+			case <-ctx.Done():
+				return
+			}
+		}
+
+	}
 }
 
 type discoveryNotifee struct {
