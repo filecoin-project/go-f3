@@ -92,7 +92,7 @@ func (mt *MessageBuilder) Build(signer Signer, id ActorID) (*GMessage, error) {
 	return st.Build(payloadSig, vrf), nil
 }
 
-// SignatureBuilder's fields are eposed to facilitate JSON encoding
+// SignatureBuilder's fields are exposed to facilitate JSON encoding
 type SignatureBuilder struct {
 	NetworkName NetworkName
 
