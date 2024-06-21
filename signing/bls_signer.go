@@ -1,4 +1,4 @@
-package blssig
+package signing
 
 import (
 	"bytes"

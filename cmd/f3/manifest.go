@@ -7,7 +7,7 @@ import (
 
 	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/sim/signing"
+	"github.com/filecoin-project/go-f3/signing"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 )

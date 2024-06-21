@@ -6,7 +6,7 @@ import (
 
 	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/sim/signing"
+	"github.com/filecoin-project/go-f3/signing"
 	leveldb "github.com/ipfs/go-ds-leveldb"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p"

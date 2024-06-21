@@ -15,7 +15,7 @@ import (
 var _ Backend = (*FakeBackend)(nil)
 
 type FakeBackend struct {
-	// mu Guards both i and allowed map access.
+	// mu guards both i and allowed map access.
 	mu      sync.RWMutex
 	i       int
 	allowed map[string]struct{}

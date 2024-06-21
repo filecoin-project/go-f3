@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/signing"
 	"github.com/filecoin-project/go-f3/sim"
-	"github.com/filecoin-project/go-f3/sim/signing"
 	"github.com/stretchr/testify/require"
 )
 
