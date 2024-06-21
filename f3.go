@@ -199,7 +199,7 @@ func (m *F3) boostrap(ctx context.Context, initialInstance uint64) error {
 			select {
 			case <-time.After(aim):
 			case <-ctx.Done():
-				return nil
+				return ctx.Err()
 			}
 		}
 	}
@@ -235,7 +235,6 @@ func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 		if err != nil {
 			return xerrors.Errorf("failed to boostrap: %w", err)
 		}
-
 	} else {
 		return xerrors.Errorf("opening certstore: %w", err)
 	}

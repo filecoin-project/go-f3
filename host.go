@@ -84,7 +84,7 @@ loop:
 			}
 			err = h.participant.ReceiveMessage(msg)
 		case <-ctx.Done():
-			return nil
+			return ctx.Err()
 		}
 		if err != nil {
 			break loop
