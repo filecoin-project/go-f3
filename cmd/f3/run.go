@@ -113,15 +113,17 @@ func runMessageSubscription(ctx context.Context, module *f3.F3, actorID gpbft.Ac
 					log.Infof("lost message bus subscription, retrying")
 					break inner
 				}
-				sb, err := mb.PrepareSigningInputs(actorID)
+				signatureBuilder, err := mb.PrepareSigningInputs(actorID)
 				if err != nil {
 					log.Errorf("preparing signing inputs: %+v", err)
 				}
-				payloadSig, vrfSig, err := sb.Sign(signer)
+				// signatureBuilder can be sent over RPC
+				payloadSig, vrfSig, err := signatureBuilder.Sign(signer)
 				if err != nil {
 					log.Errorf("signing message: %+v", err)
 				}
-				module.Broadcast(ctx, sb, payloadSig, vrfSig)
+				// signatureBuilder and signatures can be returned back over RPC
+				module.Broadcast(ctx, signatureBuilder, payloadSig, vrfSig)
 			case <-ctx.Done():
 				return
 			}
