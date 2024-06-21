@@ -112,7 +112,7 @@ func (ts *TipSet) String() string {
 	}
 	encTs := base32.StdEncoding.EncodeToString(ts.Key)
 
-	return fmt.Sprintf("%s@%d", encTs[:max(16, len(encTs))], ts.Epoch)
+	return fmt.Sprintf("%s@%d", encTs[:min(16, len(encTs))], ts.Epoch)
 }
 
 // A chain of tipsets comprising a base (the last finalised tipset from which the chain extends).
@@ -300,6 +300,9 @@ func (c ECChain) Key() ChainKey {
 }
 
 func (c ECChain) String() string {
+	if len(c) == 0 {
+		return "丄"
+	}
 	var b strings.Builder
 	b.WriteString("[")
 	for i := range c {
@@ -307,11 +310,11 @@ func (c ECChain) String() string {
 		if i < len(c)-1 {
 			b.WriteString(", ")
 		}
+		if b.Len() > 77 {
+			b.WriteString("...")
+			break
+		}
 	}
 	b.WriteString("]")
-	str := b.String()
-	if len(str) > 77 {
-		str = str[:77] + "..."
-	}
-	return str
+	return b.String()
 }
