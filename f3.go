@@ -21,8 +21,9 @@ import (
 )
 
 type F3 struct {
-	Manifest  Manifest
-	CertStore *certstore.Store
+	Manifest Manifest
+	// certStore is nil until Run is called on the F3
+	certStore *certstore.Store
 
 	ds     datastore.Datastore
 	host   host.Host
@@ -34,7 +35,8 @@ type F3 struct {
 }
 
 type client struct {
-	certstore *certstore.Store
+	// certStore is nil until Run is called on the F3
+	certStore *certstore.Store
 	id        gpbft.ActorID
 	nn        gpbft.NetworkName
 	ec        ECBackend
@@ -91,18 +93,13 @@ func (mc *client) Logger() Logger {
 func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.Datastore, h host.Host,
 	ps *pubsub.PubSub, sigs gpbft.SignerWithMarshaler, verif gpbft.Verifier, ec ECBackend, log Logger) (*F3, error) {
 	ds = namespace.Wrap(ds, manifest.NetworkName.DatastorePrefix())
-	cs, err := certstore.OpenOrCreateStore(ctx, ds, 0, manifest.InitialPowerTable)
-	if err != nil {
-		return nil, xerrors.Errorf("creating CertStore: %w", err)
-	}
 	loggerWithSkip := log
 	if zapLogger, ok := log.(*logging.ZapEventLogger); ok {
 		loggerWithSkip = logging.WithSkip(zapLogger, 1)
 	}
 
 	m := F3{
-		Manifest:  manifest,
-		CertStore: cs,
+		Manifest: manifest,
 
 		ds:     ds,
 		host:   h,
@@ -111,7 +108,6 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 		log:    log,
 
 		client: &client{
-			certstore:           cs,
 			ec:                  ec,
 			nn:                  manifest.NetworkName,
 			id:                  id,
@@ -124,6 +120,12 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 
 	return &m, nil
 }
+
+func (m *F3) setCertStore(cs *certstore.Store) {
+	m.certStore = cs
+	m.client.certStore = cs
+}
+
 func (m *F3) setupPubsub(runner *gpbftRunner) error {
 	pubsubTopicName := m.Manifest.NetworkName.PubSubTopic()
 
@@ -170,10 +172,72 @@ func (m *F3) teardownPubsub() error {
 	)
 }
 
+func (m *F3) boostrap(ctx context.Context, initialInstance uint64) error {
+	head, err := m.ec.GetHead(ctx)
+	if err != nil {
+		return xerrors.Errorf("failed to get the head: %w", err)
+	}
+
+	if head.Epoch() < m.Manifest.BootstrapEpoch {
+		// wait for bootstrap epoch
+		for {
+			head, err := m.ec.GetHead(ctx)
+			if err != nil {
+				return xerrors.Errorf("getting head: %w", err)
+			}
+			if head.Epoch() >= m.Manifest.BootstrapEpoch {
+				break
+			}
+
+			m.log.Infof("wating for bootstrap epoch (%d): currently at epoch %d", m.Manifest.BootstrapEpoch, head.Epoch())
+			aim := time.Until(head.Timestamp().Add(m.Manifest.ECPeriod))
+			// correct for null epochs
+			for aim < 0 {
+				aim += m.Manifest.ECPeriod
+			}
+
+			select {
+			case <-time.After(aim):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+
+	ts, err := m.ec.GetTipsetByEpoch(ctx, m.Manifest.BootstrapEpoch-m.Manifest.ECFinality)
+	if err != nil {
+		return xerrors.Errorf("getting initial power tipset: %w", err)
+	}
+
+	initialPowerTable, err := m.ec.GetPowerTable(ctx, ts.Key())
+	if err != nil {
+		return xerrors.Errorf("getting initial power table: %w", err)
+	}
+
+	cs, err := certstore.CreateStore(ctx, m.ds, initialInstance, initialPowerTable)
+	if err != nil {
+		return xerrors.Errorf("creating certstore: %w", err)
+	}
+	m.setCertStore(cs)
+	return nil
+}
+
 // Run start the module. It will exit when context is cancelled.
 func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	cs, err := certstore.OpenStore(ctx, m.ds)
+	if err == nil {
+		m.setCertStore(cs)
+	} else if errors.Is(err, certstore.ErrNotInitialized) {
+		err := m.boostrap(ctx, initialInstance)
+		if err != nil {
+			return xerrors.Errorf("failed to boostrap: %w", err)
+		}
+	} else {
+		return xerrors.Errorf("opening certstore: %w", err)
+	}
 
 	runner, err := newRunner(m.client.id, m.Manifest, m.client)
 	if err != nil {

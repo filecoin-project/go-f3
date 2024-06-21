@@ -100,7 +100,7 @@ func (ec *FakeEC) GetTipsetByEpoch(ctx context.Context, epoch int64) (f3.TipSet,
 	ts := ec.genTipset(epoch)
 	for ts == nil {
 		epoch--
-		ts = ec.genTipset(epoch - 1)
+		ts = ec.genTipset(epoch)
 	}
 	return ts, nil
 }

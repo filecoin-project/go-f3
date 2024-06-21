@@ -40,7 +40,7 @@ func newRunner(id gpbft.ActorID, m Manifest, client *client) (*gpbftRunner, erro
 		<-runner.alertTimer.C
 	}
 
-	runner.log.Infof("starting host for P%d", id)
+	runner.log.Infof("starting runner for P%d", id)
 	p, err := gpbft.NewParticipant((*gpbftHost)(runner), gpbft.WithTracer(client))
 	if err != nil {
 		return nil, xerrors.Errorf("creating participant: %w", err)
@@ -53,9 +53,6 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 	var cancel func()
 	h.runningCtx, cancel = context.WithCancel(ctx)
 	defer cancel()
-
-	// TODO(Kubuxu): temporary hack until re-broadcast and/or booststrap synchronisation are implemented
-	time.Sleep(2 * time.Second)
 
 	err := h.participant.StartInstance(instance)
 	if err != nil {
@@ -87,7 +84,7 @@ loop:
 			}
 			err = h.participant.ReceiveMessage(msg)
 		case <-ctx.Done():
-			return nil
+			return ctx.Err()
 		}
 		if err != nil {
 			break loop
@@ -134,7 +131,7 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 		}
 		baseTsk = ts.Key()
 	} else {
-		cert, err := h.client.certstore.Get(h.runningCtx, instance-1)
+		cert, err := h.client.certStore.Get(h.runningCtx, instance-1)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("getting cert for previous instance(%d): %w", instance-1, err)
 		}
@@ -218,13 +215,13 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 			return nil, nil, xerrors.Errorf("getting power table: %w", err)
 		}
 	} else {
-		cert, err := h.client.certstore.Get(h.runningCtx, instance-h.manifest.CommiteeLookback)
+		cert, err := h.client.certStore.Get(h.runningCtx, instance-h.manifest.CommiteeLookback)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("getting finality certificate: %w", err)
 		}
 		powerTsk = cert.ECChain.Head().Key
 
-		powerEntries, err = h.client.certstore.GetPowerTable(h.runningCtx, instance)
+		powerEntries, err = h.client.certStore.GetPowerTable(h.runningCtx, instance)
 		if err != nil {
 			// this fires every round, is this correct?
 			h.log.Infof("failed getting power table from certstore: %v, falling back to EC", err)
@@ -326,7 +323,7 @@ func (h *gpbftHost) saveDecision(decision *gpbft.Justification) error {
 		return xerrors.Errorf("certificate is invalid: %w", err)
 	}
 
-	err = h.client.certstore.Put(h.runningCtx, cert)
+	err = h.client.certStore.Put(h.runningCtx, cert)
 	if err != nil {
 		return xerrors.Errorf("saving ceritifcate in a store: %w", err)
 	}
