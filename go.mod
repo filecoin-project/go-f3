@@ -14,7 +14,7 @@ require (
 	github.com/libp2p/go-libp2p v0.35.0
 	github.com/libp2p/go-libp2p-pubsub v0.11.0
 	github.com/stretchr/testify v1.9.0
-	github.com/urfave/cli/v2 v2.27.2
+	github.com/urfave/cli/v2 v2.25.5
 	github.com/whyrusleeping/cbor-gen v0.1.1
 	go.uber.org/multierr v1.11.0
 	golang.org/x/crypto v0.23.0
