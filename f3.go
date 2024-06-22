@@ -191,7 +191,7 @@ func (m *F3) teardownPubsub() error {
 	)
 }
 
-func (m *F3) boostrap(ctx context.Context, initialInstance uint64) error {
+func (m *F3) boostrap(ctx context.Context) error {
 	head, err := m.ec.GetHead(ctx)
 	if err != nil {
 		return xerrors.Errorf("failed to get the head: %w", err)
@@ -233,7 +233,7 @@ func (m *F3) boostrap(ctx context.Context, initialInstance uint64) error {
 		return xerrors.Errorf("getting initial power table: %w", err)
 	}
 
-	cs, err := certstore.CreateStore(ctx, m.ds, initialInstance, initialPowerTable)
+	cs, err := certstore.CreateStore(ctx, m.ds, m.Manifest.InitialInstance, initialPowerTable)
 	if err != nil {
 		return xerrors.Errorf("creating certstore: %w", err)
 	}
@@ -242,7 +242,7 @@ func (m *F3) boostrap(ctx context.Context, initialInstance uint64) error {
 }
 
 // Run start the module. It will exit when context is cancelled.
-func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
+func (m *F3) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -250,7 +250,7 @@ func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 	if err == nil {
 		m.setCertStore(cs)
 	} else if errors.Is(err, certstore.ErrNotInitialized) {
-		err := m.boostrap(ctx, initialInstance)
+		err := m.boostrap(ctx)
 		if err != nil {
 			return xerrors.Errorf("failed to boostrap: %w", err)
 		}
@@ -278,7 +278,12 @@ func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 	runnerErrCh := make(chan error, 1)
 
 	go func() {
-		err := runner.Run(initialInstance, ctx)
+		latest := m.certStore.Latest()
+		startInstance := uint64(m.Manifest.InitialInstance)
+		if latest != nil {
+			startInstance = latest.GPBFTInstance + 1
+		}
+		err := runner.Run(startInstance, ctx)
 		m.log.Errorf("running host: %+v", err)
 		runnerErrCh <- err
 	}()

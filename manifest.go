@@ -10,6 +10,7 @@ import (
 
 type Manifest struct {
 	NetworkName       gpbft.NetworkName
+	InitialInstance   uint64
 	InitialPowerTable gpbft.PowerEntries
 	BootstrapEpoch    int64
 
