@@ -54,6 +54,7 @@ type client struct {
 	manifestUpdate <-chan struct{}
 	topic          *pubsub.Topic
 	psLock         sync.Mutex
+	incomingCancel func()
 }
 
 func (mc *client) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder) error {
@@ -260,6 +261,7 @@ func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 }
 
 func (m *F3) handleIncomingMessages(ctx context.Context, queue chan gpbft.ValidatedMessage) {
+	ctx, m.client.incomingCancel = context.WithCancel(ctx)
 loop:
 	for {
 		var msg *pubsub.Message
@@ -321,6 +323,7 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 			m.client.psLock.Unlock()
 			m.setupGpbftRunner(ctx, 0, errCh)
 		} else {
+			m.client.incomingCancel()
 			if err := m.setupPubsub(m.runner); err != nil {
 				errCh <- xerrors.Errorf("setting up pubsub: %w", err)
 				return

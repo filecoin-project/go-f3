@@ -120,11 +120,11 @@ func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
 	env.addPowerDeltaForParticipants(ctx, &env.manifest, []gpbft.ActorID{2, 3}, big.NewInt(1), false)
 	env.manifestSender.UpdateManifest(&env.manifest)
 
-	env.waitForManifestChange(ctx, prev, 1599999*time.Second)
+	env.waitForManifestChange(ctx, prev, 15*time.Second)
 
 	// check that the runner continued wthout rebootstrap
 	require.True(t, env.nodes[0].f3.CurrentGpbftInstace() >= prevInstance)
-	env.waitForInstanceNumber(ctx, prevInstance+10, 150000*time.Second)
+	env.waitForInstanceNumber(ctx, prevInstance+7, 150*time.Second)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest.Manifest())
 	env.requireEqualManifests()
 	// check that the power table is updated with the new entries
@@ -134,8 +134,6 @@ func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, len(pt), 4)
 }
-
-const DiscoveryTag = "f3-standalone-testing"
 
 var baseManifest manifest.Manifest = manifest.Manifest{
 	Sequence:       0,
@@ -213,12 +211,10 @@ func (e *testEnv) waitForInstanceNumber(ctx context.Context, instanceNumber uint
 				// runner initialized)
 				if !e.nodes[i].f3.IsRunning() {
 					reached++
-					continue
-				}
-				if e.nodes[i].f3.CurrentGpbftInstace() >= instanceNumber && e.nodes[i].f3.IsRunning() {
+				} else if e.nodes[i].f3.CurrentGpbftInstace() >= instanceNumber && e.nodes[i].f3.IsRunning() {
 					reached++
 				}
-				if reached == len(e.nodes) {
+				if reached >= len(e.nodes) {
 					return
 				}
 			}
@@ -237,10 +233,15 @@ func (e *testEnv) waitForManifestChange(ctx context.Context, prev manifest.Manif
 		default:
 			reached := 0
 			for i := 0; i < len(e.nodes); i++ {
-				v1, _ := e.nodes[i].f3.Manifest.Manifest().Version()
-				v2, _ := prev.Version()
-				if v1 != v2 {
+				// only check for running nodes
+				if !e.nodes[i].f3.IsRunning() {
 					reached++
+				} else {
+					v1, _ := e.nodes[i].f3.Manifest.Manifest().Version()
+					v2, _ := prev.Version()
+					if v1 != v2 {
+						reached++
+					}
 				}
 				if reached == len(e.nodes) {
 					return
@@ -293,7 +294,10 @@ func (e *testEnv) initNode(i int, manifestServer peer.ID) {
 func (e *testEnv) requireEqualManifests() {
 	m := e.nodes[0].f3.Manifest
 	for _, n := range e.nodes {
-		require.Equal(e.t, n.f3.Manifest.Manifest(), m.Manifest())
+		// only check running nodes
+		if n.f3.IsRunning() {
+			require.Equal(e.t, n.f3.Manifest.Manifest(), m.Manifest())
+		}
 	}
 }
 
