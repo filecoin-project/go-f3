@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3"
-	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/manifest"
@@ -48,7 +47,7 @@ func TestSimpleF3(t *testing.T) {
 	env.waitForInstanceNumber(ctx, 5, 10*time.Second)
 }
 
-func TestDynamicManifest_WithoutChanges(t *testing.T) {
+func TestDynamicManifestWithoutChanges(t *testing.T) {
 	ctx := context.Background()
 	env := newTestEnvironment(t, 2, true)
 
@@ -65,7 +64,7 @@ func TestDynamicManifest_WithoutChanges(t *testing.T) {
 	env.requireEqualManifests()
 }
 
-func TestDynamicManifest_WithRebootstrap(t *testing.T) {
+func TestDynamicManifestWithRebootstrap(t *testing.T) {
 	ctx := context.Background()
 	env := newTestEnvironment(t, 2, true)
 
@@ -95,44 +94,6 @@ func TestDynamicManifest_WithRebootstrap(t *testing.T) {
 	env.waitForInstanceNumber(ctx, 3, 15*time.Second)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest.Manifest())
 	env.requireEqualManifests()
-}
-
-func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
-	ctx := context.Background()
-	env := newTestEnvironment(t, 2, true)
-
-	initialInstance := uint64(0)
-
-	env.Connect(ctx)
-	env.Run(ctx, initialInstance)
-	time.Sleep(1 * time.Second)
-
-	prev := env.nodes[0].f3.Manifest.Manifest()
-
-	env.waitForInstanceNumber(ctx, 3, 15*time.Second)
-	prevInstance := env.nodes[0].f3.CurrentGpbftInstace()
-
-	env.manifest.BootstrapEpoch = 953
-	env.manifest.Sequence = 1
-	env.manifest.ReBootstrap = false
-	// Adding a power of 1 so we can reach consensus without having to run
-	// the new nodes
-	env.addPowerDeltaForParticipants(ctx, &env.manifest, []gpbft.ActorID{2, 3}, big.NewInt(1), false)
-	env.manifestSender.UpdateManifest(&env.manifest)
-
-	env.waitForManifestChange(ctx, prev, 1599999*time.Second)
-
-	// check that the runner continued wthout rebootstrap
-	require.True(t, env.nodes[0].f3.CurrentGpbftInstace() >= prevInstance)
-	env.waitForInstanceNumber(ctx, prevInstance+10, 150000*time.Second)
-	require.NotEqual(t, prev, env.nodes[0].f3.Manifest.Manifest())
-	env.requireEqualManifests()
-	// check that the power table is updated with the new entries
-	ts, err := env.ec.GetTipsetByEpoch(ctx, int64(env.nodes[0].f3.CurrentGpbftInstace()))
-	require.NoError(t, err)
-	pt, err := env.nodes[0].f3.GetPowerTable(ctx, ts.Key())
-	require.NoError(t, err)
-	require.Equal(t, len(pt), 4)
 }
 
 const DiscoveryTag = "f3-standalone-testing"
@@ -168,57 +129,20 @@ type testEnv struct {
 	manifestSender *passive.ManifestSender
 }
 
-func (e *testEnv) addPowerDeltaForParticipants(ctx context.Context, m *manifest.Manifest, participants []gpbft.ActorID, power *big.Int, runNodes bool) {
-	for _, n := range participants {
-		nodeLen := len(e.nodes)
-		newNode := false
-		// nodes are initialized sequentially. If the participantID is over the
-		// number of nodes, it means that it hasn't been initialized and is a new node
-		// that we need to add
-		// NOTE: We do not respect the original ID when adding a new one, we use the subsequent one.
-		if n >= gpbft.ActorID(nodeLen) {
-			e.initNode(int(nodeLen), e.manifestSender.SenderID())
-			newNode = true
-		}
-		pubkey, _ := e.signingBackend.GenerateKey()
-		m.PowerUpdate = append(m.PowerUpdate, certs.PowerTableDelta{
-			ParticipantID: gpbft.ActorID(nodeLen),
-			SigningKey:    pubkey,
-			PowerDelta:    power,
-		})
-		if runNodes && newNode {
-			// connect node
-			for j := 0; j < nodeLen-1; j++ {
-				e.connectNodes(ctx, e.nodes[nodeLen-1], e.nodes[j])
-			}
-			// run
-			e.nodes[nodeLen-1].f3.Run(e.nodes[nodeLen-1].f3.CurrentGpbftInstace(), context.Background())
-		}
-	}
-}
-
-// waits for all _running_ nodes to reach a specific instance number.
-func (e *testEnv) waitForInstanceNumber(ctx context.Context, instanceNumber uint64, timeout time.Duration) {
+func (t *testEnv) waitForInstanceNumber(ctx context.Context, instanceNumber uint64, timeout time.Duration) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	for {
 		select {
 		case <-ctx.Done():
-			e.t.Fatal("instance number not reached before timeout")
+			t.t.Fatal("instance number not reached before timeout")
 		default:
 			reached := 0
-			for i := 0; i < len(e.nodes); i++ {
-				// nodes that are not running are not required to reach the instance
-				// (it will actually panic if we try to fetch it because there is no
-				// runner initialized)
-				if !e.nodes[i].f3.IsRunning() {
-					reached++
-					continue
-				}
-				if e.nodes[i].f3.CurrentGpbftInstace() >= instanceNumber && e.nodes[i].f3.IsRunning() {
+			for i := 0; i < len(t.nodes); i++ {
+				if t.nodes[i].f3.CurrentGpbftInstace() >= instanceNumber {
 					reached++
 				}
-				if reached == len(e.nodes) {
+				if reached == len(t.nodes) {
 					return
 				}
 			}
@@ -227,22 +151,22 @@ func (e *testEnv) waitForInstanceNumber(ctx context.Context, instanceNumber uint
 	}
 }
 
-func (e *testEnv) waitForManifestChange(ctx context.Context, prev manifest.Manifest, timeout time.Duration) {
+func (t *testEnv) waitForManifestChange(ctx context.Context, prev manifest.Manifest, timeout time.Duration) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	for {
 		select {
 		case <-ctx.Done():
-			e.t.Fatal("manifest change not reached before timeout")
+			t.t.Fatal("manifest change not reached before timeout")
 		default:
 			reached := 0
-			for i := 0; i < len(e.nodes); i++ {
-				v1, _ := e.nodes[i].f3.Manifest.Manifest().Version()
+			for i := 0; i < len(t.nodes); i++ {
+				v1, _ := t.nodes[i].f3.Manifest.Manifest().Version()
 				v2, _ := prev.Version()
 				if v1 != v2 {
 					reached++
 				}
-				if reached == len(e.nodes) {
+				if reached == len(t.nodes) {
 					return
 				}
 			}
@@ -279,15 +203,11 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) testEnv {
 
 	// initialize nodes
 	for i := 0; i < n; i++ {
-		env.initNode(i, manifestServer)
+		n, err := env.newF3Instance(context.Background(), i, manifestServer)
+		require.NoError(t, err)
+		env.nodes = append(env.nodes, n)
 	}
 	return env
-}
-
-func (e *testEnv) initNode(i int, manifestServer peer.ID) {
-	n, err := e.newF3Instance(context.Background(), i, manifestServer)
-	require.NoError(e.t, err)
-	e.nodes = append(e.nodes, n)
 }
 
 func (e *testEnv) requireEqualManifests() {
@@ -314,18 +234,14 @@ func (e *testEnv) Run(ctx context.Context, initialInstance uint64) {
 	}
 }
 
-func (e *testEnv) connectNodes(ctx context.Context, n1, n2 *testNode) {
-	addr := n2.h.Addrs()[0]
-	pi, err := peer.AddrInfoFromString(fmt.Sprintf("%s/p2p/%s", addr.String(), n2.h.ID()))
-	require.NoError(e.t, err)
-	err = n1.h.Connect(ctx, *pi)
-	require.NoError(e.t, err)
-}
-
 func (e *testEnv) Connect(ctx context.Context) {
 	for i, n := range e.nodes {
 		for j := i + 1; j < len(e.nodes); j++ {
-			e.connectNodes(ctx, n, e.nodes[j])
+			addr := e.nodes[j].h.Addrs()[0]
+			pi, err := peer.AddrInfoFromString(fmt.Sprintf("%s/p2p/%s", addr.String(), e.nodes[j].h.ID()))
+			require.NoError(e.t, err)
+			err = n.h.Connect(ctx, *pi)
+			require.NoError(e.t, err)
 		}
 	}
 

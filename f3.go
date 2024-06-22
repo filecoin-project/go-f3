@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"sync"
 
-	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -41,7 +39,7 @@ type F3 struct {
 type client struct {
 	certstore *certstore.Store
 	id        gpbft.ActorID
-	manifest  manifest.ManifestProvider
+	nn        gpbft.NetworkName
 	ec        ec.Backend
 
 	gpbft.Verifier
@@ -50,14 +48,12 @@ type client struct {
 	loggerWithSkip Logger
 
 	// Populated after Run is called
-	messageQueue   <-chan gpbft.ValidatedMessage
-	manifestUpdate <-chan struct{}
-	topic          *pubsub.Topic
-	psLock         sync.Mutex
+	messageQueue <-chan gpbft.ValidatedMessage
+	topic        *pubsub.Topic
 }
 
 func (mc *client) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder) error {
-	msg, err := mb.Build(mc.manifest.Manifest().NetworkName, mc.SignerWithMarshaler, mc.id)
+	msg, err := mb.Build(mc.nn, mc.SignerWithMarshaler, mc.id)
 	if err != nil {
 		if errors.Is(err, gpbft.ErrNoPower) {
 			return nil
@@ -79,15 +75,6 @@ func (mc *client) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder
 	}
 	return nil
 
-}
-
-func (mc *client) GetPowerTable(ctx context.Context, ts gpbft.TipSetKey) (gpbft.PowerEntries, error) {
-	// Apply power table deltas from the manifest
-	pt, err := mc.ec.GetPowerTable(ctx, ts)
-	if err != nil {
-		return nil, xerrors.Errorf("getting power table: %w", err)
-	}
-	return certs.ApplyPowerTableDiffs(pt, mc.manifest.Manifest().PowerUpdate)
 }
 
 func (mc *client) IncomingMessages() <-chan gpbft.ValidatedMessage {
@@ -132,7 +119,7 @@ func New(ctx context.Context, id gpbft.ActorID, manifest manifest.ManifestProvid
 		client: &client{
 			certstore:           cs,
 			ec:                  ec,
-			manifest:            manifest,
+			nn:                  manifest.Manifest().NetworkName,
 			id:                  id,
 			Verifier:            verif,
 			SignerWithMarshaler: sigs,
@@ -241,9 +228,6 @@ func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 	// If it is a static manifest it does nothing.
 	go m.Manifest.Run(ctx, manifestErrCh)
 
-	// teardown pubsub on shutdown
-	defer m.teardownPubsub(m.Manifest.Manifest())
-
 	var err error
 	select {
 	case <-ctx.Done():
@@ -277,11 +261,16 @@ loop:
 			m.log.Errorf("invalid msgValidatorData: %+v", msg.ValidatorData)
 			continue
 		}
+
 		select {
 		case queue <- gmsg:
 		case <-ctx.Done():
 			break loop
 		}
+	}
+
+	if err := m.teardownPubsub(m.Manifest.Manifest()); err != nil {
+		m.log.Errorf("tearing down message pubsub returned an error: %+v", err)
 	}
 }
 
@@ -290,21 +279,12 @@ loop:
 // If there is no rebootstrap it only starts a new pubsub topic with a new network name that
 // depends on the manifest version so there is no overlap between different configuration instances
 func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
-	manifestUpdate := make(chan struct{}, 3)
-	m.client.manifestUpdate = manifestUpdate
 	return func(ctx context.Context, prevManifest manifest.Manifest, errCh chan error) {
-		m.client.psLock.Lock()
-		// Tear down pubsub.
-		if err := m.teardownPubsub(prevManifest); err != nil {
-			// for now we just log the error and continue.
-			// This is not critical, but alternative approaches welcome.
-			m.log.Errorf("error stopping gpbft runner: %+v", err)
-		}
 		// empty message queue from outstanding messages
 		m.emptyMessageQueue()
-		// Update the mmanifest in the client to update power table
-		// and network name (without this signatures will fail)
-		m.client.manifest = m.Manifest
+		// Update the client network name to the new one.
+		// if not signatures will fail
+		m.client.nn = m.Manifest.Manifest().NetworkName
 
 		if m.Manifest.Manifest().ReBootstrap {
 			// kill runner and teardown pubsub. This will also
@@ -317,10 +297,15 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 			// when we rebootstrap we need to start from instance 0, because
 			// we may not have anything in the certstore to fetch the
 			// right chain through host.GetProposalForInstance
-
-			m.client.psLock.Unlock()
 			m.setupGpbftRunner(ctx, 0, errCh)
 		} else {
+			// Tear down pubsub.
+			if err := m.teardownPubsub(prevManifest); err != nil {
+				// for now we just log the error and continue.
+				// This is not critical, but alternative approaches welcome.
+				m.log.Errorf("error stopping gpbft runner: %+v", err)
+			}
+
 			if err := m.setupPubsub(m.runner); err != nil {
 				errCh <- xerrors.Errorf("setting up pubsub: %w", err)
 				return
@@ -335,9 +320,6 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 
 			messageQueue := make(chan gpbft.ValidatedMessage, 20)
 			m.client.messageQueue = messageQueue
-			// notify update to host to pick up the new message queue
-			manifestUpdate <- struct{}{}
-			m.client.psLock.Unlock()
 			m.handleIncomingMessages(ctx, messageQueue)
 		}
 	}
@@ -354,6 +336,10 @@ func (m *F3) emptyMessageQueue() {
 	}
 }
 
+func (m *F3) CurrentGpbftInstace() uint64 {
+	return m.runner.participant.UnsafeCurrentInstance()
+}
+
 type Logger interface {
 	Debug(args ...interface{})
 	Debugf(format string, args ...interface{})
@@ -363,17 +349,4 @@ type Logger interface {
 	Infof(format string, args ...interface{})
 	Warn(args ...interface{})
 	Warnf(format string, args ...interface{})
-}
-
-// Methods exposed for testing purposes
-func (m *F3) CurrentGpbftInstace() uint64 {
-	return m.runner.participant.UnsafeCurrentInstance()
-}
-
-func (m *F3) IsRunning() bool {
-	return m.runner != nil
-}
-
-func (m *F3) GetPowerTable(ctx context.Context, ts gpbft.TipSetKey) (gpbft.PowerEntries, error) {
-	return m.client.GetPowerTable(ctx, ts)
 }
