@@ -102,7 +102,15 @@ func (h *gpbftHost) collectChain(base TipSet, head TipSet) ([]TipSet, error) {
 	// TODO: optimize when head is way beyond base
 	res := make([]TipSet, 0, 2*gpbft.CHAIN_MAX_LEN)
 	res = append(res, head)
+
 	for !bytes.Equal(head.Key(), base.Key()) {
+		if head.Epoch() < base.Epoch() {
+			// we reorged away from base
+			// scream and panic??
+			// TODO make sure this is correct, re-boostrap/manifest swap code has to be able to
+			// catch it
+			panic("reorg-ed away from base, dunno what to do, reboostrap is the answer")
+		}
 		var err error
 		head, err = h.client.ec.GetParent(h.runningCtx, head)
 		if err != nil {
@@ -123,7 +131,7 @@ func (h *gpbftHost) collectChain(base TipSet, head TipSet) ([]TipSet, error) {
 // ReceiveDecision (or known to be final via some other channel).
 func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.SupplementalData, gpbft.ECChain, error) {
 	var baseTsk gpbft.TipSetKey
-	if instance == 0 {
+	if instance == h.manifest.InitialInstance {
 		ts, err := h.client.ec.GetTipsetByEpoch(h.runningCtx,
 			h.manifest.BootstrapEpoch-h.manifest.ECFinality)
 		if err != nil {
@@ -203,7 +211,7 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 	var powerEntries gpbft.PowerEntries
 	var err error
 
-	if instance < h.manifest.CommiteeLookback {
+	if instance < h.manifest.InitialInstance+h.manifest.CommiteeLookback {
 		//boostrap phase
 		ts, err := h.client.ec.GetTipsetByEpoch(h.runningCtx, h.manifest.BootstrapEpoch-h.manifest.ECFinality)
 		if err != nil {
@@ -223,8 +231,7 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 
 		powerEntries, err = h.client.certStore.GetPowerTable(h.runningCtx, instance)
 		if err != nil {
-			// this fires every round, is this correct?
-			h.log.Infof("failed getting power table from certstore: %v, falling back to EC", err)
+			h.log.Debugf("failed getting power table from certstore: %v, falling back to EC", err)
 
 			powerEntries, err = h.client.ec.GetPowerTable(h.runningCtx, powerTsk)
 			if err != nil {
@@ -318,7 +325,7 @@ func (h *gpbftHost) saveDecision(decision *gpbft.Justification) error {
 	if err != nil {
 		return xerrors.Errorf("forming certificate out of decision: %w", err)
 	}
-	_, _, _, err = certs.ValidateFinalityCertificates(h, h.NetworkName(), current.Entries, decision.Vote.Instance, cert.ECChain.Base())
+	_, _, _, err = certs.ValidateFinalityCertificates(h, h.NetworkName(), current.Entries, decision.Vote.Instance, nil, *cert)
 	if err != nil {
 		return xerrors.Errorf("certificate is invalid: %w", err)
 	}
@@ -327,6 +334,7 @@ func (h *gpbftHost) saveDecision(decision *gpbft.Justification) error {
 	if err != nil {
 		return xerrors.Errorf("saving ceritifcate in a store: %w", err)
 	}
+
 	return nil
 }
 

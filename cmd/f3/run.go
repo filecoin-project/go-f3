@@ -89,8 +89,7 @@ var runCmd = cli.Command{
 
 		go runMessageSubscription(ctx, module, actorID, signingBackend)
 
-		initialInstance := c.Uint64("instance")
-		return module.Run(initialInstance, ctx)
+		return module.Run(ctx)
 	},
 }
 
