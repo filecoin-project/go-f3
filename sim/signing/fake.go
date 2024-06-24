@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/filecoin-project/go-f3/gpbft"
-	"golang.org/x/xerrors"
 )
 
 var _ Backend = (*FakeBackend)(nil)
@@ -45,7 +44,7 @@ func (s *FakeBackend) Sign(signer gpbft.PubKey, msg []byte) ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if _, ok := s.allowed[string(signer)]; !ok {
-		return nil, xerrors.Errorf("cannot sign: unknown sender")
+		return nil, fmt.Errorf("cannot sign: unknown sender")
 	}
 	return s.generateSignature(signer, msg)
 }

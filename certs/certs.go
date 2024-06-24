@@ -3,12 +3,12 @@ package certs
 import (
 	"bytes"
 	"cmp"
+	"fmt"
 	"slices"
 	"sort"
 
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-f3/gpbft"
-	"golang.org/x/xerrors"
 )
 
 // PowerTableDelta represents a single power table change between GPBFT instances. If the resulting
@@ -53,15 +53,15 @@ type FinalityCertificate struct {
 // immediately calling `ValidateFinalityCertificates` on the result.
 func NewFinalityCertificate(powerDelta []PowerTableDelta, justification *gpbft.Justification) (*FinalityCertificate, error) {
 	if justification.Vote.Step != gpbft.DECIDE_PHASE {
-		return nil, xerrors.Errorf("can only create a finality certificate from a decide vote, got phase %s", justification.Vote.Step)
+		return nil, fmt.Errorf("can only create a finality certificate from a decide vote, got phase %s", justification.Vote.Step)
 	}
 
 	if justification.Vote.Round != 0 {
-		return nil, xerrors.Errorf("expected decide round to be 0, got round %d", justification.Vote.Round)
+		return nil, fmt.Errorf("expected decide round to be 0, got round %d", justification.Vote.Round)
 	}
 
 	if justification.Vote.Value.IsZero() {
-		return nil, xerrors.Errorf("got a decision for bottom for instance %d", justification.Vote.Instance)
+		return nil, fmt.Errorf("got a decision for bottom for instance %d", justification.Vote.Instance)
 	}
 
 	return &FinalityCertificate{
@@ -88,22 +88,22 @@ func ValidateFinalityCertificates(verifier gpbft.Verifier, network gpbft.Network
 	certs ...FinalityCertificate) (_nextInstance uint64, chain gpbft.ECChain, newPowerTable gpbft.PowerEntries, err error) {
 	for _, cert := range certs {
 		if cert.GPBFTInstance != nextInstance {
-			return nextInstance, chain, prevPowerTable, xerrors.Errorf("expected instance %d, found instance %d", nextInstance, cert.GPBFTInstance)
+			return nextInstance, chain, prevPowerTable, fmt.Errorf("expected instance %d, found instance %d", nextInstance, cert.GPBFTInstance)
 		}
 		// Some basic sanity checks.
 		if err := cert.ECChain.Validate(); err != nil {
-			return nextInstance, chain, prevPowerTable, xerrors.Errorf("invalid finality certificate at instance %d: %w", cert.GPBFTInstance, err)
+			return nextInstance, chain, prevPowerTable, fmt.Errorf("invalid finality certificate at instance %d: %w", cert.GPBFTInstance, err)
 		}
 
 		// We can't have a finality certificate for "bottom"
 		if cert.ECChain.IsZero() {
-			return nextInstance, chain, prevPowerTable, xerrors.Errorf("empty finality certificate for instance %d", cert.GPBFTInstance)
+			return nextInstance, chain, prevPowerTable, fmt.Errorf("empty finality certificate for instance %d", cert.GPBFTInstance)
 		}
 
 		// Validate that the base is as expected if specified. Otherwise, skip this check
 		// for the first finality certificate.
 		if base != nil && !base.Equal(cert.ECChain.Base()) {
-			return nextInstance, chain, prevPowerTable, xerrors.Errorf("base tipset does not match finalized chain at instance %d", cert.GPBFTInstance)
+			return nextInstance, chain, prevPowerTable, fmt.Errorf("base tipset does not match finalized chain at instance %d", cert.GPBFTInstance)
 		}
 
 		// Validate signature.
@@ -115,16 +115,16 @@ func ValidateFinalityCertificates(verifier gpbft.Verifier, network gpbft.Network
 		// new head.
 		newPowerTable, err = ApplyPowerTableDiffs(prevPowerTable, cert.PowerTableDelta)
 		if err != nil {
-			return nextInstance, chain, prevPowerTable, xerrors.Errorf("failed to apply power table delta for finality certificate for instance %d: %w", cert.GPBFTInstance, err)
+			return nextInstance, chain, prevPowerTable, fmt.Errorf("failed to apply power table delta for finality certificate for instance %d: %w", cert.GPBFTInstance, err)
 		}
 
 		powerTableCid, err := MakePowerTableCID(newPowerTable)
 		if err != nil {
-			return nextInstance, chain, prevPowerTable, xerrors.Errorf("failed to make power table CID for finality certificate for instance %d: %w", cert.GPBFTInstance, err)
+			return nextInstance, chain, prevPowerTable, fmt.Errorf("failed to make power table CID for finality certificate for instance %d: %w", cert.GPBFTInstance, err)
 		}
 
 		if !bytes.Equal(cert.SupplementalData.PowerTable, powerTableCid) {
-			return nextInstance, chain, prevPowerTable, xerrors.Errorf(
+			return nextInstance, chain, prevPowerTable, fmt.Errorf(
 				"incorrect power diff from finality certificate for instance %d: expected %+v, got %+v",
 				cert.GPBFTInstance, cert.SupplementalData.PowerTable, powerTableCid)
 		}
@@ -143,20 +143,20 @@ func ValidateFinalityCertificates(verifier gpbft.Verifier, network gpbft.Network
 func verifyFinalityCertificateSignature(verifier gpbft.Verifier, powerTable gpbft.PowerEntries, nn gpbft.NetworkName, cert FinalityCertificate) error {
 	scaled, totalScaled, err := powerTable.Scaled()
 	if err != nil {
-		return xerrors.Errorf("failed to scale power table: %w", err)
+		return fmt.Errorf("failed to scale power table: %w", err)
 	}
 
 	signers := make([]gpbft.PubKey, 0, len(powerTable))
 	var signerPowers uint16
 	if err := cert.Signers.ForEach(func(i uint64) error {
 		if i >= uint64(len(powerTable)) {
-			return xerrors.Errorf(
+			return fmt.Errorf(
 				"finality certificate for instance %d specifies a signer %d but we only have %d entries in the power table",
 				cert.GPBFTInstance, i, len(powerTable))
 		}
 		power := scaled[i]
 		if power == 0 {
-			return xerrors.Errorf(
+			return fmt.Errorf(
 				"finality certificate for instance %d specifies a signer %d but they have no effective power after scaling",
 				cert.GPBFTInstance, powerTable[i].ID)
 		}
@@ -168,7 +168,7 @@ func verifyFinalityCertificateSignature(verifier gpbft.Verifier, powerTable gpbf
 	}
 
 	if !gpbft.IsStrongQuorum(signerPowers, totalScaled) {
-		return xerrors.Errorf("finality certificate for instance %d has insufficient power: %d < 2/3 %d", cert.GPBFTInstance, signerPowers, totalScaled)
+		return fmt.Errorf("finality certificate for instance %d has insufficient power: %d < 2/3 %d", cert.GPBFTInstance, signerPowers, totalScaled)
 	}
 
 	payload := &gpbft.Payload{
@@ -189,7 +189,7 @@ func verifyFinalityCertificateSignature(verifier gpbft.Verifier, powerTable gpbf
 	}
 
 	if err := verifier.VerifyAggregate(signedBytes, cert.Signature, signers); err != nil {
-		return xerrors.Errorf("invalid signature on finality certificate for instance %d: %w", cert.GPBFTInstance, err)
+		return fmt.Errorf("invalid signature on finality certificate for instance %d: %w", cert.GPBFTInstance, err)
 	}
 	return nil
 }
@@ -250,12 +250,12 @@ func ApplyPowerTableDiffs(prevPowerTable gpbft.PowerEntries, diffs ...[]PowerTab
 			// We assert this to make sure the finality certificate has a consistent power-table
 			// diff.
 			if i > 0 && d.ParticipantID <= lastActorId {
-				return nil, xerrors.Errorf("diff %d not sorted by participant ID", j)
+				return nil, fmt.Errorf("diff %d not sorted by participant ID", j)
 			}
 
 			// Empty power diffs aren't allowed.
 			if d.IsZero() {
-				return nil, xerrors.Errorf("diff %d contains an empty delta for participant %d", j, d.ParticipantID)
+				return nil, fmt.Errorf("diff %d contains an empty delta for participant %d", j, d.ParticipantID)
 			}
 
 			lastActorId = d.ParticipantID
@@ -263,7 +263,7 @@ func ApplyPowerTableDiffs(prevPowerTable gpbft.PowerEntries, diffs ...[]PowerTab
 			if ok {
 				// Power deltas can't replace a key with the same key.
 				if bytes.Equal(d.SigningKey, pe.PubKey) {
-					return nil, xerrors.Errorf("diff %d delta for participant %d includes an unchanged key", j, pe.ID)
+					return nil, fmt.Errorf("diff %d delta for participant %d includes an unchanged key", j, pe.ID)
 				}
 				if d.PowerDelta.Sign() != 0 {
 					pe.Power = new(gpbft.StoragePower).Add(d.PowerDelta, pe.Power)
@@ -271,17 +271,17 @@ func ApplyPowerTableDiffs(prevPowerTable gpbft.PowerEntries, diffs ...[]PowerTab
 				if len(d.SigningKey) > 0 {
 					// If we end up with no power, we shouldn't have replaced the key.
 					if pe.Power.Sign() == 0 {
-						return nil, xerrors.Errorf("diff %d removes all power for participant %d while specifying a new key", j, pe.ID)
+						return nil, fmt.Errorf("diff %d removes all power for participant %d while specifying a new key", j, pe.ID)
 					}
 					pe.PubKey = d.SigningKey
 				}
 			} else {
 				// New power entries must specify a key and positive power.
 				if d.PowerDelta.Sign() <= 0 {
-					return nil, xerrors.Errorf("diff %d includes a new entry with a non-positive power delta for participant %d", j, pe.ID)
+					return nil, fmt.Errorf("diff %d includes a new entry with a non-positive power delta for participant %d", j, pe.ID)
 				}
 				if len(d.SigningKey) == 0 {
-					return nil, xerrors.Errorf("diff %d includes a new power delta for participant %d with an empty signing key", j, pe.ID)
+					return nil, fmt.Errorf("diff %d includes a new power delta for participant %d with an empty signing key", j, pe.ID)
 				}
 				pe = gpbft.PowerEntry{
 					ID:     d.ParticipantID,
@@ -295,7 +295,7 @@ func ApplyPowerTableDiffs(prevPowerTable gpbft.PowerEntries, diffs ...[]PowerTab
 			case 1: // if the power is positive, keep it and update the map.
 				powerTableMap[pe.ID] = pe
 			default: // if the power becomes negative, something went wrong
-				return nil, xerrors.Errorf("diff %d resulted in negative power for participant %d", j, pe.ID)
+				return nil, fmt.Errorf("diff %d resulted in negative power for participant %d", j, pe.ID)
 			}
 
 		}
@@ -315,7 +315,7 @@ func ApplyPowerTableDiffs(prevPowerTable gpbft.PowerEntries, diffs ...[]PowerTab
 func MakePowerTableCID(pt gpbft.PowerEntries) (gpbft.CID, error) {
 	var buf bytes.Buffer
 	if err := pt.MarshalCBOR(&buf); err != nil {
-		return nil, xerrors.Errorf("failed to serialize power table: %w", err)
+		return nil, fmt.Errorf("failed to serialize power table: %w", err)
 	}
 	return gpbft.MakeCid(buf.Bytes()), nil
 }

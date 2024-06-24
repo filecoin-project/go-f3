@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"time"
 
 	"golang.org/x/crypto/blake2b"
-	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -95,7 +95,7 @@ func (ec *FakeEC) currentEpoch() int64 {
 // GetTipsetByHeight should return a tipset or nil/empty byte array if it does not exists
 func (ec *FakeEC) GetTipsetByEpoch(ctx context.Context, epoch int64) (f3.TipSet, error) {
 	if ec.currentEpoch() < epoch {
-		return nil, xerrors.Errorf("does not yet exist")
+		return nil, fmt.Errorf("does not yet exist")
 	}
 	ts := ec.genTipset(epoch)
 	for ts == nil {
@@ -110,13 +110,13 @@ func (ec *FakeEC) GetParent(ctx context.Context, ts f3.TipSet) (f3.TipSet, error
 	for epoch := ts.Epoch() - 1; epoch > 0; epoch-- {
 		ts, err := ec.GetTipsetByEpoch(ctx, epoch)
 		if err != nil {
-			return nil, xerrors.Errorf("walking back tipsets: %w", err)
+			return nil, fmt.Errorf("walking back tipsets: %w", err)
 		}
 		if ts != nil {
 			return ts, nil
 		}
 	}
-	return nil, xerrors.Errorf("parent not found")
+	return nil, fmt.Errorf("parent not found")
 }
 
 func (ec *FakeEC) GetHead(ctx context.Context) (f3.TipSet, error) {

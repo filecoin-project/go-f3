@@ -7,8 +7,6 @@ import (
 	"math/big"
 	"slices"
 	"sort"
-
-	xerrors "golang.org/x/xerrors"
 )
 
 var _ sort.Interface = (*PowerTable)(nil)
@@ -237,7 +235,7 @@ func (p *PowerTable) Validate() error {
 func scalePower(power, total *StoragePower) (uint16, error) {
 	const maxPower = 0xffff
 	if power.Cmp(total) > 0 {
-		return 0, xerrors.Errorf("total power %d is less than the power of a single participant %d", total, power)
+		return 0, fmt.Errorf("total power %d is less than the power of a single participant %d", total, power)
 	}
 	scaled := big.NewInt(maxPower)
 	scaled = scaled.Mul(scaled, (*big.Int)(power))

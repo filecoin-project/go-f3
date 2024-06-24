@@ -2,9 +2,8 @@ package gpbft
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
-
-	xerrors "golang.org/x/xerrors"
 )
 
 // ErrNoPower is returned by the MessageBuilder if the specified participant has no power.
@@ -81,12 +80,12 @@ type SignerWithMarshaler interface {
 func (mt *MessageBuilder) Build(signer Signer, id ActorID) (*GMessage, error) {
 	st, err := mt.PrepareSigningInputs(id)
 	if err != nil {
-		return nil, xerrors.Errorf("preparing signing inputs: %w", err)
+		return nil, fmt.Errorf("preparing signing inputs: %w", err)
 	}
 
 	payloadSig, vrf, err := st.Sign(signer)
 	if err != nil {
-		return nil, xerrors.Errorf("signing message builder: %w", err)
+		return nil, fmt.Errorf("signing message builder: %w", err)
 	}
 
 	return st.Build(payloadSig, vrf), nil
@@ -107,7 +106,7 @@ type SignatureBuilder struct {
 func (mb *MessageBuilder) PrepareSigningInputs(id ActorID) (*SignatureBuilder, error) {
 	effectivePower, _, pubKey := mb.powerTable.Get(id)
 	if pubKey == nil || effectivePower == 0 {
-		return nil, xerrors.Errorf("could not find pubkey for actor %d: %w", id, ErrNoPower)
+		return nil, fmt.Errorf("could not find pubkey for actor %d: %w", id, ErrNoPower)
 	}
 	sb := SignatureBuilder{
 		ParticipantID: id,
@@ -140,13 +139,13 @@ func NewMessageBuilderWithPowerTable(power *PowerTable) *MessageBuilder {
 func (st *SignatureBuilder) Sign(signer Signer) ([]byte, []byte, error) {
 	payloadSignature, err := signer.Sign(st.PubKey, st.PayloadToSign)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("signing payload: %w", err)
+		return nil, nil, fmt.Errorf("signing payload: %w", err)
 	}
 	var vrf []byte
 	if st.VRFToSign != nil {
 		vrf, err = signer.Sign(st.PubKey, st.VRFToSign)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("signing vrf: %w", err)
+			return nil, nil, fmt.Errorf("signing vrf: %w", err)
 		}
 	}
 	return payloadSignature, vrf, nil
