@@ -281,7 +281,7 @@ func (h *gpbftHost) Time() time.Time {
 // The timestamp may be in the past, in which case the alarm will fire as soon as possible
 // (but not synchronously).
 func (h *gpbftHost) SetAlarm(at time.Time) {
-	h.log.Infof("set alarm for %v", at)
+	h.log.Debugf("set alarm for %v", at)
 	// we cannot reuse the timer because we don't know if it was read or not
 	h.alertTimer.Stop()
 	h.alertTimer = time.NewTimer(time.Until(at))
@@ -294,7 +294,8 @@ func (h *gpbftHost) SetAlarm(at time.Time) {
 // based on the decision received (which may be in the past).
 // E.g. this might be: finalised tipset timestamp + epoch duration + stabilisation delay.
 func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
-	h.log.Infof("got decision, finalized head at epoch: %d", decision.Vote.Value.Head().Epoch)
+	h.log.Infof("got decision at instance %d, finalized head at epoch: %d",
+		decision.Vote.Instance, decision.Vote.Value.Head().Epoch)
 	err := h.saveDecision(decision)
 	if err != nil {
 		h.log.Errorf("error while saving decision: %+v", err)
@@ -305,7 +306,44 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 		return time.Now().Add(h.manifest.ECDelay)
 	}
 
-	return ts.Timestamp().Add(h.manifest.ECDelay)
+	if !decision.Vote.Value.IsOnlyBase() {
+		// we decided on something new, use just the ECDelay
+		return ts.Timestamp().Add(h.manifest.ECDelay)
+	}
+
+	// we decided on base, calculate how much we should back off
+	// all of this should go into manifest but I think Alfonso dislikes me already :P
+	const (
+		minBackoff = 2.
+		maxBackoff = 3. * 2. * 60. // 3h with 30s ECDelay
+	)
+	// the backoff is defined in multiples of ECDelay starting at the last finalized tipset
+	// each additional base decision beyond that will incurr the maxBackoff
+	var backoffTable = []float64{2, 3, 5, 9, 17, 33, 65, 129, 257, 513} // 2^i+1 backoff, table for more flexibility
+	//TODO move all the above to manifest
+
+	attempts := 0
+	var backoffMultipler float64
+	for instance := decision.Vote.Instance - 1; instance > h.manifest.InitialInstance; instance-- {
+		cert, err := h.client.certStore.Get(h.runningCtx, instance)
+		if err != nil {
+			h.log.Errorf("error while getting instance %d from certstore: %+v", instance, err)
+			break
+		}
+		if cert.ECChain.IsOnlyBase() {
+			attempts += 1
+		}
+		if attempts < len(backoffTable) {
+			backoffMultipler += min(backoffTable[attempts], maxBackoff)
+		} else {
+			backoffMultipler += maxBackoff
+		}
+	}
+
+	backoff := time.Duration(float64(h.manifest.ECDelay) * backoffMultipler)
+	h.log.Infof("backing off for: %v", backoff)
+
+	return ts.Timestamp().Add(backoff)
 }
 
 func (h *gpbftHost) saveDecision(decision *gpbft.Justification) error {
