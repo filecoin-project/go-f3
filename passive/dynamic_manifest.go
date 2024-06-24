@@ -172,12 +172,13 @@ func (m *DynamicManifestProvider) teardownManifestPubsub() error {
 
 // Checks if we should accept the manifest that we received through pubsub
 func (m *DynamicManifestProvider) acceptNextManifest(manifest *manifest.Manifest) bool {
-	// if the manifest is older, skip it
-	if manifest.Sequence <= m.manifest.Sequence ||
-		// NOTE: Do we want to accept a manifest with a bootstrap epoch that is in the past?
-		manifest.BootstrapEpoch < m.manifest.BootstrapEpoch {
+	if manifest.Sequence <= m.manifest.Sequence {
 		return false
 	}
+	if manifest.ReBootstrap && manifest.BootstrapEpoch < m.manifest.BootstrapEpoch {
+		return false
+	}
+	// TODO: Any additional logic here to determine what manifests to accept or not?
 
 	return true
 }

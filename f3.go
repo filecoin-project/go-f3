@@ -42,10 +42,9 @@ type F3 struct {
 
 type client struct {
 	// certStore is nil until Run is called on the F3
-	certStore   *certstore.Store
-	networkName gpbft.NetworkName
-	manifest    manifest.ManifestProvider
-	ec          ec.Backend
+	certStore *certstore.Store
+	manifest  manifest.ManifestProvider
+	ec        ec.Backend
 
 	signingMarshaller gpbft.SigningMarshaler
 
@@ -67,7 +66,7 @@ type client struct {
 }
 
 func (mc *client) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder) error {
-	mb.SetNetworkName(mc.networkName)
+	mb.SetNetworkName(mc.manifest.Manifest().NetworkName)
 	mb.SetSigningMarshaler(mc.signingMarshaller)
 	mc.busBroadcast.Publish(mb)
 	return nil

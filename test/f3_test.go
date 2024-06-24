@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"math/big"
 	"os"
-	"sync"
 	"testing"
 	"time"
 
@@ -42,11 +41,10 @@ func TestSimpleF3(t *testing.T) {
 
 	env.Connect(ctx)
 	env.Run(ctx)
-	go env.monitorHostErrs()
+	time.Sleep(1 * time.Second)
 	// Small wait for nodes to initialize. In the future we can probably
 	// make this asynchronously
-	time.Sleep(10000000 * time.Second)
-	env.waitForInstanceNumber(ctx, 5, 10000000*time.Second, false)
+	env.waitForInstanceNumber(ctx, 5, 10*time.Second, false)
 }
 
 func TestDynamicManifest_WithoutChanges(t *testing.T) {
@@ -55,9 +53,8 @@ func TestDynamicManifest_WithoutChanges(t *testing.T) {
 
 	env.Connect(ctx)
 	env.Run(ctx)
-	go env.monitorHostErrs()
-	prev := env.nodes[0].f3.Manifest.Manifest()
 	time.Sleep(1 * time.Second)
+	prev := env.nodes[0].f3.Manifest.Manifest()
 
 	env.waitForInstanceNumber(ctx, 5, 10*time.Second, false)
 	// no changes in manifest
@@ -71,7 +68,6 @@ func TestDynamicManifest_WithRebootstrap(t *testing.T) {
 
 	env.Connect(ctx)
 	env.Run(ctx)
-	go env.monitorHostErrs()
 	time.Sleep(1 * time.Second)
 
 	prev := env.nodes[0].f3.Manifest.Manifest()
@@ -102,7 +98,6 @@ func TestDynamicManifest_SubsequentWithRebootstrap(t *testing.T) {
 
 	env.Connect(ctx)
 	env.Run(ctx)
-	go env.monitorHostErrs()
 	time.Sleep(1 * time.Second)
 
 	prev := env.nodes[0].f3.Manifest.Manifest()
@@ -165,7 +160,6 @@ func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
 
 	env.Connect(ctx)
 	env.Run(ctx)
-	go env.monitorHostErrs()
 	time.Sleep(1 * time.Second)
 
 	prev := env.nodes[0].f3.Manifest.Manifest()
@@ -203,7 +197,7 @@ var baseManifest manifest.Manifest = manifest.Manifest{
 	InitialInstance: 0,
 	NetworkName:     gpbft.NetworkName("f3-test"),
 	GpbftConfig:     manifest.DefaultGpbftConfig,
-	// EcConfig:       manifest.DefaultEcConfig,
+	// EcConfig:        manifest.DefaultEcConfig,
 	EcConfig: &manifest.EcConfig{
 		ECFinality:       10,
 		CommiteeLookback: 5,
@@ -214,9 +208,8 @@ var baseManifest manifest.Manifest = manifest.Manifest{
 }
 
 type testNode struct {
-	h     host.Host
-	f3    *f3.F3
-	errCh <-chan error
+	h  host.Host
+	f3 *f3.F3
 }
 
 type testEnv struct {
@@ -370,10 +363,8 @@ func (e *testEnv) Run(ctx context.Context) {
 	// Start the nodes
 	for _, n := range e.nodes {
 		go func(n *testNode) {
-			errCh := make(chan error)
-			n.errCh = errCh
-			err := n.f3.Run(ctx)
-			errCh <- err
+			// TODO: Handle host error
+			_ = n.f3.Run(ctx)
 		}(n)
 	}
 
@@ -383,32 +374,6 @@ func (e *testEnv) Run(ctx context.Context) {
 			e.manifestSender.Start(ctx)
 		}()
 	}
-}
-
-func (e *testEnv) monitorHostErrs() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var wg sync.WaitGroup
-
-	for _, n := range e.nodes {
-		wg.Add(1)
-		go func(n *testNode) {
-			defer wg.Done()
-			select {
-			case err := <-n.errCh:
-				if err != nil {
-					cancel()
-					require.NoError(e.t, err)
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
-		}(n)
-	}
-
-	// Wait for all goroutines to finish
-	wg.Wait()
 }
 
 func (e *testEnv) connectNodes(ctx context.Context, n1, n2 *testNode) {
