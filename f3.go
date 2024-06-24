@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Kubuxu/go-broadcast"
+	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/ipfs/go-datastore"
@@ -239,6 +240,19 @@ func (m *F3) boostrap(ctx context.Context) error {
 	}
 	m.setCertStore(cs)
 	return nil
+}
+
+func (m *F3) GetLatestCert(ctx context.Context) (*certs.FinalityCertificate, error) {
+	if m.certStore == nil {
+		return nil, xerrors.Errorf("F3 is not running")
+	}
+	return m.certStore.Latest(), nil
+}
+func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCertificate, error) {
+	if m.certStore == nil {
+		return nil, xerrors.Errorf("F3 is not running")
+	}
+	return m.certStore.Get(ctx, instance)
 }
 
 // Run start the module. It will exit when context is cancelled.
