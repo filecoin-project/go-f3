@@ -23,6 +23,7 @@ type gpbftRunner struct {
 	alertTimer *time.Timer
 
 	runningCtx context.Context
+	ctxCancel  func()
 	log        Logger
 }
 
@@ -53,9 +54,8 @@ func newRunner(id gpbft.ActorID, m manifest.ManifestProvider, client *client) (*
 }
 
 func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
-	var cancel func()
-	h.runningCtx, cancel = context.WithCancel(ctx)
-	defer cancel()
+	h.runningCtx, h.ctxCancel = context.WithCancel(ctx)
+	defer h.ctxCancel()
 
 	// TODO(Kubuxu): temporary hack until re-broadcast and/or booststrap synchronisation are implemented
 	time.Sleep(2 * time.Second)
@@ -68,32 +68,42 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 	messageQueue := h.client.IncomingMessages()
 loop:
 	for {
-		// prioritise alarm delivery
-		// although there is no guarantee that alarm won't fire between
-		// the two select statements
-		select {
-		case <-h.alertTimer.C:
-			err = h.participant.ReceiveAlarm()
-		default:
-		}
-		if err != nil {
-			break loop
-		}
-
-		select {
-		case <-h.alertTimer.C:
-			err = h.participant.ReceiveAlarm()
-		case msg, ok := <-messageQueue:
-			if !ok {
-				err = xerrors.Errorf("incoming messsage queue closed")
+		for {
+			// prioritise alarm delivery
+			select {
+			case <-h.alertTimer.C:
+				err = h.participant.ReceiveAlarm()
+			default:
+			}
+			if err != nil {
 				break loop
 			}
-			err = h.participant.ReceiveMessage(msg)
-		case <-ctx.Done():
-			return nil
-		}
-		if err != nil {
-			break loop
+
+			// Handle messages and alarms
+			select {
+			case <-h.alertTimer.C:
+				err = h.participant.ReceiveAlarm()
+			case msg, ok := <-messageQueue:
+				if !ok {
+					err = xerrors.Errorf("incoming message queue closed")
+					break loop
+				}
+				err = h.participant.ReceiveMessage(msg)
+			case <-ctx.Done():
+				return nil
+			}
+			if err != nil {
+				break loop
+			}
+
+			// Check for manifest update in the inner loop to exit and update the messageQueue
+			select {
+			case <-h.client.manifestUpdate:
+				h.log.Debugf("Manifest update detected, refreshing message queue")
+				messageQueue = h.client.IncomingMessages()
+				continue loop
+			default:
+			}
 		}
 	}
 	h.log.Errorf("gpbfthost exiting: %+v", err)
@@ -118,6 +128,10 @@ func (h *gpbftHost) collectChain(base ec.TipSet, head ec.TipSet) ([]ec.TipSet, e
 	}
 	slices.Reverse(res)
 	return res[1:], nil
+}
+
+func (h *gpbftRunner) Stop() {
+	h.ctxCancel()
 }
 
 // Returns inputs to the next GPBFT instance.
@@ -162,7 +176,7 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 		Epoch: baseTs.Epoch(),
 		Key:   baseTs.Key(),
 	}
-	pte, err := h.client.ec.GetPowerTable(h.runningCtx, baseTs.Key())
+	pte, err := h.client.GetPowerTable(h.runningCtx, baseTs.Key())
 	if err != nil {
 		return nil, nil, xerrors.Errorf("getting power table for base: %w", err)
 	}
@@ -176,7 +190,7 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 		suffix[i].Key = collectedChain[i].Key()
 		suffix[i].Epoch = collectedChain[i].Epoch()
 
-		pte, err = h.client.ec.GetPowerTable(h.runningCtx, suffix[i].Key)
+		pte, err = h.client.GetPowerTable(h.runningCtx, suffix[i].Key)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("getting power table for suffix %d: %w", i, err)
 		}
@@ -216,7 +230,7 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 			return nil, nil, xerrors.Errorf("getting tipset for boostrap epoch with lookback: %w", err)
 		}
 		powerTsk = ts.Key()
-		powerEntries, err = h.client.ec.GetPowerTable(h.runningCtx, powerTsk)
+		powerEntries, err = h.client.GetPowerTable(h.runningCtx, powerTsk)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("getting power table: %w", err)
 		}

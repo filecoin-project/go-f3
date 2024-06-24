@@ -103,6 +103,7 @@ var runCmd = cli.Command{
 		}
 
 		initialInstance := c.Uint64("instance")
+		mprovider.SetManifestChangeCallback(f3.ManifestChangeCallback(module))
 		return module.Run(initialInstance, ctx)
 	},
 }
