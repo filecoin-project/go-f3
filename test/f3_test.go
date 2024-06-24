@@ -45,7 +45,7 @@ func TestSimpleF3(t *testing.T) {
 	// Small wait for nodes to initialize. In the future we can probably
 	// make this asynchronously
 	time.Sleep(1 * time.Second)
-	env.waitForInstanceNumber(ctx, 5, 10*time.Second)
+	env.waitForInstanceNumber(ctx, 5, 10*time.Second, false)
 }
 
 func TestDynamicManifest_WithoutChanges(t *testing.T) {
@@ -59,10 +59,10 @@ func TestDynamicManifest_WithoutChanges(t *testing.T) {
 	prev := env.nodes[0].f3.Manifest.Manifest()
 	time.Sleep(1 * time.Second)
 
-	env.waitForInstanceNumber(ctx, 5, 10*time.Second)
+	env.waitForInstanceNumber(ctx, 5, 10*time.Second, false)
 	// no changes in manifest
 	require.Equal(t, prev, env.nodes[0].f3.Manifest.Manifest())
-	env.requireEqualManifests()
+	env.requireEqualManifests(false)
 }
 
 func TestDynamicManifest_WithRebootstrap(t *testing.T) {
@@ -77,7 +77,7 @@ func TestDynamicManifest_WithRebootstrap(t *testing.T) {
 
 	prev := env.nodes[0].f3.Manifest.Manifest()
 
-	env.waitForInstanceNumber(ctx, 3, 15*time.Second)
+	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
 	prevInstance := env.nodes[0].f3.CurrentGpbftInstace()
 
 	// Update the manifest. Bootstrap from an epoch over
@@ -92,9 +92,73 @@ func TestDynamicManifest_WithRebootstrap(t *testing.T) {
 
 	// check that it rebootstrapped and the number of instances is below prevInstance
 	require.True(t, env.nodes[0].f3.CurrentGpbftInstace() < prevInstance)
-	env.waitForInstanceNumber(ctx, 3, 15*time.Second)
+	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest.Manifest())
-	env.requireEqualManifests()
+	env.requireEqualManifests(false)
+}
+
+func TestDynamicManifest_SubsequentWithRebootstrap(t *testing.T) {
+	ctx := context.Background()
+	env := newTestEnvironment(t, 2, true)
+
+	initialInstance := uint64(0)
+
+	env.Connect(ctx)
+	env.Run(ctx, initialInstance)
+	time.Sleep(1 * time.Second)
+
+	prev := env.nodes[0].f3.Manifest.Manifest()
+
+	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
+	prevInstance := env.nodes[0].f3.CurrentGpbftInstace()
+
+	// Update the manifest. Bootstrap from an epoch over
+	// 953 so we start receiving a new head from fakeEC
+	// every second
+	env.manifest.BootstrapEpoch = 953
+	env.manifest.Sequence = 1
+	env.manifest.ReBootstrap = true
+	env.manifestSender.UpdateManifest(&env.manifest)
+
+	env.waitForManifestChange(ctx, prev, 15*time.Second)
+
+	// check that it rebootstrapped and the number of instances is below prevInstance
+	require.True(t, env.nodes[0].f3.CurrentGpbftInstace() < prevInstance)
+	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
+	require.NotEqual(t, prev, env.nodes[0].f3.Manifest.Manifest())
+	env.requireEqualManifests(false)
+
+	// New manifest with sequence 2
+	prev = env.nodes[0].f3.Manifest.Manifest()
+	prevInstance = env.nodes[0].f3.CurrentGpbftInstace()
+
+	env.manifest.BootstrapEpoch = 960
+	env.manifest.Sequence = 2
+	env.manifest.ReBootstrap = true
+	env.manifestSender.UpdateManifest(&env.manifest)
+
+	env.waitForManifestChange(ctx, prev, 15*time.Second)
+
+	// check that it rebootstrapped and the number of instances is below prevInstance
+	require.True(t, env.nodes[0].f3.CurrentGpbftInstace() < prevInstance)
+	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
+	require.NotEqual(t, prev, env.nodes[0].f3.Manifest.Manifest())
+	env.requireEqualManifests(false)
+
+	// Using a manifest with a lower sequence number doesn't trigger an update
+	prev = env.nodes[0].f3.Manifest.Manifest()
+	env.manifest.BootstrapEpoch = 965
+	env.manifest.Sequence = 1
+	env.manifest.ReBootstrap = true
+	env.manifestSender.UpdateManifest(&env.manifest)
+
+	// wait for the new manifest to be broadcast
+	time.Sleep(5 * ManifestSenderTimeout)
+
+	// check that no manifest change has propagated
+	require.Equal(t, prev, env.nodes[0].f3.Manifest.Manifest())
+	env.requireEqualManifests(false)
+
 }
 
 func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
@@ -109,7 +173,7 @@ func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
 
 	prev := env.nodes[0].f3.Manifest.Manifest()
 
-	env.waitForInstanceNumber(ctx, 3, 15*time.Second)
+	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
 	prevInstance := env.nodes[0].f3.CurrentGpbftInstace()
 
 	env.manifest.BootstrapEpoch = 953
@@ -122,11 +186,11 @@ func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
 
 	env.waitForManifestChange(ctx, prev, 15*time.Second)
 
-	// check that the runner continued wthout rebootstrap
+	// check that the runner continued without rebootstrap
 	require.True(t, env.nodes[0].f3.CurrentGpbftInstace() >= prevInstance)
-	env.waitForInstanceNumber(ctx, prevInstance+7, 150*time.Second)
+	env.waitForInstanceNumber(ctx, prevInstance+7, 150*time.Second, false)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest.Manifest())
-	env.requireEqualManifests()
+	env.requireEqualManifests(false)
 	// check that the power table is updated with the new entries
 	ts, err := env.ec.GetTipsetByEpoch(ctx, int64(env.nodes[0].f3.CurrentGpbftInstace()))
 	require.NoError(t, err)
@@ -145,9 +209,9 @@ var baseManifest manifest.Manifest = manifest.Manifest{
 	EcConfig: &manifest.EcConfig{
 		ECFinality:       10,
 		CommiteeLookback: 5,
-		ECDelay:          1 * time.Second,
-
-		ECPeriod: 1 * time.Second,
+		ECDelay:          500 * time.Millisecond,
+		// Increase the period to reduce the test time
+		ECPeriod: 500 * time.Millisecond,
 	},
 }
 
@@ -173,7 +237,8 @@ func (e *testEnv) addPowerDeltaForParticipants(ctx context.Context, m *manifest.
 		// nodes are initialized sequentially. If the participantID is over the
 		// number of nodes, it means that it hasn't been initialized and is a new node
 		// that we need to add
-		// NOTE: We do not respect the original ID when adding a new one, we use the subsequent one.
+		// If the ID matches an existing one, it adds to the existing power.
+		// NOTE: We do not respect the original ID when adding a new nodes, we use the subsequent one.
 		if n >= gpbft.ActorID(nodeLen) {
 			e.initNode(int(nodeLen), e.manifestSender.SenderID())
 			newNode = true
@@ -190,13 +255,14 @@ func (e *testEnv) addPowerDeltaForParticipants(ctx context.Context, m *manifest.
 				e.connectNodes(ctx, e.nodes[nodeLen-1], e.nodes[j])
 			}
 			// run
-			e.nodes[nodeLen-1].f3.Run(e.nodes[nodeLen-1].f3.CurrentGpbftInstace(), context.Background())
+			_ = e.nodes[nodeLen-1].f3.Run(e.nodes[nodeLen-1].f3.CurrentGpbftInstace(), context.Background())
 		}
 	}
 }
 
-// waits for all _running_ nodes to reach a specific instance number.
-func (e *testEnv) waitForInstanceNumber(ctx context.Context, instanceNumber uint64, timeout time.Duration) {
+// waits for all nodes to reach a specific instance number.
+// If the `strict` flag is enabled the check also applies to the non-running nodes
+func (e *testEnv) waitForInstanceNumber(ctx context.Context, instanceNumber uint64, timeout time.Duration, strict bool) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	for {
@@ -209,7 +275,7 @@ func (e *testEnv) waitForInstanceNumber(ctx context.Context, instanceNumber uint
 				// nodes that are not running are not required to reach the instance
 				// (it will actually panic if we try to fetch it because there is no
 				// runner initialized)
-				if !e.nodes[i].f3.IsRunning() {
+				if !e.nodes[i].f3.IsRunning() && !strict {
 					reached++
 				} else if e.nodes[i].f3.CurrentGpbftInstace() >= instanceNumber && e.nodes[i].f3.IsRunning() {
 					reached++
@@ -233,7 +299,7 @@ func (e *testEnv) waitForManifestChange(ctx context.Context, prev manifest.Manif
 		default:
 			reached := 0
 			for i := 0; i < len(e.nodes); i++ {
-				// only check for running nodes
+				// only running nodes will be listening to manifest changes
 				if !e.nodes[i].f3.IsRunning() {
 					reached++
 				} else {
@@ -291,11 +357,11 @@ func (e *testEnv) initNode(i int, manifestServer peer.ID) {
 	e.nodes = append(e.nodes, n)
 }
 
-func (e *testEnv) requireEqualManifests() {
+func (e *testEnv) requireEqualManifests(strict bool) {
 	m := e.nodes[0].f3.Manifest
 	for _, n := range e.nodes {
 		// only check running nodes
-		if n.f3.IsRunning() {
+		if n.f3.IsRunning() || strict {
 			require.Equal(e.t, n.f3.Manifest.Manifest(), m.Manifest())
 		}
 	}

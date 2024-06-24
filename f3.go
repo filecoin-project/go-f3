@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"sync"
 
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/certstore"
@@ -50,10 +49,13 @@ type client struct {
 	loggerWithSkip Logger
 
 	// Populated after Run is called
-	messageQueue   <-chan gpbft.ValidatedMessage
+	messageQueue <-chan gpbft.ValidatedMessage
+	topic        *pubsub.Topic
+
+	// Notifies manifest updates
 	manifestUpdate <-chan struct{}
-	topic          *pubsub.Topic
-	psLock         sync.Mutex
+	// Triggers the cancellation of the incoming message
+	// routine to avoid delivering any outstanding messages.
 	incomingCancel func()
 }
 
@@ -243,9 +245,13 @@ func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 	go m.Manifest.Run(ctx, manifestErrCh)
 
 	// teardown pubsub on shutdown
-	defer m.teardownPubsub(m.Manifest.Manifest())
-
 	var err error
+	defer m.teardownPubsub(m.Manifest.Manifest())
+	defer func() {
+		teardownErr := m.teardownPubsub(m.Manifest.Manifest())
+		err = multierr.Append(err, teardownErr)
+	}()
+
 	select {
 	case <-ctx.Done():
 		if ctx.Err() != nil {
@@ -295,7 +301,6 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 	manifestUpdate := make(chan struct{}, 3)
 	m.client.manifestUpdate = manifestUpdate
 	return func(ctx context.Context, prevManifest manifest.Manifest, errCh chan error) {
-		m.client.psLock.Lock()
 		// Tear down pubsub.
 		if err := m.teardownPubsub(prevManifest); err != nil {
 			// for now we just log the error and continue.
@@ -320,9 +325,9 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 			// we may not have anything in the certstore to fetch the
 			// right chain through host.GetProposalForInstance
 
-			m.client.psLock.Unlock()
 			m.setupGpbftRunner(ctx, 0, errCh)
 		} else {
+			// immediately stop listening to network messages
 			m.client.incomingCancel()
 			if err := m.setupPubsub(m.runner); err != nil {
 				errCh <- xerrors.Errorf("setting up pubsub: %w", err)
@@ -340,7 +345,6 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 			m.client.messageQueue = messageQueue
 			// notify update to host to pick up the new message queue
 			manifestUpdate <- struct{}{}
-			m.client.psLock.Unlock()
 			m.handleIncomingMessages(ctx, messageQueue)
 		}
 	}

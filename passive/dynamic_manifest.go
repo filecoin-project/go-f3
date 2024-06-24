@@ -99,8 +99,7 @@ func (m *DynamicManifestProvider) handleApplyManifest(ctx context.Context, errCh
 					nn := m.networkNameOnChange()
 					m.manifest.NetworkName = nn
 					m.nextManifest = nil
-					// stop existing pubsub and subscribe to the new one
-					// if the re-bootstrap flag is enabled, it will setup a new runner with the new config.
+					// trigger manifest change callback.
 					go m.onManifestChange(ctx, prevManifest, errCh)
 					continue
 				}
@@ -175,6 +174,7 @@ func (m *DynamicManifestProvider) teardownManifestPubsub() error {
 func (m *DynamicManifestProvider) acceptNextManifest(manifest *manifest.Manifest) bool {
 	// if the manifest is older, skip it
 	if manifest.Sequence <= m.manifest.Sequence ||
+		// NOTE: Do we want to accept a manifest with a bootstrap epoch that is in the past?
 		manifest.BootstrapEpoch < m.manifest.BootstrapEpoch {
 		return false
 	}

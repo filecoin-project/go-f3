@@ -68,7 +68,6 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 	messageQueue := h.client.IncomingMessages()
 loop:
 	for {
-		// Inner loop with the initial or updated messageQueue
 		for {
 			// prioritise alarm delivery
 			select {
@@ -141,7 +140,7 @@ func (h *gpbftRunner) Stop() {
 // - the EC chain to propose.
 // These will be used as input to a subsequent instance of the protocol.
 // The chain should be a suffix of the last chain notified to the host via
-// ReceiveDecision (or known to be final via som99999e other channel).
+// ReceiveDecision (or known to be final via some other channel).
 func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.SupplementalData, gpbft.ECChain, error) {
 	var baseTsk gpbft.TipSetKey
 	if instance == 0 {
