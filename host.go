@@ -27,7 +27,7 @@ type gpbftRunner struct {
 // gpbftHost is a newtype of gpbftRunner exposing APIs required by the gpbft.Participant
 type gpbftHost gpbftRunner
 
-func newRunner(id gpbft.ActorID, m Manifest, client *client) (*gpbftRunner, error) {
+func newRunner(m Manifest, client *client) (*gpbftRunner, error) {
 	runner := &gpbftRunner{
 		client:   client,
 		manifest: m,
@@ -40,7 +40,7 @@ func newRunner(id gpbft.ActorID, m Manifest, client *client) (*gpbftRunner, erro
 		<-runner.alertTimer.C
 	}
 
-	runner.log.Infof("starting runner for P%d", id)
+	runner.log.Infof("Starting gpbft runner")
 	p, err := gpbft.NewParticipant((*gpbftHost)(runner), gpbft.WithTracer(client))
 	if err != nil {
 		return nil, xerrors.Errorf("creating participant: %w", err)

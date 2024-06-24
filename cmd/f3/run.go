@@ -79,15 +79,13 @@ var runCmd = cli.Command{
 
 		ec := NewFakeEC(1, m)
 
-		module, err := f3.New(ctx, gpbft.ActorID(id), m, ds, h, ps,
+		module, err := f3.New(ctx, m, ds, h, ps,
 			signingBackend, ec, log, nil)
 		if err != nil {
 			return xerrors.Errorf("creating module: %w", err)
 		}
 
-		actorID := gpbft.ActorID(c.Uint64("id"))
-
-		go runMessageSubscription(ctx, module, actorID, signingBackend)
+		go runMessageSubscription(ctx, module, gpbft.ActorID(id), signingBackend)
 
 		return module.Run(ctx)
 	},

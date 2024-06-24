@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Kubuxu/go-broadcast"
+	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/ipfs/go-datastore"
@@ -38,7 +39,6 @@ type F3 struct {
 type client struct {
 	// certStore is nil until Run is called on the F3
 	certStore   *certstore.Store
-	id          gpbft.ActorID
 	networkName gpbft.NetworkName
 	ec          ECBackend
 
@@ -80,7 +80,7 @@ func (mc *client) Logger() Logger {
 // New creates and setups f3 with libp2p
 // The context is used for initialization not runtime.
 // signingMarshaller can be nil for default SigningMarshaler
-func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.Datastore, h host.Host,
+func New(ctx context.Context, manifest Manifest, ds datastore.Datastore, h host.Host,
 	ps *pubsub.PubSub, verif gpbft.Verifier, ec ECBackend, log Logger, signingMarshaller gpbft.SigningMarshaler) (*F3, error) {
 	ds = namespace.Wrap(ds, manifest.NetworkName.DatastorePrefix())
 	loggerWithSkip := log
@@ -103,7 +103,6 @@ func New(ctx context.Context, id gpbft.ActorID, manifest Manifest, ds datastore.
 		client: &client{
 			ec:                ec,
 			networkName:       manifest.NetworkName,
-			id:                id,
 			Verifier:          verif,
 			logger:            log,
 			loggerWithSkip:    loggerWithSkip,
@@ -241,6 +240,19 @@ func (m *F3) boostrap(ctx context.Context) error {
 	return nil
 }
 
+func (m *F3) GetLatestCert(ctx context.Context) (*certs.FinalityCertificate, error) {
+	if m.certStore == nil {
+		return nil, xerrors.Errorf("F3 is not running")
+	}
+	return m.certStore.Latest(), nil
+}
+func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCertificate, error) {
+	if m.certStore == nil {
+		return nil, xerrors.Errorf("F3 is not running")
+	}
+	return m.certStore.Get(ctx, instance)
+}
+
 // Run start the module. It will exit when context is cancelled.
 func (m *F3) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
@@ -258,7 +270,7 @@ func (m *F3) Run(ctx context.Context) error {
 		return xerrors.Errorf("opening certstore: %w", err)
 	}
 
-	runner, err := newRunner(m.client.id, m.Manifest, m.client)
+	runner, err := newRunner(m.Manifest, m.client)
 	if err != nil {
 		return xerrors.Errorf("creating gpbft host: %w", err)
 	}
