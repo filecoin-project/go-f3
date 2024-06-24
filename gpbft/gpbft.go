@@ -937,6 +937,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, createTick
 		SupplementalData: *i.supplementalData,
 		Value:            value,
 	}
+
 	mb := NewMessageBuilder(&i.powerTable)
 	mb.SetPayload(p)
 	mb.SetJustification(justification)

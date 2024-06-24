@@ -27,7 +27,7 @@ type gpbftRunner struct {
 // gpbftHost is a newtype of gpbftRunner exposing APIs required by the gpbft.Participant
 type gpbftHost gpbftRunner
 
-func newRunner(id gpbft.ActorID, m Manifest, client *client) (*gpbftRunner, error) {
+func newRunner(m Manifest, client *client) (*gpbftRunner, error) {
 	runner := &gpbftRunner{
 		client:   client,
 		manifest: m,
@@ -40,7 +40,7 @@ func newRunner(id gpbft.ActorID, m Manifest, client *client) (*gpbftRunner, erro
 		<-runner.alertTimer.C
 	}
 
-	runner.log.Infof("starting host for P%d", id)
+	runner.log.Infof("Starting gpbft runner")
 	p, err := gpbft.NewParticipant((*gpbftHost)(runner), gpbft.WithTracer(client))
 	if err != nil {
 		return nil, fmt.Errorf("creating participant: %w", err)
@@ -53,9 +53,6 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 	var cancel func()
 	h.runningCtx, cancel = context.WithCancel(ctx)
 	defer cancel()
-
-	// TODO(Kubuxu): temporary hack until re-broadcast and/or booststrap synchronisation are implemented
-	time.Sleep(2 * time.Second)
 
 	err := h.participant.StartInstance(instance)
 	if err != nil {
@@ -87,7 +84,7 @@ loop:
 			}
 			err = h.participant.ReceiveMessage(msg)
 		case <-ctx.Done():
-			return nil
+			return ctx.Err()
 		}
 		if err != nil {
 			break loop
@@ -105,7 +102,15 @@ func (h *gpbftHost) collectChain(base TipSet, head TipSet) ([]TipSet, error) {
 	// TODO: optimize when head is way beyond base
 	res := make([]TipSet, 0, 2*gpbft.CHAIN_MAX_LEN)
 	res = append(res, head)
+
 	for !bytes.Equal(head.Key(), base.Key()) {
+		if head.Epoch() < base.Epoch() {
+			// we reorged away from base
+			// scream and panic??
+			// TODO make sure this is correct, re-boostrap/manifest swap code has to be able to
+			// catch it
+			panic("reorg-ed away from base, dunno what to do, reboostrap is the answer")
+		}
 		var err error
 		head, err = h.client.ec.GetParent(h.runningCtx, head)
 		if err != nil {
@@ -126,7 +131,7 @@ func (h *gpbftHost) collectChain(base TipSet, head TipSet) ([]TipSet, error) {
 // ReceiveDecision (or known to be final via some other channel).
 func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.SupplementalData, gpbft.ECChain, error) {
 	var baseTsk gpbft.TipSetKey
-	if instance == 0 {
+	if instance == h.manifest.InitialInstance {
 		ts, err := h.client.ec.GetTipsetByEpoch(h.runningCtx,
 			h.manifest.BootstrapEpoch-h.manifest.ECFinality)
 		if err != nil {
@@ -134,7 +139,7 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 		}
 		baseTsk = ts.Key()
 	} else {
-		cert, err := h.client.certstore.Get(h.runningCtx, instance-1)
+		cert, err := h.client.certStore.Get(h.runningCtx, instance-1)
 		if err != nil {
 			return nil, nil, fmt.Errorf("getting cert for previous instance(%d): %w", instance-1, err)
 		}
@@ -206,7 +211,7 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 	var powerEntries gpbft.PowerEntries
 	var err error
 
-	if instance < h.manifest.CommiteeLookback {
+	if instance < h.manifest.InitialInstance+h.manifest.CommiteeLookback {
 		//boostrap phase
 		ts, err := h.client.ec.GetTipsetByEpoch(h.runningCtx, h.manifest.BootstrapEpoch-h.manifest.ECFinality)
 		if err != nil {
@@ -218,16 +223,15 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 			return nil, nil, fmt.Errorf("getting power table: %w", err)
 		}
 	} else {
-		cert, err := h.client.certstore.Get(h.runningCtx, instance-h.manifest.CommiteeLookback)
+		cert, err := h.client.certStore.Get(h.runningCtx, instance-h.manifest.CommiteeLookback)
 		if err != nil {
 			return nil, nil, fmt.Errorf("getting finality certificate: %w", err)
 		}
 		powerTsk = cert.ECChain.Head().Key
 
-		powerEntries, err = h.client.certstore.GetPowerTable(h.runningCtx, instance)
+		powerEntries, err = h.client.certStore.GetPowerTable(h.runningCtx, instance)
 		if err != nil {
-			// this fires every round, is this correct?
-			h.log.Infof("failed getting power table from certstore: %v, falling back to EC", err)
+			h.log.Debugf("failed getting power table from certstore: %v, falling back to EC", err)
 
 			powerEntries, err = h.client.ec.GetPowerTable(h.runningCtx, powerTsk)
 			if err != nil {
@@ -321,15 +325,16 @@ func (h *gpbftHost) saveDecision(decision *gpbft.Justification) error {
 	if err != nil {
 		return fmt.Errorf("forming certificate out of decision: %w", err)
 	}
-	_, _, _, err = certs.ValidateFinalityCertificates(h, h.NetworkName(), current.Entries, decision.Vote.Instance, cert.ECChain.Base())
+	_, _, _, err = certs.ValidateFinalityCertificates(h, h.NetworkName(), current.Entries, decision.Vote.Instance, nil, *cert)
 	if err != nil {
 		return fmt.Errorf("certificate is invalid: %w", err)
 	}
 
-	err = h.client.certstore.Put(h.runningCtx, cert)
+	err = h.client.certStore.Put(h.runningCtx, cert)
 	if err != nil {
 		return fmt.Errorf("saving ceritifcate in a store: %w", err)
 	}
+
 	return nil
 }
 
@@ -337,7 +342,7 @@ func (h *gpbftHost) saveDecision(decision *gpbft.Justification) error {
 // This should usually call `Payload.MarshalForSigning(NetworkName)` except when testing as
 // that method is slow (computes a merkle tree that's necessary for testing).
 func (h *gpbftHost) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Payload) []byte {
-	return h.client.MarshalPayloadForSigning(nn, p)
+	return p.MarshalForSigning(nn)
 }
 
 // Verifies a signature for the given public key.
@@ -355,9 +360,4 @@ func (h *gpbftHost) Aggregate(pubKeys []gpbft.PubKey, sigs [][]byte) ([]byte, er
 // Implementations must be safe for concurrent use.
 func (h *gpbftHost) VerifyAggregate(payload []byte, aggSig []byte, signers []gpbft.PubKey) error {
 	return h.client.VerifyAggregate(payload, aggSig, signers)
-}
-
-// Signs a message with the secret key corresponding to a public key.
-func (h *gpbftHost) Sign(sender gpbft.PubKey, msg []byte) ([]byte, error) {
-	return h.client.Sign(sender, msg)
 }
