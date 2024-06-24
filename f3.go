@@ -246,7 +246,6 @@ func (m *F3) Run(initialInstance uint64, ctx context.Context) error {
 
 	// teardown pubsub on shutdown
 	var err error
-	defer m.teardownPubsub(m.Manifest.Manifest())
 	defer func() {
 		teardownErr := m.teardownPubsub(m.Manifest.Manifest())
 		err = multierr.Append(err, teardownErr)
