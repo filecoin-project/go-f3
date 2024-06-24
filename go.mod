@@ -3,7 +3,7 @@ module github.com/filecoin-project/go-f3
 go 1.21
 
 require (
-	github.com/Kubuxu/go-broadcast v0.0.0-20240212204713-7007a1e29a19
+	github.com/Kubuxu/go-broadcast v0.0.0-20240621161059-1a8c90734cd6
 	github.com/drand/kyber v1.3.1
 	github.com/drand/kyber-bls12381 v0.3.1
 	github.com/filecoin-project/go-bitfield v0.2.4
@@ -15,7 +15,7 @@ require (
 	github.com/libp2p/go-libp2p-pubsub v0.11.0
 	github.com/multiformats/go-multiaddr v0.12.4
 	github.com/stretchr/testify v1.9.0
-	github.com/urfave/cli/v2 v2.27.2
+	github.com/urfave/cli/v2 v2.25.5
 	github.com/whyrusleeping/cbor-gen v0.1.1
 	go.uber.org/multierr v1.11.0
 	golang.org/x/crypto v0.23.0

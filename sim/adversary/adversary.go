@@ -11,6 +11,7 @@ type Receiver interface {
 // Endpoint with which the adversary can control the network
 type Host interface {
 	gpbft.Host
+	gpbft.Signer
 	// Sends a message to all other participants, immediately.
 	// Note that the adversary can subsequently delay delivery to some participants,
 	// before messages are actually received.

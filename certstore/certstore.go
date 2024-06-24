@@ -19,6 +19,7 @@ import (
 )
 
 var ErrCertNotFound = errors.New("certificate not found")
+var ErrNotInitialized = errors.New("CertStore is not initilaized")
 
 const defaultPowerTableFrequency = 60 * 24 // expected twice a day for Filecoin
 
@@ -114,7 +115,7 @@ func OpenOrCreateStore(ctx context.Context, ds datastore.Datastore, firstInstanc
 	return cs, nil
 }
 
-// NewStore initializes a new certificate store. It will fail if the store already exists.
+// CreateStore initializes a new certificate store. It will fail if the store already exists.
 // The passed Datastore has to be thread safe.
 func CreateStore(ctx context.Context, ds datastore.Datastore, firstInstance uint64, initialPowerTable gpbft.PowerEntries) (*Store, error) {
 	if len(initialPowerTable) == 0 {
@@ -141,12 +142,16 @@ func CreateStore(ctx context.Context, ds datastore.Datastore, firstInstance uint
 
 // OpenStore opens an existing certificate store.
 // The passed Datastore has to be thread safe.
+// Returns ErrCertstoreNotInitialized if the CertStore does not exist
 func OpenStore(ctx context.Context, ds datastore.Datastore) (*Store, error) {
 	cs, err := open(ctx, ds)
 	if err != nil {
 		return nil, err
 	}
 	cs.firstInstance, err = cs.readInstanceNumber(ctx, certStoreFirstKey)
+	if errors.Is(err, datastore.ErrNotFound) {
+		return nil, ErrNotInitialized
+	}
 	if err != nil {
 		return nil, xerrors.Errorf("getting first instance: %w", err)
 	}

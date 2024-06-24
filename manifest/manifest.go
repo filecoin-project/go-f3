@@ -76,6 +76,8 @@ type Manifest struct {
 	// Sequence number of the manifest.
 	// This is used to identify if a new config needs to be applied
 	Sequence uint64
+	// Initial instance to use for gpbft
+	InitialInstance uint64
 	// BootstrapEpoch from which the manifest should be applied
 	BootstrapEpoch int64
 	// Flag to determine if the peer should rebootstrap in this configuration

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -39,23 +40,22 @@ func TestSimpleF3(t *testing.T) {
 	ctx := context.Background()
 	env := newTestEnvironment(t, 2, false)
 
-	initialInstance := uint64(0)
 	env.Connect(ctx)
-	env.Run(ctx, initialInstance)
+	env.Run(ctx)
+	go env.monitorHostErrs()
 	// Small wait for nodes to initialize. In the future we can probably
 	// make this asynchronously
-	time.Sleep(1 * time.Second)
-	env.waitForInstanceNumber(ctx, 5, 10*time.Second, false)
+	time.Sleep(10000000 * time.Second)
+	env.waitForInstanceNumber(ctx, 5, 10000000*time.Second, false)
 }
 
 func TestDynamicManifest_WithoutChanges(t *testing.T) {
 	ctx := context.Background()
 	env := newTestEnvironment(t, 2, true)
 
-	initialInstance := uint64(0)
-
 	env.Connect(ctx)
-	env.Run(ctx, initialInstance)
+	env.Run(ctx)
+	go env.monitorHostErrs()
 	prev := env.nodes[0].f3.Manifest.Manifest()
 	time.Sleep(1 * time.Second)
 
@@ -69,10 +69,9 @@ func TestDynamicManifest_WithRebootstrap(t *testing.T) {
 	ctx := context.Background()
 	env := newTestEnvironment(t, 2, true)
 
-	initialInstance := uint64(0)
-
 	env.Connect(ctx)
-	env.Run(ctx, initialInstance)
+	env.Run(ctx)
+	go env.monitorHostErrs()
 	time.Sleep(1 * time.Second)
 
 	prev := env.nodes[0].f3.Manifest.Manifest()
@@ -101,10 +100,9 @@ func TestDynamicManifest_SubsequentWithRebootstrap(t *testing.T) {
 	ctx := context.Background()
 	env := newTestEnvironment(t, 2, true)
 
-	initialInstance := uint64(0)
-
 	env.Connect(ctx)
-	env.Run(ctx, initialInstance)
+	env.Run(ctx)
+	go env.monitorHostErrs()
 	time.Sleep(1 * time.Second)
 
 	prev := env.nodes[0].f3.Manifest.Manifest()
@@ -165,10 +163,9 @@ func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
 	ctx := context.Background()
 	env := newTestEnvironment(t, 2, true)
 
-	initialInstance := uint64(0)
-
 	env.Connect(ctx)
-	env.Run(ctx, initialInstance)
+	env.Run(ctx)
+	go env.monitorHostErrs()
 	time.Sleep(1 * time.Second)
 
 	prev := env.nodes[0].f3.Manifest.Manifest()
@@ -200,11 +197,12 @@ func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
 }
 
 var baseManifest manifest.Manifest = manifest.Manifest{
-	Sequence:       0,
-	BootstrapEpoch: 950,
-	ReBootstrap:    true,
-	NetworkName:    gpbft.NetworkName("f3-test"),
-	GpbftConfig:    manifest.DefaultGpbftConfig,
+	Sequence:        0,
+	BootstrapEpoch:  950,
+	ReBootstrap:     true,
+	InitialInstance: 0,
+	NetworkName:     gpbft.NetworkName("f3-test"),
+	GpbftConfig:     manifest.DefaultGpbftConfig,
 	// EcConfig:       manifest.DefaultEcConfig,
 	EcConfig: &manifest.EcConfig{
 		ECFinality:       10,
@@ -216,8 +214,9 @@ var baseManifest manifest.Manifest = manifest.Manifest{
 }
 
 type testNode struct {
-	h  host.Host
-	f3 *f3.F3
+	h     host.Host
+	f3    *f3.F3
+	errCh <-chan error
 }
 
 type testEnv struct {
@@ -255,7 +254,7 @@ func (e *testEnv) addPowerDeltaForParticipants(ctx context.Context, m *manifest.
 				e.connectNodes(ctx, e.nodes[nodeLen-1], e.nodes[j])
 			}
 			// run
-			_ = e.nodes[nodeLen-1].f3.Run(e.nodes[nodeLen-1].f3.CurrentGpbftInstace(), context.Background())
+			_ = e.nodes[nodeLen-1].f3.Run(context.Background())
 		}
 	}
 }
@@ -367,12 +366,14 @@ func (e *testEnv) requireEqualManifests(strict bool) {
 	}
 }
 
-func (e *testEnv) Run(ctx context.Context, initialInstance uint64) {
+func (e *testEnv) Run(ctx context.Context) {
 	// Start the nodes
 	for _, n := range e.nodes {
 		go func(n *testNode) {
-			// TODO: Handle error from Run
-			_ = n.f3.Run(initialInstance, ctx)
+			errCh := make(chan error)
+			n.errCh = errCh
+			err := n.f3.Run(ctx)
+			errCh <- err
 		}(n)
 	}
 
@@ -382,6 +383,32 @@ func (e *testEnv) Run(ctx context.Context, initialInstance uint64) {
 			e.manifestSender.Start(ctx)
 		}()
 	}
+}
+
+func (e *testEnv) monitorHostErrs() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var wg sync.WaitGroup
+
+	for _, n := range e.nodes {
+		wg.Add(1)
+		go func(n *testNode) {
+			defer wg.Done()
+			select {
+			case err := <-n.errCh:
+				if err != nil {
+					cancel()
+					require.NoError(e.t, err)
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}(n)
+	}
+
+	// Wait for all goroutines to finish
+	wg.Wait()
 }
 
 func (e *testEnv) connectNodes(ctx context.Context, n1, n2 *testNode) {
@@ -457,11 +484,54 @@ func (e *testEnv) newF3Instance(ctx context.Context, id int, manifestServer peer
 	}
 
 	e.signingBackend.Allow(int(id))
-	module, err := f3.New(ctx, gpbft.ActorID(id), mprovider, ds, h, manifestServer, ps, e.signingBackend, e.signingBackend, e.ec, log)
+
+	module, err := f3.New(ctx, mprovider, ds, h, manifestServer, ps,
+		e.signingBackend, e.ec, log, nil)
 	if err != nil {
 		return nil, xerrors.Errorf("creating module: %w", err)
 	}
-
 	mprovider.SetManifestChangeCallback(f3.ManifestChangeCallback(module))
-	return &testNode{h, module}, nil
+	go runMessageSubscription(ctx, module, gpbft.ActorID(id), e.signingBackend)
+
+	return &testNode{h: h, f3: module}, nil
+}
+
+// TODO: This code is copy-pasta from cmd/f3/run.go, consider taking it out into a shared testing lib.
+// We could do the same to the F3 test instantiation
+func runMessageSubscription(ctx context.Context, module *f3.F3, actorID gpbft.ActorID, signer gpbft.Signer) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		ch := make(chan *gpbft.MessageBuilder, 4)
+		module.SubscribeForMessagesToSign(ch)
+	inner:
+		for {
+			select {
+			case mb, ok := <-ch:
+				if !ok {
+					// the broadcast bus kicked us out
+					log.Infof("lost message bus subscription, retrying")
+					break inner
+				}
+				signatureBuilder, err := mb.PrepareSigningInputs(actorID)
+				if err != nil {
+					log.Errorf("preparing signing inputs: %+v", err)
+				}
+				// signatureBuilder can be sent over RPC
+				payloadSig, vrfSig, err := signatureBuilder.Sign(signer)
+				if err != nil {
+					log.Errorf("signing message: %+v", err)
+				}
+				// signatureBuilder and signatures can be returned back over RPC
+				module.Broadcast(ctx, signatureBuilder, payloadSig, vrfSig)
+			case <-ctx.Done():
+				return
+			}
+		}
+
+	}
 }

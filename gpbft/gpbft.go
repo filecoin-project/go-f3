@@ -608,10 +608,10 @@ func (i *instance) beginQuality() error {
 	if i.phase != INITIAL_PHASE {
 		return fmt.Errorf("cannot transition from %s to %s", i.phase, QUALITY_PHASE)
 	}
-	// Broadcast input value and wait up to Δ to receive from others.
+	// Broadcast input value and wait to receive from others.
 	i.phase = QUALITY_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony()
-	i.broadcast(i.round, QUALITY_PHASE, i.input, false, nil)
+	i.broadcast(i.round, QUALITY_PHASE, i.proposal, false, nil)
 	return nil
 }
 
@@ -676,11 +676,12 @@ func (i *instance) tryConverge() error {
 		return nil
 	}
 
-	possibleDecisionLastRound := !i.getRound(i.round - 1).committed.HasStrongQuorumFor("")
 	winner := i.getRound(i.round).converged.FindMaxTicketProposal(i.powerTable)
 	if winner.Chain.IsZero() {
 		return fmt.Errorf("no values at CONVERGE")
 	}
+	possibleDecisionLastRound := i.getRound(i.round-1).committed.CouldReachStrongQuorumFor(
+		winner.Chain.Key(), true)
 	justification := winner.Justification
 	// If the winner is not a candidate but it could possibly have been decided by another participant
 	// in the last round, consider it a candidate.
@@ -693,15 +694,14 @@ func (i *instance) tryConverge() error {
 		i.log("adopting proposal %s after converge", &winner.Chain)
 	} else {
 		// Else preserve own proposal.
+		// This could alternatively loop to next lowest ticket as an optimisation to increase the
+		// chance of proposing the same value as other participants.
 		fallback, ok := i.getRound(i.round).converged.FindProposalFor(i.proposal)
 		if !ok {
 			panic("own proposal not found at CONVERGE")
 		}
 		justification = fallback.Justification
 	}
-	// NOTE: FIP-0086 says to loop to next lowest ticket, rather than fall back to own proposal.
-	// But using own proposal is valid (the spec can't assume any others have been received),
-	// considering others is an optimisation.
 
 	i.value = i.proposal
 	i.beginPrepare(justification)
@@ -727,7 +727,7 @@ func (i *instance) tryPrepare() error {
 	proposalKey := i.proposal.Key()
 	foundQuorum := prepared.HasStrongQuorumFor(proposalKey)
 	timedOut := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
-	quorumNotPossible := !prepared.couldReachStrongQuorumFor(proposalKey)
+	quorumNotPossible := !prepared.CouldReachStrongQuorumFor(proposalKey, false)
 	phaseComplete := timedOut && prepared.ReceivedFromStrongQuorum()
 
 	if foundQuorum {
@@ -938,6 +938,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, createTick
 		SupplementalData: *i.supplementalData,
 		Value:            value,
 	}
+
 	mb := NewMessageBuilder(&i.powerTable)
 	mb.SetPayload(p)
 	mb.SetJustification(justification)
@@ -1214,9 +1215,12 @@ func (q *quorumState) HasStrongQuorumFor(key ChainKey) bool {
 	return ok && supportForChain.hasStrongQuorum
 }
 
-// couldReachStrongQuorumFor checks whether the given chain can possibly reach
-// strong quorum.
-func (q *quorumState) couldReachStrongQuorumFor(key ChainKey) bool {
+// CouldReachStrongQuorumFor checks whether the given chain can possibly reach
+// strong quorum given the locally received messages.
+// If withAdversary is true, an additional ⅓ of total power is added to the possible support,
+// representing an equivocating adversary. This is appropriate for testing whether
+// any other participant could have observed a strong quorum in the presence of such adversary.
+func (q *quorumState) CouldReachStrongQuorumFor(key ChainKey, withAdversary bool) bool {
 	var supportingPower uint16
 	if supportForChain, found := q.chainSupport[key]; found {
 		supportingPower = supportForChain.power
@@ -1225,7 +1229,11 @@ func (q *quorumState) couldReachStrongQuorumFor(key ChainKey) bool {
 	// combined with the aggregate power of not yet voted participants, exceeds ⅔ of
 	// total power.
 	unvotedPower := q.powerTable.ScaledTotal - q.sendersTotalPower
-	possibleSupport := supportingPower + unvotedPower
+	adversaryPower := uint16(0)
+	if withAdversary {
+		adversaryPower = q.powerTable.ScaledTotal / 3
+	}
+	possibleSupport := supportingPower + unvotedPower + adversaryPower
 	return IsStrongQuorum(possibleSupport, q.powerTable.ScaledTotal)
 }
 

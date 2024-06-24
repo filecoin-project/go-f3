@@ -44,7 +44,7 @@ var manifestGenCmd = cli.Command{
 			})
 		}
 
-		f, err := os.OpenFile(path, os.O_WRONLY, 0666)
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0666)
 		if err != nil {
 			return xerrors.Errorf("opening manifest file for writing: %w", err)
 		}

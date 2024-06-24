@@ -8,18 +8,12 @@ import (
 // A ticket is a signature over some common payload.
 type Ticket []byte
 
-type VRFHost interface {
-	Network
-	Signer
-	Verifier
+func MakeTicket(nn NetworkName, beacon []byte, instance uint64, round uint64, source PubKey, signer Signer) (Ticket, error) {
+	return signer.Sign(source, vrfSerializeSigInput(beacon, instance, round, nn))
 }
 
-func MakeTicket(nn NetworkName, beacon []byte, instance uint64, round uint64, source PubKey, host VRFHost) (Ticket, error) {
-	return host.Sign(source, vrfSerializeSigInput(beacon, instance, round, nn))
-}
-
-func VerifyTicket(nn NetworkName, beacon []byte, instance uint64, round uint64, source PubKey, host VRFHost, ticket Ticket) bool {
-	return host.Verify(source, vrfSerializeSigInput(beacon, instance, round, nn), ticket) == nil
+func VerifyTicket(nn NetworkName, beacon []byte, instance uint64, round uint64, source PubKey, verifier Verifier, ticket Ticket) bool {
+	return verifier.Verify(source, vrfSerializeSigInput(beacon, instance, round, nn), ticket) == nil
 }
 
 const DOMAIN_SEPARATION_TAG_VRF = "VRF"
