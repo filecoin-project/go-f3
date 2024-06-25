@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/ipfs/go-datastore"
 )
 
 // Static manifest provider that doesn't allow any changes
@@ -25,26 +24,6 @@ func (m *StaticManifestProvider) GpbftOptions() []gpbft.Option {
 
 func (m *StaticManifestProvider) Manifest() Manifest {
 	return m.manifest
-}
-
-func (m *StaticManifestProvider) DatastorePrefix() datastore.Key {
-	return m.manifest.DatastorePrefix()
-}
-
-func (m *StaticManifestProvider) EcConfig() *EcConfig {
-	return m.manifest.EcConfig
-}
-
-func (m *StaticManifestProvider) BootstrapEpoch() int64 {
-	return m.manifest.BootstrapEpoch
-}
-
-func (m *StaticManifestProvider) NetworkName() gpbft.NetworkName {
-	return m.manifest.NetworkName
-}
-
-func (m *StaticManifestProvider) InitialPowerTable() []gpbft.PowerEntry {
-	return m.manifest.InitialPowerTable
 }
 
 func (m *StaticManifestProvider) Run(ctx context.Context, errCh chan error) {}

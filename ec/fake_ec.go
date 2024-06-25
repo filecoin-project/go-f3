@@ -9,7 +9,6 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/manifest"
 )
 
 type FakeEC struct {
@@ -46,13 +45,13 @@ func (ts *Tipset) Timestamp() time.Time {
 	return ts.timestamp
 }
 
-func NewFakeEC(seed uint64, m manifest.Manifest) *FakeEC {
+func NewFakeEC(seed uint64, bootstrapEpoch int64, ecPeriod time.Duration, initialPowerTable gpbft.PowerEntries) *FakeEC {
 	return &FakeEC{
 		seed:              binary.BigEndian.AppendUint64(nil, seed),
-		initialPowerTable: m.InitialPowerTable,
+		initialPowerTable: initialPowerTable,
 
-		ecPeriod: m.ECPeriod,
-		ecStart:  m.ECBoostrapTimestamp,
+		ecPeriod: ecPeriod,
+		ecStart:  time.Now().Add(-time.Duration(bootstrapEpoch) * ecPeriod),
 	}
 }
 

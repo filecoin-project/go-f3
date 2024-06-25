@@ -19,18 +19,6 @@ var baseManifest manifest.Manifest = manifest.Manifest{
 	BootstrapEpoch: 10,
 	ReBootstrap:    true,
 	NetworkName:    gpbft.NetworkName("test"),
-	InitialPowerTable: []gpbft.PowerEntry{
-		{
-			ID:     0,
-			PubKey: gpbft.PubKey{0},
-			Power:  big.NewInt(1),
-		},
-		{
-			ID:     1,
-			PubKey: gpbft.PubKey{1},
-			Power:  big.NewInt(1),
-		},
-	},
 	PowerUpdate: []certs.PowerTableDelta{
 		{
 			ParticipantID: 2,

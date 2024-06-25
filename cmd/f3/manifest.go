@@ -2,12 +2,9 @@ package main
 
 import (
 	"encoding/json"
-	"math/big"
 	"os"
 
-	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/manifest"
-	"github.com/filecoin-project/go-f3/sim/signing"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 )
@@ -32,17 +29,6 @@ var manifestGenCmd = cli.Command{
 	Action: func(c *cli.Context) error {
 		path := c.String("manifest")
 		m := manifest.LocalDevnetManifest()
-
-		fsig := signing.NewFakeBackend()
-		for i := 0; i < c.Int("N"); i++ {
-			pubkey, _ := fsig.GenerateKey()
-
-			m.InitialPowerTable = append(m.InitialPowerTable, gpbft.PowerEntry{
-				ID:     gpbft.ActorID(i),
-				PubKey: pubkey,
-				Power:  big.NewInt(1000),
-			})
-		}
 
 		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0666)
 		if err != nil {

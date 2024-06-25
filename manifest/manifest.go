@@ -21,8 +21,6 @@ var (
 		ECFinality:       900,
 		CommiteeLookback: 5,
 		ECDelay:          30 * time.Second,
-
-		ECPeriod: 30 * time.Second,
 	}
 
 	DefaultGpbftConfig = &GpbftConfig{
@@ -64,10 +62,7 @@ type EcConfig struct {
 	ECFinality       int64
 	ECDelay          time.Duration
 	CommiteeLookback uint64
-
-	//Temporary
-	ECPeriod            time.Duration
-	ECBoostrapTimestamp time.Time
+	ECPeriod         time.Duration
 }
 
 // Manifest identifies the specific configuration for
@@ -76,7 +71,7 @@ type Manifest struct {
 	// Sequence number of the manifest.
 	// This is used to identify if a new config needs to be applied
 	Sequence uint64
-	// Initial instance to use for gpbft
+	// Initial instance to used for the f3 instance
 	InitialInstance uint64
 	// BootstrapEpoch from which the manifest should be applied
 	BootstrapEpoch int64
@@ -85,10 +80,6 @@ type Manifest struct {
 	ReBootstrap bool
 	// Network name to apply for this manifest.
 	NetworkName gpbft.NetworkName
-	// Initial power table used when bootstrapping. This is used for test
-	// networks or if we want to force a specific power table when
-	// rebootstrapping. If nil, the power table is fetched from the host
-	InitialPowerTable gpbft.PowerEntries
 	// Updates to perform over the power table retrieved by the host
 	// starting from BootstrapEpoch.
 	PowerUpdate []certs.PowerTableDelta
@@ -106,7 +97,6 @@ func LocalDevnetManifest() Manifest {
 		BootstrapEpoch: 1000,
 		EcConfig:       DefaultEcConfig,
 	}
-	m.ECBoostrapTimestamp = time.Now().Add(-time.Duration(m.BootstrapEpoch) * m.ECPeriod)
 	return m
 }
 

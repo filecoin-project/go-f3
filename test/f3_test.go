@@ -315,20 +315,20 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) testEnv {
 
 	// populate manifest
 	m := baseManifest
-	m.ECBoostrapTimestamp = time.Now().Add(-time.Duration(m.BootstrapEpoch) * m.ECPeriod)
+	initialPowerTable := gpbft.PowerEntries{}
 
 	env.signingBackend = signing.NewFakeBackend()
 	for i := 0; i < n; i++ {
 		pubkey, _ := env.signingBackend.GenerateKey()
 
-		m.InitialPowerTable = append(m.InitialPowerTable, gpbft.PowerEntry{
+		initialPowerTable = append(initialPowerTable, gpbft.PowerEntry{
 			ID:     gpbft.ActorID(i),
 			PubKey: pubkey,
 			Power:  big.NewInt(1000),
 		})
 	}
 	env.manifest = m
-	env.ec = ec.NewFakeEC(1, m)
+	env.ec = ec.NewFakeEC(1, m.BootstrapEpoch, m.ECPeriod, initialPowerTable)
 
 	manifestServer := peer.ID("")
 	if dynamicManifest {
