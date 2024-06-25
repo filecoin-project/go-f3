@@ -143,8 +143,8 @@ func (c ECChain) IsZero() bool {
 	return len(c) == 0
 }
 
-func (c ECChain) IsOnlyBase() bool {
-	return len(c.Suffix()) == 0
+func (c ECChain) HasSuffix() bool {
+	return len(c.Suffix()) != 0
 }
 
 // Returns the base tipset.

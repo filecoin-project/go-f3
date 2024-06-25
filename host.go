@@ -306,7 +306,7 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 		return time.Now().Add(h.manifest.ECDelay)
 	}
 
-	if !decision.Vote.Value.IsOnlyBase() {
+	if decision.Vote.Value.HasSuffix() {
 		// we decided on something new, use just the ECDelay
 		return ts.Timestamp().Add(h.manifest.ECDelay)
 	}
@@ -330,7 +330,7 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 			h.log.Errorf("error while getting instance %d from certstore: %+v", instance, err)
 			break
 		}
-		if cert.ECChain.IsOnlyBase() {
+		if !cert.ECChain.HasSuffix() {
 			attempts += 1
 		}
 		if attempts < len(backoffTable) {
