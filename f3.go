@@ -254,7 +254,7 @@ func (m *F3) setupGpbftRunner(ctx context.Context, errCh chan error) {
 		}
 		err := m.runner.Run(startInstance, ctx)
 		if err != nil {
-			m.log.Errorf("eror returned while running host: %+v", err)
+			m.log.Errorf("error returned while running host: %+v", err)
 		}
 		errCh <- err
 	}()
