@@ -12,11 +12,16 @@ import (
 )
 
 type FakeEC struct {
+	useTime           bool
 	seed              []byte
 	initialPowerTable gpbft.PowerEntries
 
+	// with time
 	ecPeriod time.Duration
 	ecStart  time.Time
+
+	// without time
+	currentHead int64
 }
 
 type Tipset struct {
@@ -47,12 +52,20 @@ func (ts *Tipset) Timestamp() time.Time {
 
 func NewFakeEC(seed uint64, bootstrapEpoch int64, ecPeriod time.Duration, initialPowerTable gpbft.PowerEntries) *FakeEC {
 	return &FakeEC{
+		useTime:           true,
 		seed:              binary.BigEndian.AppendUint64(nil, seed),
 		initialPowerTable: initialPowerTable,
 
 		ecPeriod: ecPeriod,
 		ecStart:  time.Now().Add(-time.Duration(bootstrapEpoch) * ecPeriod),
 	}
+}
+
+func NewFakeECWithoutTime(seed uint64, bootstrapEpoch int64, ecPeriod time.Duration, initialPowerTable gpbft.PowerEntries) *FakeEC {
+	fec := NewFakeEC(seed, bootstrapEpoch, ecPeriod, initialPowerTable)
+	fec.useTime = false
+	fec.currentHead = bootstrapEpoch
+	return fec
 }
 
 func (ec *FakeEC) genTipset(epoch int64) *Tipset {
@@ -93,7 +106,7 @@ func (ec *FakeEC) currentEpoch() int64 {
 
 // GetTipsetByHeight should return a tipset or nil/empty byte array if it does not exists
 func (ec *FakeEC) GetTipsetByEpoch(ctx context.Context, epoch int64) (TipSet, error) {
-	if ec.currentEpoch() < epoch {
+	if ec.useTime && ec.currentEpoch() < epoch {
 		return nil, xerrors.Errorf("does not yet exist")
 	}
 	ts := ec.genTipset(epoch)
@@ -118,8 +131,20 @@ func (ec *FakeEC) GetParent(ctx context.Context, ts TipSet) (TipSet, error) {
 	return nil, xerrors.Errorf("parent not found")
 }
 
+func (ec *FakeEC) SetCurrentHead(head int64) {
+	ec.currentHead = head
+}
+
+func (ec *FakeEC) GetCurrentHead() int64 {
+	return ec.currentHead
+}
+
 func (ec *FakeEC) GetHead(ctx context.Context) (TipSet, error) {
-	return ec.GetTipsetByEpoch(ctx, ec.currentEpoch())
+	if ec.useTime {
+		return ec.GetTipsetByEpoch(ctx, ec.currentEpoch())
+	}
+
+	return ec.GetTipsetByEpoch(ctx, ec.currentHead)
 }
 
 func (ec *FakeEC) GetPowerTable(ctx context.Context, tsk gpbft.TipSetKey) (gpbft.PowerEntries, error) {

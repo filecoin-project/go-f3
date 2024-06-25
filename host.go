@@ -94,9 +94,11 @@ loop:
 			}
 
 			// Check for manifest update in the inner loop to exit and update the messageQueue
+			// and start from the last instance
 			select {
-			case <-h.client.manifestUpdate:
+			case start := <-h.client.manifestUpdate:
 				h.log.Debugf("Manifest update detected, refreshing message queue")
+				h.participant.StartInstance(start)
 				messageQueue = h.client.IncomingMessages()
 				continue loop
 			default:

@@ -410,3 +410,23 @@ func (cs *Store) Put(ctx context.Context, cert *certs.FinalityCertificate) error
 func (cs *Store) SubscribeForNewCerts(ch chan<- *certs.FinalityCertificate) (last *certs.FinalityCertificate, closer func()) {
 	return cs.busCerts.Subscribe(ch)
 }
+
+// Clear is used to remove all certificates from the store and clean it for a new instance
+// to be able to use it from scratch.
+//
+// TODO: Right now we don't clear the content of certs, we just remove the pointers to the
+// latest instance and certs.
+func (cs *Store) Clear(ctx context.Context) error {
+	if err := cs.ds.Delete(ctx, certStoreFirstKey); err != nil {
+		return err
+	}
+	return cs.ds.Delete(ctx, certStoreLatestKey)
+}
+
+// ClearInstance removes all asset belonging to an instance.
+func (cs *Store) ClearInstance(ctx context.Context, instance uint64) error {
+	if err := cs.ds.Delete(ctx, cs.keyForCert(instance)); err != nil {
+		return err
+	}
+	return cs.ds.Delete(ctx, cs.keyForPowerTable(instance))
+}

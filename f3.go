@@ -59,7 +59,7 @@ type client struct {
 	topic        *pubsub.Topic
 
 	// Notifies manifest updates
-	manifestUpdate <-chan struct{}
+	manifestUpdate <-chan uint64
 	// Triggers the cancellation of the incoming message
 	// routine to avoid delivering any outstanding messages.
 	incomingCancel func()
@@ -395,7 +395,7 @@ loop:
 // If there is no rebootstrap it only starts a new pubsub topic with a new network name that
 // depends on the manifest version so there is no overlap between different configuration instances
 func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
-	manifestUpdate := make(chan struct{}, 3)
+	manifestUpdate := make(chan uint64, 3)
 	m.client.manifestUpdate = manifestUpdate
 	return func(ctx context.Context, prevManifest manifest.Manifest, errCh chan error) {
 		// Tear down pubsub.
@@ -410,15 +410,19 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 		// and network name (without this signatures will fail)
 		m.client.manifest = m.Manifest
 
-		// TODO: Handle the certstore properly in each case
-		// Potentially removing in both cases.
-
 		if m.Manifest.Manifest().ReBootstrap {
+			m.log.Debug("triggering manifest change with rebootstrap")
 			// kill runner and teardown pubsub. This will also
 			// teardown the pubsub topic
 			m.runner.Stop()
+			// clear the certstore
+			if err := m.certStore.Clear(ctx); err != nil {
+				errCh <- xerrors.Errorf("clearing certstore: %w", err)
+				return
+			}
 			m.setupGpbftRunner(ctx, errCh)
 		} else {
+			m.log.Debug("triggering manifest change without rebootstrap")
 			// immediately stop listening to network messages
 			m.client.incomingCancel()
 			if err := m.setupPubsub(m.runner); err != nil {
@@ -426,7 +430,20 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 				return
 			}
 
-			var err error
+			// clear the latest instance to avoid conflicts
+			// in case there are updates to the power table
+			// and start from that instance.
+			fc, err := m.GetLatestCert(ctx)
+			if err != nil {
+				errCh <- xerrors.Errorf("getting latest cert: %w", err)
+				return
+			}
+			err = m.certStore.ClearInstance(ctx, fc.GPBFTInstance)
+			if err != nil {
+				errCh <- xerrors.Errorf("clearing latest cert: %w", err)
+				return
+			}
+
 			m.msgSub, err = m.client.topic.Subscribe()
 			if err != nil {
 				errCh <- xerrors.Errorf("subscribing to topic: %w", err)
@@ -436,7 +453,7 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 			messageQueue := make(chan gpbft.ValidatedMessage, 20)
 			m.client.messageQueue = messageQueue
 			// notify update to host to pick up the new message queue
-			manifestUpdate <- struct{}{}
+			manifestUpdate <- fc.GPBFTInstance
 			m.handleIncomingMessages(ctx, messageQueue)
 		}
 	}
@@ -462,11 +479,6 @@ type Logger interface {
 	Infof(format string, args ...interface{})
 	Warn(args ...interface{})
 	Warnf(format string, args ...interface{})
-}
-
-// Methods exposed for testing purposes
-func (m *F3) CurrentGpbftInstace() uint64 {
-	return m.runner.participant.UnsafeCurrentInstance()
 }
 
 func (m *F3) IsRunning() bool {

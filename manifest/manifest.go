@@ -21,6 +21,7 @@ var (
 		ECFinality:       900,
 		CommiteeLookback: 5,
 		ECDelay:          30 * time.Second,
+		ECPeriod:         30 * time.Second,
 	}
 
 	DefaultGpbftConfig = &GpbftConfig{
@@ -31,7 +32,7 @@ var (
 
 	DefaultGpbftOptions = []gpbft.Option{
 		gpbft.WithMaxLookaheadRounds(DefaultGpbftConfig.MaxLookaheadRounds),
-		gpbft.WithDelta(time.Duration(DefaultGpbftConfig.Delta) * time.Second),
+		gpbft.WithDelta(DefaultGpbftConfig.Delta),
 		gpbft.WithDeltaBackOffExponent(DefaultGpbftConfig.DeltaBackOffExponent),
 	}
 )
@@ -142,7 +143,7 @@ func (m Manifest) GpbftOptions() []gpbft.Option {
 	}
 
 	if m.Delta != 0 {
-		opts = append(opts, gpbft.WithDelta(m.Delta*time.Second))
+		opts = append(opts, gpbft.WithDelta(m.Delta))
 	}
 	opts = append(opts, gpbft.WithDeltaBackOffExponent(m.DeltaBackOffExponent))
 	opts = append(opts, gpbft.WithMaxLookaheadRounds(m.MaxLookaheadRounds))

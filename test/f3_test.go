@@ -41,9 +41,6 @@ func TestSimpleF3(t *testing.T) {
 
 	env.Connect(ctx)
 	env.Run(ctx)
-	time.Sleep(1 * time.Second)
-	// Small wait for nodes to initialize. In the future we can probably
-	// make this asynchronously
 	env.waitForInstanceNumber(ctx, 5, 10*time.Second, false)
 }
 
@@ -53,7 +50,6 @@ func TestDynamicManifest_WithoutChanges(t *testing.T) {
 
 	env.Connect(ctx)
 	env.Run(ctx)
-	time.Sleep(1 * time.Second)
 	prev := env.nodes[0].f3.Manifest.Manifest()
 
 	env.waitForInstanceNumber(ctx, 5, 10*time.Second, false)
@@ -68,25 +64,20 @@ func TestDynamicManifest_WithRebootstrap(t *testing.T) {
 
 	env.Connect(ctx)
 	env.Run(ctx)
-	time.Sleep(1 * time.Second)
 
 	prev := env.nodes[0].f3.Manifest.Manifest()
-
 	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
-	prevInstance := env.nodes[0].f3.CurrentGpbftInstace()
+	prevInstance := env.nodes[0].CurrentGpbftInstace(t, ctx)
 
-	// Update the manifest. Bootstrap from an epoch over
-	// 953 so we start receiving a new head from fakeEC
-	// every second
 	env.manifest.BootstrapEpoch = 953
 	env.manifest.Sequence = 1
 	env.manifest.ReBootstrap = true
-	env.manifestSender.UpdateManifest(&env.manifest)
+	env.updateManifest()
 
-	env.waitForManifestChange(ctx, prev, 15*time.Second)
+	env.waitForManifestChange(ctx, prev, 15*time.Second, env.nodes)
 
 	// check that it rebootstrapped and the number of instances is below prevInstance
-	require.True(t, env.nodes[0].f3.CurrentGpbftInstace() < prevInstance)
+	require.True(t, env.nodes[0].CurrentGpbftInstace(t, ctx) < prevInstance)
 	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest.Manifest())
 	env.requireEqualManifests(false)
@@ -98,42 +89,37 @@ func TestDynamicManifest_SubsequentWithRebootstrap(t *testing.T) {
 
 	env.Connect(ctx)
 	env.Run(ctx)
-	time.Sleep(1 * time.Second)
 
 	prev := env.nodes[0].f3.Manifest.Manifest()
-
 	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
-	prevInstance := env.nodes[0].f3.CurrentGpbftInstace()
+	prevInstance := env.nodes[0].CurrentGpbftInstace(t, ctx)
 
-	// Update the manifest. Bootstrap from an epoch over
-	// 953 so we start receiving a new head from fakeEC
-	// every second
 	env.manifest.BootstrapEpoch = 953
 	env.manifest.Sequence = 1
 	env.manifest.ReBootstrap = true
-	env.manifestSender.UpdateManifest(&env.manifest)
+	env.updateManifest()
 
-	env.waitForManifestChange(ctx, prev, 15*time.Second)
+	env.waitForManifestChange(ctx, prev, 15*time.Second, env.nodes)
 
 	// check that it rebootstrapped and the number of instances is below prevInstance
-	require.True(t, env.nodes[0].f3.CurrentGpbftInstace() < prevInstance)
+	require.True(t, env.nodes[0].CurrentGpbftInstace(t, ctx) < prevInstance)
 	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest.Manifest())
 	env.requireEqualManifests(false)
 
 	// New manifest with sequence 2
 	prev = env.nodes[0].f3.Manifest.Manifest()
-	prevInstance = env.nodes[0].f3.CurrentGpbftInstace()
+	prevInstance = env.nodes[0].CurrentGpbftInstace(t, ctx)
 
-	env.manifest.BootstrapEpoch = 960
+	env.manifest.BootstrapEpoch = 956
 	env.manifest.Sequence = 2
 	env.manifest.ReBootstrap = true
-	env.manifestSender.UpdateManifest(&env.manifest)
+	env.updateManifest()
 
-	env.waitForManifestChange(ctx, prev, 15*time.Second)
+	env.waitForManifestChange(ctx, prev, 15*time.Second, env.nodes)
 
 	// check that it rebootstrapped and the number of instances is below prevInstance
-	require.True(t, env.nodes[0].f3.CurrentGpbftInstace() < prevInstance)
+	require.True(t, env.nodes[0].CurrentGpbftInstace(t, ctx) < prevInstance)
 	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest.Manifest())
 	env.requireEqualManifests(false)
@@ -143,10 +129,7 @@ func TestDynamicManifest_SubsequentWithRebootstrap(t *testing.T) {
 	env.manifest.BootstrapEpoch = 965
 	env.manifest.Sequence = 1
 	env.manifest.ReBootstrap = true
-	env.manifestSender.UpdateManifest(&env.manifest)
-
-	// wait for the new manifest to be broadcast
-	time.Sleep(5 * ManifestSenderTimeout)
+	env.updateManifest()
 
 	// check that no manifest change has propagated
 	require.Equal(t, prev, env.nodes[0].f3.Manifest.Manifest())
@@ -165,7 +148,7 @@ func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
 	prev := env.nodes[0].f3.Manifest.Manifest()
 
 	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
-	prevInstance := env.nodes[0].f3.CurrentGpbftInstace()
+	prevInstance := env.nodes[0].CurrentGpbftInstace(t, ctx)
 
 	env.manifest.BootstrapEpoch = 953
 	env.manifest.Sequence = 1
@@ -173,17 +156,17 @@ func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
 	// Adding a power of 1 so we can reach consensus without having to run
 	// the new nodes
 	env.addPowerDeltaForParticipants(ctx, &env.manifest, []gpbft.ActorID{2, 3}, big.NewInt(1), false)
-	env.manifestSender.UpdateManifest(&env.manifest)
+	env.updateManifest()
 
-	env.waitForManifestChange(ctx, prev, 15*time.Second)
+	env.waitForManifestChange(ctx, prev, 15*time.Second, []*testNode{env.nodes[0], env.nodes[1]})
 
 	// check that the runner continued without rebootstrap
-	require.True(t, env.nodes[0].f3.CurrentGpbftInstace() >= prevInstance)
-	env.waitForInstanceNumber(ctx, prevInstance+7, 150*time.Second, false)
+	require.True(t, env.nodes[0].CurrentGpbftInstace(t, ctx) >= prevInstance)
+	env.waitForInstanceNumber(ctx, prevInstance+10, 15*time.Second, false)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest.Manifest())
 	env.requireEqualManifests(false)
 	// check that the power table is updated with the new entries
-	ts, err := env.ec.GetTipsetByEpoch(ctx, int64(env.nodes[0].f3.CurrentGpbftInstace()))
+	ts, err := env.ec.GetTipsetByEpoch(ctx, int64(env.nodes[0].CurrentGpbftInstace(t, ctx)))
 	require.NoError(t, err)
 	pt, err := env.nodes[0].f3.GetPowerTable(ctx, ts.Key())
 	require.NoError(t, err)
@@ -196,20 +179,35 @@ var baseManifest manifest.Manifest = manifest.Manifest{
 	ReBootstrap:     true,
 	InitialInstance: 0,
 	NetworkName:     gpbft.NetworkName("f3-test"),
-	GpbftConfig:     manifest.DefaultGpbftConfig,
+	GpbftConfig: &manifest.GpbftConfig{
+		// Added a higher delta and lower backoff exponent so tests run faster
+		Delta:                500 * time.Millisecond,
+		DeltaBackOffExponent: 1,
+		MaxLookaheadRounds:   5,
+	},
 	// EcConfig:        manifest.DefaultEcConfig,
 	EcConfig: &manifest.EcConfig{
 		ECFinality:       10,
 		CommiteeLookback: 5,
-		ECDelay:          500 * time.Millisecond,
-		// Increase the period to reduce the test time
+		// increased delay and period to accelerate test times.
+		ECDelay:  500 * time.Millisecond,
 		ECPeriod: 500 * time.Millisecond,
 	},
 }
 
 type testNode struct {
-	h  host.Host
-	f3 *f3.F3
+	h     host.Host
+	f3    *f3.F3
+	errCh <-chan error
+}
+
+func (n *testNode) CurrentGpbftInstace(t *testing.T, ctx context.Context) uint64 {
+	c, err := n.f3.GetLatestCert(ctx)
+	require.NoError(t, err)
+	if c == nil {
+		return 0
+	}
+	return c.GPBFTInstance
 }
 
 type testEnv struct {
@@ -220,6 +218,28 @@ type testEnv struct {
 	ec             *ec.FakeEC
 
 	manifestSender *passive.ManifestSender
+}
+
+// signals the update to the latest manifest in the environment.
+func (e *testEnv) updateManifest() {
+	e.manifestSender.UpdateManifest(&e.manifest)
+	// wait for the manifest to propagate
+	time.Sleep(2 * ManifestSenderTimeout)
+}
+
+func (e *testEnv) newHeadEveryPeriod(ctx context.Context, period time.Duration) {
+	// set a timer that sets a new head every period
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(period):
+				e.ec.SetCurrentHead(e.ec.GetCurrentHead() + 1)
+				// fmt.Println("Setting new head", e.ec.GetCurrentHead())
+			}
+		}
+	}()
 }
 
 func (e *testEnv) addPowerDeltaForParticipants(ctx context.Context, m *manifest.Manifest, participants []gpbft.ActorID, power *big.Int, runNodes bool) {
@@ -269,7 +289,7 @@ func (e *testEnv) waitForInstanceNumber(ctx context.Context, instanceNumber uint
 				// runner initialized)
 				if !e.nodes[i].f3.IsRunning() && !strict {
 					reached++
-				} else if e.nodes[i].f3.CurrentGpbftInstace() >= instanceNumber && e.nodes[i].f3.IsRunning() {
+				} else if e.nodes[i].CurrentGpbftInstace(e.t, ctx) >= instanceNumber && e.nodes[i].f3.IsRunning() {
 					reached++
 				}
 				if reached >= len(e.nodes) {
@@ -281,7 +301,12 @@ func (e *testEnv) waitForInstanceNumber(ctx context.Context, instanceNumber uint
 	}
 }
 
-func (e *testEnv) waitForManifestChange(ctx context.Context, prev manifest.Manifest, timeout time.Duration) {
+func (e *testEnv) waitForManifestChange(ctx context.Context, prev manifest.Manifest, timeout time.Duration, nodes []*testNode) {
+	// wait a bit for the manifest to propagate and take effect
+	// if we don't do this it will immediately be detected as manifest
+	// change before the callback kicks in.
+	time.Sleep(2 * ManifestSenderTimeout)
+
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	for {
@@ -290,18 +315,13 @@ func (e *testEnv) waitForManifestChange(ctx context.Context, prev manifest.Manif
 			e.t.Fatal("manifest change not reached before timeout")
 		default:
 			reached := 0
-			for i := 0; i < len(e.nodes); i++ {
-				// only running nodes will be listening to manifest changes
-				if !e.nodes[i].f3.IsRunning() {
+			for i := 0; i < len(nodes); i++ {
+				v1, _ := nodes[i].f3.Manifest.Manifest().Version()
+				v2, _ := prev.Version()
+				if v1 != v2 {
 					reached++
-				} else {
-					v1, _ := e.nodes[i].f3.Manifest.Manifest().Version()
-					v2, _ := prev.Version()
-					if v1 != v2 {
-						reached++
-					}
 				}
-				if reached == len(e.nodes) {
+				if reached == len(nodes) {
 					return
 				}
 			}
@@ -328,7 +348,7 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) testEnv {
 		})
 	}
 	env.manifest = m
-	env.ec = ec.NewFakeEC(1, m.BootstrapEpoch, m.ECPeriod, initialPowerTable)
+	env.ec = ec.NewFakeECWithoutTime(1, m.BootstrapEpoch+m.ECFinality, m.ECPeriod, initialPowerTable)
 
 	manifestServer := peer.ID("")
 	if dynamicManifest {
@@ -363,16 +383,39 @@ func (e *testEnv) Run(ctx context.Context) {
 	// Start the nodes
 	for _, n := range e.nodes {
 		go func(n *testNode) {
-			// TODO: Handle host error
-			_ = n.f3.Run(ctx)
+			errCh := make(chan error)
+			n.errCh = errCh
+			err := n.f3.Run(ctx)
+			errCh <- err
 		}(n)
 	}
+	// small sleep for nodes to initialize
+	time.Sleep(1 * time.Second)
 
 	// If it exists, start the manifest sender
 	if e.manifestSender != nil {
 		go func() {
 			e.manifestSender.Start(ctx)
 		}()
+	}
+
+	// start creating new heads every ECPeriod
+	e.newHeadEveryPeriod(ctx, e.manifest.ECPeriod)
+	e.monitorNodesError(ctx)
+}
+
+func (e *testEnv) monitorNodesError(ctx context.Context) {
+	for _, n := range e.nodes {
+		go func(n *testNode) {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case err := <-n.errCh:
+					require.NoError(e.t, err)
+				}
+			}
+		}(n)
 	}
 }
 
