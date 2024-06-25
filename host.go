@@ -98,7 +98,10 @@ loop:
 			select {
 			case start := <-h.client.manifestUpdate:
 				h.log.Debugf("Manifest update detected, refreshing message queue")
-				h.participant.StartInstance(start)
+				err = h.participant.StartInstance(start)
+				if err != nil {
+					break loop
+				}
 				messageQueue = h.client.IncomingMessages()
 				continue loop
 			default:
