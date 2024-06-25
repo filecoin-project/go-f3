@@ -61,7 +61,7 @@ func (i *ImmediateDecide) StartInstance(instance uint64) error {
 		SupplementalData: *supplementalData,
 	}
 	sigPayload := i.host.MarshalPayloadForSigning(i.host.NetworkName(), &justificationPayload)
-	_, _, pubkey := powertable.Get(i.id)
+	_, pubkey := powertable.Get(i.id)
 	sig, err := i.host.Sign(pubkey, sigPayload)
 	if err != nil {
 		panic(err)

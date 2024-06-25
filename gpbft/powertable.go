@@ -132,13 +132,13 @@ func (p *PowerTable) rescale() error {
 
 // Get retrieves the scaled power, unscaled StoragePower and PubKey for the given id, if present in
 // the table. Otherwise, returns 0/nil.
-func (p *PowerTable) Get(id ActorID) (uint16, *StoragePower, PubKey) {
+func (p *PowerTable) Get(id ActorID) (uint16, PubKey) {
 	if index, ok := p.Lookup[id]; ok {
-		entry := p.Entries[index]
+		key := p.Entries[index].PubKey
 		scaledPower := p.ScaledPower[index]
-		return scaledPower, entry.Power, entry.PubKey
+		return scaledPower, key
 	}
-	return 0, nil, nil
+	return 0, nil
 }
 
 // Has check whether this PowerTable contains an entry for the given id.
