@@ -26,8 +26,8 @@ func TestPowerTable(t *testing.T) {
 		})
 		t.Run("gets nil", func(t *testing.T) {
 			subject := gpbft.NewPowerTable()
-			_, gotPower, gotKey := subject.Get(1413)
-			require.Nil(t, gotPower)
+			gotPower, gotKey := subject.Get(1413)
+			require.Zero(t, gotPower)
 			require.Nil(t, gotKey)
 		})
 	})
@@ -199,7 +199,8 @@ func TestPowerTable(t *testing.T) {
 func requireAddedToPowerTable(t *testing.T, subject *gpbft.PowerTable, entry gpbft.PowerEntry) {
 	t.Helper()
 	require.True(t, subject.Has(entry.ID))
-	_, gotPower, gotKey := subject.Get(entry.ID)
+	_, gotKey := subject.Get(entry.ID)
+	gotPower := subject.Entries[subject.Lookup[entry.ID]].Power
 	require.Equal(t, entry.Power, gotPower)
 	require.Equal(t, entry.PubKey, gotKey)
 }
