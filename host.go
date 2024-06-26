@@ -319,7 +319,7 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 	)
 	// the backoff is defined in multiples of ECDelay starting at the last finalized tipset
 	// each additional base decision beyond that will incurr the maxBackoff
-	var backoffTable = []float64{2, 3, 5, 9, 17, 33, 65, 129, 257, 513} // 2^i+1 backoff, table for more flexibility
+	var backoffTable = []float64{2, 2.3, 2.69, 3.197, 3.8561, 4.71293, 4.71293, 5.826809, 7.2748517, 9.15730721} // 1.3^i+1 backoff, table for more flexibility
 	//TODO move all the above to manifest
 
 	attempts := 0
