@@ -315,7 +315,7 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 	// all of this should go into manifest but I think Alfonso dislikes me already :P
 	const (
 		minBackoff = 2.
-		maxBackoff = 3. * 2. * 60. // 3h with 30s ECDelay
+		maxBackoff = 20. // 10m with 30s ECDelay
 	)
 	// the backoff is defined in multiples of ECDelay starting at the last finalized tipset
 	// each additional base decision beyond that will incurr the maxBackoff
