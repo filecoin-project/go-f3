@@ -39,6 +39,7 @@ func TestECChain(t *testing.T) {
 		require.Len(t, subject, 1)
 		require.Equal(t, &wantBase, subject.Base())
 		require.Equal(t, &wantBase, subject.Head())
+		require.False(t, subject.HasSuffix())
 		require.NoError(t, subject.Validate())
 
 		wantNext := gpbft.TipSet{Epoch: 1, Key: []byte("lobster"), PowerTable: []byte("pt")}
@@ -48,6 +49,7 @@ func TestECChain(t *testing.T) {
 		require.Equal(t, &wantBase, subjectExtended.Base())
 		require.Equal(t, []gpbft.TipSet{wantNext}, subjectExtended.Suffix())
 		require.Equal(t, &wantNext, subjectExtended.Head())
+		require.True(t, subjectExtended.HasSuffix())
 		require.Equal(t, &wantNext, subjectExtended.Prefix(1).Head())
 		require.True(t, subjectExtended.HasTipset(&wantBase))
 		require.False(t, subject.HasPrefix(subjectExtended))
