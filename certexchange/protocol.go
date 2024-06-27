@@ -24,5 +24,5 @@ type ResponseHeader struct {
 	// The next instance to be finalized. This is 0 when no instances have been finalized.
 	PendingInstance uint64
 	// Power table, if requested, or empty.
-	PowerTable []gpbft.PowerEntry
+	PowerTable gpbft.PowerEntries
 }
