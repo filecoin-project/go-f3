@@ -410,3 +410,82 @@ func (cs *Store) Put(ctx context.Context, cert *certs.FinalityCertificate) error
 func (cs *Store) SubscribeForNewCerts(ch chan<- *certs.FinalityCertificate) (last *certs.FinalityCertificate, closer func()) {
 	return cs.busCerts.Subscribe(ch)
 }
+
+// A friendlier alternative to the above subscribe method that, at the cost of an extra goroutine:
+//
+// 1. Fills in everything after the first requested certificate.
+// 2. Automatically handles resubscribing.
+func (cs *Store) Subscribe(ctx context.Context, firstInstance uint64) (<-chan *certs.FinalityCertificate, error) {
+	outCh := make(chan *certs.FinalityCertificate, 1)
+	prefill := func(lastInstance uint64, latest *certs.FinalityCertificate) error {
+		switch {
+		case latest == nil:
+			return nil
+		case lastInstance < latest.GPBFTInstance:
+			prefill, err := cs.GetRange(ctx, firstInstance, latest.GPBFTInstance-1)
+			if err != nil {
+				return err
+			}
+
+			for i := range prefill {
+				select {
+				case outCh <- &prefill[i]:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+
+			fallthrough
+		case lastInstance == latest.GPBFTInstance:
+			select {
+			case outCh <- latest:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		return nil
+	}
+	go func() {
+		// Keep prefilling till we're caught up. If we subscribe immediately, the
+		// caller may get busy handling the "prefill" before it can handle new
+		// certificates.
+		for latest := cs.Latest(); latest != nil && firstInstance < latest.GPBFTInstance; latest = cs.Latest() {
+			if err := prefill(firstInstance, latest); err != nil {
+				// XXX: log error
+				return
+			}
+			firstInstance = latest.GPBFTInstance + 1
+		}
+
+		// Then subscribe, and prefill one more time.
+		inCh := make(chan *certs.FinalityCertificate, 16)
+		latest, closer := cs.SubscribeForNewCerts(inCh)
+		defer closer()
+		if err := prefill(firstInstance, latest); err != nil {
+			// XXX: log error
+			return
+		}
+
+		for ctx.Err() == nil {
+			select {
+			case cert, ok := <-inCh:
+				if !ok {
+					return
+				}
+				latest = cert
+			case <-ctx.Done():
+				return
+			}
+			if firstInstance >= latest.GPBFTInstance {
+				continue
+			}
+			select {
+			case outCh <- latest:
+			case <-ctx.Done():
+				return
+			}
+
+		}
+	}()
+	return outCh, nil
+}
