@@ -63,53 +63,52 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 	}
 
 	messageQueue := h.client.IncomingMessages()
-loop:
 	for {
-		for {
-			// prioritise alarm delivery
-			select {
-			case <-h.alertTimer.C:
-				err = h.participant.ReceiveAlarm()
-			default:
-			}
-			if err != nil {
-				break loop
-			}
+		// prioritise alarm delivery
+		select {
+		case <-h.alertTimer.C:
+			err = h.participant.ReceiveAlarm()
+		default:
+		}
+		if err != nil {
+			h.log.Errorf("gpbfthost exiting: %+v", err)
+			return err
+		}
 
-			// Handle messages and alarms
-			select {
-			case <-h.alertTimer.C:
-				err = h.participant.ReceiveAlarm()
-			case msg, ok := <-messageQueue:
-				if !ok {
-					err = xerrors.Errorf("incoming message queue closed")
-					break loop
-				}
-				err = h.participant.ReceiveMessage(msg)
-			case <-ctx.Done():
-				return nil
+		// Handle messages and alarms
+		select {
+		case <-h.alertTimer.C:
+			err = h.participant.ReceiveAlarm()
+		case msg, ok := <-messageQueue:
+			if !ok {
+				err = xerrors.Errorf("incoming message queue closed")
+				h.log.Errorf("gpbfthost exiting: %+v", err)
+				return err
 			}
-			if err != nil {
-				break loop
-			}
+			err = h.participant.ReceiveMessage(msg)
+		case <-ctx.Done():
+			return nil
+		}
+		if err != nil {
+			h.log.Errorf("gpbfthost exiting: %+v", err)
+			return err
+		}
 
-			// Check for manifest update in the inner loop to exit and update the messageQueue
-			// and start from the last instance
-			select {
-			case start := <-h.client.manifestUpdate:
-				h.log.Debugf("Manifest update detected, refreshing message queue")
-				err = h.participant.StartInstance(start)
-				if err != nil {
-					break loop
-				}
-				messageQueue = h.client.IncomingMessages()
-				continue loop
-			default:
+		// Check for manifest update in the inner loop to exit and update the messageQueue
+		// and start from the last instance
+		select {
+		case start := <-h.client.manifestUpdate:
+			h.log.Debugf("Manifest update detected, refreshing message queue")
+			err = h.participant.StartInstance(start)
+			if err != nil {
+				h.log.Errorf("gpbfthost exiting on maifest update: %+v", err)
+				return err
 			}
+			messageQueue = h.client.IncomingMessages()
+			continue
+		default:
 		}
 	}
-	h.log.Errorf("gpbfthost exiting: %+v", err)
-	return err
 }
 
 func (h *gpbftRunner) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {

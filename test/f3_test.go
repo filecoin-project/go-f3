@@ -200,17 +200,17 @@ func (n *testNode) CurrentGpbftInstance(t *testing.T, ctx context.Context) uint6
 
 type testEnv struct {
 	t              *testing.T
-	manifest       manifest.Manifest
 	signingBackend *signing.FakeBackend
 	nodes          []*testNode
 	ec             *ec.FakeEC
-
 	manifestSender *manifest.ManifestSender
+
+	manifest manifest.Manifest
 }
 
 // signals the update to the latest manifest in the environment.
 func (e *testEnv) updateManifest() {
-	e.manifestSender.UpdateManifest(&e.manifest)
+	e.manifestSender.UpdateManifest(e.manifest)
 }
 
 func (e *testEnv) newHeadEveryPeriod(ctx context.Context, period time.Duration) {
@@ -253,7 +253,7 @@ func (e *testEnv) addPowerDeltaForParticipants(ctx context.Context, m *manifest.
 				e.connectNodes(ctx, e.nodes[nodeLen-1], e.nodes[j])
 			}
 			// run
-			go e.runNode(ctx, e.nodes[nodeLen-1])
+			e.runNode(ctx, e.nodes[nodeLen-1])
 		}
 	}
 }
@@ -367,16 +367,16 @@ func (e *testEnv) waitForNodesInitialization() {
 func (e *testEnv) runNode(ctx context.Context, n *testNode) {
 	errCh := make(chan error)
 	n.errCh = errCh
-	err := n.f3.Run(ctx)
-	errCh <- err
+	go func() {
+		err := n.f3.Run(ctx)
+		errCh <- err
+	}()
 }
 
 func (e *testEnv) run(ctx context.Context) {
 	// Start the nodes
 	for _, n := range e.nodes {
-		go func(n *testNode) {
-			e.runNode(ctx, n)
-		}(n)
+		e.runNode(ctx, n)
 	}
 
 	// wait for nodes to initialize
@@ -397,13 +397,11 @@ func (e *testEnv) run(ctx context.Context) {
 func (e *testEnv) monitorNodesError(ctx context.Context) {
 	for _, n := range e.nodes {
 		go func(n *testNode) {
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case err := <-n.errCh:
-					require.NoError(e.t, err)
-				}
+			select {
+			case <-ctx.Done():
+				return
+			case err := <-n.errCh:
+				require.NoError(e.t, err)
 			}
 		}(n)
 	}
@@ -440,7 +438,7 @@ func (e *testEnv) newManifestSender(ctx context.Context) {
 	ps, err := pubsub.NewGossipSub(ctx, h)
 	require.NoError(e.t, err)
 
-	e.manifestSender, err = manifest.NewManifestSender(h, ps, &e.manifest, ManifestSenderTimeout)
+	e.manifestSender, err = manifest.NewManifestSender(h, ps, e.manifest, ManifestSenderTimeout)
 	require.NoError(e.t, err)
 }
 

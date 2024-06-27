@@ -3,6 +3,7 @@ package ec
 import (
 	"context"
 	"encoding/binary"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/blake2b"
@@ -23,6 +24,7 @@ type FakeEC struct {
 	ecStart  time.Time
 
 	// without time
+	lk          sync.RWMutex
 	currentHead int64
 }
 
@@ -129,10 +131,14 @@ func (ec *FakeEC) GetParent(ctx context.Context, ts TipSet) (TipSet, error) {
 // SetCurrentHead sets the current head epoch.
 // This is only supported by FakeEC if `useTime=false`
 func (ec *FakeEC) SetCurrentHead(head int64) {
+	ec.lk.Lock()
 	ec.currentHead = head
+	ec.lk.Unlock()
 }
 
 func (ec *FakeEC) GetCurrentHead() int64 {
+	ec.lk.RLock()
+	defer ec.lk.RUnlock()
 	return ec.currentHead
 }
 
@@ -141,7 +147,7 @@ func (ec *FakeEC) GetHead(ctx context.Context) (TipSet, error) {
 		return ec.GetTipsetByEpoch(ctx, ec.currentEpoch())
 	}
 
-	return ec.GetTipsetByEpoch(ctx, ec.currentHead)
+	return ec.GetTipsetByEpoch(ctx, ec.GetCurrentHead())
 }
 
 func (ec *FakeEC) GetPowerTable(ctx context.Context, tsk gpbft.TipSetKey) (gpbft.PowerEntries, error) {

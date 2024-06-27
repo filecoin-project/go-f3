@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/filecoin-project/go-f3/ec"
@@ -27,15 +28,16 @@ const (
 // DynamicManifestProvider is a manifest provider that allows
 // the manifest to be changed at runtime.
 type DynamicManifestProvider struct {
-	manifest         Manifest
 	pubsub           *pubsub.PubSub
 	ec               ec.Backend
 	manifestServerID peer.ID
+	manifestTopic    *pubsub.Topic
 
-	// these are populate in runtime
+	// the lk guards all dynamic manifest-specific fields
+	lk               sync.RWMutex
+	manifest         Manifest
 	onManifestChange OnManifestChange
 	nextManifest     *Manifest
-	manifestTopic    *pubsub.Topic
 }
 
 func NewDynamicManifestProvider(manifest Manifest, pubsub *pubsub.PubSub, ec ec.Backend, manifestServerID peer.ID) ManifestProvider {
@@ -48,6 +50,8 @@ func NewDynamicManifestProvider(manifest Manifest, pubsub *pubsub.PubSub, ec ec.
 }
 
 func (m *DynamicManifestProvider) Manifest() Manifest {
+	m.lk.RLock()
+	defer m.lk.RUnlock()
 	return m.manifest
 }
 
@@ -82,10 +86,12 @@ func (m *DynamicManifestProvider) handleApplyManifest(ctx context.Context, errCh
 	for {
 		select {
 		case <-ticker.C:
+			m.lk.Lock()
 			if m.nextManifest != nil {
 				ts, err := m.ec.GetHead(ctx)
 				if err != nil {
 					log.Errorf("error fetching chain head: %+v", err)
+					m.lk.Unlock()
 					continue
 				}
 
@@ -100,9 +106,11 @@ func (m *DynamicManifestProvider) handleApplyManifest(ctx context.Context, errCh
 					m.nextManifest = nil
 					// trigger manifest change callback.
 					go m.onManifestChange(ctx, prevManifest, errCh)
+					m.lk.Unlock()
 					continue
 				}
 			}
+			m.lk.Unlock()
 		case <-ctx.Done():
 			return
 		}
@@ -144,11 +152,7 @@ loop:
 				continue
 			}
 
-			if !m.acceptNextManifest(manifest) {
-				continue
-			}
-
-			m.nextManifest = manifest
+			m.acceptNextManifest(manifest)
 		}
 	}
 
@@ -170,16 +174,17 @@ func (m *DynamicManifestProvider) teardownManifestPubsub() error {
 }
 
 // Checks if we should accept the manifest that we received through pubsub
-func (m *DynamicManifestProvider) acceptNextManifest(manifest *Manifest) bool {
+// and sets nextManifest if it is the case
+func (m *DynamicManifestProvider) acceptNextManifest(manifest *Manifest) {
+	m.lk.Lock()
+	defer m.lk.Unlock()
+
 	if manifest.Sequence <= m.manifest.Sequence {
-		return false
-	}
-	if manifest.ReBootstrap && manifest.BootstrapEpoch < m.manifest.BootstrapEpoch {
-		return false
+		return
 	}
 	// TODO: Any additional logic here to determine what manifests to accept or not?
 
-	return true
+	m.nextManifest = manifest
 }
 
 func (m *DynamicManifestProvider) setupManifestPubsub() (err error) {

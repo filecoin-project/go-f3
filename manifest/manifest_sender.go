@@ -21,12 +21,12 @@ type ManifestSender struct {
 
 	// lock to that guards the update of the manifest.
 	lk       sync.RWMutex
-	manifest *Manifest
+	manifest Manifest
 	// Used to stop publishing manifests
 	cancel context.CancelFunc
 }
 
-func NewManifestSender(h host.Host, pubsub *pubsub.PubSub, firstManifest *Manifest, publicationPeriod time.Duration) (*ManifestSender, error) {
+func NewManifestSender(h host.Host, pubsub *pubsub.PubSub, firstManifest Manifest, publicationPeriod time.Duration) (*ManifestSender, error) {
 	topicName := ManifestPubSubTopicName
 	m := &ManifestSender{
 		manifest: firstManifest,
@@ -84,7 +84,7 @@ func (m *ManifestSender) publishManifest(ctx context.Context) error {
 	return m.manifestTopic.Publish(ctx, b)
 }
 
-func (m *ManifestSender) UpdateManifest(manifest *Manifest) {
+func (m *ManifestSender) UpdateManifest(manifest Manifest) {
 	m.lk.Lock()
 	m.manifest = manifest
 	m.lk.Unlock()
