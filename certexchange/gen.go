@@ -143,7 +143,7 @@ func (t *ResponseHeader) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.PowerTable ([]gpbft.PowerEntry) (slice)
+	// t.PowerTable (gpbft.PowerEntries) (slice)
 	if len(t.PowerTable) > 8192 {
 		return xerrors.Errorf("Slice value in field t.PowerTable was too long")
 	}
@@ -197,7 +197,7 @@ func (t *ResponseHeader) UnmarshalCBOR(r io.Reader) (err error) {
 		t.PendingInstance = uint64(extra)
 
 	}
-	// t.PowerTable ([]gpbft.PowerEntry) (slice)
+	// t.PowerTable (gpbft.PowerEntries) (slice)
 
 	maj, extra, err = cr.ReadHeader()
 	if err != nil {
