@@ -140,7 +140,6 @@ func (s *Subscriber) run(ctx context.Context, discoveredPeers <-chan peer.ID, po
 	defer timer.Stop()
 
 	predictor := newPredictor(
-		0.05,
 		s.MinimumPollInterval,
 		s.InitialPollInterval,
 		s.MaximumPollInterval,

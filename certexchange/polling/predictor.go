@@ -9,7 +9,7 @@ const (
 	minExploreDistance   = 100 * time.Millisecond
 )
 
-func newPredictor(targetAccuracy float64, minInterval, defaultInterval, maxInterval time.Duration) *predictor {
+func newPredictor(minInterval, defaultInterval, maxInterval time.Duration) *predictor {
 	return &predictor{
 		minInterval:     minInterval,
 		maxInterval:     maxInterval,
