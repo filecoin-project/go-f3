@@ -2,7 +2,6 @@ package test
 
 import (
 	"context"
-	"fmt"
 	"math/big"
 	"os"
 	"testing"
@@ -33,7 +32,7 @@ func TestSimpleF3(t *testing.T) {
 	env := newTestEnvironment(t, 2, false)
 
 	env.Connect(ctx)
-	env.Run(ctx)
+	env.run(ctx)
 	env.waitForInstanceNumber(ctx, 5, 10*time.Second, false)
 }
 
@@ -42,7 +41,7 @@ func TestDynamicManifest_WithoutChanges(t *testing.T) {
 	env := newTestEnvironment(t, 2, true)
 
 	env.Connect(ctx)
-	env.Run(ctx)
+	env.run(ctx)
 	prev := env.nodes[0].f3.Manifest.Manifest()
 
 	env.waitForInstanceNumber(ctx, 5, 10*time.Second, false)
@@ -56,7 +55,7 @@ func TestDynamicManifest_WithRebootstrap(t *testing.T) {
 	env := newTestEnvironment(t, 2, true)
 
 	env.Connect(ctx)
-	env.Run(ctx)
+	env.run(ctx)
 
 	prev := env.nodes[0].f3.Manifest.Manifest()
 	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
@@ -67,7 +66,7 @@ func TestDynamicManifest_WithRebootstrap(t *testing.T) {
 	env.manifest.ReBootstrap = true
 	env.updateManifest()
 
-	env.waitForManifestChange(ctx, prev, 15*time.Second, env.nodes)
+	env.waitForManifestChange(prev, 15*time.Second, env.nodes)
 
 	// check that it rebootstrapped and the number of instances is below prevInstance
 	require.True(t, env.nodes[0].CurrentGpbftInstance(t, ctx) < prevInstance)
@@ -81,7 +80,7 @@ func TestDynamicManifest_SubsequentWithRebootstrap(t *testing.T) {
 	env := newTestEnvironment(t, 2, true)
 
 	env.Connect(ctx)
-	env.Run(ctx)
+	env.run(ctx)
 
 	prev := env.nodes[0].f3.Manifest.Manifest()
 	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
@@ -92,7 +91,7 @@ func TestDynamicManifest_SubsequentWithRebootstrap(t *testing.T) {
 	env.manifest.ReBootstrap = true
 	env.updateManifest()
 
-	env.waitForManifestChange(ctx, prev, 15*time.Second, env.nodes)
+	env.waitForManifestChange(prev, 15*time.Second, env.nodes)
 
 	// check that it rebootstrapped and the number of instances is below prevInstance
 	require.True(t, env.nodes[0].CurrentGpbftInstance(t, ctx) < prevInstance)
@@ -109,7 +108,7 @@ func TestDynamicManifest_SubsequentWithRebootstrap(t *testing.T) {
 	env.manifest.ReBootstrap = true
 	env.updateManifest()
 
-	env.waitForManifestChange(ctx, prev, 15*time.Second, env.nodes)
+	env.waitForManifestChange(prev, 15*time.Second, env.nodes)
 
 	// check that it rebootstrapped and the number of instances is below prevInstance
 	require.True(t, env.nodes[0].CurrentGpbftInstance(t, ctx) < prevInstance)
@@ -135,23 +134,19 @@ func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
 	env := newTestEnvironment(t, 2, true)
 
 	env.Connect(ctx)
-	env.Run(ctx)
-	time.Sleep(1 * time.Second)
+	env.run(ctx)
 
 	prev := env.nodes[0].f3.Manifest.Manifest()
-
 	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
 	prevInstance := env.nodes[0].CurrentGpbftInstance(t, ctx)
 
 	env.manifest.BootstrapEpoch = 953
 	env.manifest.Sequence = 1
 	env.manifest.ReBootstrap = false
-	// Adding a power of 1 so we can reach consensus without having to run
-	// the new nodes
 	env.addPowerDeltaForParticipants(ctx, &env.manifest, []gpbft.ActorID{2, 3}, big.NewInt(1), false)
 	env.updateManifest()
 
-	env.waitForManifestChange(ctx, prev, 15*time.Second, []*testNode{env.nodes[0], env.nodes[1]})
+	env.waitForManifestChange(prev, 15*time.Second, []*testNode{env.nodes[0], env.nodes[1]})
 
 	// check that the runner continued without rebootstrap
 	require.True(t, env.nodes[0].CurrentGpbftInstance(t, ctx) >= prevInstance)
@@ -216,8 +211,6 @@ type testEnv struct {
 // signals the update to the latest manifest in the environment.
 func (e *testEnv) updateManifest() {
 	e.manifestSender.UpdateManifest(&e.manifest)
-	// wait for the manifest to propagate
-	time.Sleep(2 * ManifestSenderTimeout)
 }
 
 func (e *testEnv) newHeadEveryPeriod(ctx context.Context, period time.Duration) {
@@ -260,7 +253,7 @@ func (e *testEnv) addPowerDeltaForParticipants(ctx context.Context, m *manifest.
 				e.connectNodes(ctx, e.nodes[nodeLen-1], e.nodes[j])
 			}
 			// run
-			_ = e.nodes[nodeLen-1].f3.Run(context.Background())
+			go e.runNode(ctx, e.nodes[nodeLen-1])
 		}
 	}
 }
@@ -268,46 +261,29 @@ func (e *testEnv) addPowerDeltaForParticipants(ctx context.Context, m *manifest.
 // waits for all nodes to reach a specific instance number.
 // If the `strict` flag is enabled the check also applies to the non-running nodes
 func (e *testEnv) waitForInstanceNumber(ctx context.Context, instanceNumber uint64, timeout time.Duration, strict bool) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	for {
-		select {
-		case <-ctx.Done():
-			e.t.Fatal("instance number not reached before timeout")
-		default:
-			reached := 0
-			for i := 0; i < len(e.nodes); i++ {
-				// nodes that are not running are not required to reach the instance
-				// (it will actually panic if we try to fetch it because there is no
-				// runner initialized)
-				if !e.nodes[i].f3.IsRunning() && !strict {
-					reached++
-				} else if e.nodes[i].CurrentGpbftInstance(e.t, ctx) >= instanceNumber && e.nodes[i].f3.IsRunning() {
-					reached++
-				}
-				if reached >= len(e.nodes) {
-					return
-				}
+	require.Eventually(e.t, func() bool {
+		reached := 0
+		for i := 0; i < len(e.nodes); i++ {
+			// nodes that are not running are not required to reach the instance
+			// (it will actually panic if we try to fetch it because there is no
+			// runner initialized)
+			if !e.nodes[i].f3.IsRunning() && !strict {
+				reached++
+			} else if e.nodes[i].CurrentGpbftInstance(e.t, ctx) >= instanceNumber && e.nodes[i].f3.IsRunning() {
+				reached++
 			}
-			time.Sleep(time.Second)
+			if reached >= len(e.nodes) {
+				return true
+			}
 		}
-	}
+		return false
+	}, timeout, e.manifest.ECPeriod)
 }
 
-func (e *testEnv) waitForManifestChange(ctx context.Context, prev manifest.Manifest, timeout time.Duration, nodes []*testNode) {
-	// wait a bit for the manifest to propagate and take effect
-	// if we don't do this it will immediately be detected as manifest
-	// change before the callback kicks in.
-	time.Sleep(2 * ManifestSenderTimeout)
-
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	for {
-		select {
-		case <-ctx.Done():
-			e.t.Fatal("manifest change not reached before timeout")
-		default:
-			reached := 0
+func (e *testEnv) waitForManifestChange(prev manifest.Manifest, timeout time.Duration, nodes []*testNode) {
+	require.Eventually(e.t, func() bool {
+		reached := 0
+		for i := 0; i < len(e.nodes); i++ {
 			for i := 0; i < len(nodes); i++ {
 				v1, _ := nodes[i].f3.Manifest.Manifest().Version()
 				v2, _ := prev.Version()
@@ -315,12 +291,12 @@ func (e *testEnv) waitForManifestChange(ctx context.Context, prev manifest.Manif
 					reached++
 				}
 				if reached == len(nodes) {
-					return
+					return true
 				}
 			}
-			time.Sleep(time.Second)
 		}
-	}
+		return false
+	}, timeout, ManifestSenderTimeout)
 }
 
 func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) testEnv {
@@ -373,18 +349,38 @@ func (e *testEnv) requireEqualManifests(strict bool) {
 	}
 }
 
-func (e *testEnv) Run(ctx context.Context) {
+func (e *testEnv) waitForNodesInitialization() {
+	require.Eventually(e.t, func() bool {
+		reached := 0
+		for i := 0; i < len(e.nodes); i++ {
+			if e.nodes[i].f3.IsRunning() {
+				reached++
+			}
+			if reached == len(e.nodes) {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, e.manifest.ECPeriod)
+}
+
+func (e *testEnv) runNode(ctx context.Context, n *testNode) {
+	errCh := make(chan error)
+	n.errCh = errCh
+	err := n.f3.Run(ctx)
+	errCh <- err
+}
+
+func (e *testEnv) run(ctx context.Context) {
 	// Start the nodes
 	for _, n := range e.nodes {
 		go func(n *testNode) {
-			errCh := make(chan error)
-			n.errCh = errCh
-			err := n.f3.Run(ctx)
-			errCh <- err
+			e.runNode(ctx, n)
 		}(n)
 	}
-	// small sleep for nodes to initialize
-	time.Sleep(1 * time.Second)
+
+	// wait for nodes to initialize
+	e.waitForNodesInitialization()
 
 	// If it exists, start the manifest sender
 	if e.manifestSender != nil {
@@ -414,10 +410,8 @@ func (e *testEnv) monitorNodesError(ctx context.Context) {
 }
 
 func (e *testEnv) connectNodes(ctx context.Context, n1, n2 *testNode) {
-	addr := n2.h.Addrs()[0]
-	pi, err := peer.AddrInfoFromString(fmt.Sprintf("%s/p2p/%s", addr.String(), n2.h.ID()))
-	require.NoError(e.t, err)
-	err = n1.h.Connect(ctx, *pi)
+	pi := n2.h.Peerstore().PeerInfo(n2.h.ID())
+	err := n1.h.Connect(ctx, pi)
 	require.NoError(e.t, err)
 }
 
@@ -431,10 +425,8 @@ func (e *testEnv) Connect(ctx context.Context) {
 	// connect to the manifest server if it exists
 	if e.manifestSender != nil {
 		for _, n := range e.nodes {
-			addr := e.manifestSender.Addrs()[0]
-			pi, err := peer.AddrInfoFromString(fmt.Sprintf("%s/p2p/%s", addr.String(), e.manifestSender.SenderID()))
-			require.NoError(e.t, err)
-			err = n.h.Connect(ctx, *pi)
+			pi := e.manifestSender.PeerInfo()
+			err := n.h.Connect(ctx, pi)
 			require.NoError(e.t, err)
 		}
 

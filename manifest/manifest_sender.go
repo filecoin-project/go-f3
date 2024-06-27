@@ -8,7 +8,6 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/multiformats/go-multiaddr"
 	"golang.org/x/xerrors"
 )
 
@@ -49,8 +48,8 @@ func (m *ManifestSender) SenderID() peer.ID {
 	return m.h.ID()
 }
 
-func (m *ManifestSender) Addrs() []multiaddr.Multiaddr {
-	return m.h.Addrs()
+func (m *ManifestSender) PeerInfo() peer.AddrInfo {
+	return m.h.Peerstore().PeerInfo(m.h.ID())
 }
 
 func (m *ManifestSender) Start(ctx context.Context) {

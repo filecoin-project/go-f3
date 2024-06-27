@@ -430,20 +430,11 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 				return
 			}
 
-			// clear the latest instance to avoid conflicts
-			// in case there are updates to the power table
-			// and start from that instance.
 			fc, err := m.GetLatestCert(ctx)
 			if err != nil {
 				errCh <- xerrors.Errorf("getting latest cert: %w", err)
 				return
 			}
-			err = m.certStore.Delete(ctx, fc.GPBFTInstance)
-			if err != nil {
-				errCh <- xerrors.Errorf("clearing latest cert: %w", err)
-				return
-			}
-
 			m.msgSub, err = m.client.topic.Subscribe()
 			if err != nil {
 				errCh <- xerrors.Errorf("subscribing to topic: %w", err)

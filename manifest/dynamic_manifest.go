@@ -63,7 +63,7 @@ func (m *DynamicManifestProvider) SetManifestChangeCallback(mc OnManifestChange)
 // is set that depends on the manifest version of the previous version to avoid
 // overlapping previous configurations.
 func (m *DynamicManifestProvider) networkNameOnChange() gpbft.NetworkName {
-	return gpbft.NetworkName(string(m.manifest.NetworkName) + "/" + fmt.Sprint("%d", m.manifest.Sequence))
+	return gpbft.NetworkName(string(m.manifest.NetworkName) + "/" + fmt.Sprintf("%d", m.manifest.Sequence))
 }
 
 func (m *DynamicManifestProvider) Run(ctx context.Context, errCh chan error) {
