@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var baseManifest manifest.Manifest = manifest.Manifest{
+var base manifest.Manifest = manifest.Manifest{
 	Sequence:       0,
 	BootstrapEpoch: 10,
 	ReBootstrap:    true,
@@ -46,7 +46,7 @@ var baseManifest manifest.Manifest = manifest.Manifest{
 }
 
 func TestManifest_Serialization(t *testing.T) {
-	b, err := baseManifest.Marshal()
+	b, err := base.Marshal()
 	require.NoError(t, err)
 
 	var m2 manifest.Manifest
@@ -54,14 +54,14 @@ func TestManifest_Serialization(t *testing.T) {
 
 	err = m2.Unmarshal(bytes.NewReader(b))
 	require.NoError(t, err)
-	require.Equal(t, baseManifest, m2)
+	require.Equal(t, base, m2)
 }
 
 func TestManifest_Version(t *testing.T) {
-	m := baseManifest
+	m := base
 	v1, err := m.Version()
 	require.NoError(t, err)
-	v2, err := baseManifest.Version()
+	v2, err := base.Version()
 	require.NoError(t, err)
 	require.Equal(t, v1, v2)
 

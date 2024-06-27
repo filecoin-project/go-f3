@@ -9,7 +9,6 @@ import (
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/manifest"
-	"github.com/filecoin-project/go-f3/passive"
 	"github.com/filecoin-project/go-f3/sim/signing"
 	leveldb "github.com/ipfs/go-ds-leveldb"
 	logging "github.com/ipfs/go-log/v2"
@@ -98,14 +97,14 @@ var runCmd = cli.Command{
 		// if the manifest-server ID is passed in a flag,
 		// we setup the monitoring system
 		mFlag := c.String("manifest-server")
-		manifestServer := peer.ID("")
+		var manifestServer peer.ID
 		var mprovider manifest.ManifestProvider
 		if mFlag != "" {
 			manifestServer, err = peer.Decode(mFlag)
 			if err != nil {
 				return xerrors.Errorf("parsing manifest server ID: %w", err)
 			}
-			mprovider = passive.NewDynamicManifestProvider(m, ps, nil, manifestServer)
+			mprovider = manifest.NewDynamicManifestProvider(m, ps, nil, manifestServer)
 		} else {
 			mprovider = manifest.NewStaticManifestProvider(m)
 		}
@@ -114,7 +113,7 @@ var runCmd = cli.Command{
 		id := c.Uint64("id")
 		signingBackend.Allow(int(id))
 
-		ec := ec.NewFakeEC(1, m.BootstrapEpoch, m.ECPeriod, initialPowerTable)
+		ec := ec.NewFakeEC(1, m.BootstrapEpoch, m.ECPeriod, initialPowerTable, true)
 
 		module, err := f3.New(ctx, mprovider, ds, h, manifestServer, ps,
 			signingBackend, ec, log, nil)

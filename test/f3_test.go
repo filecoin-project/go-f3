@@ -1,7 +1,3 @@
-//go:build !race
-
-// Note: We don't run these tests with race because UnsafeCurrentInstance
-// would trigger the race detector.
 package test
 
 import (
@@ -17,7 +13,6 @@ import (
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/manifest"
-	"github.com/filecoin-project/go-f3/passive"
 	"github.com/filecoin-project/go-f3/sim/signing"
 	leveldb "github.com/ipfs/go-ds-leveldb"
 	logging "github.com/ipfs/go-log/v2"
@@ -29,9 +24,7 @@ import (
 	"golang.org/x/xerrors"
 )
 
-const (
-	ManifestSenderTimeout = 1 * time.Second
-)
+const ManifestSenderTimeout = 1 * time.Second
 
 var log = logging.Logger("f3-testing")
 
@@ -67,7 +60,7 @@ func TestDynamicManifest_WithRebootstrap(t *testing.T) {
 
 	prev := env.nodes[0].f3.Manifest.Manifest()
 	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
-	prevInstance := env.nodes[0].CurrentGpbftInstace(t, ctx)
+	prevInstance := env.nodes[0].CurrentGpbftInstance(t, ctx)
 
 	env.manifest.BootstrapEpoch = 953
 	env.manifest.Sequence = 1
@@ -77,7 +70,7 @@ func TestDynamicManifest_WithRebootstrap(t *testing.T) {
 	env.waitForManifestChange(ctx, prev, 15*time.Second, env.nodes)
 
 	// check that it rebootstrapped and the number of instances is below prevInstance
-	require.True(t, env.nodes[0].CurrentGpbftInstace(t, ctx) < prevInstance)
+	require.True(t, env.nodes[0].CurrentGpbftInstance(t, ctx) < prevInstance)
 	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest.Manifest())
 	env.requireEqualManifests(false)
@@ -92,7 +85,7 @@ func TestDynamicManifest_SubsequentWithRebootstrap(t *testing.T) {
 
 	prev := env.nodes[0].f3.Manifest.Manifest()
 	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
-	prevInstance := env.nodes[0].CurrentGpbftInstace(t, ctx)
+	prevInstance := env.nodes[0].CurrentGpbftInstance(t, ctx)
 
 	env.manifest.BootstrapEpoch = 953
 	env.manifest.Sequence = 1
@@ -102,14 +95,14 @@ func TestDynamicManifest_SubsequentWithRebootstrap(t *testing.T) {
 	env.waitForManifestChange(ctx, prev, 15*time.Second, env.nodes)
 
 	// check that it rebootstrapped and the number of instances is below prevInstance
-	require.True(t, env.nodes[0].CurrentGpbftInstace(t, ctx) < prevInstance)
+	require.True(t, env.nodes[0].CurrentGpbftInstance(t, ctx) < prevInstance)
 	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest.Manifest())
 	env.requireEqualManifests(false)
 
 	// New manifest with sequence 2
 	prev = env.nodes[0].f3.Manifest.Manifest()
-	prevInstance = env.nodes[0].CurrentGpbftInstace(t, ctx)
+	prevInstance = env.nodes[0].CurrentGpbftInstance(t, ctx)
 
 	env.manifest.BootstrapEpoch = 956
 	env.manifest.Sequence = 2
@@ -119,7 +112,7 @@ func TestDynamicManifest_SubsequentWithRebootstrap(t *testing.T) {
 	env.waitForManifestChange(ctx, prev, 15*time.Second, env.nodes)
 
 	// check that it rebootstrapped and the number of instances is below prevInstance
-	require.True(t, env.nodes[0].CurrentGpbftInstace(t, ctx) < prevInstance)
+	require.True(t, env.nodes[0].CurrentGpbftInstance(t, ctx) < prevInstance)
 	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest.Manifest())
 	env.requireEqualManifests(false)
@@ -148,7 +141,7 @@ func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
 	prev := env.nodes[0].f3.Manifest.Manifest()
 
 	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
-	prevInstance := env.nodes[0].CurrentGpbftInstace(t, ctx)
+	prevInstance := env.nodes[0].CurrentGpbftInstance(t, ctx)
 
 	env.manifest.BootstrapEpoch = 953
 	env.manifest.Sequence = 1
@@ -161,19 +154,19 @@ func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
 	env.waitForManifestChange(ctx, prev, 15*time.Second, []*testNode{env.nodes[0], env.nodes[1]})
 
 	// check that the runner continued without rebootstrap
-	require.True(t, env.nodes[0].CurrentGpbftInstace(t, ctx) >= prevInstance)
+	require.True(t, env.nodes[0].CurrentGpbftInstance(t, ctx) >= prevInstance)
 	env.waitForInstanceNumber(ctx, prevInstance+10, 15*time.Second, false)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest.Manifest())
 	env.requireEqualManifests(false)
 	// check that the power table is updated with the new entries
-	ts, err := env.ec.GetTipsetByEpoch(ctx, int64(env.nodes[0].CurrentGpbftInstace(t, ctx)))
+	ts, err := env.ec.GetTipsetByEpoch(ctx, int64(env.nodes[0].CurrentGpbftInstance(t, ctx)))
 	require.NoError(t, err)
 	pt, err := env.nodes[0].f3.GetPowerTable(ctx, ts.Key())
 	require.NoError(t, err)
 	require.Equal(t, len(pt), 4)
 }
 
-var baseManifest manifest.Manifest = manifest.Manifest{
+var base manifest.Manifest = manifest.Manifest{
 	Sequence:        0,
 	BootstrapEpoch:  950,
 	ReBootstrap:     true,
@@ -201,7 +194,7 @@ type testNode struct {
 	errCh <-chan error
 }
 
-func (n *testNode) CurrentGpbftInstace(t *testing.T, ctx context.Context) uint64 {
+func (n *testNode) CurrentGpbftInstance(t *testing.T, ctx context.Context) uint64 {
 	c, err := n.f3.GetLatestCert(ctx)
 	require.NoError(t, err)
 	if c == nil {
@@ -217,7 +210,7 @@ type testEnv struct {
 	nodes          []*testNode
 	ec             *ec.FakeEC
 
-	manifestSender *passive.ManifestSender
+	manifestSender *manifest.ManifestSender
 }
 
 // signals the update to the latest manifest in the environment.
@@ -289,7 +282,7 @@ func (e *testEnv) waitForInstanceNumber(ctx context.Context, instanceNumber uint
 				// runner initialized)
 				if !e.nodes[i].f3.IsRunning() && !strict {
 					reached++
-				} else if e.nodes[i].CurrentGpbftInstace(e.t, ctx) >= instanceNumber && e.nodes[i].f3.IsRunning() {
+				} else if e.nodes[i].CurrentGpbftInstance(e.t, ctx) >= instanceNumber && e.nodes[i].f3.IsRunning() {
 					reached++
 				}
 				if reached >= len(e.nodes) {
@@ -334,7 +327,7 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) testEnv {
 	env := testEnv{t: t}
 
 	// populate manifest
-	m := baseManifest
+	m := base
 	initialPowerTable := gpbft.PowerEntries{}
 
 	env.signingBackend = signing.NewFakeBackend()
@@ -348,9 +341,10 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) testEnv {
 		})
 	}
 	env.manifest = m
-	env.ec = ec.NewFakeECWithoutTime(1, m.BootstrapEpoch+m.ECFinality, m.ECPeriod, initialPowerTable)
+	env.ec = ec.NewFakeEC(1, m.BootstrapEpoch+m.ECFinality, m.ECPeriod, initialPowerTable, false)
+	env.ec.SetCurrentHead(m.BootstrapEpoch)
 
-	manifestServer := peer.ID("")
+	var manifestServer peer.ID
 	if dynamicManifest {
 		env.newManifestSender(context.Background())
 		manifestServer = env.manifestSender.SenderID()
@@ -454,7 +448,7 @@ func (e *testEnv) newManifestSender(ctx context.Context) {
 	ps, err := pubsub.NewGossipSub(ctx, h)
 	require.NoError(e.t, err)
 
-	e.manifestSender, err = passive.NewManifestSender(h, ps, &e.manifest, ManifestSenderTimeout)
+	e.manifestSender, err = manifest.NewManifestSender(h, ps, &e.manifest, ManifestSenderTimeout)
 	require.NoError(e.t, err)
 }
 
@@ -486,7 +480,7 @@ func (e *testEnv) newF3Instance(ctx context.Context, id int, manifestServer peer
 
 	var mprovider manifest.ManifestProvider
 	if manifestServer != peer.ID("") {
-		mprovider = passive.NewDynamicManifestProvider(e.manifest, ps, e.ec, manifestServer)
+		mprovider = manifest.NewDynamicManifestProvider(e.manifest, ps, e.ec, manifestServer)
 	} else {
 		mprovider = manifest.NewStaticManifestProvider(e.manifest)
 	}

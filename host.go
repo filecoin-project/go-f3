@@ -23,7 +23,7 @@ type gpbftRunner struct {
 	alertTimer *time.Timer
 
 	runningCtx context.Context
-	ctxCancel  func()
+	ctxCancel  context.CancelFunc
 	log        Logger
 }
 
@@ -141,7 +141,9 @@ func (h *gpbftHost) collectChain(base ec.TipSet, head ec.TipSet) ([]ec.TipSet, e
 }
 
 func (h *gpbftRunner) Stop() {
-	h.ctxCancel()
+	if h.ctxCancel != nil {
+		h.ctxCancel()
+	}
 }
 
 // Returns inputs to the next GPBFT instance.

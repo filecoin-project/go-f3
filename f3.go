@@ -211,7 +211,7 @@ func (m *F3) teardownPubsub(manifest manifest.Manifest) error {
 }
 
 // Sets up the gpbft runner, this is triggered at initialization
-func (m *F3) setupGpbftRunner(ctx context.Context, errCh chan error) {
+func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
 	var err error
 
 	cs, err := certstore.OpenStore(ctx, m.ds)
@@ -221,9 +221,11 @@ func (m *F3) setupGpbftRunner(ctx context.Context, errCh chan error) {
 		err := m.boostrap(ctx)
 		if err != nil {
 			errCh <- xerrors.Errorf("failed to boostrap: %w", err)
+			return
 		}
 	} else {
 		errCh <- xerrors.Errorf("opening certstore: %w", err)
+		return
 	}
 
 	m.runner, err = newRunner(m.Manifest, m.client)
@@ -248,7 +250,7 @@ func (m *F3) setupGpbftRunner(ctx context.Context, errCh chan error) {
 
 	go func() {
 		latest := m.certStore.Latest()
-		startInstance := uint64(m.Manifest.Manifest().InitialInstance)
+		startInstance := m.Manifest.Manifest().InitialInstance
 		if latest != nil {
 			startInstance = latest.GPBFTInstance + 1
 		}
@@ -335,7 +337,7 @@ func (m *F3) Run(ctx context.Context) error {
 	manifestErrCh := make(chan error, 1)
 
 	// bootstrap runner for the initial manifest
-	go m.setupGpbftRunner(ctx, runnerErrCh)
+	go m.startGpbftRunner(ctx, runnerErrCh)
 
 	// run manifest provider. This runs a background goroutine that will
 	// handle dynamic manifest updates if this is a dynamic manifest provider.
@@ -351,16 +353,12 @@ func (m *F3) Run(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
+		return nil
 	case err = <-runnerErrCh:
 		return err
 	case err = <-manifestErrCh:
 		return err
 	}
-
-	return nil
 }
 
 func (m *F3) handleIncomingMessages(ctx context.Context, queue chan gpbft.ValidatedMessage) {
@@ -395,7 +393,9 @@ loop:
 // If there is no rebootstrap it only starts a new pubsub topic with a new network name that
 // depends on the manifest version so there is no overlap between different configuration instances
 func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
-	manifestUpdate := make(chan uint64, 3)
+	// We can only accommodate 1 manifest update at a time, thus
+	// the buffer size.
+	manifestUpdate := make(chan uint64, 1)
 	m.client.manifestUpdate = manifestUpdate
 	return func(ctx context.Context, prevManifest manifest.Manifest, errCh chan error) {
 		// Tear down pubsub.
@@ -416,11 +416,11 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 			// teardown the pubsub topic
 			m.runner.Stop()
 			// clear the certstore
-			if err := m.certStore.Clear(ctx); err != nil {
+			if err := m.certStore.DeleteAll(ctx); err != nil {
 				errCh <- xerrors.Errorf("clearing certstore: %w", err)
 				return
 			}
-			m.setupGpbftRunner(ctx, errCh)
+			m.startGpbftRunner(ctx, errCh)
 		} else {
 			m.log.Debug("triggering manifest change without rebootstrap")
 			// immediately stop listening to network messages
@@ -438,7 +438,7 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 				errCh <- xerrors.Errorf("getting latest cert: %w", err)
 				return
 			}
-			err = m.certStore.ClearInstance(ctx, fc.GPBFTInstance)
+			err = m.certStore.Delete(ctx, fc.GPBFTInstance)
 			if err != nil {
 				errCh <- xerrors.Errorf("clearing latest cert: %w", err)
 				return
@@ -481,10 +481,14 @@ type Logger interface {
 	Warnf(format string, args ...interface{})
 }
 
+// IsRunning returns true if gpbft is running
+// Used mainly for testing purposes
 func (m *F3) IsRunning() bool {
 	return m.runner != nil
 }
 
+// GetPowerTable returns the power table for the given tipset
+// Used mainly for testing purposes
 func (m *F3) GetPowerTable(ctx context.Context, ts gpbft.TipSetKey) (gpbft.PowerEntries, error) {
 	return m.client.GetPowerTable(ctx, ts)
 }

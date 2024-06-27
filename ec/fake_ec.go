@@ -11,6 +11,8 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
+var _ Backend = (*FakeEC)(nil)
+
 type FakeEC struct {
 	useTime           bool
 	seed              []byte
@@ -50,22 +52,15 @@ func (ts *Tipset) Timestamp() time.Time {
 	return ts.timestamp
 }
 
-func NewFakeEC(seed uint64, bootstrapEpoch int64, ecPeriod time.Duration, initialPowerTable gpbft.PowerEntries) *FakeEC {
+func NewFakeEC(seed uint64, bootstrapEpoch int64, ecPeriod time.Duration, initialPowerTable gpbft.PowerEntries, useTime bool) *FakeEC {
 	return &FakeEC{
-		useTime:           true,
+		useTime:           useTime,
 		seed:              binary.BigEndian.AppendUint64(nil, seed),
 		initialPowerTable: initialPowerTable,
 
 		ecPeriod: ecPeriod,
 		ecStart:  time.Now().Add(-time.Duration(bootstrapEpoch) * ecPeriod),
 	}
-}
-
-func NewFakeECWithoutTime(seed uint64, bootstrapEpoch int64, ecPeriod time.Duration, initialPowerTable gpbft.PowerEntries) *FakeEC {
-	fec := NewFakeEC(seed, bootstrapEpoch, ecPeriod, initialPowerTable)
-	fec.useTime = false
-	fec.currentHead = bootstrapEpoch
-	return fec
 }
 
 func (ec *FakeEC) genTipset(epoch int64) *Tipset {
@@ -131,6 +126,8 @@ func (ec *FakeEC) GetParent(ctx context.Context, ts TipSet) (TipSet, error) {
 	return nil, xerrors.Errorf("parent not found")
 }
 
+// SetCurrentHead sets the current head epoch.
+// This is only supported by FakeEC if `useTime=false`
 func (ec *FakeEC) SetCurrentHead(head int64) {
 	ec.currentHead = head
 }

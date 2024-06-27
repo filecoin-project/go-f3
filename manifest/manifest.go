@@ -110,7 +110,9 @@ func (m Manifest) Version() (Version, error) {
 	return Version(hex.EncodeToString(gpbft.MakeCid(b))), nil
 }
 
-// TODO: Describe how we are using json because we need to serialize a float
+// Marshal the manifest into JSON
+// We use JSON because we need to serialize a float and time.Duration
+// and the cbor serializer we use do not support these types yet.
 func (m Manifest) Marshal() ([]byte, error) {
 	b, err := json.Marshal(m)
 	if err != nil {

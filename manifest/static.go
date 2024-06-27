@@ -6,13 +6,13 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
+var _ ManifestProvider = (*StaticManifestProvider)(nil)
+
 // Static manifest provider that doesn't allow any changes
 // in runtime to the initial manifest set in the provider
 type StaticManifestProvider struct {
 	manifest Manifest
 }
-
-var _ ManifestProvider = (*StaticManifestProvider)(nil)
 
 func NewStaticManifestProvider(m Manifest) ManifestProvider {
 	return &StaticManifestProvider{manifest: m}
@@ -26,6 +26,6 @@ func (m *StaticManifestProvider) Manifest() Manifest {
 	return m.manifest
 }
 
-func (m *StaticManifestProvider) Run(ctx context.Context, errCh chan error) {}
+func (m *StaticManifestProvider) Run(context.Context, chan error) {}
 
-func (m *StaticManifestProvider) SetManifestChangeCallback(mc OnManifestChange) {}
+func (m *StaticManifestProvider) SetManifestChangeCallback(OnManifestChange) {}

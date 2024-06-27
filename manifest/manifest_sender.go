@@ -1,11 +1,10 @@
-package passive
+package manifest
 
 import (
 	"context"
 	"sync"
 	"time"
 
-	"github.com/filecoin-project/go-f3/manifest"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -19,16 +18,16 @@ type ManifestSender struct {
 	h             host.Host
 	pubsub        *pubsub.PubSub
 	manifestTopic *pubsub.Topic
+	period        time.Duration
 
+	// lock to that guards the update of the manifest.
 	lk       sync.RWMutex
-	manifest *manifest.Manifest
-	period   time.Duration
-
+	manifest *Manifest
 	// Used to stop publishing manifests
-	cancel func()
+	cancel context.CancelFunc
 }
 
-func NewManifestSender(h host.Host, pubsub *pubsub.PubSub, firstManifest *manifest.Manifest, publicationPeriod time.Duration) (*ManifestSender, error) {
+func NewManifestSender(h host.Host, pubsub *pubsub.PubSub, firstManifest *Manifest, publicationPeriod time.Duration) (*ManifestSender, error) {
 	topicName := ManifestPubSubTopicName
 	m := &ManifestSender{
 		manifest: firstManifest,
@@ -65,12 +64,10 @@ func (m *ManifestSender) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			m.lk.RLock()
 			err := m.publishManifest(ctx)
 			if err != nil {
 				log.Error("error publishing manifest: %w", err)
 			}
-			m.lk.RUnlock()
 		case <-ctx.Done():
 			return
 		}
@@ -78,6 +75,9 @@ func (m *ManifestSender) Start(ctx context.Context) {
 }
 
 func (m *ManifestSender) publishManifest(ctx context.Context) error {
+	m.lk.RLock()
+	defer m.lk.RUnlock()
+
 	b, err := m.manifest.Marshal()
 	if err != nil {
 		return err
@@ -85,7 +85,7 @@ func (m *ManifestSender) publishManifest(ctx context.Context) error {
 	return m.manifestTopic.Publish(ctx, b)
 }
 
-func (m *ManifestSender) UpdateManifest(manifest *manifest.Manifest) {
+func (m *ManifestSender) UpdateManifest(manifest *Manifest) {
 	m.lk.Lock()
 	m.manifest = manifest
 	m.lk.Unlock()

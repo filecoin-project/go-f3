@@ -1,19 +1,21 @@
-package passive
+package manifest
 
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/manifest"
 	logging "github.com/ipfs/go-log/v2"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"go.uber.org/multierr"
 	"golang.org/x/xerrors"
 )
+
+var _ ManifestProvider = (*DynamicManifestProvider)(nil)
 
 var log = logging.Logger("f3-dynamic-manifest")
 
@@ -22,23 +24,21 @@ const (
 	ManifestCheckTick       = 5 * time.Second
 )
 
-var _ manifest.ManifestProvider = (*DynamicManifestProvider)(nil)
-
 // DynamicManifestProvider is a manifest provider that allows
 // the manifest to be changed at runtime.
 type DynamicManifestProvider struct {
-	manifest         manifest.Manifest
+	manifest         Manifest
 	pubsub           *pubsub.PubSub
 	ec               ec.Backend
 	manifestServerID peer.ID
 
 	// these are populate in runtime
-	onManifestChange manifest.OnManifestChange
-	nextManifest     *manifest.Manifest
+	onManifestChange OnManifestChange
+	nextManifest     *Manifest
 	manifestTopic    *pubsub.Topic
 }
 
-func NewDynamicManifestProvider(manifest manifest.Manifest, pubsub *pubsub.PubSub, ec ec.Backend, manifestServerID peer.ID) manifest.ManifestProvider {
+func NewDynamicManifestProvider(manifest Manifest, pubsub *pubsub.PubSub, ec ec.Backend, manifestServerID peer.ID) ManifestProvider {
 	return &DynamicManifestProvider{
 		manifest:         manifest,
 		pubsub:           pubsub,
@@ -47,7 +47,7 @@ func NewDynamicManifestProvider(manifest manifest.Manifest, pubsub *pubsub.PubSu
 	}
 }
 
-func (m *DynamicManifestProvider) Manifest() manifest.Manifest {
+func (m *DynamicManifestProvider) Manifest() Manifest {
 	return m.manifest
 }
 
@@ -55,7 +55,7 @@ func (m *DynamicManifestProvider) GpbftOptions() []gpbft.Option {
 	return m.manifest.GpbftOptions()
 }
 
-func (m *DynamicManifestProvider) SetManifestChangeCallback(mc manifest.OnManifestChange) {
+func (m *DynamicManifestProvider) SetManifestChangeCallback(mc OnManifestChange) {
 	m.onManifestChange = mc
 }
 
@@ -63,8 +63,7 @@ func (m *DynamicManifestProvider) SetManifestChangeCallback(mc manifest.OnManife
 // is set that depends on the manifest version of the previous version to avoid
 // overlapping previous configurations.
 func (m *DynamicManifestProvider) networkNameOnChange() gpbft.NetworkName {
-	v, _ := m.manifest.Version()
-	return gpbft.NetworkName(string(m.manifest.NetworkName) + "/" + string(v))
+	return gpbft.NetworkName(string(m.manifest.NetworkName) + "/" + fmt.Sprint("%d", m.manifest.Sequence))
 }
 
 func (m *DynamicManifestProvider) Run(ctx context.Context, errCh chan error) {
@@ -139,7 +138,7 @@ loop:
 				log.Errorf("manifestPubsub subscription.Next() returned an error: %+v", err)
 				break
 			}
-			manifest, ok := msg.ValidatorData.(*manifest.Manifest)
+			manifest, ok := msg.ValidatorData.(*Manifest)
 			if !ok {
 				log.Errorf("invalid manifestValidatorData: %+v", msg.ValidatorData)
 				continue
@@ -171,7 +170,7 @@ func (m *DynamicManifestProvider) teardownManifestPubsub() error {
 }
 
 // Checks if we should accept the manifest that we received through pubsub
-func (m *DynamicManifestProvider) acceptNextManifest(manifest *manifest.Manifest) bool {
+func (m *DynamicManifestProvider) acceptNextManifest(manifest *Manifest) bool {
 	if manifest.Sequence <= m.manifest.Sequence {
 		return false
 	}
@@ -189,7 +188,7 @@ func (m *DynamicManifestProvider) setupManifestPubsub() (err error) {
 	// to be homogeneous.
 	var validator pubsub.ValidatorEx = func(ctx context.Context, pID peer.ID,
 		msg *pubsub.Message) pubsub.ValidationResult {
-		var manifest manifest.Manifest
+		var manifest Manifest
 		err := manifest.Unmarshal(bytes.NewReader(msg.Data))
 		if err != nil {
 			return pubsub.ValidationReject

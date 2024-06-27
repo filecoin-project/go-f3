@@ -411,20 +411,21 @@ func (cs *Store) SubscribeForNewCerts(ch chan<- *certs.FinalityCertificate) (las
 	return cs.busCerts.Subscribe(ch)
 }
 
-// Clear is used to remove all certificates from the store and clean it for a new instance
+// DeleteAll is used to remove all certificates from the store and clean it for a new instance
 // to be able to use it from scratch.
-//
-// TODO: Right now we don't clear the content of certs, we just remove the pointers to the
-// latest instance and certs.
-func (cs *Store) Clear(ctx context.Context) error {
+func (cs *Store) DeleteAll(ctx context.Context) error {
+	// TODO: Right now we don't clear the content of certs, we just remove the pointers to the
+	// latest instance and certs. Removing all the certificates requires iterating
+	// through all the namespace datastore. Leaving it as future work.
+	// Tracked in: https://github.com/filecoin-project/go-f3/issues/376
 	if err := cs.ds.Delete(ctx, certStoreFirstKey); err != nil {
 		return err
 	}
 	return cs.ds.Delete(ctx, certStoreLatestKey)
 }
 
-// ClearInstance removes all asset belonging to an instance.
-func (cs *Store) ClearInstance(ctx context.Context, instance uint64) error {
+// Delete removes all asset belonging to an instance.
+func (cs *Store) Delete(ctx context.Context, instance uint64) error {
 	if err := cs.ds.Delete(ctx, cs.keyForCert(instance)); err != nil {
 		return err
 	}
