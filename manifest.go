@@ -14,12 +14,14 @@ type Manifest struct {
 	InitialPowerTable gpbft.PowerEntries
 	BootstrapEpoch    int64
 
-	ECFinality       int64
-	ECDelay          time.Duration
+	ECFinality int64
+	// The delay after a tipset is produced before we attempt to finalize it.
+	ECDelay time.Duration
+	// The delay between tipsets.
+	ECPeriod         time.Duration
 	CommiteeLookback uint64
 
 	//Temporary
-	ECPeriod            time.Duration
 	ECBoostrapTimestamp time.Time
 }
 
@@ -31,7 +33,7 @@ func LocalnetManifest() Manifest {
 		BootstrapEpoch:   1000,
 		ECFinality:       900,
 		CommiteeLookback: 5,
-		ECDelay:          30 * time.Second,
+		ECDelay:          60 * time.Second,
 
 		ECPeriod: 30 * time.Second,
 	}
