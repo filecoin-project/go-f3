@@ -3,7 +3,7 @@ package polling
 import (
 	"cmp"
 	"container/heap"
-	"math/rand/v2"
+	"math/rand"
 	"slices"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -261,7 +261,7 @@ func choose[T any](items []T, count int) []T {
 	// There are more efficient algorithms for small sample sizes, but they're complex.
 	chosen := make([]T, 0, count)
 	for t := 0; len(chosen) < cap(chosen); t++ {
-		if rand.IntN(len(items)-t) < cap(chosen)-len(chosen) {
+		if rand.Intn(len(items)-t) < cap(chosen)-len(chosen) {
 			chosen = append(chosen, items[t])
 		}
 	}
