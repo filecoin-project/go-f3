@@ -2,7 +2,6 @@ package gpbft
 
 import (
 	"errors"
-	"math/big"
 
 	xerrors "golang.org/x/xerrors"
 )
@@ -68,7 +67,7 @@ func (mb *MessageBuilder) SetSigningMarshaler(sm SigningMarshaler) {
 }
 
 type powerTableAccessor interface {
-	Get(ActorID) (uint16, *big.Int, PubKey)
+	Get(ActorID) (uint16, PubKey)
 }
 
 type SignerWithMarshaler interface {
@@ -105,7 +104,7 @@ type SignatureBuilder struct {
 }
 
 func (mb *MessageBuilder) PrepareSigningInputs(id ActorID) (*SignatureBuilder, error) {
-	effectivePower, _, pubKey := mb.powerTable.Get(id)
+	effectivePower, pubKey := mb.powerTable.Get(id)
 	if pubKey == nil || effectivePower == 0 {
 		return nil, xerrors.Errorf("could not find pubkey for actor %d: %w", id, ErrNoPower)
 	}

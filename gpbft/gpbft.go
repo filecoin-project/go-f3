@@ -460,7 +460,7 @@ func (i *instance) tryCurrentPhase() error {
 // It must be safe for concurrent use.
 func ValidateMessage(powerTable *PowerTable, beacon []byte, host Host, msg *GMessage) error {
 	// Check sender is eligible.
-	senderPower, _, senderPubKey := powerTable.Get(msg.Sender)
+	senderPower, senderPubKey := powerTable.Get(msg.Sender)
 	if senderPower == 0 {
 		return xerrors.Errorf("sender %d with zero power or not in power table", msg.Sender)
 	}
@@ -1150,7 +1150,7 @@ func (q *quorumState) receiveSender(sender ActorID) (uint16, bool) {
 		return 0, false
 	}
 	q.senders[sender] = struct{}{}
-	senderPower, _, _ := q.powerTable.Get(sender)
+	senderPower, _ := q.powerTable.Get(sender)
 	q.sendersTotalPower += senderPower
 	return senderPower, true
 }
@@ -1433,9 +1433,9 @@ func (c *convergeState) FindMaxTicketProposal(table PowerTable) ConvergeValue {
 
 	for key, value := range c.values {
 		for _, ticket := range c.tickets[key] {
-			_, senderPower, _ := table.Get(ticket.Sender)
+			senderPower, _ := table.Get(ticket.Sender)
 			ticketAsInt := new(big.Int).SetBytes(ticket.Ticket)
-			weightedTicket := new(big.Int).Mul(ticketAsInt, senderPower)
+			weightedTicket := new(big.Int).Mul(ticketAsInt, big.NewInt(int64(senderPower)))
 			if maxTicket == nil || weightedTicket.Cmp(maxTicket) > 0 {
 				maxTicket = weightedTicket
 				maxValue = value
