@@ -39,12 +39,22 @@ type Subscriber struct {
 func (s *Subscriber) Start() error {
 	s.wg.Add(1)
 	s.ctx, s.stop = context.WithCancel(context.Background())
+
+	discoveredPeers, err := s.libp2pDiscover(s.ctx)
+	if err != nil {
+		return err
+	}
+
+	poller, err := NewPoller(s.ctx, &s.Client, s.Store, s.SignatureVerifier)
+	if err != nil {
+		return err
+	}
+
 	go func() {
 		defer s.wg.Done()
+		defer s.stop() // in case we return early, cancel everything else.
 
-		ctx, cancel := context.WithCancel(s.ctx)
-		defer cancel()
-		if err := s.run(ctx); err != nil && s.ctx.Err() != nil {
+		if err := s.run(s.ctx, discoveredPeers, poller); err != nil && s.ctx.Err() != nil {
 			s.Log.Errorf("polling certificate exchange subscriber exited early: %w", err)
 		}
 	}()
@@ -53,8 +63,10 @@ func (s *Subscriber) Start() error {
 }
 
 func (s *Subscriber) Stop() error {
-	s.stop()
-	s.wg.Wait()
+	if s.stop == nil {
+		s.stop()
+		s.wg.Wait()
+	}
 
 	return nil
 }
@@ -123,14 +135,9 @@ func (s *Subscriber) libp2pDiscover(ctx context.Context) (<-chan peer.ID, error)
 	return out, nil
 }
 
-func (s *Subscriber) run(ctx context.Context) error {
+func (s *Subscriber) run(ctx context.Context, discoveredPeers <-chan peer.ID, poller *Poller) error {
 	timer := time.NewTimer(s.InitialPollInterval)
 	defer timer.Stop()
-
-	discoveredPeers, err := s.libp2pDiscover(ctx)
-	if err != nil {
-		return err
-	}
 
 	predictor := newPredictor(
 		0.05,
@@ -139,14 +146,7 @@ func (s *Subscriber) run(ctx context.Context) error {
 		s.MaximumPollInterval,
 	)
 
-	poller, err := NewPoller(ctx, &s.Client, s.Store, s.SignatureVerifier)
-	if err != nil {
-		return err
-	}
-
 	for ctx.Err() == nil {
-		var err error
-
 		// Always handle newly discovered peers and new certificates from the certificate
 		// store _first_. Then check the timer to see if we should poll.
 		select {
@@ -162,10 +162,9 @@ func (s *Subscriber) run(ctx context.Context) error {
 				// was accurate, we'll keep predicting the same interval and we'll
 				// never make any network requests. If we stop making local
 				// progress, we'll start making network requests again.
-				var progress uint64
-				progress, err = poller.CatchUp(ctx)
+				progress, err := poller.CatchUp(ctx)
 				if err != nil {
-					break
+					return err
 				}
 				if progress > 0 {
 					timer.Reset(predictor.update(progress))
@@ -174,16 +173,12 @@ func (s *Subscriber) run(ctx context.Context) error {
 
 				progress, err = s.poll(ctx, poller)
 				if err != nil {
-					break
+					return err
 				}
 				timer.Reset(predictor.update(progress))
 			case <-ctx.Done():
 				return ctx.Err()
 			}
-		}
-
-		if err != nil {
-			return err
 		}
 	}
 	return ctx.Err()
