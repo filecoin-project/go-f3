@@ -127,7 +127,7 @@ func (r *peerRecord) recordMiss() {
 	}
 }
 
-// Return the hit rate and the
+// Return the hit rate a number between 0-10 indicating how "full" our window is.
 func (r *peerRecord) hitRate() (float64, int) {
 	total := r.hits + r.misses
 	// set the default rate such that we we ask `defaultRequests` peers by default.
@@ -135,7 +135,7 @@ func (r *peerRecord) hitRate() (float64, int) {
 	if total > 0 {
 		rate = float64(r.hits) / float64(total)
 	}
-	return rate, total
+	return rate, min(total, 10)
 
 }
 
