@@ -146,38 +146,31 @@ func (s *Subscriber) run(ctx context.Context, discoveredPeers <-chan peer.ID, po
 	)
 
 	for ctx.Err() == nil {
-		// Always handle newly discovered peers and new certificates from the certificate
-		// store _first_. Then check the timer to see if we should poll.
 		select {
 		case p := <-discoveredPeers:
 			s.peerTracker.peerSeen(p)
-		default:
-			select {
-			case p := <-discoveredPeers:
-				s.peerTracker.peerSeen(p)
-			case <-timer.C:
-				// First, see if we made progress locally. If we have, update
-				// interval prediction based on that local progress. If our interval
-				// was accurate, we'll keep predicting the same interval and we'll
-				// never make any network requests. If we stop making local
-				// progress, we'll start making network requests again.
-				progress, err := poller.CatchUp(ctx)
-				if err != nil {
-					return err
-				}
-				if progress > 0 {
-					timer.Reset(predictor.update(progress))
-					break
-				}
-
-				progress, err = s.poll(ctx, poller)
-				if err != nil {
-					return err
-				}
-				timer.Reset(predictor.update(progress))
-			case <-ctx.Done():
-				return ctx.Err()
+		case <-timer.C:
+			// First, see if we made progress locally. If we have, update
+			// interval prediction based on that local progress. If our interval
+			// was accurate, we'll keep predicting the same interval and we'll
+			// never make any network requests. If we stop making local
+			// progress, we'll start making network requests again.
+			progress, err := poller.CatchUp(ctx)
+			if err != nil {
+				return err
 			}
+			if progress > 0 {
+				timer.Reset(predictor.update(progress))
+				break
+			}
+
+			progress, err = s.poll(ctx, poller)
+			if err != nil {
+				return err
+			}
+			timer.Reset(predictor.update(progress))
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
 	return ctx.Err()
