@@ -4,10 +4,7 @@ import (
 	"time"
 )
 
-const (
-	maxBackoffMultiplier = 10
-	minExploreDistance   = 100 * time.Millisecond
-)
+const maxBackoffMultiplier = 10
 
 func newPredictor(minInterval, defaultInterval, maxInterval time.Duration) *predictor {
 	return &predictor{
@@ -49,17 +46,24 @@ func (p *predictor) update(progress uint64) time.Duration {
 		// If we've made too much progress (interval too long) or made no progress (interval
 		// too short), explore to find the right interval.
 
-		// We halve the explore distance when we switch directions and double it whenever we
-		// need to keep moving in the same direction repeatedly.
 		if p.wasIncreasing == (progress > 1) {
-			p.exploreDistance /= 2
-		} else {
+			// We switched directions which means we're circling the target, shrink the
+			// explore distance.
+			p.exploreDistance /= 3
+		} else if progress <= 2 {
+			// We repeatedly made no progress, or slightly too much progress. Double the
+			// explore distance.
 			p.exploreDistance *= 2
+		} else {
+			// We far away from our target and aren't polling often enough. Reset to a
+			// sane estimate.
+			p.interval /= time.Duration(progress)
+			p.exploreDistance = p.interval / 2
 		}
 
 		// Make sure the explore distance doesn't get too short/long.
-		if p.exploreDistance < minExploreDistance {
-			p.exploreDistance = minExploreDistance
+		if p.exploreDistance < p.minInterval/100 {
+			p.exploreDistance = p.minInterval / 100
 		} else if p.exploreDistance > p.maxInterval/2 {
 			p.exploreDistance = p.maxInterval / 2
 		}

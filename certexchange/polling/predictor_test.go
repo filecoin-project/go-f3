@@ -1,9 +1,11 @@
 package polling
 
 import (
+	"math/rand"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -57,4 +59,32 @@ func TestPredictor(t *testing.T) {
 
 	// And revert to the old time when done.
 	require.Equal(t, 120*time.Second, p.update(1))
+}
+
+func TestPredictorConverges(t *testing.T) {
+	const minSeconds = 1
+	const maxSeconds = 120
+	p := newPredictor(minSeconds*time.Second, 30*time.Second, maxSeconds*time.Second)
+
+	updatesSeen := uint64(0)
+	eventInterval := 23 * time.Second
+	currentTime := time.Duration(0)
+
+	converge := func(n int) time.Duration {
+		for i := 0; i < n; i++ {
+			newUpdatesSeen := uint64(currentTime / eventInterval)
+			currentTime += p.update(newUpdatesSeen - updatesSeen)
+			updatesSeen = newUpdatesSeen
+		}
+		return p.update(1)
+	}
+
+	r := rand.New(rand.NewSource(0xdeadbeef))
+	numbers := r.Perm(maxSeconds - minSeconds)
+	for _, n := range numbers {
+		eventInterval = time.Duration(n+minSeconds) * time.Second
+		result := converge(300)
+		assert.InEpsilon(t, eventInterval, result, 0.05, "actual %s, expected %s", result, eventInterval)
+	}
+
 }
