@@ -25,7 +25,6 @@ import (
 )
 
 type F3 struct {
-	Manifest manifest.ManifestProvider
 	// certStore is nil until Run is called on the F3
 	certStore *certstore.Store
 
@@ -112,8 +111,6 @@ func New(ctx context.Context, manifest manifest.ManifestProvider, ds datastore.D
 	}
 
 	m := F3{
-		Manifest: manifest,
-
 		ds:     ds,
 		host:   h,
 		pubsub: ps,
@@ -144,6 +141,10 @@ func (m *F3) SubscribeForMessagesToSign(ch chan<- *gpbft.MessageBuilder) (closer
 	return closer
 }
 
+func (m *F3) Manifest() manifest.Manifest {
+	return m.client.manifest.Manifest()
+}
+
 func (m *F3) Broadcast(ctx context.Context, signatureBuilder *gpbft.SignatureBuilder, msgSig []byte, vrf []byte) {
 	msg := signatureBuilder.Build(msgSig, vrf)
 
@@ -165,7 +166,7 @@ func (m *F3) setCertStore(cs *certstore.Store) {
 }
 
 func (m *F3) setupPubsub(runner *gpbftRunner) error {
-	pubsubTopicName := m.Manifest.Manifest().PubSubTopic()
+	pubsubTopicName := m.Manifest().PubSubTopic()
 
 	// explicit type to typecheck the anonymous function defintion
 	// a bit ugly but I don't want gpbftRunner to know about pubsub
@@ -229,7 +230,7 @@ func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
 		return
 	}
 
-	m.runner, err = newRunner(m.Manifest, m.client)
+	m.runner, err = newRunner(m.client.manifest, m.client)
 	if err != nil {
 		errCh <- xerrors.Errorf("creating gpbft host: %w", err)
 		return
@@ -254,7 +255,7 @@ func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
 
 	go func() {
 		latest := m.certStore.Latest()
-		startInstance := m.Manifest.Manifest().InitialInstance
+		startInstance := m.Manifest().InitialInstance
 		if latest != nil {
 			startInstance = latest.GPBFTInstance + 1
 		}
@@ -283,22 +284,22 @@ func (m *F3) boostrap(ctx context.Context) error {
 		return xerrors.Errorf("failed to get the head: %w", err)
 	}
 
-	if head.Epoch() < m.Manifest.Manifest().BootstrapEpoch {
+	if head.Epoch() < m.Manifest().BootstrapEpoch {
 		// wait for bootstrap epoch
 		for {
 			head, err := m.ec.GetHead(ctx)
 			if err != nil {
 				return xerrors.Errorf("getting head: %w", err)
 			}
-			if head.Epoch() >= m.Manifest.Manifest().BootstrapEpoch {
+			if head.Epoch() >= m.Manifest().BootstrapEpoch {
 				break
 			}
 
-			m.log.Infof("wating for bootstrap epoch (%d): currently at epoch %d", m.Manifest.Manifest().BootstrapEpoch, head.Epoch())
-			aim := time.Until(head.Timestamp().Add(m.Manifest.Manifest().ECPeriod))
+			m.log.Infof("wating for bootstrap epoch (%d): currently at epoch %d", m.Manifest().BootstrapEpoch, head.Epoch())
+			aim := time.Until(head.Timestamp().Add(m.Manifest().ECPeriod))
 			// correct for null epochs
 			for aim < 0 {
-				aim += m.Manifest.Manifest().ECPeriod
+				aim += m.Manifest().ECPeriod
 			}
 
 			select {
@@ -309,7 +310,7 @@ func (m *F3) boostrap(ctx context.Context) error {
 		}
 	}
 
-	ts, err := m.ec.GetTipsetByEpoch(ctx, m.Manifest.Manifest().BootstrapEpoch-m.Manifest.Manifest().ECFinality)
+	ts, err := m.ec.GetTipsetByEpoch(ctx, m.Manifest().BootstrapEpoch-m.Manifest().ECFinality)
 	if err != nil {
 		return xerrors.Errorf("getting initial power tipset: %w", err)
 	}
@@ -319,7 +320,7 @@ func (m *F3) boostrap(ctx context.Context) error {
 		return xerrors.Errorf("getting initial power table: %w", err)
 	}
 
-	cs, err := certstore.CreateStore(ctx, m.ds, m.Manifest.Manifest().InitialInstance, initialPowerTable)
+	cs, err := certstore.CreateStore(ctx, m.ds, m.Manifest().InitialInstance, initialPowerTable)
 	if err != nil {
 		return xerrors.Errorf("creating certstore: %w", err)
 	}
@@ -355,12 +356,12 @@ func (m *F3) Run(ctx context.Context) error {
 	// run manifest provider. This runs a background goroutine that will
 	// handle dynamic manifest updates if this is a dynamic manifest provider.
 	// If it is a static manifest it does nothing.
-	go m.Manifest.Run(ctx, manifestErrCh)
+	go m.client.manifest.Run(ctx, manifestErrCh)
 
 	// teardown pubsub on shutdown
 	var err error
 	defer func() {
-		teardownErr := m.teardownPubsub(m.Manifest.Manifest())
+		teardownErr := m.teardownPubsub(m.Manifest())
 		err = multierr.Append(err, teardownErr)
 	}()
 
@@ -428,11 +429,8 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 		}
 		// empty message queue from outstanding messages
 		m.emptyMessageQueue()
-		// Update the mmanifest in the client to update power table
-		// and network name (without this signatures will fail)
-		m.client.manifest = m.Manifest
 
-		if m.Manifest.Manifest().ReBootstrap {
+		if m.Manifest().ReBootstrap {
 			m.log.Debug("triggering manifest change with rebootstrap")
 			// kill runner and teardown pubsub. This will also
 			// teardown the pubsub topic

@@ -60,6 +60,8 @@ func (m *DynamicManifestProvider) GpbftOptions() []gpbft.Option {
 }
 
 func (m *DynamicManifestProvider) SetManifestChangeCallback(mc OnManifestChange) {
+	m.lk.Lock()
+	defer m.lk.Unlock()
 	m.onManifestChange = mc
 }
 
@@ -131,7 +133,7 @@ func (m *DynamicManifestProvider) handleIncomingManifests(ctx context.Context, e
 	}
 
 loop:
-	for {
+	for ctx.Err() == nil {
 		select {
 		case <-ctx.Done():
 			break loop
@@ -140,9 +142,6 @@ loop:
 			var msg *pubsub.Message
 			msg, err = manifestSub.Next(ctx)
 			if err != nil {
-				if ctx.Err() != nil {
-					break
-				}
 				log.Errorf("manifestPubsub subscription.Next() returned an error: %+v", err)
 				break
 			}
