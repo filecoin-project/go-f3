@@ -3,6 +3,7 @@ package emulator
 import (
 	"errors"
 	"fmt"
+	"github.com/filecoin-project/go-bitfield"
 
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -72,11 +73,16 @@ func (i *Instance) GetProposal() gpbft.ECChain {
 func (i *Instance) GetDecision() *gpbft.Justification {
 	return i.decision
 }
+func (i *Instance) GetSupplement() gpbft.SupplementalData {
+	return i.supplementalData
+}
 
 func (i *Instance) NewQualityForProposal() *gpbft.MessageBuilder {
 	return i.NewQuality(i.GetProposal())
 }
 
+// XXX Probably better than constructing a MessageBuilder just to compare equality would be
+// making assertions about the content of an MB in the Driver, like those removed from Assertions
 func (i *Instance) NewQuality(proposal gpbft.ECChain) *gpbft.MessageBuilder {
 	return i.NewMessageBuilder(gpbft.Payload{
 		Step:  gpbft.QUALITY_PHASE,
@@ -93,6 +99,20 @@ func (i *Instance) NewPrepare(proposal gpbft.ECChain) *gpbft.MessageBuilder {
 		Step:  gpbft.PREPARE_PHASE,
 		Value: proposal,
 	}, nil, false)
+}
+
+func (i *Instance) NewCommit(proposal gpbft.ECChain, justification *gpbft.Justification) *gpbft.MessageBuilder {
+	return i.NewMessageBuilder(gpbft.Payload{
+		Step:  gpbft.COMMIT_PHASE,
+		Value: proposal,
+	}, justification, false)
+}
+
+func (i *Instance) NewDecide(value gpbft.ECChain, justification *gpbft.Justification) *gpbft.MessageBuilder {
+	return i.NewMessageBuilder(gpbft.Payload{
+		Step:  gpbft.DECIDE_PHASE,
+		Value: value,
+	}, justification, false)
 }
 
 func (i *Instance) NewMessageBuilder(payload gpbft.Payload, justification *gpbft.Justification, withTicket bool) *gpbft.MessageBuilder {
@@ -139,4 +159,77 @@ func (i *Instance) NewJustification(payload gpbft.Payload, signerIndices []int, 
 		Signers:   qr.SignersBitfield(),
 		Signature: aggregate,
 	}, nil
+}
+
+// Makes a message to deliver to the participant
+func (i *Instance) MakeQuality(sender gpbft.ActorID, value gpbft.ECChain) *gpbft.GMessage {
+	return &gpbft.GMessage{
+		Sender: sender,
+		Vote: gpbft.Payload{
+			Instance:         i.id,
+			Round:            0,
+			Step:             gpbft.QUALITY_PHASE,
+			SupplementalData: i.GetSupplement(),
+			Value:            value,
+		},
+		Signature:     []byte("abcd"),
+		Ticket:        nil,
+		Justification: nil,
+	}
+}
+
+func (i *Instance) MakePrepare(sender gpbft.ActorID, round uint64, value gpbft.ECChain) *gpbft.GMessage {
+	return &gpbft.GMessage{
+		Sender: sender,
+		Vote: gpbft.Payload{
+			Instance:         i.id,
+			Round:            round,
+			Step:             gpbft.PREPARE_PHASE,
+			SupplementalData: i.GetSupplement(),
+			Value:            value,
+		},
+		Signature:     []byte("abcd"),
+		Ticket:        nil,
+		Justification: nil,
+	}
+}
+
+func (i *Instance) MakeCommit(sender gpbft.ActorID, round uint64, value gpbft.ECChain, justification *gpbft.Justification) *gpbft.GMessage {
+	return &gpbft.GMessage{
+		Sender: sender,
+		Vote: gpbft.Payload{
+			Instance:         i.id,
+			Round:            round,
+			Step:             gpbft.COMMIT_PHASE,
+			SupplementalData: i.GetSupplement(),
+			Value:            value,
+		},
+		Signature:     []byte("efgh"),
+		Ticket:        nil,
+		Justification: justification,
+	}
+}
+
+func (i *Instance) MakeDecide(sender gpbft.ActorID, value gpbft.ECChain, justification *gpbft.Justification) *gpbft.GMessage {
+	return &gpbft.GMessage{
+		Sender: sender,
+		Vote: gpbft.Payload{
+			Instance:         i.id,
+			Round:            0,
+			Step:             gpbft.DECIDE_PHASE,
+			SupplementalData: i.GetSupplement(),
+			Value:            value,
+		},
+		Signature:     []byte("ijkl"),
+		Ticket:        nil,
+		Justification: justification,
+	}
+}
+
+func (i *Instance) MakeJustification(round uint64, step gpbft.Phase, value gpbft.ECChain, signerIndices []uint64) *gpbft.Justification {
+	return &gpbft.Justification{
+		Vote:      i.NewPayload(round, step, value),
+		Signers:   bitfield.NewFromSet(signerIndices),
+		Signature: []byte("aggregated"), // Matches value in fake signer for equality checks
+	}
 }
