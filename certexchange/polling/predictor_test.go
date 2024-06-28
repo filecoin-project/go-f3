@@ -66,25 +66,30 @@ func TestPredictorConverges(t *testing.T) {
 	const maxSeconds = 120
 	p := newPredictor(minSeconds*time.Second, 30*time.Second, maxSeconds*time.Second)
 
-	updatesSeen := uint64(0)
-	eventInterval := 23 * time.Second
-	currentTime := time.Duration(0)
-
-	converge := func(n int) time.Duration {
+	converge := func(interval time.Duration, n int) (time.Duration, time.Duration, int) {
+		currentTime := time.Duration(0)
+		updatesSeen := uint64(0)
 		for i := 0; i < n; i++ {
-			newUpdatesSeen := uint64(currentTime / eventInterval)
+			newUpdatesSeen := uint64(currentTime / interval)
 			currentTime += p.update(newUpdatesSeen - updatesSeen)
 			updatesSeen = newUpdatesSeen
 		}
-		return p.update(1)
+		return p.update(1), currentTime, int(currentTime / interval)
+	}
+
+	// Converges from 30s -> 5s very quickly.
+	{
+		res, ellapsed, count := converge(5*time.Second, 10)
+		assert.InDelta(t, 5*time.Second, res, float64(1*time.Second))
+		assert.Less(t, ellapsed, 3*time.Minute)
+		assert.Less(t, count, 30)
 	}
 
 	r := rand.New(rand.NewSource(0xdeadbeef))
 	numbers := r.Perm(maxSeconds - minSeconds)
 	for _, n := range numbers {
-		eventInterval = time.Duration(n+minSeconds) * time.Second
-		result := converge(300)
+		eventInterval := time.Duration(n+minSeconds) * time.Second
+		result, _, _ := converge(eventInterval, 300)
 		assert.InEpsilon(t, eventInterval, result, 0.05, "actual %s, expected %s", result, eventInterval)
 	}
-
 }
