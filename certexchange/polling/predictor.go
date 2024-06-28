@@ -24,7 +24,6 @@ func newPredictor(minInterval, defaultInterval, maxInterval time.Duration) *pred
 type predictor struct {
 	minInterval, maxInterval time.Duration
 
-	next            time.Time
 	interval        time.Duration
 	wasIncreasing   bool
 	exploreDistance time.Duration
@@ -88,21 +87,11 @@ func (p *predictor) update(progress uint64) time.Duration {
 	}
 
 	// Apply either the backoff or predicted the interval.
+	nextInterval := p.interval
 	if p.backoff > 0 {
+		nextInterval = p.backoff
 		p.backoff = min(2*p.backoff, maxBackoffMultiplier*p.maxInterval)
-		p.next = p.next.Add(p.backoff)
-	} else {
-		p.next = p.next.Add(p.interval)
 	}
+	return nextInterval
 
-	// Polling takes time. If we run behind, predict that we should poll again immediately. We
-	// enforce a minimum interval above so this shouldn't be too often.
-	now := time.Now()
-	prediction := p.next.Sub(now)
-	if prediction < 0 {
-		p.next = now
-		return 0
-	}
-
-	return prediction
 }

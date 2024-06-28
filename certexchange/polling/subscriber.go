@@ -149,7 +149,7 @@ func (s *Subscriber) run(ctx context.Context, discoveredPeers <-chan peer.ID, po
 		select {
 		case p := <-discoveredPeers:
 			s.peerTracker.peerSeen(p)
-		case <-timer.C:
+		case pollTime := <-timer.C:
 			// First, see if we made progress locally. If we have, update
 			// interval prediction based on that local progress. If our interval
 			// was accurate, we'll keep predicting the same interval and we'll
@@ -159,16 +159,17 @@ func (s *Subscriber) run(ctx context.Context, discoveredPeers <-chan peer.ID, po
 			if err != nil {
 				return err
 			}
-			if progress > 0 {
-				timer.Reset(predictor.update(progress))
-				break
+			// Otherwise, poll the network.
+			if progress == 0 {
+				progress, err = s.poll(ctx, poller)
+				if err != nil {
+					return err
+				}
 			}
 
-			progress, err = s.poll(ctx, poller)
-			if err != nil {
-				return err
-			}
-			timer.Reset(predictor.update(progress))
+			nextInterval := predictor.update(progress)
+			nextPollTime := pollTime.Add(nextInterval)
+			timer.Reset(max(time.Until(nextPollTime), 0))
 		case <-ctx.Done():
 			return ctx.Err()
 		}
