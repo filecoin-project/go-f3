@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/Kubuxu/go-broadcast"
@@ -30,12 +31,14 @@ type F3 struct {
 
 	runner    *gpbftRunner
 	cancelCtx context.CancelFunc
-	msgSub    *pubsub.Subscription
-	ds        datastore.Datastore
 	host      host.Host
-	pubsub    *pubsub.PubSub
+	ds        datastore.Datastore
 	ec        ec.Backend
 	log       Logger
+
+	lk     sync.Mutex
+	pubsub *pubsub.PubSub
+	msgSub *pubsub.Subscription
 
 	client *client
 }
@@ -154,10 +157,13 @@ func (m *F3) Broadcast(ctx context.Context, signatureBuilder *gpbft.SignatureBui
 		m.log.Errorf("marshalling GMessage: %+v", err)
 		return
 	}
+
+	m.lk.Lock()
 	err = m.client.topic.Publish(ctx, bw.Bytes())
 	if err != nil {
 		m.log.Errorf("publishing on topic: %w", err)
 	}
+	m.lk.Unlock()
 }
 
 func (m *F3) setCertStore(cs *certstore.Store) {
@@ -191,6 +197,7 @@ func (m *F3) setupPubsub(runner *gpbftRunner) error {
 		return pubsub.ValidationAccept
 	}
 
+	m.lk.Lock()
 	err := m.pubsub.RegisterTopicValidator(pubsubTopicName, validator)
 	if err != nil {
 		return xerrors.Errorf("registering topic validator: %w", err)
@@ -201,10 +208,13 @@ func (m *F3) setupPubsub(runner *gpbftRunner) error {
 		return xerrors.Errorf("could not join on pubsub topic: %s: %w", pubsubTopicName, err)
 	}
 	m.client.topic = topic
+	m.lk.Unlock()
 	return nil
 }
 
 func (m *F3) teardownPubsub(manifest manifest.Manifest) error {
+	m.lk.Lock()
+	defer m.lk.Unlock()
 	m.msgSub.Cancel()
 	return multierr.Combine(
 		m.pubsub.UnregisterTopicValidator(manifest.PubSubTopic()),
