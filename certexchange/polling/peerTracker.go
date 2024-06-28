@@ -52,6 +52,12 @@ type backoffRecord struct {
 	delayUntil int
 }
 
+func newPeerTracker() *peerTracker {
+	return &peerTracker{
+		peers: make(map[peer.ID]*peerRecord),
+	}
+}
+
 type peerTracker struct {
 	// TODO: garbage collect this.
 	peers map[peer.ID]*peerRecord
