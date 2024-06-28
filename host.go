@@ -303,23 +303,25 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 	ts, err := h.client.ec.GetTipset(h.runningCtx, decision.Vote.Value.Head().Key)
 	if err != nil {
 		h.log.Errorf("could not get timestamp of just finalized tipset: %+v", err)
-		return time.Now().Add(h.manifest.ECDelay)
+		// We use the period, not the delay, because we expect to start an instance once per
+		// period and we just finished the last instance.
+		return time.Now().Add(h.manifest.ECPeriod)
 	}
 
 	if decision.Vote.Value.HasSuffix() {
-		// we decided on something new, use just the ECDelay
-		return ts.Timestamp().Add(h.manifest.ECDelay)
+		// we decided on something new, use just the ECDelay plus the period.
+		return ts.Timestamp().Add(h.manifest.ECPeriod + h.manifest.ECDelay)
 	}
 
 	// we decided on base, calculate how much we should back off
 	// all of this should go into manifest but I think Alfonso dislikes me already :P
 	const (
 		minBackoff = 2.
-		maxBackoff = 20. // 10m with 30s ECDelay
+		maxBackoff = 20. // 10m with 30s ECPeriod
 	)
-	// the backoff is defined in multiples of ECDelay starting at the last finalized tipset
+	// the backoff is defined in multiples of ECPeriod starting at the last finalized tipset
 	// each additional base decision beyond that will incurr the maxBackoff
-	var backoffTable = []float64{2, 2.3, 2.69, 3.197, 3.8561, 4.71293, 4.71293, 5.826809, 7.2748517, 9.15730721} // 1.3^i+1 backoff, table for more flexibility
+	var backoffTable = []float64{1, 1.3, 1.69, 2.197, 2.8561, 3.71293, 3.71293, 4.826809, 6.2748517, 8.15730721} // 1.3^i+1 backoff, table for more flexibility
 	//TODO move all the above to manifest
 
 	attempts := 0
@@ -340,7 +342,7 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 		}
 	}
 
-	backoff := time.Duration(float64(h.manifest.ECDelay) * backoffMultipler)
+	backoff := h.manifest.ECDelay + time.Duration(float64(h.manifest.ECPeriod)*backoffMultipler)
 	h.log.Infof("backing off for: %v", backoff)
 
 	return ts.Timestamp().Add(backoff)
