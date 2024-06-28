@@ -94,7 +94,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: 'Fuzz test failed on commit ${{ github.event.pull_request.head.sha }}. To troubleshoot locally, download the seed corpus using [GitHub CLI](https://cli.github.com) by running:\n```shell\ngh run download ${{ github.run_id }} -n testdata\n```\nAleternatively, download directly from [here](${{ steps.testdata-upload.outputs.artifact-url }}).'
+              body: 'Fuzz test failed on commit ${{ github.event.pull_request.head.sha }}. To troubleshoot locally, download the seed corpus using [GitHub CLI](https://cli.github.com) by running:\n```shell\ngh run download ${{ github.run_id }} -n testdata\n```\nAlternatively, download directly from [here](${{ steps.testdata-upload.outputs.artifact-url }}).'
             })
   
   test-race:

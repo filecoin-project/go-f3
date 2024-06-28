@@ -20,7 +20,7 @@ var (
 	DefaultEcConfig = &EcConfig{
 		ECFinality:       900,
 		CommiteeLookback: 5,
-		ECDelay:          30 * time.Second,
+		ECDelay:          60 * time.Second,
 		ECPeriod:         30 * time.Second,
 	}
 
@@ -60,10 +60,12 @@ type GpbftConfig struct {
 }
 
 type EcConfig struct {
-	ECFinality       int64
-	ECDelay          time.Duration
-	CommiteeLookback uint64
+	ECFinality int64
+	// The delay after a tipset is produced before we attempt to finalize it.
+	ECDelay time.Duration
+	// The delay between tipsets.
 	ECPeriod         time.Duration
+	CommiteeLookback uint64
 }
 
 // Manifest identifies the specific configuration for

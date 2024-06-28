@@ -476,20 +476,15 @@ func randomPowerTable(backend signing.Backend, entries int64) gpbft.PowerEntries
 func makeJustification(t *testing.T, rng *rand.Rand, tsg *sim.TipSetGenerator, backend signing.Backend, base gpbft.TipSet, instance uint64, powerTable, nextPowerTable gpbft.PowerEntries) *gpbft.Justification {
 	chainLen := rng.Intn(23) + 1
 
+	scaledPowerTable, totalPower, err := powerTable.Scaled()
+	require.NoError(t, err)
+
 	chain, err := gpbft.NewChain(base)
 	require.NoError(t, err)
 
 	for i := 0; i < chainLen; i++ {
 		chain = chain.Extend(tsg.Sample())
 	}
-
-	strongThreshold := new(gpbft.StoragePower)
-	for _, pe := range powerTable {
-		strongThreshold = strongThreshold.Add(strongThreshold, pe.Power)
-	}
-
-	strongThreshold = strongThreshold.Mul(strongThreshold, gpbft.NewStoragePower(2))
-	strongThreshold = strongThreshold.Div(strongThreshold, gpbft.NewStoragePower(3))
 
 	powerTableCid, err := makePowerTableCID(nextPowerTable)
 	require.NoError(t, err)
@@ -506,7 +501,7 @@ func makeJustification(t *testing.T, rng *rand.Rand, tsg *sim.TipSetGenerator, b
 	msg := backend.MarshalPayloadForSigning(networkName, &payload)
 	signers := rand.Perm(len(powerTable))
 	signersBitfield := bitfield.New()
-	signingPower := new(gpbft.StoragePower)
+	var signingPower uint16
 
 	type vote struct {
 		index int
@@ -526,8 +521,8 @@ func makeJustification(t *testing.T, rng *rand.Rand, tsg *sim.TipSetGenerator, b
 		})
 
 		signersBitfield.Set(uint64(i))
-		signingPower = signingPower.Add(signingPower, pe.Power)
-		if signingPower.Cmp(strongThreshold) > 0 {
+		signingPower += scaledPowerTable[i]
+		if gpbft.IsStrongQuorum(signingPower, totalPower) {
 			break
 		}
 	}
