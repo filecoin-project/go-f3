@@ -34,6 +34,7 @@ func TestSimpleF3(t *testing.T) {
 	env.Connect(ctx)
 	env.run(ctx)
 	env.waitForInstanceNumber(ctx, 5, 10*time.Second, false)
+	env.stop()
 }
 
 func TestDynamicManifest_WithoutChanges(t *testing.T) {
@@ -48,6 +49,7 @@ func TestDynamicManifest_WithoutChanges(t *testing.T) {
 	// no changes in manifest
 	require.Equal(t, prev, env.nodes[0].f3.Manifest.Manifest())
 	env.requireEqualManifests(false)
+	env.stop()
 }
 
 func TestDynamicManifest_WithRebootstrap(t *testing.T) {
@@ -73,6 +75,7 @@ func TestDynamicManifest_WithRebootstrap(t *testing.T) {
 	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest.Manifest())
 	env.requireEqualManifests(false)
+	env.stop()
 }
 
 func TestDynamicManifest_SubsequentWithRebootstrap(t *testing.T) {
@@ -126,7 +129,7 @@ func TestDynamicManifest_SubsequentWithRebootstrap(t *testing.T) {
 	// check that no manifest change has propagated
 	require.Equal(t, prev, env.nodes[0].f3.Manifest.Manifest())
 	env.requireEqualManifests(false)
-
+	env.stop()
 }
 
 func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
@@ -159,12 +162,12 @@ func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
 	pt, err := env.nodes[0].f3.GetPowerTable(ctx, ts.Key())
 	require.NoError(t, err)
 	require.Equal(t, len(pt), 4)
+	env.stop()
 }
 
 var base manifest.Manifest = manifest.Manifest{
 	Sequence:        0,
 	BootstrapEpoch:  950,
-	ReBootstrap:     true,
 	InitialInstance: 0,
 	NetworkName:     gpbft.NetworkName("f3-test"),
 	GpbftConfig: &manifest.GpbftConfig{
@@ -392,6 +395,13 @@ func (e *testEnv) run(ctx context.Context) {
 	// start creating new heads every ECPeriod
 	e.newHeadEveryPeriod(ctx, e.manifest.ECPeriod)
 	e.monitorNodesError(ctx)
+}
+
+func (e *testEnv) stop() {
+	for _, n := range e.nodes {
+		n.f3.Stop()
+		// close errCh?
+	}
 }
 
 func (e *testEnv) monitorNodesError(ctx context.Context) {

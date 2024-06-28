@@ -29,13 +29,14 @@ type F3 struct {
 	// certStore is nil until Run is called on the F3
 	certStore *certstore.Store
 
-	runner *gpbftRunner
-	msgSub *pubsub.Subscription
-	ds     datastore.Datastore
-	host   host.Host
-	pubsub *pubsub.PubSub
-	ec     ec.Backend
-	log    Logger
+	runner    *gpbftRunner
+	cancelCtx context.CancelFunc
+	msgSub    *pubsub.Subscription
+	ds        datastore.Datastore
+	host      host.Host
+	pubsub    *pubsub.PubSub
+	ec        ec.Backend
+	log       Logger
 
 	client *client
 }
@@ -245,6 +246,9 @@ func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
 		return
 	}
 
+	// the size of the buffer is set to prevent message spamming from pubsub,
+	// so it is a big enough buffer to be able to accommodate new messages
+	// at "high-rate", but small enough to avoid spamming or clogging the node.
 	messageQueue := make(chan gpbft.ValidatedMessage, 20)
 	m.client.messageQueue = messageQueue
 
@@ -254,11 +258,20 @@ func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
 		if latest != nil {
 			startInstance = latest.GPBFTInstance + 1
 		}
-		err := m.runner.Run(startInstance, ctx)
-		if err != nil {
-			m.log.Errorf("error returned while running host: %+v", err)
+		// Check context before starting the instance
+		select {
+		case <-ctx.Done():
+			// If the context is cancelled before starting, return immediately
+			errCh <- ctx.Err()
+			return
+		default:
+			// Proceed with running the instance
+			err := m.runner.Run(startInstance, ctx)
+			if err != nil {
+				m.log.Errorf("error returned while running host: %+v", err)
+			}
+			errCh <- err
 		}
-		errCh <- err
 	}()
 
 	m.handleIncomingMessages(ctx, messageQueue)
@@ -330,8 +343,8 @@ func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCerti
 // Run start the module. It will exit when context is cancelled.
 // Or if there is an error from the message handling routines.
 func (m *F3) Run(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	ctx, m.cancelCtx = context.WithCancel(ctx)
+	defer m.cancelCtx()
 
 	runnerErrCh := make(chan error, 1)
 	manifestErrCh := make(chan error, 1)
@@ -358,6 +371,15 @@ func (m *F3) Run(ctx context.Context) error {
 		return err
 	case err = <-manifestErrCh:
 		return err
+	}
+}
+
+func (m *F3) Stop() {
+	if m.runner != nil {
+		m.runner.Stop()
+	}
+	if m.cancelCtx != nil {
+		m.cancelCtx()
 	}
 }
 
