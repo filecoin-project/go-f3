@@ -3,6 +3,8 @@ package polling
 import (
 	"testing"
 
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -83,5 +85,110 @@ func TestPeerRecordHitMiss(t *testing.T) {
 	{
 		hitRate, _ := r.hitRate()
 		require.Equal(t, hitRate, 0.0)
+	}
+}
+
+func TestPeerRecordExponentialBackoff(t *testing.T) {
+	r := new(peerRecord)
+	require.Equal(t, 1, r.recordFailure())
+	require.Equal(t, 2, r.recordFailure())
+	require.Equal(t, 4, r.recordFailure())
+
+	// clears backoff.
+	r.recordHit()
+	require.Equal(t, 1, r.recordFailure())
+
+	// backoff stops eventually
+	for i := 0; i < 100; i++ {
+		r.recordFailure()
+	}
+	require.Equal(t, 1<<maxBackoffExponent, r.recordFailure())
+}
+
+func TestPeerTracker(t *testing.T) {
+	pt := newPeerTracker()
+
+	var peers []peer.ID
+	discoverPeers := func(count int) {
+		for i := 0; i < count; i++ {
+			p := test.RandPeerIDFatal(t)
+			peers = append(peers, p)
+			pt.peerSeen(p)
+		}
+	}
+
+	for _, n := range []int{0, 1, defaultRequests / 2, defaultRequests/2 - 1} {
+		discoverPeers(n)
+		suggested := pt.suggestPeers()
+		require.ElementsMatch(t, peers, suggested)
+	}
+
+	// Too many peers
+	discoverPeers(1)
+	require.Less(t, len(pt.suggestPeers()), len(peers))
+
+	// fail a peer and we should pick the other peers now.
+	pt.recordMiss(peers[0])
+
+	require.ElementsMatch(t, peers[1:], pt.suggestPeers())
+
+	// Now ensure we select that peer. It should be first because it's the best.
+	pt.recordHit(peers[0])
+	require.Equal(t, pt.suggestPeers()[0], peers[0])
+
+	// Now check to make sure we backoff that peer.
+	pt.recordFailure(peers[0])
+	require.NotContains(t, pt.suggestPeers(), peers[0])
+	// Should only last one round the first time.
+	require.Equal(t, pt.suggestPeers()[0], peers[0])
+
+	// Should last two rounds the second time (exponential).
+	pt.recordFailure(peers[0])
+	require.NotContains(t, pt.suggestPeers(), peers[0])
+	require.NotContains(t, pt.suggestPeers(), peers[0])
+	require.Equal(t, pt.suggestPeers()[0], peers[0])
+
+	// Then four rounds.
+	pt.recordFailure(peers[0])
+	require.NotContains(t, pt.suggestPeers(), peers[0])
+	require.NotContains(t, pt.suggestPeers(), peers[0])
+	require.NotContains(t, pt.suggestPeers(), peers[0])
+	require.NotContains(t, pt.suggestPeers(), peers[0])
+	require.Equal(t, pt.suggestPeers()[0], peers[0])
+
+	// Now, give that peer a perfect success rate
+	for i := 0; i < 100; i++ {
+		pt.recordHit(peers[0])
+	}
+
+	// We always pick at least 4 peers, even if we have high confidence in one.
+	{
+		suggested := pt.suggestPeers()
+		require.Len(t, suggested, 4)
+		require.Equal(t, peers[0], suggested[0])
+	}
+
+	// Now mark that peer as evil, we should never pick it again.
+	pt.recordInvalid(peers[0])
+	for i := 0; i < 5; i++ {
+		require.NotContains(t, pt.suggestPeers(), peers[0])
+
+		// No matter what we do.
+		pt.recordHit(peers[0])
+		pt.peerSeen(peers[0])
+	}
+
+	// We should never suggest more than 32 peers at a time.
+	{
+		// Now, add a bunch of peers.
+		discoverPeers(100)
+		// And treat them all as "bad".
+		for _, p := range peers {
+			for i := 0; i < 10; i++ {
+				pt.recordMiss(p)
+			}
+		}
+
+		require.Len(t, pt.suggestPeers(), maxRequests)
 	}
 }

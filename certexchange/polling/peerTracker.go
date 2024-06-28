@@ -19,6 +19,8 @@ const (
 	minRequests = 4
 	// The maximum number of requests to make, even if all of our peers appear to be unreliable.
 	maxRequests = 32
+	// How confident should we be that we've suggested enough peers. 1.125 == 112.5%
+	targetConfidence = 1.125
 )
 
 type peerState int
@@ -26,6 +28,7 @@ type peerState int
 const (
 	peerEvil peerState = iota - 1
 	peerInactive
+	peerDeactivating
 	peerActive
 )
 
@@ -95,7 +98,11 @@ func (b *backoffHeap) Less(i int, j int) bool {
 
 // Pop implements heap.Interface.
 func (b *backoffHeap) Pop() any {
-	return (*b)[len(*b)-1]
+	s := (*b)
+	item := s[len(s)-1]
+	s[len(s)-1] = nil
+	*b = s[:len(s)-1]
+	return item
 }
 
 // Push implements heap.Interface.
@@ -110,9 +117,21 @@ func (b *backoffHeap) Swap(i int, j int) {
 
 // Records a failed request and returns how many rounds we should avoid picking this peer for.
 func (r *peerRecord) recordFailure() int {
+	delay := 1 << min(r.sequentialFailures, maxBackoffExponent)
+
+	// failures are misses as well.
+	if r.misses < hitMissSlidingWindow {
+		r.misses++
+	} else if r.hits > 0 {
+		r.hits--
+	}
+
 	r.sequentialFailures++
-	r.state = peerInactive
-	return 1 << min(r.sequentialFailures, maxBackoffExponent)
+	if r.state == peerActive {
+		r.state = peerDeactivating
+	}
+
+	return delay
 }
 
 func (r *peerRecord) recordHit() {
@@ -137,7 +156,7 @@ func (r *peerRecord) recordMiss() {
 func (r *peerRecord) hitRate() (float64, int) {
 	total := r.hits + r.misses
 	// set the default rate such that we we ask `defaultRequests` peers by default.
-	rate := float64(1) / defaultRequests
+	rate := targetConfidence / defaultRequests
 	if total > 0 {
 		rate = float64(r.hits) / float64(total)
 	}
@@ -177,11 +196,14 @@ func (t *peerTracker) recordHit(p peer.ID) {
 
 func (t *peerTracker) makeActive(p peer.ID) {
 	r := t.getOrCreate(p)
-	if r.state != peerInactive {
+	switch r.state {
+	case peerEvil, peerActive:
 		return
+	case peerInactive:
+		t.active = append(t.active, p)
+	case peerDeactivating:
 	}
 	r.state = peerActive
-	t.active = append(t.active, p)
 }
 
 func (t *peerTracker) peerSeen(p peer.ID) {
@@ -196,28 +218,34 @@ func (t *peerTracker) peerSeen(p peer.ID) {
 //
 // TODO: Add a multiplier if we're not making progress.
 func (t *peerTracker) suggestPeers() []peer.ID {
-	// XXX: this should be a param.
-	const targetProbability = 1.1
-
 	// Advance the round and move peers from backoff to active, if necessary.
-	t.round++
 	for t.backoff.Len() > 0 {
-		r := t.backoff[0]
+		r := t.backoff[len(t.backoff)-1]
 		if r.delayUntil > t.round {
 			break
 		}
 		heap.Pop(&t.backoff)
 		t.makeActive(r.peer)
 	}
+	t.round++
 
 	// Sort from best to worst.
 	slices.SortFunc(t.active, func(a, b peer.ID) int {
 		return t.getOrCreate(b).Cmp(t.getOrCreate(a))
 	})
 	// Trim off any inactive/evil peers from the end, they'll be sorted last.
-	for l := len(t.active); l > 0 && t.getOrCreate(t.active[l-1]).state != peerActive; l-- {
+trimLoop:
+	for l := len(t.active); l > 0; l-- {
+		r := t.getOrCreate(t.active[l-1])
+		switch r.state {
+		case peerActive:
+			break trimLoop
+		case peerDeactivating:
+			r.state = peerInactive
+		}
 		t.active = t.active[:l]
 	}
+
 	var prob float64
 	var peerCount int
 	for _, p := range t.active {
@@ -233,8 +261,7 @@ func (t *peerTracker) suggestPeers() []peer.ID {
 		if peerCount >= maxRequests {
 			break
 		}
-		// Keep going till we're 110% sure.
-		if prob >= targetProbability {
+		if prob >= targetConfidence {
 			break
 		}
 	}
@@ -243,7 +270,7 @@ func (t *peerTracker) suggestPeers() []peer.ID {
 
 	if peerCount == len(t.active) {
 		// We've chosen all peers, nothing else we can do.
-	} else if prob < targetProbability {
+	} else if prob < targetConfidence {
 		// If we failed to reach the target probability, choose randomly from the remaining
 		// peers.
 		chosen = append(chosen, choose(t.active[peerCount:], maxRequests-peerCount)...)
