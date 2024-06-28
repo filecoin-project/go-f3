@@ -23,7 +23,10 @@ import (
 	"golang.org/x/xerrors"
 )
 
-const ManifestSenderTimeout = 1 * time.Second
+const (
+	ManifestSenderTimeout = 1 * time.Second
+	logLevel              = "info"
+)
 
 var log = logging.Logger("f3-testing")
 
@@ -468,7 +471,7 @@ func (e *testEnv) newF3Instance(ctx context.Context, id int, manifestServer peer
 		return nil, xerrors.Errorf("creating temp dir: %w", err)
 	}
 
-	err = logging.SetLogLevel("f3-testing", "debug")
+	err = logging.SetLogLevel("f3-testing", logLevel)
 	if err != nil {
 		return nil, xerrors.Errorf("setting log level: %w", err)
 	}
