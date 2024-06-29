@@ -419,7 +419,6 @@ loop:
 		msg, err := m.msgSub.Next(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
-				err = nil
 				break
 			}
 			m.log.Errorf("msgPubsub subscription.Next() returned an error: %+v", err)
