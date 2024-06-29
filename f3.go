@@ -251,11 +251,13 @@ func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
 		return
 	}
 
+	m.lk.Lock()
 	m.msgSub, err = m.client.topic.Subscribe()
 	if err != nil {
 		errCh <- xerrors.Errorf("subscribing to topic: %w", err)
 		return
 	}
+	m.lk.Unlock()
 
 	// the size of the buffer is set to prevent message spamming from pubsub,
 	// so it is a big enough buffer to be able to accommodate new messages
