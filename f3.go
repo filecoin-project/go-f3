@@ -30,7 +30,9 @@ type F3 struct {
 	csLk      sync.Mutex
 	certStore *certstore.Store
 
-	runner    *gpbftRunner
+	rLk    sync.Mutex
+	runner *gpbftRunner
+
 	cancelCtx context.CancelFunc
 	host      host.Host
 	ds        datastore.Datastore
@@ -243,6 +245,7 @@ func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
 		return
 	}
 
+	m.rLk.Lock()
 	m.runner, err = newRunner(m.client.manifest, m.client)
 	if err != nil {
 		errCh <- xerrors.Errorf("creating gpbft host: %w", err)
@@ -253,6 +256,7 @@ func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
 		errCh <- xerrors.Errorf("setting up pubsub: %w", err)
 		return
 	}
+	m.rLk.Unlock()
 
 	m.lk.Lock()
 	m.msgSub, err = m.client.topic.Subscribe()
@@ -397,6 +401,8 @@ func (m *F3) Run(ctx context.Context) error {
 }
 
 func (m *F3) Stop() {
+	m.rLk.Lock()
+	defer m.rLk.Unlock()
 	if m.runner != nil {
 		m.runner.Stop()
 	}
@@ -452,7 +458,7 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 		m.emptyMessageQueue()
 
 		if m.Manifest().ReBootstrap {
-			m.log.Debug("triggering manifest change with rebootstrap")
+			m.log.Infof("triggering manifest (seq=%d) change with rebootstrap", m.Manifest().Sequence)
 			// kill runner and teardown pubsub. This will also
 			// teardown the pubsub topic
 			m.runner.Stop()
@@ -466,7 +472,7 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 			m.csLk.Unlock()
 			m.startGpbftRunner(ctx, errCh)
 		} else {
-			m.log.Debug("triggering manifest change without rebootstrap")
+			m.log.Infof("triggering manifest (seq=%d) change without rebootstrap", m.Manifest().Sequence)
 			// immediately stop listening to network messages
 			m.client.incomingCancel()
 			if err := m.setupPubsub(m.runner); err != nil {
@@ -519,6 +525,8 @@ type Logger interface {
 // IsRunning returns true if gpbft is running
 // Used mainly for testing purposes
 func (m *F3) IsRunning() bool {
+	m.rLk.Lock()
+	defer m.rLk.Unlock()
 	return m.runner != nil
 }
 

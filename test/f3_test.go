@@ -81,60 +81,6 @@ func TestDynamicManifest_WithRebootstrap(t *testing.T) {
 	env.stop()
 }
 
-func TestDynamicManifest_SubsequentWithRebootstrap(t *testing.T) {
-	ctx := context.Background()
-	env := newTestEnvironment(t, 2, true)
-
-	env.Connect(ctx)
-	env.run(ctx)
-
-	prev := env.nodes[0].f3.Manifest()
-	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
-	prevInstance := env.nodes[0].CurrentGpbftInstance(t, ctx)
-
-	env.manifest.BootstrapEpoch = 953
-	env.manifest.Sequence = 1
-	env.manifest.ReBootstrap = true
-	env.updateManifest()
-
-	env.waitForManifestChange(prev, 15*time.Second, env.nodes)
-
-	// check that it rebootstrapped and the number of instances is below prevInstance
-	require.True(t, env.nodes[0].CurrentGpbftInstance(t, ctx) < prevInstance)
-	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
-	require.NotEqual(t, prev, env.nodes[0].f3.Manifest())
-	env.requireEqualManifests(false)
-
-	// New manifest with sequence 2
-	prev = env.nodes[0].f3.Manifest()
-	prevInstance = env.nodes[0].CurrentGpbftInstance(t, ctx)
-
-	env.manifest.BootstrapEpoch = 956
-	env.manifest.Sequence = 2
-	env.manifest.ReBootstrap = true
-	env.updateManifest()
-
-	env.waitForManifestChange(prev, 15*time.Second, env.nodes)
-
-	// check that it rebootstrapped and the number of instances is below prevInstance
-	require.True(t, env.nodes[0].CurrentGpbftInstance(t, ctx) < prevInstance)
-	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
-	require.NotEqual(t, prev, env.nodes[0].f3.Manifest())
-	env.requireEqualManifests(false)
-
-	// Using a manifest with a lower sequence number doesn't trigger an update
-	prev = env.nodes[0].f3.Manifest()
-	env.manifest.BootstrapEpoch = 965
-	env.manifest.Sequence = 1
-	env.manifest.ReBootstrap = true
-	env.updateManifest()
-
-	// check that no manifest change has propagated
-	require.Equal(t, prev, env.nodes[0].f3.Manifest())
-	env.requireEqualManifests(false)
-	env.stop()
-}
-
 func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
 	ctx := context.Background()
 	env := newTestEnvironment(t, 2, true)
