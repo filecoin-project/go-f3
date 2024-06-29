@@ -1,23 +1,31 @@
-package main
+package ec
 
 import (
 	"context"
 	"encoding/binary"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
+var _ Backend = (*FakeEC)(nil)
+
 type FakeEC struct {
+	useTime           bool
 	seed              []byte
 	initialPowerTable gpbft.PowerEntries
 
+	// with time
 	ecPeriod time.Duration
 	ecStart  time.Time
+
+	// without time
+	lk          sync.RWMutex
+	currentHead int64
 }
 
 type Tipset struct {
@@ -46,13 +54,14 @@ func (ts *Tipset) Timestamp() time.Time {
 	return ts.timestamp
 }
 
-func NewFakeEC(seed uint64, m f3.Manifest) *FakeEC {
+func NewFakeEC(seed uint64, bootstrapEpoch int64, ecPeriod time.Duration, initialPowerTable gpbft.PowerEntries, useTime bool) *FakeEC {
 	return &FakeEC{
+		useTime:           useTime,
 		seed:              binary.BigEndian.AppendUint64(nil, seed),
-		initialPowerTable: m.InitialPowerTable,
+		initialPowerTable: initialPowerTable,
 
-		ecPeriod: m.ECPeriod,
-		ecStart:  m.ECBoostrapTimestamp,
+		ecPeriod: ecPeriod,
+		ecStart:  time.Now().Add(-time.Duration(bootstrapEpoch) * ecPeriod),
 	}
 }
 
@@ -93,8 +102,8 @@ func (ec *FakeEC) currentEpoch() int64 {
 }
 
 // GetTipsetByHeight should return a tipset or nil/empty byte array if it does not exists
-func (ec *FakeEC) GetTipsetByEpoch(ctx context.Context, epoch int64) (f3.TipSet, error) {
-	if ec.currentEpoch() < epoch {
+func (ec *FakeEC) GetTipsetByEpoch(ctx context.Context, epoch int64) (TipSet, error) {
+	if ec.useTime && ec.currentEpoch() < epoch {
 		return nil, xerrors.Errorf("does not yet exist")
 	}
 	ts := ec.genTipset(epoch)
@@ -105,7 +114,7 @@ func (ec *FakeEC) GetTipsetByEpoch(ctx context.Context, epoch int64) (f3.TipSet,
 	return ts, nil
 }
 
-func (ec *FakeEC) GetParent(ctx context.Context, ts f3.TipSet) (f3.TipSet, error) {
+func (ec *FakeEC) GetParent(ctx context.Context, ts TipSet) (TipSet, error) {
 
 	for epoch := ts.Epoch() - 1; epoch > 0; epoch-- {
 		ts, err := ec.GetTipsetByEpoch(ctx, epoch)
@@ -119,15 +128,33 @@ func (ec *FakeEC) GetParent(ctx context.Context, ts f3.TipSet) (f3.TipSet, error
 	return nil, xerrors.Errorf("parent not found")
 }
 
-func (ec *FakeEC) GetHead(ctx context.Context) (f3.TipSet, error) {
-	return ec.GetTipsetByEpoch(ctx, ec.currentEpoch())
+// SetCurrentHead sets the current head epoch.
+// This is only supported by FakeEC if `useTime=false`
+func (ec *FakeEC) SetCurrentHead(head int64) {
+	ec.lk.Lock()
+	ec.currentHead = head
+	ec.lk.Unlock()
+}
+
+func (ec *FakeEC) GetCurrentHead() int64 {
+	ec.lk.RLock()
+	defer ec.lk.RUnlock()
+	return ec.currentHead
+}
+
+func (ec *FakeEC) GetHead(ctx context.Context) (TipSet, error) {
+	if ec.useTime {
+		return ec.GetTipsetByEpoch(ctx, ec.currentEpoch())
+	}
+
+	return ec.GetTipsetByEpoch(ctx, ec.GetCurrentHead())
 }
 
 func (ec *FakeEC) GetPowerTable(ctx context.Context, tsk gpbft.TipSetKey) (gpbft.PowerEntries, error) {
 	return ec.initialPowerTable, nil
 }
 
-func (ec *FakeEC) GetTipset(ctx context.Context, tsk gpbft.TipSetKey) (f3.TipSet, error) {
+func (ec *FakeEC) GetTipset(ctx context.Context, tsk gpbft.TipSetKey) (TipSet, error) {
 	epoch := binary.BigEndian.Uint64(tsk[6+32-8 : 6+32])
 	return ec.genTipset(int64(epoch)), nil
 }

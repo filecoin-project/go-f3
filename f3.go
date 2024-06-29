@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/Kubuxu/go-broadcast"
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/certstore"
+	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
 
@@ -23,24 +26,31 @@ import (
 )
 
 type F3 struct {
-	Manifest Manifest
 	// certStore is nil until Run is called on the F3
+	csLk      sync.Mutex
 	certStore *certstore.Store
 
-	ds     datastore.Datastore
-	host   host.Host
+	rLk    sync.Mutex
+	runner *gpbftRunner
+
+	cancelCtx context.CancelFunc
+	host      host.Host
+	ds        datastore.Datastore
+	ec        ec.Backend
+	log       Logger
+
+	lk     sync.Mutex
 	pubsub *pubsub.PubSub
-	ec     ECBackend
-	log    Logger
+	msgSub *pubsub.Subscription
 
 	client *client
 }
 
 type client struct {
 	// certStore is nil until Run is called on the F3
-	certStore   *certstore.Store
-	networkName gpbft.NetworkName
-	ec          ECBackend
+	certStore *certstore.Store
+	manifest  manifest.ManifestProvider
+	ec        ec.Backend
 
 	signingMarshaller gpbft.SigningMarshaler
 
@@ -53,13 +63,28 @@ type client struct {
 	// Populated after Run is called
 	messageQueue <-chan gpbft.ValidatedMessage
 	topic        *pubsub.Topic
+
+	// Notifies manifest updates
+	manifestUpdate <-chan uint64
+	// Triggers the cancellation of the incoming message
+	// routine to avoid delivering any outstanding messages.
+	incomingCancel func()
 }
 
 func (mc *client) BroadcastMessage(ctx context.Context, mb *gpbft.MessageBuilder) error {
-	mb.SetNetworkName(mc.networkName)
+	mb.SetNetworkName(mc.manifest.Manifest().NetworkName)
 	mb.SetSigningMarshaler(mc.signingMarshaller)
 	mc.busBroadcast.Publish(mb)
 	return nil
+}
+
+func (mc *client) GetPowerTable(ctx context.Context, ts gpbft.TipSetKey) (gpbft.PowerEntries, error) {
+	// Apply power table deltas from the manifest
+	pt, err := mc.ec.GetPowerTable(ctx, ts)
+	if err != nil {
+		return nil, xerrors.Errorf("getting power table: %w", err)
+	}
+	return certs.ApplyPowerTableDiffs(pt, mc.manifest.Manifest().PowerUpdate)
 }
 
 func (mc *client) IncomingMessages() <-chan gpbft.ValidatedMessage {
@@ -80,9 +105,9 @@ func (mc *client) Logger() Logger {
 // New creates and setups f3 with libp2p
 // The context is used for initialization not runtime.
 // signingMarshaller can be nil for default SigningMarshaler
-func New(ctx context.Context, manifest Manifest, ds datastore.Datastore, h host.Host,
-	ps *pubsub.PubSub, verif gpbft.Verifier, ec ECBackend, log Logger, signingMarshaller gpbft.SigningMarshaler) (*F3, error) {
-	ds = namespace.Wrap(ds, manifest.NetworkName.DatastorePrefix())
+func New(ctx context.Context, manifest manifest.ManifestProvider, ds datastore.Datastore, h host.Host, manifestServer peer.ID,
+	ps *pubsub.PubSub, verif gpbft.Verifier, ec ec.Backend, log Logger, signingMarshaller gpbft.SigningMarshaler) (*F3, error) {
+	ds = namespace.Wrap(ds, manifest.Manifest().DatastorePrefix())
 	loggerWithSkip := log
 	if zapLogger, ok := log.(*logging.ZapEventLogger); ok {
 		loggerWithSkip = logging.WithSkip(zapLogger, 1)
@@ -92,8 +117,6 @@ func New(ctx context.Context, manifest Manifest, ds datastore.Datastore, h host.
 	}
 
 	m := F3{
-		Manifest: manifest,
-
 		ds:     ds,
 		host:   h,
 		pubsub: ps,
@@ -102,7 +125,7 @@ func New(ctx context.Context, manifest Manifest, ds datastore.Datastore, h host.
 
 		client: &client{
 			ec:                ec,
-			networkName:       manifest.NetworkName,
+			manifest:          manifest,
 			Verifier:          verif,
 			logger:            log,
 			loggerWithSkip:    loggerWithSkip,
@@ -124,6 +147,10 @@ func (m *F3) SubscribeForMessagesToSign(ch chan<- *gpbft.MessageBuilder) (closer
 	return closer
 }
 
+func (m *F3) Manifest() manifest.Manifest {
+	return m.client.manifest.Manifest()
+}
+
 func (m *F3) Broadcast(ctx context.Context, signatureBuilder *gpbft.SignatureBuilder, msgSig []byte, vrf []byte) {
 	msg := signatureBuilder.Build(msgSig, vrf)
 
@@ -133,19 +160,24 @@ func (m *F3) Broadcast(ctx context.Context, signatureBuilder *gpbft.SignatureBui
 		m.log.Errorf("marshalling GMessage: %+v", err)
 		return
 	}
+
+	m.lk.Lock()
 	err = m.client.topic.Publish(ctx, bw.Bytes())
 	if err != nil {
 		m.log.Errorf("publishing on topic: %w", err)
 	}
+	m.lk.Unlock()
 }
 
 func (m *F3) setCertStore(cs *certstore.Store) {
+	m.csLk.Lock()
+	defer m.csLk.Unlock()
 	m.certStore = cs
 	m.client.certStore = cs
 }
 
 func (m *F3) setupPubsub(runner *gpbftRunner) error {
-	pubsubTopicName := m.Manifest.NetworkName.PubSubTopic()
+	pubsubTopicName := m.Manifest().PubSubTopic()
 
 	// explicit type to typecheck the anonymous function defintion
 	// a bit ugly but I don't want gpbftRunner to know about pubsub
@@ -170,6 +202,7 @@ func (m *F3) setupPubsub(runner *gpbftRunner) error {
 		return pubsub.ValidationAccept
 	}
 
+	m.lk.Lock()
 	err := m.pubsub.RegisterTopicValidator(pubsubTopicName, validator)
 	if err != nil {
 		return xerrors.Errorf("registering topic validator: %w", err)
@@ -180,14 +213,90 @@ func (m *F3) setupPubsub(runner *gpbftRunner) error {
 		return xerrors.Errorf("could not join on pubsub topic: %s: %w", pubsubTopicName, err)
 	}
 	m.client.topic = topic
+	m.lk.Unlock()
 	return nil
 }
 
-func (m *F3) teardownPubsub() error {
+func (m *F3) teardownPubsub(manifest manifest.Manifest) error {
+	m.lk.Lock()
+	defer m.lk.Unlock()
+	m.msgSub.Cancel()
 	return multierr.Combine(
-		m.pubsub.UnregisterTopicValidator(m.Manifest.NetworkName.PubSubTopic()),
+		m.pubsub.UnregisterTopicValidator(manifest.PubSubTopic()),
 		m.client.topic.Close(),
 	)
+}
+
+// Sets up the gpbft runner, this is triggered at initialization
+func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
+	var err error
+
+	cs, err := certstore.OpenStore(ctx, m.ds)
+	if err == nil {
+		m.setCertStore(cs)
+	} else if errors.Is(err, certstore.ErrNotInitialized) {
+		err := m.boostrap(ctx)
+		if err != nil {
+			errCh <- xerrors.Errorf("failed to boostrap: %w", err)
+			return
+		}
+	} else {
+		errCh <- xerrors.Errorf("opening certstore: %w", err)
+		return
+	}
+
+	m.rLk.Lock()
+	m.runner, err = newRunner(m.client.manifest, m.client)
+	if err != nil {
+		errCh <- xerrors.Errorf("creating gpbft host: %w", err)
+		return
+	}
+
+	if err := m.setupPubsub(m.runner); err != nil {
+		errCh <- xerrors.Errorf("setting up pubsub: %w", err)
+		return
+	}
+	m.rLk.Unlock()
+
+	m.lk.Lock()
+	m.msgSub, err = m.client.topic.Subscribe()
+	if err != nil {
+		errCh <- xerrors.Errorf("subscribing to topic: %w", err)
+		return
+	}
+	m.lk.Unlock()
+
+	// the size of the buffer is set to prevent message spamming from pubsub,
+	// so it is a big enough buffer to be able to accommodate new messages
+	// at "high-rate", but small enough to avoid spamming or clogging the node.
+	messageQueue := make(chan gpbft.ValidatedMessage, 20)
+	m.client.messageQueue = messageQueue
+
+	go func() {
+		m.csLk.Lock()
+		latest := m.certStore.Latest()
+		m.csLk.Unlock()
+		startInstance := m.Manifest().InitialInstance
+		if latest != nil {
+			startInstance = latest.GPBFTInstance + 1
+		}
+		// Check context before starting the instance
+		select {
+		case <-ctx.Done():
+			// If the context is cancelled before starting, return immediately
+			errCh <- ctx.Err()
+			return
+		default:
+			// Proceed with running the instance
+			err := m.runner.Run(startInstance, ctx)
+			if err != nil {
+				m.log.Errorf("error returned while running host: %+v", err)
+			}
+			errCh <- err
+		}
+	}()
+
+	m.handleIncomingMessages(ctx, messageQueue)
 }
 
 func (m *F3) boostrap(ctx context.Context) error {
@@ -196,22 +305,22 @@ func (m *F3) boostrap(ctx context.Context) error {
 		return xerrors.Errorf("failed to get the head: %w", err)
 	}
 
-	if head.Epoch() < m.Manifest.BootstrapEpoch {
+	if head.Epoch() < m.Manifest().BootstrapEpoch {
 		// wait for bootstrap epoch
 		for {
 			head, err := m.ec.GetHead(ctx)
 			if err != nil {
 				return xerrors.Errorf("getting head: %w", err)
 			}
-			if head.Epoch() >= m.Manifest.BootstrapEpoch {
+			if head.Epoch() >= m.Manifest().BootstrapEpoch {
 				break
 			}
 
-			m.log.Infof("wating for bootstrap epoch (%d): currently at epoch %d", m.Manifest.BootstrapEpoch, head.Epoch())
-			aim := time.Until(head.Timestamp().Add(m.Manifest.ECPeriod))
+			m.log.Infof("wating for bootstrap epoch (%d): currently at epoch %d", m.Manifest().BootstrapEpoch, head.Epoch())
+			aim := time.Until(head.Timestamp().Add(m.Manifest().ECPeriod))
 			// correct for null epochs
 			for aim < 0 {
-				aim += m.Manifest.ECPeriod
+				aim += m.Manifest().ECPeriod
 			}
 
 			select {
@@ -222,7 +331,7 @@ func (m *F3) boostrap(ctx context.Context) error {
 		}
 	}
 
-	ts, err := m.ec.GetTipsetByEpoch(ctx, m.Manifest.BootstrapEpoch-m.Manifest.ECFinality)
+	ts, err := m.ec.GetTipsetByEpoch(ctx, m.Manifest().BootstrapEpoch-m.Manifest().ECFinality)
 	if err != nil {
 		return xerrors.Errorf("getting initial power tipset: %w", err)
 	}
@@ -232,7 +341,7 @@ func (m *F3) boostrap(ctx context.Context) error {
 		return xerrors.Errorf("getting initial power table: %w", err)
 	}
 
-	cs, err := certstore.CreateStore(ctx, m.ds, m.Manifest.InitialInstance, initialPowerTable)
+	cs, err := certstore.CreateStore(ctx, m.ds, m.Manifest().InitialInstance, initialPowerTable)
 	if err != nil {
 		return xerrors.Errorf("creating certstore: %w", err)
 	}
@@ -241,12 +350,16 @@ func (m *F3) boostrap(ctx context.Context) error {
 }
 
 func (m *F3) GetLatestCert(ctx context.Context) (*certs.FinalityCertificate, error) {
+	m.csLk.Lock()
+	defer m.csLk.Unlock()
 	if m.certStore == nil {
 		return nil, xerrors.Errorf("F3 is not running")
 	}
 	return m.certStore.Latest(), nil
 }
 func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCertificate, error) {
+	m.csLk.Lock()
+	defer m.csLk.Unlock()
 	if m.certStore == nil {
 		return nil, xerrors.Errorf("F3 is not running")
 	}
@@ -254,102 +367,147 @@ func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCerti
 }
 
 // Run start the module. It will exit when context is cancelled.
+// Or if there is an error from the message handling routines.
 func (m *F3) Run(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	cs, err := certstore.OpenStore(ctx, m.ds)
-	if err == nil {
-		m.setCertStore(cs)
-	} else if errors.Is(err, certstore.ErrNotInitialized) {
-		err := m.boostrap(ctx)
-		if err != nil {
-			return xerrors.Errorf("failed to boostrap: %w", err)
-		}
-	} else {
-		return xerrors.Errorf("opening certstore: %w", err)
-	}
-
-	runner, err := newRunner(m.Manifest, m.client)
-	if err != nil {
-		return xerrors.Errorf("creating gpbft host: %w", err)
-	}
-
-	if err := m.setupPubsub(runner); err != nil {
-		return xerrors.Errorf("setting up pubsub: %w", err)
-	}
-
-	sub, err := m.client.topic.Subscribe()
-	if err != nil {
-		return xerrors.Errorf("subscribing to topic: %w", err)
-	}
-
-	messageQueue := make(chan gpbft.ValidatedMessage, 20)
-	m.client.messageQueue = messageQueue
+	ctx, m.cancelCtx = context.WithCancel(ctx)
+	defer m.cancelCtx()
 
 	runnerErrCh := make(chan error, 1)
+	manifestErrCh := make(chan error, 1)
 
-	go func() {
-		latest := m.certStore.Latest()
-		startInstance := uint64(m.Manifest.InitialInstance)
-		if latest != nil {
-			startInstance = latest.GPBFTInstance + 1
-		}
-		err := runner.Run(startInstance, ctx)
-		m.log.Errorf("running host: %+v", err)
-		runnerErrCh <- err
+	// bootstrap runner for the initial manifest
+	go m.startGpbftRunner(ctx, runnerErrCh)
+
+	// run manifest provider. This runs a background goroutine that will
+	// handle dynamic manifest updates if this is a dynamic manifest provider.
+	// If it is a static manifest it does nothing.
+	go m.client.manifest.Run(ctx, manifestErrCh)
+
+	// teardown pubsub on shutdown
+	var err error
+	defer func() {
+		teardownErr := m.teardownPubsub(m.Manifest())
+		err = multierr.Append(err, teardownErr)
 	}()
 
+	select {
+	case <-ctx.Done():
+		return nil
+	case err = <-runnerErrCh:
+		return err
+	case err = <-manifestErrCh:
+		return err
+	}
+}
+
+func (m *F3) Stop() {
+	m.rLk.Lock()
+	defer m.rLk.Unlock()
+	if m.runner != nil {
+		m.runner.Stop()
+	}
+	if m.cancelCtx != nil {
+		m.cancelCtx()
+	}
+}
+
+func (m *F3) handleIncomingMessages(ctx context.Context, queue chan gpbft.ValidatedMessage) {
+	ctx, m.client.incomingCancel = context.WithCancel(ctx)
 loop:
 	for {
 		var msg *pubsub.Message
-		msg, err = sub.Next(ctx)
+		msg, err := m.msgSub.Next(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
-				err = nil
 				break
 			}
-			m.log.Errorf("pubsub subscription.Next() returned an error: %+v", err)
+			m.log.Errorf("msgPubsub subscription.Next() returned an error: %+v", err)
 			break
 		}
 		gmsg, ok := msg.ValidatorData.(gpbft.ValidatedMessage)
 		if !ok {
-			m.log.Errorf("invalid ValidatorData: %+v", msg.ValidatorData)
+			m.log.Errorf("invalid msgValidatorData: %+v", msg.ValidatorData)
 			continue
 		}
-
 		select {
-		case messageQueue <- gmsg:
+		case queue <- gmsg:
 		case <-ctx.Done():
-			break loop
-		case err = <-runnerErrCh:
 			break loop
 		}
 	}
+}
 
-	sub.Cancel()
-	if err2 := m.teardownPubsub(); err2 != nil {
-		err = multierr.Append(err, xerrors.Errorf("shutting down pubsub: %w", err2))
+// Callback to be triggered when there is a dynamic manifest change
+// If the manifest triggers a rebootstrap it starts a new runner with the new configuration.
+// If there is no rebootstrap it only starts a new pubsub topic with a new network name that
+// depends on the manifest version so there is no overlap between different configuration instances
+func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
+	// We can only accommodate 1 manifest update at a time, thus
+	// the buffer size.
+	manifestUpdate := make(chan uint64, 1)
+	m.client.manifestUpdate = manifestUpdate
+	return func(ctx context.Context, prevManifest manifest.Manifest, errCh chan error) {
+		// Tear down pubsub.
+		if err := m.teardownPubsub(prevManifest); err != nil {
+			// for now we just log the error and continue.
+			// This is not critical, but alternative approaches welcome.
+			m.log.Errorf("error stopping gpbft runner: %+v", err)
+		}
+		// empty message queue from outstanding messages
+		m.emptyMessageQueue()
+
+		if m.Manifest().ReBootstrap {
+			m.log.Infof("triggering manifest (seq=%d) change with rebootstrap", m.Manifest().Sequence)
+			// kill runner and teardown pubsub. This will also
+			// teardown the pubsub topic
+			m.runner.Stop()
+			// clear the certstore
+			m.csLk.Lock()
+			if err := m.certStore.DeleteAll(ctx); err != nil {
+				errCh <- xerrors.Errorf("clearing certstore: %w", err)
+				m.csLk.Unlock()
+				return
+			}
+			m.csLk.Unlock()
+			m.startGpbftRunner(ctx, errCh)
+		} else {
+			m.log.Infof("triggering manifest (seq=%d) change without rebootstrap", m.Manifest().Sequence)
+			// immediately stop listening to network messages
+			m.client.incomingCancel()
+			if err := m.setupPubsub(m.runner); err != nil {
+				errCh <- xerrors.Errorf("setting up pubsub: %w", err)
+				return
+			}
+
+			fc, err := m.GetLatestCert(ctx)
+			if err != nil {
+				errCh <- xerrors.Errorf("getting latest cert: %w", err)
+				return
+			}
+			m.msgSub, err = m.client.topic.Subscribe()
+			if err != nil {
+				errCh <- xerrors.Errorf("subscribing to topic: %w", err)
+				return
+			}
+
+			messageQueue := make(chan gpbft.ValidatedMessage, 20)
+			m.client.messageQueue = messageQueue
+			// notify update to host to pick up the new message queue
+			manifestUpdate <- fc.GPBFTInstance
+			m.handleIncomingMessages(ctx, messageQueue)
+		}
 	}
-	return multierr.Append(err, ctx.Err())
 }
 
-type ECBackend interface {
-	// GetTipsetByEpoch should return a tipset before the one requested if the requested
-	// tipset does not exist due to null epochs
-	GetTipsetByEpoch(ctx context.Context, epoch int64) (TipSet, error)
-	GetTipset(context.Context, gpbft.TipSetKey) (TipSet, error)
-	GetHead(context.Context) (TipSet, error)
-	GetParent(context.Context, TipSet) (TipSet, error)
-
-	GetPowerTable(context.Context, gpbft.TipSetKey) (gpbft.PowerEntries, error)
-}
-
-type TipSet interface {
-	Key() gpbft.TipSetKey
-	Beacon() []byte
-	Epoch() int64
-	Timestamp() time.Time
+func (m *F3) emptyMessageQueue() {
+	for {
+		select {
+		case <-m.client.messageQueue:
+			m.log.Debug("emptying message queue")
+		default:
+			return
+		}
+	}
 }
 
 type Logger interface {
@@ -361,4 +519,18 @@ type Logger interface {
 	Infof(format string, args ...interface{})
 	Warn(args ...interface{})
 	Warnf(format string, args ...interface{})
+}
+
+// IsRunning returns true if gpbft is running
+// Used mainly for testing purposes
+func (m *F3) IsRunning() bool {
+	m.rLk.Lock()
+	defer m.rLk.Unlock()
+	return m.runner != nil
+}
+
+// GetPowerTable returns the power table for the given tipset
+// Used mainly for testing purposes
+func (m *F3) GetPowerTable(ctx context.Context, ts gpbft.TipSetKey) (gpbft.PowerEntries, error) {
+	return m.client.GetPowerTable(ctx, ts)
 }

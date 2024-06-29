@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3/certs"
+	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/manifest"
 	"golang.org/x/xerrors"
 )
 
@@ -16,18 +18,19 @@ import (
 type gpbftRunner struct {
 	client      *client
 	participant *gpbft.Participant
-	manifest    Manifest
+	manifest    manifest.ManifestProvider
 
 	alertTimer *time.Timer
 
 	runningCtx context.Context
+	ctxCancel  context.CancelFunc
 	log        Logger
 }
 
 // gpbftHost is a newtype of gpbftRunner exposing APIs required by the gpbft.Participant
 type gpbftHost gpbftRunner
 
-func newRunner(m Manifest, client *client) (*gpbftRunner, error) {
+func newRunner(m manifest.ManifestProvider, client *client) (*gpbftRunner, error) {
 	runner := &gpbftRunner{
 		client:   client,
 		manifest: m,
@@ -41,7 +44,8 @@ func newRunner(m Manifest, client *client) (*gpbftRunner, error) {
 	}
 
 	runner.log.Infof("Starting gpbft runner")
-	p, err := gpbft.NewParticipant((*gpbftHost)(runner), gpbft.WithTracer(client))
+	opts := append(m.GpbftOptions(), gpbft.WithTracer(client))
+	p, err := gpbft.NewParticipant((*gpbftHost)(runner), opts...)
 	if err != nil {
 		return nil, xerrors.Errorf("creating participant: %w", err)
 	}
@@ -50,9 +54,8 @@ func newRunner(m Manifest, client *client) (*gpbftRunner, error) {
 }
 
 func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
-	var cancel func()
-	h.runningCtx, cancel = context.WithCancel(ctx)
-	defer cancel()
+	h.runningCtx, h.ctxCancel = context.WithCancel(ctx)
+	defer h.ctxCancel()
 
 	err := h.participant.StartInstance(instance)
 	if err != nil {
@@ -60,47 +63,61 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 	}
 
 	messageQueue := h.client.IncomingMessages()
-loop:
 	for {
 		// prioritise alarm delivery
-		// although there is no guarantee that alarm won't fire between
-		// the two select statements
 		select {
 		case <-h.alertTimer.C:
 			err = h.participant.ReceiveAlarm()
 		default:
 		}
 		if err != nil {
-			break loop
+			h.log.Errorf("gpbfthost exiting: %+v", err)
+			return err
 		}
 
+		// Handle messages and alarms
 		select {
 		case <-h.alertTimer.C:
 			err = h.participant.ReceiveAlarm()
 		case msg, ok := <-messageQueue:
 			if !ok {
-				err = xerrors.Errorf("incoming messsage queue closed")
-				break loop
+				err = xerrors.Errorf("incoming message queue closed")
+				h.log.Errorf("gpbfthost exiting: %+v", err)
+				return err
 			}
 			err = h.participant.ReceiveMessage(msg)
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil
 		}
 		if err != nil {
-			break loop
+			h.log.Errorf("gpbfthost exiting: %+v", err)
+			return err
+		}
+
+		// Check for manifest update in the inner loop to exit and update the messageQueue
+		// and start from the last instance
+		select {
+		case start := <-h.client.manifestUpdate:
+			h.log.Debugf("Manifest update detected, refreshing message queue")
+			err = h.participant.StartInstance(start)
+			if err != nil {
+				h.log.Errorf("gpbfthost exiting on maifest update: %+v", err)
+				return err
+			}
+			messageQueue = h.client.IncomingMessages()
+			continue
+		default:
 		}
 	}
-	h.log.Errorf("gpbfthost exiting: %+v", err)
-	return err
 }
 
 func (h *gpbftRunner) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
 	return h.participant.ValidateMessage(msg)
 }
 
-func (h *gpbftHost) collectChain(base TipSet, head TipSet) ([]TipSet, error) {
+func (h *gpbftHost) collectChain(base ec.TipSet, head ec.TipSet) ([]ec.TipSet, error) {
 	// TODO: optimize when head is way beyond base
-	res := make([]TipSet, 0, 2*gpbft.CHAIN_MAX_LEN)
+	res := make([]ec.TipSet, 0, 2*gpbft.CHAIN_MAX_LEN)
 	res = append(res, head)
 
 	for !bytes.Equal(head.Key(), base.Key()) {
@@ -122,6 +139,12 @@ func (h *gpbftHost) collectChain(base TipSet, head TipSet) ([]TipSet, error) {
 	return res[1:], nil
 }
 
+func (h *gpbftRunner) Stop() {
+	if h.ctxCancel != nil {
+		h.ctxCancel()
+	}
+}
+
 // Returns inputs to the next GPBFT instance.
 // These are:
 // - the supplemental data.
@@ -131,9 +154,9 @@ func (h *gpbftHost) collectChain(base TipSet, head TipSet) ([]TipSet, error) {
 // ReceiveDecision (or known to be final via some other channel).
 func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.SupplementalData, gpbft.ECChain, error) {
 	var baseTsk gpbft.TipSetKey
-	if instance == h.manifest.InitialInstance {
+	if instance == h.manifest.Manifest().InitialInstance {
 		ts, err := h.client.ec.GetTipsetByEpoch(h.runningCtx,
-			h.manifest.BootstrapEpoch-h.manifest.ECFinality)
+			h.manifest.Manifest().BootstrapEpoch-h.manifest.Manifest().ECFinality)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("getting boostrap base: %w", err)
 		}
@@ -164,7 +187,7 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 		Epoch: baseTs.Epoch(),
 		Key:   baseTs.Key(),
 	}
-	pte, err := h.client.ec.GetPowerTable(h.runningCtx, baseTs.Key())
+	pte, err := h.client.GetPowerTable(h.runningCtx, baseTs.Key())
 	if err != nil {
 		return nil, nil, xerrors.Errorf("getting power table for base: %w", err)
 	}
@@ -178,7 +201,7 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 		suffix[i].Key = collectedChain[i].Key()
 		suffix[i].Epoch = collectedChain[i].Epoch()
 
-		pte, err = h.client.ec.GetPowerTable(h.runningCtx, suffix[i].Key)
+		pte, err = h.client.GetPowerTable(h.runningCtx, suffix[i].Key)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("getting power table for suffix %d: %w", i, err)
 		}
@@ -211,19 +234,19 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 	var powerEntries gpbft.PowerEntries
 	var err error
 
-	if instance < h.manifest.InitialInstance+h.manifest.CommiteeLookback {
+	if instance < h.manifest.Manifest().InitialInstance+h.manifest.Manifest().CommiteeLookback {
 		//boostrap phase
-		ts, err := h.client.ec.GetTipsetByEpoch(h.runningCtx, h.manifest.BootstrapEpoch-h.manifest.ECFinality)
+		ts, err := h.client.ec.GetTipsetByEpoch(h.runningCtx, h.manifest.Manifest().BootstrapEpoch-h.manifest.Manifest().ECFinality)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("getting tipset for boostrap epoch with lookback: %w", err)
 		}
 		powerTsk = ts.Key()
-		powerEntries, err = h.client.ec.GetPowerTable(h.runningCtx, powerTsk)
+		powerEntries, err = h.client.GetPowerTable(h.runningCtx, powerTsk)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("getting power table: %w", err)
 		}
 	} else {
-		cert, err := h.client.certStore.Get(h.runningCtx, instance-h.manifest.CommiteeLookback)
+		cert, err := h.client.certStore.Get(h.runningCtx, instance-h.manifest.Manifest().CommiteeLookback)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("getting finality certificate: %w", err)
 		}
@@ -256,7 +279,7 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 
 // Returns the network's name (for signature separation)
 func (h *gpbftHost) NetworkName() gpbft.NetworkName {
-	return h.manifest.NetworkName
+	return h.manifest.Manifest().NetworkName
 }
 
 // Sends a message to all other participants.
@@ -305,12 +328,12 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 		h.log.Errorf("could not get timestamp of just finalized tipset: %+v", err)
 		// We use the period, not the delay, because we expect to start an instance once per
 		// period and we just finished the last instance.
-		return time.Now().Add(h.manifest.ECPeriod)
+		return time.Now().Add(h.manifest.Manifest().ECPeriod)
 	}
 
 	if decision.Vote.Value.HasSuffix() {
 		// we decided on something new, use just the ECDelay plus the period.
-		return ts.Timestamp().Add(h.manifest.ECPeriod + h.manifest.ECDelay)
+		return ts.Timestamp().Add(h.manifest.Manifest().ECPeriod + h.manifest.Manifest().ECDelay)
 	}
 
 	// we decided on base, calculate how much we should back off
@@ -326,7 +349,7 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 
 	attempts := 0
 	var backoffMultipler float64
-	for instance := decision.Vote.Instance - 1; instance > h.manifest.InitialInstance; instance-- {
+	for instance := decision.Vote.Instance - 1; instance > h.manifest.Manifest().InitialInstance; instance-- {
 		cert, err := h.client.certStore.Get(h.runningCtx, instance)
 		if err != nil {
 			h.log.Errorf("error while getting instance %d from certstore: %+v", instance, err)
@@ -342,7 +365,7 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 		}
 	}
 
-	backoff := h.manifest.ECDelay + time.Duration(float64(h.manifest.ECPeriod)*backoffMultipler)
+	backoff := h.manifest.Manifest().ECDelay + time.Duration(float64(h.manifest.Manifest().ECPeriod)*backoffMultipler)
 	h.log.Infof("backing off for: %v", backoff)
 
 	return ts.Timestamp().Add(backoff)
@@ -382,7 +405,7 @@ func (h *gpbftHost) saveDecision(decision *gpbft.Justification) error {
 // This should usually call `Payload.MarshalForSigning(NetworkName)` except when testing as
 // that method is slow (computes a merkle tree that's necessary for testing).
 func (h *gpbftHost) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Payload) []byte {
-	return p.MarshalForSigning(nn)
+	return h.client.signingMarshaller.MarshalPayloadForSigning(nn, p)
 }
 
 // Verifies a signature for the given public key.
