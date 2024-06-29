@@ -159,7 +159,7 @@ func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
 	env.waitForInstanceNumber(ctx, prevInstance+10, 15*time.Second, false)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest())
 	env.requireEqualManifests(false)
-	// check that the power table is updated with the new entries
+	// check that the power table is updated
 	ts, err := env.ec.GetTipsetByEpoch(ctx, int64(env.nodes[0].CurrentGpbftInstance(t, ctx)))
 	require.NoError(t, err)
 	pt, err := env.nodes[0].f3.GetPowerTable(ctx, ts.Key())
