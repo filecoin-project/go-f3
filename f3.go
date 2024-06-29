@@ -27,6 +27,7 @@ import (
 
 type F3 struct {
 	// certStore is nil until Run is called on the F3
+	csLk      sync.Mutex
 	certStore *certstore.Store
 
 	runner    *gpbftRunner
@@ -167,6 +168,8 @@ func (m *F3) Broadcast(ctx context.Context, signatureBuilder *gpbft.SignatureBui
 }
 
 func (m *F3) setCertStore(cs *certstore.Store) {
+	m.csLk.Lock()
+	defer m.csLk.Unlock()
 	m.certStore = cs
 	m.client.certStore = cs
 }
@@ -266,7 +269,9 @@ func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
 	m.client.messageQueue = messageQueue
 
 	go func() {
+		m.csLk.Lock()
 		latest := m.certStore.Latest()
+		m.csLk.Unlock()
 		startInstance := m.Manifest().InitialInstance
 		if latest != nil {
 			startInstance = latest.GPBFTInstance + 1
@@ -341,12 +346,16 @@ func (m *F3) boostrap(ctx context.Context) error {
 }
 
 func (m *F3) GetLatestCert(ctx context.Context) (*certs.FinalityCertificate, error) {
+	m.csLk.Lock()
+	defer m.csLk.Unlock()
 	if m.certStore == nil {
 		return nil, xerrors.Errorf("F3 is not running")
 	}
 	return m.certStore.Latest(), nil
 }
 func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCertificate, error) {
+	m.csLk.Lock()
+	defer m.csLk.Unlock()
 	if m.certStore == nil {
 		return nil, xerrors.Errorf("F3 is not running")
 	}
@@ -448,10 +457,13 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 			// teardown the pubsub topic
 			m.runner.Stop()
 			// clear the certstore
+			m.csLk.Lock()
 			if err := m.certStore.DeleteAll(ctx); err != nil {
 				errCh <- xerrors.Errorf("clearing certstore: %w", err)
+				m.csLk.Unlock()
 				return
 			}
+			m.csLk.Unlock()
 			m.startGpbftRunner(ctx, errCh)
 		} else {
 			m.log.Debug("triggering manifest change without rebootstrap")
