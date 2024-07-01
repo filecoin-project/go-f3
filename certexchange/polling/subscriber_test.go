@@ -28,7 +28,6 @@ func TestSubscriber(t *testing.T) {
 	defer cancel()
 
 	mocknet := mocknetwork.New()
-	const serverCount = 100
 
 	clientHost, err := mocknet.GenPeer()
 	require.NoError(t, err)
