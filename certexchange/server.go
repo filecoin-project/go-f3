@@ -69,7 +69,7 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 		resp.PendingInstance = latest.GPBFTInstance + 1
 	}
 
-	if resp.PendingInstance <= req.FirstInstance {
+	if resp.PendingInstance >= req.FirstInstance && req.IncludePowerTable {
 		pt, err := s.Store.GetPowerTable(ctx, req.FirstInstance)
 		if err != nil {
 			s.Log.Errorf("failed to load power table: %w", err)
