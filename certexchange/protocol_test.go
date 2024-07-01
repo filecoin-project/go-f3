@@ -150,4 +150,29 @@ func TestClientServer(t *testing.T) {
 		require.Nil(t, head.PowerTable)
 		require.Empty(t, certs)
 	}
+
+	// Until we've added a new certificate.
+	cert = &certs.FinalityCertificate{GPBFTInstance: 2, SupplementalData: supp}
+	require.NoError(t, cs.Put(ctx, cert))
+
+	{
+		_, certs, err := client.Request(ctx, h1.ID(), &certexchange.Request{
+			FirstInstance: 2,
+			Limit:         certexchange.NoLimit,
+		})
+		require.NoError(t, err)
+		require.Equal(t, uint64(2), (<-certs).GPBFTInstance)
+		require.Empty(t, certs)
+	}
+
+	{
+		head, certs, err := client.Request(ctx, h1.ID(), &certexchange.Request{
+			FirstInstance:     3,
+			Limit:             certexchange.NoLimit,
+			IncludePowerTable: true,
+		})
+		require.NoError(t, err)
+		require.EqualValues(t, pt, head.PowerTable)
+		require.Empty(t, certs)
+	}
 }
