@@ -59,10 +59,10 @@ fillInitialPeers:
 			var protos []protocol.ID
 			var peer peer.ID
 			switch e := evt.(type) {
-			case *event.EvtPeerIdentificationCompleted:
+			case event.EvtPeerIdentificationCompleted:
 				protos = e.Protocols
 				peer = e.Peer
-			case *event.EvtPeerProtocolsUpdated:
+			case event.EvtPeerProtocolsUpdated:
 				protos = e.Added
 				peer = e.Peer
 			default:

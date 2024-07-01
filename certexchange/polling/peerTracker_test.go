@@ -23,7 +23,7 @@ func TestPeerRecordHitMiss(t *testing.T) {
 		r.recordHit()
 		hitRate, count := r.hitRate()
 		require.Equal(t, 1.0, hitRate)
-		require.Equal(t, i, count)
+		require.Equal(t, min(i, hitMissSlidingWindow), count)
 	}
 
 	// 3 misses
@@ -31,26 +31,25 @@ func TestPeerRecordHitMiss(t *testing.T) {
 		r.recordMiss()
 		hitRate, count := r.hitRate()
 		require.Less(t, hitRate, 1.0)
-		require.Equal(t, i, count)
+		require.Equal(t, min(i, hitMissSlidingWindow), count)
 	}
 
 	// Should be 50/50.
 	{
 		hitRate, count := r.hitRate()
-		require.Equal(t, 6, count)
+		require.Equal(t, min(6, hitMissSlidingWindow), count)
 		require.Equal(t, 0.5, hitRate)
 	}
 
-	// 10 hits
-	for i := 0; i < 7; i++ {
+	// 2 hits
+	for i := 0; i < 2; i++ {
 		r.recordHit()
 	}
 
-	// Still shouldn't be 100% hit, but should be "full"
 	{
 		hitRate, count := r.hitRate()
 		require.Less(t, hitRate, 1.0)
-		require.Equal(t, 10, count)
+		require.Equal(t, hitMissSlidingWindow, count)
 	}
 
 	// 3 more hits
@@ -62,12 +61,12 @@ func TestPeerRecordHitMiss(t *testing.T) {
 	{
 		hitRate, count := r.hitRate()
 		require.Equal(t, hitRate, 1.0)
-		require.Equal(t, 10, count)
+		require.Equal(t, hitMissSlidingWindow, count)
 	}
 
-	// 10 misses should bring us back to 50/50
+	// should bring us back to 50/50
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < hitMissSlidingWindow; i++ {
 		r.recordMiss()
 	}
 

@@ -63,8 +63,8 @@ func (s *Subscriber) Start() error {
 			s.wg.Done()
 		}()
 
-		if err := s.run(ctx); err != nil && ctx.Err() != nil {
-			s.Log.Errorf("polling certificate exchange subscriber exited early: %w", err)
+		if err := s.run(ctx); err != nil && ctx.Err() == nil {
+			s.Log.Errorf("polling certificate exchange subscriber exited early: %s", err)
 		}
 	}()
 
@@ -128,13 +128,16 @@ func (s *Subscriber) poll(ctx context.Context) (uint64, error) {
 		hits   []peer.ID
 	)
 
+	peers := s.peerTracker.suggestPeers()
 	start := s.poller.NextInstance
-	for _, peer := range s.peerTracker.suggestPeers() {
+	s.Log.Debugf("polling %d peers for instance %d", len(peers), s.poller.NextInstance)
+	for _, peer := range peers {
 		oldInstance := s.poller.NextInstance
 		res, err := s.poller.Poll(ctx, peer)
 		if err != nil {
 			return s.poller.NextInstance - start, err
 		}
+		s.Log.Debugf("polled %s for instance %d, got %s", peer, s.poller.NextInstance, res)
 		// If we manage to advance, all old "hits" are actually misses.
 		if oldInstance < s.poller.NextInstance {
 			misses = append(misses, hits...)

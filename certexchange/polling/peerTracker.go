@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	hitMissSlidingWindow = 10
+	hitMissSlidingWindow = 3
 	maxBackoffExponent   = 8
 	// The default number of requests to make.
 	defaultRequests = 8
@@ -36,7 +36,7 @@ const (
 type peerRecord struct {
 	sequentialFailures int
 
-	// Sliding windows of hits/misses (0-10 each). If either would exceed 10, we subtract 1 from
+	// Sliding windows of hits/misses (0-3 each). If either would exceed 3, we subtract 1 from
 	// both (where 0 is the floor).
 	//
 	// - We use sliding windows to give more weight to recent hits/misses.
@@ -65,9 +65,9 @@ type peerTracker struct {
 	// TODO: garbage collect this.
 	peers map[peer.ID]*peerRecord
 	// TODO: Limit the number of active peers.
-	active  []peer.ID
-	backoff backoffHeap
-	round   int
+	active                     []peer.ID
+	backoff                    backoffHeap
+	lastHitRound, currentRound int
 }
 
 func (r *peerRecord) Cmp(other *peerRecord) int {
@@ -160,7 +160,7 @@ func (r *peerRecord) hitRate() (float64, int) {
 	if total > 0 {
 		rate = float64(r.hits) / float64(total)
 	}
-	return rate, min(total, 10)
+	return rate, min(total, hitMissSlidingWindow)
 
 }
 
@@ -185,12 +185,13 @@ func (t *peerTracker) recordFailure(p peer.ID) {
 	// When we fail to query a peer, backoff that peer.
 	r := &backoffRecord{
 		peer:       p,
-		delayUntil: t.round + t.getOrCreate(p).recordFailure(),
+		delayUntil: t.currentRound + t.getOrCreate(p).recordFailure(),
 	}
 	heap.Push(&t.backoff, r)
 }
 
 func (t *peerTracker) recordHit(p peer.ID) {
+	t.lastHitRound = t.currentRound
 	t.getOrCreate(p).recordHit()
 }
 
@@ -221,13 +222,13 @@ func (t *peerTracker) suggestPeers() []peer.ID {
 	// Advance the round and move peers from backoff to active, if necessary.
 	for t.backoff.Len() > 0 {
 		r := t.backoff[len(t.backoff)-1]
-		if r.delayUntil > t.round {
+		if r.delayUntil > t.currentRound {
 			break
 		}
 		heap.Pop(&t.backoff)
 		t.makeActive(r.peer)
 	}
-	t.round++
+	t.currentRound++
 
 	// Sort from best to worst.
 	slices.SortFunc(t.active, func(a, b peer.ID) int {
@@ -246,6 +247,15 @@ trimLoop:
 		t.active = t.active[:l]
 	}
 
+	// Adjust the minimum peer count and probability threshold based on the current distance to
+	// the last successful round (capped at 8 rounds).
+	// - We increase the minimum peer threshold exponentially till we hit the max.
+	// - We increase the target confidence lineally. We still want to try more and more of our
+	//   "good" peers but... as we keep failing, we want to try more and more random peers.
+	distance := min(8, t.currentRound-t.lastHitRound)
+	minPeers := min(minRequests<<(distance-1), maxRequests)
+	threshold := targetConfidence * float64(distance)
+
 	var prob float64
 	var peerCount int
 	for _, p := range t.active {
@@ -261,7 +271,7 @@ trimLoop:
 		if peerCount >= maxRequests {
 			break
 		}
-		if prob >= targetConfidence {
+		if prob >= threshold {
 			break
 		}
 	}
@@ -270,14 +280,14 @@ trimLoop:
 
 	if peerCount == len(t.active) {
 		// We've chosen all peers, nothing else we can do.
-	} else if prob < targetConfidence {
+	} else if prob < threshold {
 		// If we failed to reach the target probability, choose randomly from the remaining
 		// peers.
 		chosen = append(chosen, choose(t.active[peerCount:], maxRequests-peerCount)...)
-	} else if peerCount < minRequests {
+	} else if peerCount < minPeers {
 		// If we reached the target probability but didn't reach the number of minimum
 		// requests, pick a few more peers to fill us out.
-		chosen = append(chosen, choose(t.active[peerCount:], minRequests-peerCount)...)
+		chosen = append(chosen, choose(t.active[peerCount:], minPeers-peerCount)...)
 	}
 
 	return chosen

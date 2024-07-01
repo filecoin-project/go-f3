@@ -12,7 +12,6 @@ import (
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
@@ -30,21 +29,6 @@ type Client struct {
 	RequestTimeout time.Duration
 
 	Log f3.Logger
-}
-
-func resetOnCancel(ctx context.Context, s network.Stream) func() {
-	errCh := make(chan error, 1)
-	cancel := context.AfterFunc(ctx, func() {
-		errCh <- s.Reset()
-		close(errCh)
-	})
-	return func() {
-		if cancel() {
-			_ = s.Reset()
-		} else {
-			<-errCh
-		}
-	}
 }
 
 func (c *Client) withDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -76,8 +60,10 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	if err != nil {
 		return nil, nil, err
 	}
-	// canceled by the `cancel` function returned by withDeadline above.
-	_ = resetOnCancel(ctx, stream)
+	// Reset the stream if the parent context is canceled. We never call the returned cancel
+	// function because we call the cancel function returned by `withDeadline` (which cancels
+	// the entire context tree).
+	context.AfterFunc(ctx, func() { _ = stream.Reset() })
 
 	if deadline, ok := ctx.Deadline(); ok {
 		if err := stream.SetDeadline(deadline); err != nil {
@@ -109,13 +95,13 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 		return nil, nil, err
 	}
 
-	// Copy/replace the cancel func so exiting the request doesn't cancel it.
-	cancelReq := cancel
-	cancel = nil
-
 	ch := make(chan *certs.FinalityCertificate, 1)
 	// copy this in case the caller decides to re-use the request object...
 	request := *req
+
+	// Copy/replace the cancel func so exiting the request doesn't cancel it.
+	cancelReq := cancel
+	cancel = nil
 	go func() {
 		defer func() {
 			if perr := recover(); perr != nil {
@@ -131,7 +117,11 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 			// large, but large power deltas could get close.
 			br.N = maxPowerTableSize
 			err := cert.UnmarshalCBOR(br)
-			if err != nil {
+			switch err {
+			case nil:
+			case io.EOF:
+				return
+			default:
 				c.Log.Debugf("failed to unmarshal certificate from peer %s: %w", p, err)
 				return
 			}
