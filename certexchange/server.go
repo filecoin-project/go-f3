@@ -84,7 +84,15 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 	}
 
 	if resp.PendingInstance > req.FirstInstance {
-		certs, err := s.Store.GetRange(ctx, req.FirstInstance, req.FirstInstance+limit)
+		// Only try to return up-to but not including the pending instance we just told the
+		// client about. Otherwise we could return instances _beyond_ that which is
+		// inconsistent and confusing.
+		end := req.FirstInstance + limit
+		if end >= resp.PendingInstance {
+			end = resp.PendingInstance - 1
+		}
+
+		certs, err := s.Store.GetRange(ctx, req.FirstInstance, end)
 		if err == nil || errors.Is(err, certstore.ErrCertNotFound) {
 			for i := range certs {
 				if err := certs[i].MarshalCBOR(bw); err != nil {
