@@ -30,6 +30,7 @@ type F3 struct {
 	mLk    sync.Mutex
 	runner *gpbftRunner
 	// certStore is nil until Run is called on the F3
+	csLk      sync.Mutex
 	certStore *certstore.Store
 
 	cancelCtx context.CancelFunc
@@ -173,6 +174,8 @@ func (m *F3) Broadcast(ctx context.Context, signatureBuilder *gpbft.SignatureBui
 }
 
 func (m *F3) setCertStore(cs *certstore.Store) {
+	m.csLk.Lock()
+	defer m.csLk.Unlock()
 	m.certStore = cs
 	m.client.certStore = cs
 }

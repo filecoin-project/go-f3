@@ -154,6 +154,7 @@ func TestDynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest())
 	env.requireEqualManifests(false)
+	env.stop()
 }
 
 var base manifest.Manifest = manifest.Manifest{
