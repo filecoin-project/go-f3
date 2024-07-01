@@ -26,12 +26,11 @@ import (
 )
 
 type F3 struct {
-	// certStore is nil until Run is called on the F3
-	csLk      sync.Mutex
-	certStore *certstore.Store
-
-	rLk    sync.Mutex
+	// mLk protects the runner and certStore
+	mLk    sync.Mutex
 	runner *gpbftRunner
+	// certStore is nil until Run is called on the F3
+	certStore *certstore.Store
 
 	cancelCtx context.CancelFunc
 	host      host.Host
@@ -39,7 +38,9 @@ type F3 struct {
 	ec        ec.Backend
 	log       Logger
 
-	lk     sync.Mutex
+	// psLk protects pubsub. We need an independent one
+	// due to its use in Broadcast
+	psLk   sync.Mutex
 	pubsub *pubsub.PubSub
 	msgSub *pubsub.Subscription
 
@@ -161,17 +162,17 @@ func (m *F3) Broadcast(ctx context.Context, signatureBuilder *gpbft.SignatureBui
 		return
 	}
 
-	m.lk.Lock()
-	err = m.client.topic.Publish(ctx, bw.Bytes())
-	if err != nil {
-		m.log.Errorf("publishing on topic: %w", err)
+	m.psLk.Lock()
+	if m.client.topic != nil {
+		err = m.client.topic.Publish(ctx, bw.Bytes())
+		if err != nil {
+			m.log.Errorf("publishing on topic: %w", err)
+		}
 	}
-	m.lk.Unlock()
+	m.psLk.Unlock()
 }
 
 func (m *F3) setCertStore(cs *certstore.Store) {
-	m.csLk.Lock()
-	defer m.csLk.Unlock()
 	m.certStore = cs
 	m.client.certStore = cs
 }
@@ -202,7 +203,7 @@ func (m *F3) setupPubsub(runner *gpbftRunner) error {
 		return pubsub.ValidationAccept
 	}
 
-	m.lk.Lock()
+	m.psLk.Lock()
 	err := m.pubsub.RegisterTopicValidator(pubsubTopicName, validator)
 	if err != nil {
 		return xerrors.Errorf("registering topic validator: %w", err)
@@ -213,23 +214,27 @@ func (m *F3) setupPubsub(runner *gpbftRunner) error {
 		return xerrors.Errorf("could not join on pubsub topic: %s: %w", pubsubTopicName, err)
 	}
 	m.client.topic = topic
-	m.lk.Unlock()
+	m.psLk.Unlock()
 	return nil
 }
 
-func (m *F3) teardownPubsub(manifest manifest.Manifest) error {
-	m.lk.Lock()
-	defer m.lk.Unlock()
-	m.msgSub.Cancel()
-	return multierr.Combine(
-		m.pubsub.UnregisterTopicValidator(manifest.PubSubTopic()),
-		m.client.topic.Close(),
-	)
+func (m *F3) teardownPubsub(manifest manifest.Manifest) (err error) {
+	m.psLk.Lock()
+	defer m.psLk.Unlock()
+	if m.client.topic != nil {
+		m.msgSub.Cancel()
+		err = multierr.Combine(
+			m.pubsub.UnregisterTopicValidator(manifest.PubSubTopic()),
+			m.client.topic.Close(),
+		)
+		m.client.topic = nil
+	}
+	return err
 }
 
-// Sets up the gpbft runner, this is triggered at initialization
-func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
-	var err error
+func (m *F3) initGpbftRunner(ctx context.Context) error {
+	m.mLk.Lock()
+	defer m.mLk.Unlock()
 
 	cs, err := certstore.OpenStore(ctx, m.ds)
 	if err == nil {
@@ -237,34 +242,36 @@ func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
 	} else if errors.Is(err, certstore.ErrNotInitialized) {
 		err := m.boostrap(ctx)
 		if err != nil {
-			errCh <- xerrors.Errorf("failed to boostrap: %w", err)
-			return
+			return xerrors.Errorf("failed to boostrap: %w", err)
 		}
 	} else {
-		errCh <- xerrors.Errorf("opening certstore: %w", err)
-		return
+		return xerrors.Errorf("opening certstore: %w", err)
 	}
 
-	m.rLk.Lock()
 	m.runner, err = newRunner(m.client.manifest, m.client)
 	if err != nil {
-		errCh <- xerrors.Errorf("creating gpbft host: %w", err)
-		return
+		return xerrors.Errorf("creating gpbft host: %w", err)
 	}
 
 	if err := m.setupPubsub(m.runner); err != nil {
-		errCh <- xerrors.Errorf("setting up pubsub: %w", err)
-		return
+		return xerrors.Errorf("setting up pubsub: %w", err)
 	}
-	m.rLk.Unlock()
-
-	m.lk.Lock()
+	m.psLk.Lock()
 	m.msgSub, err = m.client.topic.Subscribe()
 	if err != nil {
-		errCh <- xerrors.Errorf("subscribing to topic: %w", err)
+		m.psLk.Unlock()
+		return xerrors.Errorf("subscribing to topic: %w", err)
+	}
+	m.psLk.Unlock()
+	return nil
+}
+
+// Sets up the gpbft runner, this is triggered at initialization
+func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
+	if err := m.initGpbftRunner(ctx); err != nil {
+		errCh <- xerrors.Errorf("initializing gpbft host: %w", err)
 		return
 	}
-	m.lk.Unlock()
 
 	// the size of the buffer is set to prevent message spamming from pubsub,
 	// so it is a big enough buffer to be able to accommodate new messages
@@ -273,9 +280,9 @@ func (m *F3) startGpbftRunner(ctx context.Context, errCh chan error) {
 	m.client.messageQueue = messageQueue
 
 	go func() {
-		m.csLk.Lock()
+		m.mLk.Lock()
 		latest := m.certStore.Latest()
-		m.csLk.Unlock()
+		m.mLk.Unlock()
 		startInstance := m.Manifest().InitialInstance
 		if latest != nil {
 			startInstance = latest.GPBFTInstance + 1
@@ -350,16 +357,16 @@ func (m *F3) boostrap(ctx context.Context) error {
 }
 
 func (m *F3) GetLatestCert(ctx context.Context) (*certs.FinalityCertificate, error) {
-	m.csLk.Lock()
-	defer m.csLk.Unlock()
+	m.mLk.Lock()
+	defer m.mLk.Unlock()
 	if m.certStore == nil {
 		return nil, xerrors.Errorf("F3 is not running")
 	}
 	return m.certStore.Latest(), nil
 }
 func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCertificate, error) {
-	m.csLk.Lock()
-	defer m.csLk.Unlock()
+	m.mLk.Lock()
+	defer m.mLk.Unlock()
 	if m.certStore == nil {
 		return nil, xerrors.Errorf("F3 is not running")
 	}
@@ -401,14 +408,21 @@ func (m *F3) Run(ctx context.Context) error {
 }
 
 func (m *F3) Stop() {
-	m.rLk.Lock()
-	defer m.rLk.Unlock()
-	if m.runner != nil {
-		m.runner.Stop()
-	}
+	m.mLk.Lock()
+	defer m.mLk.Unlock()
+
+	m.pauseRunner()
+
 	if m.cancelCtx != nil {
 		m.cancelCtx()
 	}
+}
+
+func (m *F3) pauseRunner() {
+	if m.runner != nil {
+		m.runner.Stop()
+	}
+	m.runner = nil
 }
 
 func (m *F3) handleIncomingMessages(ctx context.Context, queue chan gpbft.ValidatedMessage) {
@@ -456,47 +470,74 @@ func ManifestChangeCallback(m *F3) manifest.OnManifestChange {
 		// empty message queue from outstanding messages
 		m.emptyMessageQueue()
 
-		if m.Manifest().ReBootstrap {
-			m.log.Infof("triggering manifest (seq=%d) change with rebootstrap", m.Manifest().Sequence)
-			// kill runner and teardown pubsub. This will also
-			// teardown the pubsub topic
-			m.runner.Stop()
-			// clear the certstore
-			m.csLk.Lock()
-			if err := m.certStore.DeleteAll(ctx); err != nil {
-				errCh <- xerrors.Errorf("clearing certstore: %w", err)
-				m.csLk.Unlock()
-				return
-			}
-			m.csLk.Unlock()
-			m.startGpbftRunner(ctx, errCh)
+		if m.Manifest().Pause {
+			m.pauseCallback()
 		} else {
-			m.log.Infof("triggering manifest (seq=%d) change without rebootstrap", m.Manifest().Sequence)
-			// immediately stop listening to network messages
-			m.client.incomingCancel()
-			if err := m.setupPubsub(m.runner); err != nil {
-				errCh <- xerrors.Errorf("setting up pubsub: %w", err)
-				return
-			}
 
-			fc, err := m.GetLatestCert(ctx)
-			if err != nil {
-				errCh <- xerrors.Errorf("getting latest cert: %w", err)
-				return
+			if m.Manifest().ReBootstrap {
+				m.withRebootstrapCallback(ctx, errCh)
+			} else {
+				m.withoutRebootstrapCallback(ctx, manifestUpdate, errCh)
 			}
-			m.msgSub, err = m.client.topic.Subscribe()
-			if err != nil {
-				errCh <- xerrors.Errorf("subscribing to topic: %w", err)
-				return
-			}
-
-			messageQueue := make(chan gpbft.ValidatedMessage, 20)
-			m.client.messageQueue = messageQueue
-			// notify update to host to pick up the new message queue
-			manifestUpdate <- fc.GPBFTInstance
-			m.handleIncomingMessages(ctx, messageQueue)
 		}
+
 	}
+}
+
+func (m *F3) withRebootstrapCallback(ctx context.Context, errCh chan error) {
+	m.mLk.Lock()
+	m.log.Infof("triggering manifest (seq=%d) change with rebootstrap", m.Manifest().Sequence)
+
+	// if runner still up
+	if m.runner != nil {
+		m.runner.Stop()
+	}
+
+	// clear the certstore
+	if err := m.certStore.DeleteAll(ctx); err != nil {
+		errCh <- xerrors.Errorf("clearing certstore: %w", err)
+		m.mLk.Unlock()
+		return
+	}
+	m.mLk.Unlock()
+	m.startGpbftRunner(ctx, errCh)
+}
+
+func (m *F3) withoutRebootstrapCallback(ctx context.Context, manifestUpdate chan uint64, errCh chan error) {
+	m.mLk.Lock()
+	m.log.Infof("triggering manifest (seq=%d) change without rebootstrap", m.Manifest().Sequence)
+
+	if m.runner != nil {
+		m.log.Error("cannot trigger a callback without rebootstrap if the runner is stop")
+	}
+
+	// immediately stop listening to network messages
+	m.client.incomingCancel()
+	if err := m.setupPubsub(m.runner); err != nil {
+		errCh <- xerrors.Errorf("setting up pubsub: %w", err)
+		return
+	}
+	var err error
+	m.msgSub, err = m.client.topic.Subscribe()
+	if err != nil {
+		errCh <- xerrors.Errorf("subscribing to topic: %w", err)
+		return
+	}
+
+	messageQueue := make(chan gpbft.ValidatedMessage, 20)
+	m.client.messageQueue = messageQueue
+	// notify update to host to pick up the new message queue
+	fc := m.certStore.Latest()
+	manifestUpdate <- fc.GPBFTInstance
+	m.mLk.Unlock()
+	m.handleIncomingMessages(ctx, messageQueue)
+}
+
+func (m *F3) pauseCallback() {
+	m.mLk.Lock()
+	defer m.mLk.Unlock()
+	m.log.Infof("triggering manifest (seq=%d) change with pause", m.Manifest().Sequence)
+	m.pauseRunner()
 }
 
 func (m *F3) emptyMessageQueue() {
@@ -524,8 +565,8 @@ type Logger interface {
 // IsRunning returns true if gpbft is running
 // Used mainly for testing purposes
 func (m *F3) IsRunning() bool {
-	m.rLk.Lock()
-	defer m.rLk.Unlock()
+	m.mLk.Lock()
+	defer m.mLk.Unlock()
 	return m.runner != nil
 }
 
