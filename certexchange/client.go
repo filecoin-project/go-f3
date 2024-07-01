@@ -51,7 +51,7 @@ func (c *Client) withDeadline(ctx context.Context) (context.Context, context.Can
 	if c.RequestTimeout > 0 {
 		return context.WithTimeout(ctx, c.RequestTimeout)
 	}
-	return ctx, func() {}
+	return context.WithCancel(ctx)
 }
 
 // Request finality certificates from the specified peer. Returned finality certificates start at
@@ -65,14 +65,19 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	}()
 
 	ctx, cancel := c.withDeadline(ctx)
-	defer cancel()
+	defer func() {
+		if cancel != nil {
+			cancel()
+		}
+	}()
 
 	proto := FetchProtocolName(c.NetworkName)
 	stream, err := c.Host.NewStream(ctx, p, proto)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer resetOnCancel(ctx, stream)()
+	// canceled by the `cancel` function returned by withDeadline above.
+	_ = resetOnCancel(ctx, stream)
 
 	if deadline, ok := ctx.Deadline(); ok {
 		if err := stream.SetDeadline(deadline); err != nil {
@@ -104,6 +109,10 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 		return nil, nil, err
 	}
 
+	// Copy/replace the cancel func so exiting the request doesn't cancel it.
+	cancelReq := cancel
+	cancel = nil
+
 	ch := make(chan *certs.FinalityCertificate, 1)
 	// copy this in case the caller decides to re-use the request object...
 	request := *req
@@ -112,8 +121,9 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 			if perr := recover(); perr != nil {
 				c.Log.Errorf("panicked while receiving certificates from peer %s: %v\n%s", p, perr, string(debug.Stack()))
 			}
+			cancelReq()
+			close(ch)
 		}()
-		defer close(ch)
 		for i := uint64(0); i < request.Limit; i++ {
 			cert := new(certs.FinalityCertificate)
 
