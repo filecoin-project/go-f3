@@ -1,3 +1,4 @@
+//go:generate stringer -type=PollResult
 package polling
 
 import (
@@ -47,6 +48,10 @@ const (
 	PollFailed
 	PollIllegal
 )
+
+func (p PollResult) GoString() string {
+	return p.String()
+}
 
 // CatchUp attempts to advance to the latest instance from the certificate store without making any
 // network requests. It returns the number of instances we advanced.
