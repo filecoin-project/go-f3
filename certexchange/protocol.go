@@ -1,6 +1,8 @@
 package certexchange
 
 import (
+	"math"
+
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/libp2p/go-libp2p/core/protocol"
 )
@@ -8,6 +10,9 @@ import (
 func FetchProtocolName(nn gpbft.NetworkName) protocol.ID {
 	return protocol.ID("/f3/certexch/get/1/" + string(nn))
 }
+
+// Request unlimited certificates.
+const NoLimit uint64 = math.MaxUint64
 
 type Request struct {
 	// First instance to fetch.

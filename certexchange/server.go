@@ -61,7 +61,7 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 	}
 
 	limit := req.Limit
-	if limit == 0 || limit > maxResponseLen {
+	if limit > maxResponseLen {
 		limit = maxResponseLen
 	}
 	var resp ResponseHeader

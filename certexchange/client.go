@@ -114,7 +114,7 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 			}
 		}()
 		defer close(ch)
-		for i := uint64(0); request.Limit == 0 || i < request.Limit; i++ {
+		for i := uint64(0); i < request.Limit; i++ {
 			cert := new(certs.FinalityCertificate)
 
 			// We'll read at most 1MiB per certificate. They generally shouldn't be that
