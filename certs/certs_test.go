@@ -1,32 +1,20 @@
 package certs_test
 
 import (
-	"bytes"
-	"cmp"
 	"fmt"
 	"math/rand"
 	"slices"
 	"sort"
 	"testing"
 
-	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/filecoin-project/go-f3/sim/signing"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/xerrors"
 )
 
 const networkName = "f3test"
-
-func makePowerTableCID(pt gpbft.PowerEntries) (gpbft.CID, error) {
-	var buf bytes.Buffer
-	if err := pt.MarshalCBOR(&buf); err != nil {
-		return nil, xerrors.Errorf("failed to serialize power table: %w", err)
-	}
-	return gpbft.MakeCid(buf.Bytes()), nil
-}
 
 func TestNoFinalityCertificates(t *testing.T) {
 	backend := signing.NewFakeBackend()
@@ -204,7 +192,7 @@ func TestFinalityCertificates(t *testing.T) {
 
 	powerTable := randomPowerTable(backend, 100)
 	maxPower := int64(len(powerTable) * 2)
-	tableCid, err := makePowerTableCID(powerTable)
+	tableCid, err := certs.MakePowerTableCID(powerTable)
 	require.NoError(t, err)
 
 	rng := rand.New(rand.NewSource(1234))
@@ -252,7 +240,7 @@ func TestBadFinalityCertificates(t *testing.T) {
 	powerTable := randomPowerTable(backend, 100)
 	rng := rand.New(rand.NewSource(1234))
 	tsg := sim.NewTipSetGenerator(rng.Uint64())
-	tableCid, err := makePowerTableCID(powerTable)
+	tableCid, err := certs.MakePowerTableCID(powerTable)
 	require.NoError(t, err)
 	base := gpbft.TipSet{Epoch: 0, Key: tsg.Sample(), PowerTable: tableCid}
 
@@ -475,10 +463,6 @@ func randomPowerTable(backend signing.Backend, entries int64) gpbft.PowerEntries
 
 func makeJustification(t *testing.T, rng *rand.Rand, tsg *sim.TipSetGenerator, backend signing.Backend, base gpbft.TipSet, instance uint64, powerTable, nextPowerTable gpbft.PowerEntries) *gpbft.Justification {
 	chainLen := rng.Intn(23) + 1
-
-	scaledPowerTable, totalPower, err := powerTable.Scaled()
-	require.NoError(t, err)
-
 	chain, err := gpbft.NewChain(base)
 	require.NoError(t, err)
 
@@ -486,62 +470,8 @@ func makeJustification(t *testing.T, rng *rand.Rand, tsg *sim.TipSetGenerator, b
 		chain = chain.Extend(tsg.Sample())
 	}
 
-	powerTableCid, err := makePowerTableCID(nextPowerTable)
+	j, err := sim.MakeJustification(backend, networkName, chain, instance, powerTable, nextPowerTable)
 	require.NoError(t, err)
 
-	payload := gpbft.Payload{
-		Instance: instance,
-		Round:    0,
-		Step:     gpbft.DECIDE_PHASE,
-		SupplementalData: gpbft.SupplementalData{
-			PowerTable: powerTableCid,
-		},
-		Value: chain,
-	}
-	msg := backend.MarshalPayloadForSigning(networkName, &payload)
-	signers := rand.Perm(len(powerTable))
-	signersBitfield := bitfield.New()
-	var signingPower uint16
-
-	type vote struct {
-		index int
-		sig   []byte
-		pk    gpbft.PubKey
-	}
-
-	var votes []vote
-	for _, i := range signers {
-		pe := powerTable[i]
-		sig, err := backend.Sign(pe.PubKey, msg)
-		require.NoError(t, err)
-		votes = append(votes, vote{
-			index: i,
-			sig:   sig,
-			pk:    pe.PubKey,
-		})
-
-		signersBitfield.Set(uint64(i))
-		signingPower += scaledPowerTable[i]
-		if gpbft.IsStrongQuorum(signingPower, totalPower) {
-			break
-		}
-	}
-	slices.SortFunc(votes, func(a, b vote) int {
-		return cmp.Compare(a.index, b.index)
-	})
-	pks := make([]gpbft.PubKey, len(votes))
-	sigs := make([][]byte, len(votes))
-	for i, vote := range votes {
-		pks[i] = vote.pk
-		sigs[i] = vote.sig
-	}
-
-	sig, err := backend.Aggregate(pks, sigs)
-	require.NoError(t, err)
-
-	return &gpbft.Justification{
-		Vote:      payload,
-		Signers:   signersBitfield,
-		Signature: sig,
-	}
+	return j
 }
