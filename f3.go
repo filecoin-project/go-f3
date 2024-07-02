@@ -206,7 +206,6 @@ func (m *F3) setupPubsub(runner *gpbftRunner) error {
 		return pubsub.ValidationAccept
 	}
 
-	m.psLk.Lock()
 	err := m.pubsub.RegisterTopicValidator(pubsubTopicName, validator)
 	if err != nil {
 		return xerrors.Errorf("registering topic validator: %w", err)
@@ -217,7 +216,6 @@ func (m *F3) setupPubsub(runner *gpbftRunner) error {
 		return xerrors.Errorf("could not join on pubsub topic: %s: %w", pubsubTopicName, err)
 	}
 	m.client.topic = topic
-	m.psLk.Unlock()
 	return nil
 }
 
@@ -256,10 +254,10 @@ func (m *F3) initGpbftRunner(ctx context.Context) error {
 		return xerrors.Errorf("creating gpbft host: %w", err)
 	}
 
+	m.psLk.Lock()
 	if err := m.setupPubsub(m.runner); err != nil {
 		return xerrors.Errorf("setting up pubsub: %w", err)
 	}
-	m.psLk.Lock()
 	m.msgSub, err = m.client.topic.Subscribe()
 	if err != nil {
 		m.psLk.Unlock()
@@ -516,6 +514,7 @@ func (m *F3) withoutRebootstrapCallback(ctx context.Context, manifestUpdate chan
 
 	// immediately stop listening to network messages
 	m.client.incomingCancel()
+	m.psLk.Lock()
 	if err := m.setupPubsub(m.runner); err != nil {
 		errCh <- xerrors.Errorf("setting up pubsub: %w", err)
 		return
@@ -526,6 +525,7 @@ func (m *F3) withoutRebootstrapCallback(ctx context.Context, manifestUpdate chan
 		errCh <- xerrors.Errorf("subscribing to topic: %w", err)
 		return
 	}
+	m.psLk.Unlock()
 
 	messageQueue := make(chan gpbft.ValidatedMessage, 20)
 	m.client.messageQueue = messageQueue
