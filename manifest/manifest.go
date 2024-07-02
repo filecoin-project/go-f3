@@ -138,10 +138,10 @@ func (m Manifest) DatastorePrefix() datastore.Key {
 }
 
 func (m Manifest) PubSubTopic() string {
-	return m.PubSubTopicFromNetworkName(m.NetworkName)
+	return PubSubTopicFromNetworkName(m.NetworkName)
 }
 
-func (m Manifest) PubSubTopicFromNetworkName(nn gpbft.NetworkName) string {
+func PubSubTopicFromNetworkName(nn gpbft.NetworkName) string {
 	return "/f3/granite/0.0.1/" + string(nn)
 }
 
