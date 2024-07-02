@@ -53,7 +53,7 @@ func TestSubscriber(t *testing.T) {
 
 	for _, server := range servers {
 		require.NoError(t, server.Start())
-		t.Cleanup(func() { server.Stop() })
+		t.Cleanup(func() { require.NoError(t, server.Stop()) })
 	}
 
 	clientDs := ds_sync.MutexWrap(datastore.NewMapDatastore())
@@ -77,7 +77,7 @@ func TestSubscriber(t *testing.T) {
 
 	require.NoError(t, subscriber.Start())
 
-	defer subscriber.Stop()
+	t.Cleanup(func() { require.NoError(t, subscriber.Stop()) })
 
 	require.NoError(t, mocknet.ConnectAllButSelf())
 
@@ -130,5 +130,4 @@ func TestSubscriber(t *testing.T) {
 			require.NoError(t, s.Store.Put(ctx, certificates[nextInstance]))
 		}
 	}
-	subscriber.Stop()
 }

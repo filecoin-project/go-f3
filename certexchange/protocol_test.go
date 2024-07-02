@@ -78,7 +78,7 @@ func TestClientServer(t *testing.T) {
 	}
 
 	require.NoError(t, server.Start())
-	defer server.Stop()
+	t.Cleanup(func() { require.NoError(t, server.Stop()) })
 
 	require.NoError(t, mocknet.ConnectAllButSelf())
 
