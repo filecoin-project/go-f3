@@ -1,0 +1,106 @@
+package emulator
+
+import (
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/stretchr/testify/require"
+)
+
+var _ gpbft.Host = (*driverHost)(nil)
+
+type driverHost struct {
+	adhocSigning
+
+	t                  *testing.T
+	id                 gpbft.ActorID
+	now                time.Time
+	pendingAlarm       *time.Time
+	receivedBroadcasts []*gpbft.GMessage
+	chain              map[uint64]*Instance
+}
+
+func newHost(t *testing.T) *driverHost {
+	return &driverHost{
+		t:     t,
+		chain: make(map[uint64]*Instance),
+	}
+}
+
+func (h *driverHost) maybeReceiveAlarm() bool {
+	if h.pendingAlarm == nil {
+		return false
+	}
+	h.now = *h.pendingAlarm
+	h.pendingAlarm = nil
+	return true
+}
+
+func (h *driverHost) RequestBroadcast(mb *gpbft.MessageBuilder) error {
+	mb.SetNetworkName(h.NetworkName())
+	mb.SetSigningMarshaler(h)
+	msg, err := mb.Build(h, h.id)
+	if err != nil {
+		return err
+	}
+	h.receivedBroadcasts = append(h.receivedBroadcasts, msg)
+	return nil
+}
+
+func (h *driverHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
+	require.NoError(h.t, h.maybeReceiveDecision(decision))
+	return h.now
+}
+
+func (h *driverHost) maybeReceiveDecision(decision *gpbft.Justification) error {
+	switch instance := h.chain[decision.Vote.Instance]; {
+	case instance == nil:
+		return fmt.Errorf("cannot set decision for unknown instance ID: %d", decision.Vote.Instance)
+	case instance.decision != nil:
+		return fmt.Errorf("instance %d has already been decided", decision.Vote.Instance)
+	default:
+		instance.decision = decision
+		return nil
+	}
+}
+
+func (h *driverHost) GetProposalForInstance(id uint64) (*gpbft.SupplementalData, gpbft.ECChain, error) {
+	instance := h.chain[id]
+	if instance == nil {
+		return nil, nil, fmt.Errorf("instance ID %d not found", id)
+	}
+	return &instance.supplementalData, instance.Proposal(), nil
+}
+
+func (h *driverHost) GetCommitteeForInstance(id uint64) (power *gpbft.PowerTable, beacon []byte, err error) {
+	instance := h.chain[id]
+	if instance == nil {
+		return nil, nil, fmt.Errorf("instance ID %d not found", id)
+	}
+	return instance.powerTable, instance.beacon, nil
+}
+
+func (h *driverHost) setInstance(instance *Instance) error {
+	if existing := h.chain[instance.id]; existing != nil {
+		return fmt.Errorf("instance ID %d is already set", instance.id)
+	}
+	h.chain[instance.id] = instance
+	return nil
+}
+
+func (h *driverHost) popReceivedBroadcast() *gpbft.GMessage {
+	switch len(h.receivedBroadcasts) {
+	case 0:
+		return nil
+	default:
+		message := h.receivedBroadcasts[0]
+		h.receivedBroadcasts = h.receivedBroadcasts[1:]
+		return message
+	}
+}
+
+func (h *driverHost) NetworkName() gpbft.NetworkName { return "emulator-net" }
+func (h *driverHost) Time() time.Time                { return h.now }
+func (h *driverHost) SetAlarm(at time.Time)          { h.pendingAlarm = &at }
