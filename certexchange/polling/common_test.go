@@ -17,10 +17,6 @@ const testNetworkName gpbft.NetworkName = "testnet"
 
 var log = logging.Logger("certexchange-poller-test")
 
-func init() {
-	logging.SetLogLevel("certexchange-poller-test", "debug")
-}
-
 func makeCertificate(t *testing.T, rng *rand.Rand, tsg *sim.TipSetGenerator, backend signing.Backend, base *gpbft.TipSet, instance uint64, powerTable, nextPowerTable gpbft.PowerEntries) *certs.FinalityCertificate {
 	chainLen := rng.Intn(23) + 1
 	chain, err := gpbft.NewChain(*base)
