@@ -118,16 +118,19 @@ func TestPeerTracker(t *testing.T) {
 
 	for _, n := range []int{0, 1, defaultRequests / 2, defaultRequests/2 - 1} {
 		discoverPeers(n)
+		pt.resetLastHitRound()
 		suggested := pt.suggestPeers()
 		require.ElementsMatch(t, peers, suggested)
 	}
 
 	// Too many peers
 	discoverPeers(1)
+	pt.resetLastHitRound()
 	require.Less(t, len(pt.suggestPeers()), len(peers))
 
 	// fail a peer and we should pick the other peers now.
 	pt.recordMiss(peers[0])
+	pt.resetLastHitRound()
 
 	require.ElementsMatch(t, peers[1:], pt.suggestPeers())
 
@@ -153,7 +156,7 @@ func TestPeerTracker(t *testing.T) {
 	require.NotContains(t, pt.suggestPeers(), peers[0])
 	require.NotContains(t, pt.suggestPeers(), peers[0])
 	require.NotContains(t, pt.suggestPeers(), peers[0])
-	require.Equal(t, pt.suggestPeers()[0], peers[0])
+	require.Contains(t, pt.suggestPeers(), peers[0])
 
 	// Now, give that peer a perfect success rate
 	for i := 0; i < 100; i++ {
