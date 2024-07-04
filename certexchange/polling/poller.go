@@ -1,4 +1,4 @@
-//go:generate stringer -type=PollResult
+//go:generate go run golang.org/x/tools/cmd/stringer -type=PollResult
 package polling
 
 import (
