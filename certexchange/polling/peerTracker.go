@@ -195,12 +195,6 @@ func (t *peerTracker) recordHit(p peer.ID) {
 	t.getOrCreate(p).recordHit()
 }
 
-// Reset the "last hit round" to the current round, even if there were no hits.
-// Used for testing.
-func (t *peerTracker) resetLastHitRound() {
-	t.lastHitRound = t.currentRound
-}
-
 func (t *peerTracker) makeActive(p peer.ID) {
 	r := t.getOrCreate(p)
 	switch r.state {

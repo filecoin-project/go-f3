@@ -118,19 +118,19 @@ func TestPeerTracker(t *testing.T) {
 
 	for _, n := range []int{0, 1, defaultRequests / 2, defaultRequests/2 - 1} {
 		discoverPeers(n)
-		pt.resetLastHitRound()
+		pt.lastHitRound = pt.currentRound
 		suggested := pt.suggestPeers()
 		require.ElementsMatch(t, peers, suggested)
 	}
 
 	// Too many peers
 	discoverPeers(1)
-	pt.resetLastHitRound()
+	pt.lastHitRound = pt.currentRound
 	require.Less(t, len(pt.suggestPeers()), len(peers))
 
 	// fail a peer and we should pick the other peers now.
 	pt.recordMiss(peers[0])
-	pt.resetLastHitRound()
+	pt.lastHitRound = pt.currentRound
 
 	require.ElementsMatch(t, peers[1:], pt.suggestPeers())
 
