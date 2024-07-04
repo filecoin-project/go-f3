@@ -81,7 +81,7 @@ func (s *Subscriber) Stop() error {
 }
 
 func (s *Subscriber) run(ctx context.Context) error {
-	timer := time.NewTimer(s.InitialPollInterval)
+	timer := clk.Timer(s.InitialPollInterval)
 	defer timer.Stop()
 
 	predictor := newPredictor(
@@ -114,7 +114,7 @@ func (s *Subscriber) run(ctx context.Context) error {
 
 			nextInterval := predictor.update(progress)
 			nextPollTime := pollTime.Add(nextInterval)
-			timer.Reset(max(time.Until(nextPollTime), 0))
+			timer.Reset(max(clk.Until(nextPollTime), 0))
 		case <-ctx.Done():
 			return ctx.Err()
 		}

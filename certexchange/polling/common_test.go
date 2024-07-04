@@ -1,4 +1,4 @@
-package polling_test
+package polling
 
 import (
 	"math/rand"
@@ -9,15 +9,25 @@ import (
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/filecoin-project/go-f3/sim/signing"
 
+	"github.com/benbjohnson/clock"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/stretchr/testify/require"
 )
 
-const testNetworkName gpbft.NetworkName = "testnet"
+// The network name used in tests.
+const TestNetworkName gpbft.NetworkName = "testnet"
 
-var log = logging.Logger("certexchange-poller-test")
+// The logger used in tests.
+var TestLog = logging.Logger("certexchange-poller-test")
 
-func makeCertificate(t *testing.T, rng *rand.Rand, tsg *sim.TipSetGenerator, backend signing.Backend, base *gpbft.TipSet, instance uint64, powerTable, nextPowerTable gpbft.PowerEntries) *certs.FinalityCertificate {
+// The clock used in tests. Time doesn't pass in tests unless you add time to this clock.
+var MockClock = clock.NewMock()
+
+func init() {
+	clk = MockClock
+}
+
+func MakeCertificate(t *testing.T, rng *rand.Rand, tsg *sim.TipSetGenerator, backend signing.Backend, base *gpbft.TipSet, instance uint64, powerTable, nextPowerTable gpbft.PowerEntries) *certs.FinalityCertificate {
 	chainLen := rng.Intn(23) + 1
 	chain, err := gpbft.NewChain(*base)
 	require.NoError(t, err)
@@ -26,7 +36,7 @@ func makeCertificate(t *testing.T, rng *rand.Rand, tsg *sim.TipSetGenerator, bac
 		chain = chain.Extend(tsg.Sample())
 	}
 
-	j, err := sim.MakeJustification(backend, testNetworkName, chain, instance, powerTable, nextPowerTable)
+	j, err := sim.MakeJustification(backend, TestNetworkName, chain, instance, powerTable, nextPowerTable)
 	require.NoError(t, err)
 
 	c, err := certs.NewFinalityCertificate(certs.MakePowerTableDiff(powerTable, nextPowerTable), j)
@@ -35,7 +45,7 @@ func makeCertificate(t *testing.T, rng *rand.Rand, tsg *sim.TipSetGenerator, bac
 	return c
 }
 
-func randomPowerTable(backend signing.Backend, entries int64) gpbft.PowerEntries {
+func RandomPowerTable(backend signing.Backend, entries int64) gpbft.PowerEntries {
 	powerTable := make(gpbft.PowerEntries, entries)
 
 	for i := range powerTable {
@@ -52,8 +62,8 @@ func randomPowerTable(backend signing.Backend, entries int64) gpbft.PowerEntries
 	return powerTable
 }
 
-func makeCertificates(t *testing.T, rng *rand.Rand, backend signing.Backend) ([]*certs.FinalityCertificate, gpbft.PowerEntries) {
-	powerTable := randomPowerTable(backend, 10)
+func MakeCertificates(t *testing.T, rng *rand.Rand, backend signing.Backend) ([]*certs.FinalityCertificate, gpbft.PowerEntries) {
+	powerTable := RandomPowerTable(backend, 10)
 	tableCid, err := certs.MakePowerTableCID(powerTable)
 	require.NoError(t, err)
 
@@ -62,7 +72,7 @@ func makeCertificates(t *testing.T, rng *rand.Rand, backend signing.Backend) ([]
 
 	certificates := make([]*certs.FinalityCertificate, 1000)
 	for i := range certificates {
-		cert := makeCertificate(t, rng, tsg, backend, base, uint64(i), powerTable, powerTable)
+		cert := MakeCertificate(t, rng, tsg, backend, base, uint64(i), powerTable, powerTable)
 		base = cert.ECChain.Head()
 		certificates[i] = cert
 	}

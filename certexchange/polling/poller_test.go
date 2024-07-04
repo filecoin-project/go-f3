@@ -20,7 +20,7 @@ func TestPoller(t *testing.T) {
 	backend := signing.NewFakeBackend()
 	rng := rand.New(rand.NewSource(1234))
 
-	certificates, powerTable := makeCertificates(t, rng, backend)
+	certificates, powerTable := polling.MakeCertificates(t, rng, backend)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -46,10 +46,10 @@ func TestPoller(t *testing.T) {
 	}
 
 	server := certexchange.Server{
-		NetworkName: testNetworkName,
+		NetworkName: polling.TestNetworkName,
 		Host:        serverHost,
 		Store:       serverCs,
-		Log:         log,
+		Log:         polling.TestLog,
 	}
 
 	require.NoError(t, server.Start())
@@ -61,8 +61,8 @@ func TestPoller(t *testing.T) {
 
 	client := certexchange.Client{
 		Host:        clientHost,
-		NetworkName: testNetworkName,
-		Log:         log,
+		NetworkName: polling.TestNetworkName,
+		Log:         polling.TestLog,
 	}
 
 	poller, err := polling.NewPoller(ctx, &client, clientCs, backend)

@@ -22,7 +22,7 @@ func TestSubscriber(t *testing.T) {
 	backend := signing.NewFakeBackend()
 	rng := rand.New(rand.NewSource(1234))
 
-	certificates, powerTable := makeCertificates(t, rng, backend)
+	certificates, powerTable := polling.MakeCertificates(t, rng, backend)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -42,10 +42,10 @@ func TestSubscriber(t *testing.T) {
 		require.NoError(t, err)
 
 		servers[i] = &certexchange.Server{
-			NetworkName: testNetworkName,
+			NetworkName: polling.TestNetworkName,
 			Host:        h,
 			Store:       cs,
-			Log:         log,
+			Log:         polling.TestLog,
 		}
 	}
 
@@ -62,8 +62,8 @@ func TestSubscriber(t *testing.T) {
 
 	client := certexchange.Client{
 		Host:        clientHost,
-		NetworkName: testNetworkName,
-		Log:         log,
+		NetworkName: polling.TestNetworkName,
+		Log:         polling.TestLog,
 	}
 
 	subscriber := polling.Subscriber{
@@ -85,6 +85,8 @@ func TestSubscriber(t *testing.T) {
 		require.NoError(t, s.Store.Put(ctx, certificates[0]))
 	}
 
+	polling.MockClock.Add(100 * time.Millisecond)
+
 	require.Eventually(t, func() bool {
 		return clientCs.Latest() != nil
 	}, time.Second, 10*time.Millisecond)
@@ -99,11 +101,12 @@ func TestSubscriber(t *testing.T) {
 	// Let the network run fine for a few rounds.
 	nextInstance := uint64(1)
 	for ; nextInstance < 10; nextInstance++ {
-		<-ticker.C
+		polling.MockClock.Add(100 * time.Millisecond)
 
 		require.Eventually(t, func() bool {
+			polling.MockClock.Add(10 * time.Millisecond)
 			return clientCs.Latest().GPBFTInstance == nextInstance-1
-		}, time.Second, 10*time.Millisecond)
+		}, time.Second, time.Millisecond)
 
 		for _, s := range liveServers {
 			require.NoError(t, s.Store.Put(ctx, certificates[nextInstance]))
@@ -112,11 +115,12 @@ func TestSubscriber(t *testing.T) {
 
 	// Then kill 20% of the network every three instances.
 	for ; len(liveServers) > 0; nextInstance++ {
-		<-ticker.C
+		polling.MockClock.Add(100 * time.Millisecond)
 
 		require.Eventually(t, func() bool {
+			polling.MockClock.Add(10 * time.Millisecond)
 			return clientCs.Latest().GPBFTInstance == uint64(nextInstance)-1
-		}, 10*time.Second, 10*time.Millisecond)
+		}, time.Second, time.Millisecond)
 
 		// Every 4 instances, stop updating 20% of the network.
 		if nextInstance%4 == 0 {
