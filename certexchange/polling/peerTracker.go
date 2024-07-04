@@ -209,17 +209,13 @@ func (t *peerTracker) makeActive(p peer.ID) {
 
 func (t *peerTracker) peerSeen(p peer.ID) {
 	if _, ok := t.peers[p]; !ok {
-		t.peers[p] = &peerRecord{state: peerActive}
+		t.peers[p] = &peerRecord{state: peerActive, lastSeen: clk.Now()}
 		t.active = append(t.active, p)
 	}
 }
 
-// Suggest a number of peers from which to request new certificates based on their historical
-// record.
-//
-// TODO: Add a multiplier if we're not making progress.
-func (t *peerTracker) suggestPeers() []peer.ID {
-	// Advance the round and move peers from backoff to active, if necessary.
+// Advance the round and move peers from backoff to active, if necessary.
+func (t *peerTracker) advanceRound() {
 	for t.backoff.Len() > 0 {
 		r := t.backoff[len(t.backoff)-1]
 		if r.delayUntil > t.currentRound {
@@ -229,6 +225,12 @@ func (t *peerTracker) suggestPeers() []peer.ID {
 		t.makeActive(r.peer)
 	}
 	t.currentRound++
+}
+
+// Suggest a number of peers from which to request new certificates based on their historical
+// record.
+func (t *peerTracker) suggestPeers() []peer.ID {
+	t.advanceRound()
 
 	// Sort from best to worst.
 	slices.SortFunc(t.active, func(a, b peer.ID) int {
