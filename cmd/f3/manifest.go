@@ -1,10 +1,17 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"os"
+	"time"
 
 	"github.com/filecoin-project/go-f3/manifest"
+	"github.com/libp2p/go-libp2p"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 )
@@ -13,6 +20,7 @@ var manifestCmd = cli.Command{
 	Name: "manifest",
 	Subcommands: []*cli.Command{
 		&manifestGenCmd,
+		&manifestServeCmd,
 	},
 }
 var manifestGenCmd = cli.Command{
@@ -43,6 +51,155 @@ var manifestGenCmd = cli.Command{
 			return xerrors.Errorf("closing file: %w", err)
 		}
 
+		return nil
+	},
+}
+
+var manifestServeCmd = cli.Command{
+	Name:  "serve",
+	Usage: "serves f3 dynamic manifest server by periodically checking a given manifest file for change",
+	Flags: []cli.Flag{
+		&cli.PathFlag{
+			Name:  "identity",
+			Usage: "The path to protobuf encoded libp2p identity of the server.",
+		},
+		&cli.PathFlag{
+			Name:     "manifest",
+			Usage:    "The path to the manifest file to monitor for change and serve.",
+			Required: true,
+		},
+		&cli.StringSliceFlag{
+			Name:  "listenAddr",
+			Usage: "The libp2p listen addrs.",
+			Value: cli.NewStringSlice(
+				"/ip4/0.0.0.0/tcp/45001",
+				"/ip4/0.0.0.0/udp/45001/quic-v1",
+				"/ip4/0.0.0.0/udp/45001/quic-v1/webtransport",
+				"/ip6/::/tcp/45001",
+				"/ip6/::/udp/45001/quic-v1",
+				"/ip6/::/udp/45001/quic-v1/webtransport",
+			),
+		},
+		&cli.StringSliceFlag{
+			Name:  "bootstrapAddr",
+			Usage: "The list of bootstrap addrs.",
+		},
+		&cli.DurationFlag{
+			Name:  "checkInterval",
+			Usage: "The interval at which to check the manifest file for change.",
+			Value: 5 * time.Second,
+		},
+		&cli.DurationFlag{
+			Name:  "publishInterval",
+			Usage: "The interval at which manifest is published on pubsub.",
+			Value: 20 * time.Second,
+		},
+	},
+
+	Action: func(c *cli.Context) error {
+		var id crypto.PrivKey
+		if c.IsSet("identity") {
+			enId, err := os.ReadFile(c.String("identity"))
+			if err != nil {
+				return xerrors.Errorf("reading libp2p identity file: %w", err)
+			}
+			id, err = crypto.UnmarshalPrivateKey(enId)
+			if err != nil {
+				return xerrors.Errorf("unmarshalling libp2p identity: %w", err)
+			}
+		} else {
+			_, _ = fmt.Fprintln(c.App.Writer, "No lbp2p identity set; using random identity.")
+			var err error
+			id, _, err = crypto.GenerateEd25519Key(rand.Reader)
+			if err != nil {
+				return xerrors.Errorf("generating random libp2p identity: %w", err)
+			}
+		}
+
+		peerID, err := peer.IDFromPrivateKey(id)
+		if err != nil {
+			return xerrors.Errorf("getting peer ID from libp2p identity: %w", err)
+		}
+		_, _ = fmt.Fprintf(c.App.Writer, "Manifest server peer ID: %s\n", peerID)
+
+		host, err := libp2p.New(
+			libp2p.Identity(id),
+			libp2p.ListenAddrStrings(c.StringSlice("listenAddr")...),
+			libp2p.UserAgent("f3-dynamic-manifest-server"),
+		)
+		if err != nil {
+			return xerrors.Errorf("initializing libp2p host: %w", err)
+		}
+
+		// Connect to all bootstrap addresses once. This should be sufficient to build
+		// the pubsub mesh, if not then we need to periodically re-connect and/or pull in
+		// the Lotus bootstrapping, which includes DHT connectivity.
+		//
+		// For now, simply connect to bootstrappers and test if it suffices before doing
+		// extra work.
+		for _, bootstrapper := range c.StringSlice("bootstrapAddr") {
+			addr, err := peer.AddrInfoFromString(bootstrapper)
+			if err != nil {
+				return xerrors.Errorf("parsing bootstrap address %s: %w", bootstrapper, err)
+			}
+			if err := host.Connect(c.Context, *addr); err != nil {
+				return xerrors.Errorf("connecting to bootstrapper %s: %w", bootstrapper, err)
+			}
+		}
+
+		manifestPath := c.String("manifest")
+		loadManifestAndVersion := func() (manifest.Manifest, manifest.Version, error) {
+
+			m, err := loadManifest(manifestPath)
+			if err != nil {
+				return manifest.Manifest{}, "", xerrors.Errorf("loading manifest: %w", err)
+			}
+			version, err := m.Version()
+			if err != nil {
+				return manifest.Manifest{}, "", xerrors.Errorf("versioning manifest: %w", err)
+			}
+			return m, version, nil
+		}
+
+		initManifest, manifestVersion, err := loadManifestAndVersion()
+		if err != nil {
+			return xerrors.Errorf("loading initial manifest: %w", err)
+		}
+
+		pubSub, err := pubsub.NewGossipSub(c.Context, host, pubsub.WithPeerExchange(true))
+		if err != nil {
+			return xerrors.Errorf("initialzing pubsub: %w", err)
+		}
+
+		sender, err := manifest.NewManifestSender(host, pubSub, initManifest, c.Duration("publishInterval"))
+		if err != nil {
+			return xerrors.Errorf("initialzing manifest sender: %w", err)
+		}
+		_, _ = fmt.Fprintf(c.App.Writer, "Started manifest sender with version: %s\n", manifestVersion)
+
+		go func() {
+			sender.Start(c.Context)
+		}()
+		defer func() {
+			sender.Stop()
+			_ = host.Close()
+		}()
+
+		checkTicker := time.NewTicker(c.Duration("checkInterval"))
+		for c.Context.Err() == nil {
+			select {
+			case <-c.Context.Done():
+				return c.Context.Err()
+			case <-checkTicker.C:
+				if nextManifest, nextManifestVersion, err := loadManifestAndVersion(); err != nil {
+					_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed reload manifest: %v\n", err)
+				} else if manifestVersion != nextManifestVersion {
+					_, _ = fmt.Fprintf(c.App.Writer, "Loaded manifest with version: %s\n", nextManifestVersion)
+					sender.UpdateManifest(nextManifest)
+					manifestVersion = nextManifestVersion
+				}
+			}
+		}
 		return nil
 	},
 }
