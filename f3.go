@@ -107,7 +107,7 @@ func (mc *client) Logger() Logger {
 // New creates and setups f3 with libp2p
 // The context is used for initialization not runtime.
 // signingMarshaller can be nil for default SigningMarshaler
-func New(ctx context.Context, manifest manifest.ManifestProvider, ds datastore.Datastore, h host.Host, manifestServer peer.ID,
+func New(ctx context.Context, manifest manifest.ManifestProvider, ds datastore.Datastore, h host.Host,
 	ps *pubsub.PubSub, verif gpbft.Verifier, ec ec.Backend, log Logger, signingMarshaller gpbft.SigningMarshaler) (*F3, error) {
 	ds = namespace.Wrap(ds, manifest.Manifest().DatastorePrefix())
 	loggerWithSkip := log

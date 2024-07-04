@@ -493,7 +493,7 @@ func (e *testEnv) newF3Instance(ctx context.Context, id int, manifestServer peer
 
 	e.signingBackend.Allow(int(id))
 
-	module, err := f3.New(ctx, mprovider, ds, h, manifestServer, ps,
+	module, err := f3.New(ctx, mprovider, ds, h, ps,
 		e.signingBackend, e.ec, log, nil)
 	if err != nil {
 		return nil, xerrors.Errorf("creating module: %w", err)
