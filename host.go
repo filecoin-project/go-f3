@@ -177,6 +177,14 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 	if err != nil {
 		return nil, nil, xerrors.Errorf("getting head TS: %w", err)
 	}
+	if time.Since(headTs.Timestamp()) < h.manifest.Manifest().ECPeriod {
+		// less than ECPeriod since production of the head
+		// agreement is unlikely
+		headTs, err = h.client.ec.GetParent(h.runningCtx, headTs)
+		if err != nil {
+			return nil, nil, xerrors.Errorf("getting the parent of head TS: %w", err)
+		}
+	}
 
 	collectedChain, err := h.collectChain(baseTs, headTs)
 	if err != nil {
