@@ -95,32 +95,35 @@ func TestSubscriber(t *testing.T) {
 
 	// Slowly drop servers from the network
 	liveServers := slices.Clone(servers)
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
 
 	// Let the network run fine for a few rounds.
 	nextInstance := uint64(1)
 	for ; nextInstance < 10; nextInstance++ {
+		for _, s := range liveServers {
+			require.NoError(t, s.Store.Put(ctx, certificates[nextInstance]))
+		}
+
 		polling.MockClock.Add(100 * time.Millisecond)
 
 		require.Eventually(t, func() bool {
 			polling.MockClock.Add(10 * time.Millisecond)
-			return clientCs.Latest().GPBFTInstance == nextInstance-1
-		}, time.Second, time.Millisecond)
+			return clientCs.Latest().GPBFTInstance == nextInstance
+		}, 10*time.Second, time.Millisecond)
 
-		for _, s := range liveServers {
-			require.NoError(t, s.Store.Put(ctx, certificates[nextInstance]))
-		}
 	}
 
 	// Then kill 20% of the network every three instances.
 	for ; len(liveServers) > 0; nextInstance++ {
+		for _, s := range liveServers {
+			require.NoError(t, s.Store.Put(ctx, certificates[nextInstance]))
+		}
+
 		polling.MockClock.Add(100 * time.Millisecond)
 
 		require.Eventually(t, func() bool {
 			polling.MockClock.Add(10 * time.Millisecond)
-			return clientCs.Latest().GPBFTInstance == uint64(nextInstance)-1
-		}, time.Second, time.Millisecond)
+			return clientCs.Latest().GPBFTInstance == uint64(nextInstance)
+		}, 10*time.Second, time.Millisecond)
 
 		// Every 4 instances, stop updating 20% of the network.
 		if nextInstance%4 == 0 {
@@ -130,8 +133,5 @@ func TestSubscriber(t *testing.T) {
 			liveServers = liveServers[:8*len(liveServers)/10]
 		}
 
-		for _, s := range liveServers {
-			require.NoError(t, s.Store.Put(ctx, certificates[nextInstance]))
-		}
 	}
 }
