@@ -17,7 +17,7 @@ type ManifestSender struct {
 	h             host.Host
 	pubsub        *pubsub.PubSub
 	manifestTopic *pubsub.Topic
-	period        time.Duration
+	interval      time.Duration
 
 	// lock to that guards the update of the manifest.
 	lk       sync.RWMutex
@@ -26,13 +26,13 @@ type ManifestSender struct {
 	cancel context.CancelFunc
 }
 
-func NewManifestSender(h host.Host, pubsub *pubsub.PubSub, firstManifest Manifest, publicationPeriod time.Duration) (*ManifestSender, error) {
+func NewManifestSender(h host.Host, pubsub *pubsub.PubSub, firstManifest Manifest, pubishInterval time.Duration) (*ManifestSender, error) {
 	topicName := ManifestPubSubTopicName
 	m := &ManifestSender{
 		manifest: firstManifest,
 		h:        h,
 		pubsub:   pubsub,
-		period:   publicationPeriod,
+		interval: pubishInterval,
 	}
 
 	var err error
@@ -59,7 +59,7 @@ func (m *ManifestSender) Start(ctx context.Context) {
 	}
 	ctx, m.cancel = context.WithCancel(ctx)
 
-	ticker := time.NewTicker(m.period)
+	ticker := time.NewTicker(m.interval)
 	for {
 		select {
 		case <-ticker.C:

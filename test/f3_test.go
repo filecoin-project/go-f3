@@ -173,8 +173,9 @@ var base manifest.Manifest = manifest.Manifest{
 		ECFinality:       10,
 		CommiteeLookback: 5,
 		// increased delay and period to accelerate test times.
-		ECDelay:  500 * time.Millisecond,
-		ECPeriod: 500 * time.Millisecond,
+		ECPeriod:                 500 * time.Millisecond,
+		ECDelayMultiplier:        1.0,
+		BaseDecisionBackoffTable: []float64{1.3, 1.69, 2.2, 2.86, 3.71, 4.83, 6.27, 8.16, 10.6, 13.79, 15.},
 	},
 }
 
@@ -417,6 +418,9 @@ func (e *testEnv) monitorNodesError(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case err := <-n.errCh:
+				if ctx.Err() != nil {
+					return
+				}
 				require.NoError(e.t, err)
 			}
 		}(n)
