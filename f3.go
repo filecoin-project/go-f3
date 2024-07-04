@@ -376,7 +376,7 @@ func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCerti
 
 // Run start the module. It will exit when context is cancelled.
 // Or if there is an error from the message handling routines.
-func (m *F3) Run(ctx context.Context) error {
+func (m *F3) Run(ctx context.Context) (_err error) {
 	ctx, m.cancelCtx = context.WithCancel(ctx)
 	defer m.cancelCtx()
 
@@ -392,18 +392,17 @@ func (m *F3) Run(ctx context.Context) error {
 	go m.client.manifest.Run(ctx, manifestErrCh)
 
 	// teardown pubsub on shutdown
-	var err error
 	defer func() {
 		teardownErr := m.teardownPubsub(m.Manifest())
-		err = multierr.Append(err, teardownErr)
+		_err = multierr.Append(_err, teardownErr)
 	}()
 
 	select {
 	case <-ctx.Done():
 		return nil
-	case err = <-runnerErrCh:
+	case err := <-runnerErrCh:
 		return err
-	case err = <-manifestErrCh:
+	case err := <-manifestErrCh:
 		return err
 	}
 }
