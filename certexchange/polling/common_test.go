@@ -18,7 +18,7 @@ import (
 const TestNetworkName gpbft.NetworkName = "testnet"
 
 // The logger used in tests.
-var TestLog = logging.Logger("certexchange-poller-test")
+var TestLog = logging.Logger("f3-testing")
 
 // The clock used in tests. Time doesn't pass in tests unless you add time to this clock.
 var MockClock = clock.NewMock()

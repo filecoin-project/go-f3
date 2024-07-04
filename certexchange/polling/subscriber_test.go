@@ -103,13 +103,14 @@ func TestSubscriber(t *testing.T) {
 			require.NoError(t, s.Store.Put(ctx, certificates[nextInstance]))
 		}
 
-		polling.MockClock.Add(100 * time.Millisecond)
-
+		i := 0
 		require.Eventually(t, func() bool {
+			i += 10
 			polling.MockClock.Add(10 * time.Millisecond)
 			return clientCs.Latest().GPBFTInstance == nextInstance
 		}, 10*time.Second, time.Millisecond)
 
+		polling.MockClock.Add(time.Duration(max(0, 100-i)) * time.Millisecond)
 	}
 
 	// Then kill 20% of the network every three instances.
@@ -118,12 +119,14 @@ func TestSubscriber(t *testing.T) {
 			require.NoError(t, s.Store.Put(ctx, certificates[nextInstance]))
 		}
 
-		polling.MockClock.Add(100 * time.Millisecond)
-
+		i := 0
 		require.Eventually(t, func() bool {
+			i += 10
 			polling.MockClock.Add(10 * time.Millisecond)
 			return clientCs.Latest().GPBFTInstance == uint64(nextInstance)
 		}, 10*time.Second, time.Millisecond)
+
+		polling.MockClock.Add(time.Duration(max(0, 100-i)) * time.Millisecond)
 
 		// Every 4 instances, stop updating 20% of the network.
 		if nextInstance%4 == 0 {
