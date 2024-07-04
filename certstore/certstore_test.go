@@ -223,6 +223,42 @@ func TestPersistency(t *testing.T) {
 	require.Equal(t, cs1.Latest().GPBFTInstance, cs2.Latest().GPBFTInstance)
 }
 
+func TestClear(t *testing.T) {
+	ctx := context.Background()
+	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
+
+	pt, ptCid := testPowerTable(10)
+	supp := gpbft.SupplementalData{PowerTable: ptCid}
+	cs, err := CreateStore(ctx, ds, 1, pt)
+	require.NoError(t, err)
+
+	cert := &certs.FinalityCertificate{GPBFTInstance: 1, SupplementalData: supp}
+	err = cs.Put(ctx, cert)
+	require.NoError(t, err)
+
+	latest := cs.Latest()
+	require.NotNil(t, latest)
+	require.Equal(t, uint64(1), latest.GPBFTInstance)
+
+	cert = &certs.FinalityCertificate{GPBFTInstance: 2, SupplementalData: supp}
+	err = cs.Put(ctx, cert)
+	require.NoError(t, err)
+
+	latest = cs.Latest()
+	require.NotNil(t, latest)
+	require.Equal(t, uint64(2), latest.GPBFTInstance)
+
+	err = cs.Delete(ctx, 1)
+	require.NoError(t, err)
+	_, err = cs.Get(ctx, 1)
+	require.Error(t, err, ErrCertNotFound)
+
+	err = cs.DeleteAll(ctx)
+	require.NoError(t, err)
+	_, err = OpenStore(ctx, ds)
+	require.Error(t, err)
+}
+
 func TestCreateOpen(t *testing.T) {
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())

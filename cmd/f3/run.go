@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"math/big"
 	"os"
 
 	"github.com/filecoin-project/go-f3"
+	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/filecoin-project/go-f3/sim/signing"
 	leveldb "github.com/ipfs/go-ds-leveldb"
 	logging "github.com/ipfs/go-log/v2"
@@ -33,6 +36,11 @@ var runCmd = cli.Command{
 		&cli.Uint64Flag{
 			Name:  "instance",
 			Value: 0,
+		},
+		&cli.IntFlag{
+			Name:  "N",
+			Usage: "number of participant. Should be the same in all nodes as it influences the initial power table",
+			Value: 2,
 		},
 	},
 	Action: func(c *cli.Context) error {
@@ -73,18 +81,47 @@ var runCmd = cli.Command{
 			return xerrors.Errorf("setting log level: %w", err)
 		}
 
+		// setup initial power table for number of participants
+		initialPowerTable := []gpbft.PowerEntry{}
+		fsig := signing.NewFakeBackend()
+		for i := 0; i < c.Int("N"); i++ {
+			pubkey, _ := fsig.GenerateKey()
+
+			initialPowerTable = append(initialPowerTable, gpbft.PowerEntry{
+				ID:     gpbft.ActorID(i),
+				PubKey: pubkey,
+				Power:  big.NewInt(1000),
+			})
+		}
+
+		// if the manifest-server ID is passed in a flag,
+		// we setup the monitoring system
+		mFlag := c.String("manifest-server")
+		var manifestServer peer.ID
+		var mprovider manifest.ManifestProvider
+		if mFlag != "" {
+			manifestServer, err = peer.Decode(mFlag)
+			if err != nil {
+				return xerrors.Errorf("parsing manifest server ID: %w", err)
+			}
+			mprovider = manifest.NewDynamicManifestProvider(m, ps, nil, manifestServer)
+		} else {
+			mprovider = manifest.NewStaticManifestProvider(m)
+		}
+
 		signingBackend := &fakeSigner{*signing.NewFakeBackend()}
 		id := c.Uint64("id")
 		signingBackend.Allow(int(id))
 
-		ec := NewFakeEC(1, m)
+		ec := ec.NewFakeEC(1, m.BootstrapEpoch, m.ECPeriod, initialPowerTable, true)
 
-		module, err := f3.New(ctx, m, ds, h, ps,
+		module, err := f3.New(ctx, mprovider, ds, h, manifestServer, ps,
 			signingBackend, ec, log, nil)
 		if err != nil {
 			return xerrors.Errorf("creating module: %w", err)
 		}
 
+		mprovider.SetManifestChangeCallback(f3.ManifestChangeCallback(module))
 		go runMessageSubscription(ctx, module, gpbft.ActorID(id), signingBackend)
 
 		return module.Run(ctx)

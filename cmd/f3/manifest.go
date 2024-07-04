@@ -2,12 +2,9 @@ package main
 
 import (
 	"encoding/json"
-	"math/big"
 	"os"
 
-	"github.com/filecoin-project/go-f3"
-	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/sim/signing"
+	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 )
@@ -31,18 +28,7 @@ var manifestGenCmd = cli.Command{
 
 	Action: func(c *cli.Context) error {
 		path := c.String("manifest")
-		m := f3.LocalnetManifest()
-
-		fsig := signing.NewFakeBackend()
-		for i := 0; i < c.Int("N"); i++ {
-			pubkey, _ := fsig.GenerateKey()
-
-			m.InitialPowerTable = append(m.InitialPowerTable, gpbft.PowerEntry{
-				ID:     gpbft.ActorID(i),
-				PubKey: pubkey,
-				Power:  big.NewInt(1000),
-			})
-		}
+		m := manifest.LocalDevnetManifest()
 
 		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0666)
 		if err != nil {
@@ -61,22 +47,19 @@ var manifestGenCmd = cli.Command{
 	},
 }
 
-func getManifest(c *cli.Context) (f3.Manifest, error) {
+func getManifest(c *cli.Context) (manifest.Manifest, error) {
 	manifestPath := c.String("manifest")
 	return loadManifest(manifestPath)
 }
 
-func loadManifest(path string) (f3.Manifest, error) {
+func loadManifest(path string) (manifest.Manifest, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return f3.Manifest{}, xerrors.Errorf("opening %s to load manifest: %w", path, err)
+		return manifest.Manifest{}, xerrors.Errorf("opening %s to load manifest: %w", path, err)
 	}
 	defer f.Close()
-	var m f3.Manifest
+	var m manifest.Manifest
 
-	err = json.NewDecoder(f).Decode(&m)
-	if err != nil {
-		return f3.Manifest{}, xerrors.Errorf("decoding JSON: %w", err)
-	}
+	err = m.Unmarshal(f)
 	return m, err
 }
