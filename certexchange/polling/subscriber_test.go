@@ -81,60 +81,41 @@ func TestSubscriber(t *testing.T) {
 
 	require.NoError(t, mocknet.ConnectAllButSelf())
 
-	for _, s := range servers {
-		require.NoError(t, s.Store.Put(ctx, certificates[0]))
-	}
-
-	polling.MockClock.Add(100 * time.Millisecond)
-
-	require.Eventually(t, func() bool {
-		return clientCs.Latest() != nil
-	}, time.Second, 10*time.Millisecond)
-
-	require.Equal(t, uint64(0), clientCs.Latest().GPBFTInstance)
-
-	// Slowly drop servers from the network
 	liveServers := slices.Clone(servers)
-
-	// Let the network run fine for a few rounds.
-	nextInstance := uint64(1)
-	for ; nextInstance < 10; nextInstance++ {
+	for i := 0; len(liveServers) > 0; i++ {
 		for _, s := range liveServers {
-			require.NoError(t, s.Store.Put(ctx, certificates[nextInstance]))
+			require.NoError(t, s.Store.Put(ctx, certificates[i]))
 		}
 
-		i := 0
-		require.Eventually(t, func() bool {
-			i += 10
-			polling.MockClock.Add(10 * time.Millisecond)
-			return clientCs.Latest().GPBFTInstance == nextInstance
-		}, 10*time.Second, time.Millisecond)
+		if i < 10 {
+			// We put the first 10 certificates regularly and don't expect any
+			// variation in timing.
+			polling.MockClock.Add(100 * time.Millisecond)
+			require.Eventually(t, func() bool {
+				latest := clientCs.Latest()
+				return latest != nil && latest.GPBFTInstance == uint64(i)
+			}, 10*time.Second, time.Millisecond)
+		} else {
+			// After we settle for a bit, every 4 instances, stop updating 20% of the
+			// network. We now do expect some variation in timing so we can't just wait
+			// 100ms each time.
+			polling.MockClock.WaitForAllTimers()
 
-		polling.MockClock.Add(time.Duration(max(0, 100-i)) * time.Millisecond)
-	}
+			require.Eventually(t, func() bool {
+				latest := clientCs.Latest()
+				found := latest != nil && latest.GPBFTInstance == uint64(i)
+				if !found {
+					polling.MockClock.WaitForAllTimers()
+				}
+				return found
+			}, 10*time.Second, time.Millisecond)
 
-	// Then kill 20% of the network every three instances.
-	for ; len(liveServers) > 0; nextInstance++ {
-		for _, s := range liveServers {
-			require.NoError(t, s.Store.Put(ctx, certificates[nextInstance]))
+			if i%4 == 0 {
+				rand.Shuffle(len(liveServers), func(a, b int) {
+					liveServers[a], liveServers[b] = liveServers[b], liveServers[a]
+				})
+				liveServers = liveServers[:8*len(liveServers)/10]
+			}
 		}
-
-		i := 0
-		require.Eventually(t, func() bool {
-			i += 10
-			polling.MockClock.Add(10 * time.Millisecond)
-			return clientCs.Latest().GPBFTInstance == uint64(nextInstance)
-		}, 10*time.Second, time.Millisecond)
-
-		polling.MockClock.Add(time.Duration(max(0, 100-i)) * time.Millisecond)
-
-		// Every 4 instances, stop updating 20% of the network.
-		if nextInstance%4 == 0 {
-			rand.Shuffle(len(liveServers), func(a, b int) {
-				liveServers[a], liveServers[b] = liveServers[b], liveServers[a]
-			})
-			liveServers = liveServers[:8*len(liveServers)/10]
-		}
-
 	}
 }
