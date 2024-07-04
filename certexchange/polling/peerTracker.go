@@ -338,7 +338,7 @@ func (t *peerTracker) maybeGc() {
 // Advance the round and move peers from backoff to active, if necessary.
 func (t *peerTracker) advanceRound() {
 	for t.backoff.Len() > 0 {
-		r := t.backoff[len(t.backoff)-1]
+		r := t.backoff[0]
 		if r.delayUntil > t.currentRound {
 			break
 		}
