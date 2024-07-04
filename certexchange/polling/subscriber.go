@@ -139,18 +139,20 @@ func (s *Subscriber) poll(ctx context.Context) (uint64, error) {
 		if err != nil {
 			return s.poller.NextInstance - start, err
 		}
-		s.Log.Debugf("polled %s for instance %d, got %s", peer, s.poller.NextInstance, res)
+		s.Log.Debugf("polled %s for instance %d, got %+v", peer, s.poller.NextInstance, res)
 		// If we manage to advance, all old "hits" are actually misses.
 		if oldInstance < s.poller.NextInstance {
 			misses = append(misses, hits...)
 			hits = hits[:0]
 		}
 
-		switch res {
+		switch res.Status {
 		case PollMiss:
 			misses = append(misses, peer)
+			s.peerTracker.updateLatency(peer, res.Latency)
 		case PollHit:
 			hits = append(hits, peer)
+			s.peerTracker.updateLatency(peer, res.Latency)
 		case PollFailed:
 			s.peerTracker.recordFailure(peer)
 		case PollIllegal:

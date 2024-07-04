@@ -18,8 +18,8 @@ const _PollResult_name = "PollMissPollHitPollFailedPollIllegal"
 
 var _PollResult_index = [...]uint8{0, 8, 15, 25, 36}
 
-func (i PollResult) String() string {
-	if i < 0 || i >= PollResult(len(_PollResult_index)-1) {
+func (i PollStatus) String() string {
+	if i < 0 || i >= PollStatus(len(_PollResult_index)-1) {
 		return "PollResult(" + strconv.FormatInt(int64(i), 10) + ")"
 	}
 	return _PollResult_name[_PollResult_index[i]:_PollResult_index[i+1]]

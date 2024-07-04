@@ -83,7 +83,7 @@ func TestPoller(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		res, err := poller.Poll(ctx, serverHost.ID())
 		require.NoError(t, err)
-		require.Equal(t, polling.PollHit, res)
+		require.Equal(t, polling.PollHit, res.Status)
 		require.Equal(t, uint64(certificatesAdded), poller.NextInstance)
 	}
 
@@ -93,7 +93,7 @@ func TestPoller(t *testing.T) {
 
 		res, err := poller.Poll(ctx, serverHost.ID())
 		require.NoError(t, err)
-		require.Equal(t, polling.PollMiss, res)
+		require.Equal(t, polling.PollMiss, res.Status)
 	}
 
 	// Add that cert to the server.
@@ -104,7 +104,7 @@ func TestPoller(t *testing.T) {
 	{
 		res, err := poller.Poll(ctx, serverHost.ID())
 		require.NoError(t, err)
-		require.Equal(t, polling.PollHit, res)
+		require.Equal(t, polling.PollHit, res.Status)
 	}
 
 	// Add more than the request maximum (up till the last cert)
@@ -116,7 +116,7 @@ func TestPoller(t *testing.T) {
 	{
 		res, err := poller.Poll(ctx, serverHost.ID())
 		require.NoError(t, err)
-		require.Equal(t, polling.PollHit, res)
+		require.Equal(t, polling.PollHit, res.Status)
 		require.Equal(t, uint64(certificatesAdded), poller.NextInstance)
 	}
 
@@ -128,7 +128,7 @@ func TestPoller(t *testing.T) {
 
 		res, err := poller.Poll(ctx, serverHost.ID())
 		require.NoError(t, err)
-		require.Equal(t, polling.PollIllegal, res)
+		require.Equal(t, polling.PollIllegal, res.Status)
 
 		// And we don't store certificates from them!
 		require.Equal(t, uint64(certificatesAdded), poller.NextInstance)
@@ -142,6 +142,6 @@ func TestPoller(t *testing.T) {
 	{
 		res, err := poller.Poll(ctx, serverHost.ID())
 		require.NoError(t, err)
-		require.Equal(t, polling.PollFailed, res)
+		require.Equal(t, polling.PollFailed, res.Status)
 	}
 }

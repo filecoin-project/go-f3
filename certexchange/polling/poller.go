@@ -3,6 +3,7 @@ package polling
 
 import (
 	"context"
+	"time"
 
 	"github.com/filecoin-project/go-f3/certexchange"
 	"github.com/filecoin-project/go-f3/certs"
@@ -40,16 +41,23 @@ func NewPoller(ctx context.Context, client *certexchange.Client, store *certstor
 	}, nil
 }
 
-type PollResult int
+type PollResult struct {
+	Status   PollStatus
+	Progress uint64
+	Latency  time.Duration
+	Error    error
+}
+
+type PollStatus int
 
 const (
-	PollMiss PollResult = iota
+	PollMiss PollStatus = iota
 	PollHit
 	PollFailed
 	PollIllegal
 )
 
-func (p PollResult) GoString() string {
+func (p PollStatus) GoString() string {
 	return p.String()
 }
 
@@ -82,28 +90,32 @@ func (p *Poller) CatchUp(ctx context.Context) (uint64, error) {
 //
 // 1. A PollResult indicating the outcome: miss, hit, failed, illegal.
 // 2. An error if something went wrong internally (e.g., the certificate store returned an error).
-func (p *Poller) Poll(ctx context.Context, peer peer.ID) (PollResult, error) {
-	var result PollResult
+func (p *Poller) Poll(ctx context.Context, peer peer.ID) (*PollResult, error) {
+	res := new(PollResult)
 	for {
 		// Requests take time, so always try to catch-up between requests in case there has
 		// been some "local" action from the GPBFT instance.
 		if _, err := p.CatchUp(ctx); err != nil {
-			return PollFailed, err
+			return nil, err
 		}
 
+		start := clk.Now()
 		resp, ch, err := p.Request(ctx, peer, &certexchange.Request{
 			FirstInstance:     p.NextInstance,
 			Limit:             maxRequestLength,
 			IncludePowerTable: false,
 		})
+		res.Latency = clk.Since(start)
 		if err != nil {
-			return PollFailed, nil
+			res.Status = PollFailed
+			res.Error = err
+			return res, nil
 		}
 
 		// If they're caught up, record it as a hit. Otherwise, if they have nothing
 		// to give us, move on.
 		if resp.PendingInstance >= p.NextInstance {
-			result = PollHit
+			res.Status = PollHit
 		}
 
 		received := 0
@@ -114,24 +126,27 @@ func (p *Poller) Poll(ctx context.Context, peer peer.ID) (PollResult, error) {
 				*cert,
 			)
 			if err != nil {
-				return PollIllegal, nil
+				res.Status = PollIllegal
+				return res, nil
 			}
 			if err := p.Store.Put(ctx, cert); err != nil {
-				return PollHit, err
+				return nil, err
 			}
 			p.NextInstance = next
 			p.PowerTable = pt
 			received++
 		}
+		res.Progress += uint64(received)
 
 		// Try again if they're claiming to have more instances (and gave me at
 		// least one).
 		if resp.PendingInstance <= p.NextInstance {
-			return result, nil
+			return res, nil
 		} else if received == 0 {
+			res.Status = PollFailed
 			// If they give me no certificates but claim to have more, treat this as a
 			// failure (could be a connection failure, etc).
-			return PollFailed, nil
+			return res, nil
 		}
 
 	}

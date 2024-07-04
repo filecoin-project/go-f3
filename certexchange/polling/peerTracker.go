@@ -26,6 +26,9 @@ const (
 	gcHighWater      = 10000 // GC the oldest peers when we have 10k
 	gcLowWater       = 1000  // GC down to 1000 peers
 	gcFailureCuttoff = 3     // Ignore failure counts below N when garbage collecting.
+
+	// EWMA alpha for latency tracking (0-1, smaller numbers favor newer readings)
+	latencyAlpha = 0.7
 )
 
 type peerState int
@@ -40,10 +43,8 @@ const (
 // TODO: Track latency and connectedness.
 type peerRecord struct {
 	id peer.ID
-
 	// Number of sequential failures since the last successful request.
 	sequentialFailures int
-
 	// Sliding windows of hits/misses (0-3 each). If either would exceed 3, we subtract 1 from
 	// both (where 0 is the floor).
 	//
@@ -51,10 +52,9 @@ type peerRecord struct {
 	// - We don't use a simple weighted moving average because that doesn't track how "sure" we
 	//   are of the measurement.
 	hits, misses int
-
-	state peerState
-
-	lastSeen time.Time
+	state        peerState
+	lastSeen     time.Time
+	latency      time.Duration
 }
 
 type backoffHeap []*backoffRecord
@@ -87,6 +87,13 @@ func (r *peerRecord) Cmp(other *peerRecord) int {
 
 	if c := cmp.Compare(rateA, rateB); c != 0 {
 		return c
+	}
+
+	// If we have latency measurements for both, prefer the peer with lower latency.
+	if r.latency > 0 && other.latency > 0 {
+		if c := cmp.Compare(other.latency, r.latency); c != 0 {
+			return c
+		}
 	}
 	if c := cmp.Compare(countA, countB); c != 0 {
 		return c
@@ -142,6 +149,14 @@ func (r *peerRecord) recordFailure() int {
 	return delay
 }
 
+func (r *peerRecord) updateLatency(d time.Duration) {
+	if r.latency > 0 {
+		r.latency += time.Duration(latencyAlpha * float64(d-r.latency))
+	} else {
+		r.latency = d
+	}
+}
+
 func (r *peerRecord) recordHit() {
 	r.sequentialFailures = 0
 	r.lastSeen = time.Now()
@@ -188,6 +203,10 @@ func (t *peerTracker) getOrCreate(p peer.ID) *peerRecord {
 		t.peers[p] = r
 	}
 	return r
+}
+
+func (t *peerTracker) updateLatency(p peer.ID, d time.Duration) {
+	t.getOrCreate(p).updateLatency(d)
 }
 
 func (t *peerTracker) recordInvalid(p peer.ID) {
