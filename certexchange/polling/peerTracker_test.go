@@ -136,19 +136,50 @@ func TestPeerTracker(t *testing.T) {
 
 	// Now ensure we select that peer. It should be first because it's the best.
 	pt.recordHit(peers[0])
+	pt.recordHit(peers[0])
+
+	pt.recordHit(peers[1])
+	pt.recordMiss(peers[1]) // needs to be worse than peer 1
+
 	require.Equal(t, pt.suggestPeers()[0], peers[0])
 
 	// Now check to make sure we backoff that peer.
-	pt.recordFailure(peers[0])
-	require.NotContains(t, pt.suggestPeers(), peers[0])
-	// Should only last one round the first time.
-	require.Equal(t, pt.suggestPeers()[0], peers[0])
+	{
+		pt.recordFailure(peers[0])
+		pt.recordMiss(peers[1])
+		suggested := pt.suggestPeers()
+		require.Equal(t, 1, pt.backoff.Len())
+		require.NotContains(t, suggested, peers[0])
+		require.Equal(t, suggested[0], peers[1])
+
+		// Peer 0 should be back on-top after one round absent.
+		suggested = pt.suggestPeers()
+		require.Empty(t, pt.backoff)
+		require.Equal(t, suggested[0], peers[0])
+	}
 
 	// Should last two rounds the second time (exponential).
-	pt.recordFailure(peers[0])
-	require.NotContains(t, pt.suggestPeers(), peers[0])
-	require.NotContains(t, pt.suggestPeers(), peers[0])
-	require.Equal(t, pt.suggestPeers()[0], peers[0])
+
+	{
+		pt.recordFailure(peers[0])
+		pt.recordFailure(peers[1])
+
+		suggested := pt.suggestPeers()
+		require.Equal(t, 2, pt.backoff.Len())
+		require.NotContains(t, suggested, peers[0])
+		require.NotContains(t, suggested, peers[1])
+
+		suggested = pt.suggestPeers()
+		require.Equal(t, 1, pt.backoff.Len())
+		require.Contains(t, suggested, peers[1])
+		require.NotContains(t, suggested, peers[0])
+
+		suggested = pt.suggestPeers()
+		require.Len(t, pt.backoff, 0)
+		require.Contains(t, pt.active, peers[0])
+		require.Contains(t, suggested, peers[0])
+		require.Contains(t, suggested, peers[1])
+	}
 
 	// Then four rounds.
 	pt.recordFailure(peers[0])
