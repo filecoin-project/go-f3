@@ -18,10 +18,12 @@ import (
 var (
 	// Default configuration for the EC Backend
 	DefaultEcConfig = &EcConfig{
-		ECFinality:       900,
-		CommiteeLookback: 5,
-		ECDelay:          60 * time.Second,
-		ECPeriod:         30 * time.Second,
+		ECFinality:        900,
+		CommiteeLookback:  5,
+		ECPeriod:          30 * time.Second,
+		ECDelayMultiplier: 2.,
+		// MaxBackoff is 15min given default params
+		BaseDecisionBackoffTable: []float64{1.3, 1.69, 2.2, 2.86, 3.71, 4.83, 6.27, 7.5},
 	}
 
 	DefaultGpbftConfig = &GpbftConfig{
@@ -60,12 +62,16 @@ type GpbftConfig struct {
 }
 
 type EcConfig struct {
-	ECFinality int64
-	// The delay after a tipset is produced before we attempt to finalize it.
-	ECDelay time.Duration
 	// The delay between tipsets.
-	ECPeriod         time.Duration
-	CommiteeLookback uint64
+	ECPeriod time.Duration
+	// Number of epochs required to reach EC defined fianlity
+	ECFinality int64
+	// The multiplier on top of the ECPeriod of the time we will wait before starting a new instance,
+	// referencing the timestampt of the latest finalized tipset.
+	ECDelayMultiplier float64
+	// Table of incremental multipliers to backoff in units of ECDelay in case of base decisions
+	BaseDecisionBackoffTable []float64
+	CommiteeLookback         uint64
 }
 
 // Manifest identifies the specific configuration for

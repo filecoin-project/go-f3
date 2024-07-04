@@ -320,36 +320,29 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 	h.log.Infof("got decision at instance %d, finalized head at epoch: %d",
 		decision.Vote.Instance, decision.Vote.Value.Head().Epoch)
 	err := h.saveDecision(decision)
+
+	manifest := h.manifest.Manifest()
+	ecDelay := time.Duration(manifest.ECDelayMultiplier * float64(manifest.ECPeriod))
+
 	if err != nil {
 		h.log.Errorf("error while saving decision: %+v", err)
 	}
 	ts, err := h.client.ec.GetTipset(h.runningCtx, decision.Vote.Value.Head().Key)
 	if err != nil {
+		// this should not happen
 		h.log.Errorf("could not get timestamp of just finalized tipset: %+v", err)
-		// We use the period, not the delay, because we expect to start an instance once per
-		// period and we just finished the last instance.
-		return time.Now().Add(h.manifest.Manifest().ECPeriod)
+		return time.Now().Add(ecDelay)
 	}
 
 	if decision.Vote.Value.HasSuffix() {
-		// we decided on something new, use just the ECDelay plus the period.
-		return ts.Timestamp().Add(h.manifest.Manifest().ECPeriod + h.manifest.Manifest().ECDelay)
+		// we decided on something new, the tipset that got finalized can at minimum be 30-60s old.
+		return ts.Timestamp().Add(ecDelay)
 	}
-
-	// we decided on base, calculate how much we should back off
-	// all of this should go into manifest but I think Alfonso dislikes me already :P
-	const (
-		minBackoff = 2.
-		maxBackoff = 20. // 10m with 30s ECPeriod
-	)
-	// the backoff is defined in multiples of ECPeriod starting at the last finalized tipset
-	// each additional base decision beyond that will incurr the maxBackoff
-	var backoffTable = []float64{1, 1.3, 1.69, 2.197, 2.8561, 3.71293, 3.71293, 4.826809, 6.2748517, 8.15730721} // 1.3^i+1 backoff, table for more flexibility
-	//TODO move all the above to manifest
+	backoffTable := manifest.BaseDecisionBackoffTable
 
 	attempts := 0
-	var backoffMultipler float64
-	for instance := decision.Vote.Instance - 1; instance > h.manifest.Manifest().InitialInstance; instance-- {
+	backoffMultipler := 1.0 // to account for the one ECDelay after which we got the base decistion
+	for instance := decision.Vote.Instance - 1; instance > manifest.InitialInstance; instance-- {
 		cert, err := h.client.certStore.Get(h.runningCtx, instance)
 		if err != nil {
 			h.log.Errorf("error while getting instance %d from certstore: %+v", instance, err)
@@ -359,13 +352,14 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 			attempts += 1
 		}
 		if attempts < len(backoffTable) {
-			backoffMultipler += min(backoffTable[attempts], maxBackoff)
+			backoffMultipler += backoffTable[attempts]
 		} else {
-			backoffMultipler += maxBackoff
+			// if we are beyond backoffTable, reuse the last element
+			backoffMultipler += backoffTable[len(backoffTable)-1]
 		}
 	}
 
-	backoff := h.manifest.Manifest().ECDelay + time.Duration(float64(h.manifest.Manifest().ECPeriod)*backoffMultipler)
+	backoff := time.Duration(float64(ecDelay) * backoffMultipler)
 	h.log.Infof("backing off for: %v", backoff)
 
 	return ts.Timestamp().Add(backoff)
