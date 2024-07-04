@@ -114,6 +114,49 @@ func TestDynamicManifest_WithoutRebootstrap(t *testing.T) {
 	env.stop()
 }
 
+func TestDynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
+	ctx := context.Background()
+	env := newTestEnvironment(t, 2, true)
+
+	env.Connect(ctx)
+	env.run(ctx)
+
+	prev := env.nodes[0].f3.Manifest()
+	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
+	prevInstance := env.nodes[0].CurrentGpbftInstance(t, ctx)
+
+	env.manifest.BootstrapEpoch = 953
+	env.manifest.Sequence = 1
+	env.manifest.Pause = true
+	env.manifest.ReBootstrap = true
+	env.updateManifest()
+
+	env.waitForManifestChange(prev, 15*time.Second, env.nodes)
+
+	// check that it paused
+	require.NotEqual(t, prev, env.nodes[0].f3.Manifest())
+	env.requireEqualManifests(false)
+	env.waitForNodesStoppped(10 * time.Second)
+
+	// New manifest with sequence 2 to start again F3
+	prev = env.nodes[0].f3.Manifest()
+
+	env.manifest.BootstrapEpoch = 956
+	env.manifest.Pause = false
+	env.manifest.Sequence = 2
+	env.manifest.ReBootstrap = true
+	env.updateManifest()
+
+	env.waitForManifestChange(prev, 15*time.Second, env.nodes)
+
+	// check that it rebootstrapped and the number of instances is below prevInstance
+	require.True(t, env.nodes[0].CurrentGpbftInstance(t, ctx) < prevInstance)
+	env.waitForInstanceNumber(ctx, 3, 15*time.Second, false)
+	require.NotEqual(t, prev, env.nodes[0].f3.Manifest())
+	env.requireEqualManifests(false)
+	env.stop()
+}
+
 var base manifest.Manifest = manifest.Manifest{
 	Sequence:        0,
 	BootstrapEpoch:  950,
@@ -301,11 +344,11 @@ func (e *testEnv) requireEqualManifests(strict bool) {
 	}
 }
 
-func (e *testEnv) waitForNodesInitialization() {
+func (e *testEnv) waitFor(f func(n *testNode) bool, timeout time.Duration) {
 	require.Eventually(e.t, func() bool {
 		reached := 0
 		for i := 0; i < len(e.nodes); i++ {
-			if e.nodes[i].f3.IsRunning() {
+			if f(e.nodes[i]) {
 				reached++
 			}
 			if reached == len(e.nodes) {
@@ -313,7 +356,21 @@ func (e *testEnv) waitForNodesInitialization() {
 			}
 		}
 		return false
-	}, 5*time.Second, e.manifest.ECPeriod)
+	}, timeout, e.manifest.ECPeriod)
+}
+
+func (e *testEnv) waitForNodesInitialization() {
+	f := func(n *testNode) bool {
+		return n.f3.IsRunning()
+	}
+	e.waitFor(f, 5*time.Second)
+}
+
+func (e *testEnv) waitForNodesStoppped(timeout time.Duration) {
+	f := func(n *testNode) bool {
+		return !n.f3.IsRunning()
+	}
+	e.waitFor(f, timeout)
 }
 
 func (e *testEnv) runNode(ctx context.Context, n *testNode) {
@@ -436,7 +493,7 @@ func (e *testEnv) newF3Instance(ctx context.Context, id int, manifestServer peer
 
 	e.signingBackend.Allow(int(id))
 
-	module, err := f3.New(ctx, mprovider, ds, h, manifestServer, ps,
+	module, err := f3.New(ctx, mprovider, ds, h, ps,
 		e.signingBackend, e.ec, log, nil)
 	if err != nil {
 		return nil, xerrors.Errorf("creating module: %w", err)

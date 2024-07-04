@@ -81,6 +81,8 @@ type Manifest struct {
 	// Flag to determine if the peer should rebootstrap in this configuration
 	// change at BootstrapEpoch
 	ReBootstrap bool
+	// Specifies if the manifest should pause F3 until a new configuration arrives.
+	Pause bool
 	// Network name to apply for this manifest.
 	NetworkName gpbft.NetworkName
 	// Updates to perform over the power table retrieved by the host
@@ -136,7 +138,11 @@ func (m Manifest) DatastorePrefix() datastore.Key {
 }
 
 func (m Manifest) PubSubTopic() string {
-	return "/f3/granite/0.0.1/" + string(m.NetworkName)
+	return PubSubTopicFromNetworkName(m.NetworkName)
+}
+
+func PubSubTopicFromNetworkName(nn gpbft.NetworkName) string {
+	return "/f3/granite/0.0.1/" + string(nn)
 }
 
 func (m Manifest) GpbftOptions() []gpbft.Option {

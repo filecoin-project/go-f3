@@ -2,6 +2,7 @@ package gpbft
 
 import (
 	"errors"
+	"sync"
 
 	xerrors "golang.org/x/xerrors"
 )
@@ -10,6 +11,7 @@ import (
 var ErrNoPower = errors.New("no power")
 
 type MessageBuilder struct {
+	lk              sync.RWMutex
 	networkName     NetworkName
 	powerTable      powerTableAccessor
 	payload         Payload
@@ -29,40 +31,58 @@ func NewMessageBuilder(powerTable powerTableAccessor) *MessageBuilder {
 
 // SetBeaconForTicket sets the beacon for the ticket in the message builder.
 func (mb *MessageBuilder) SetBeaconForTicket(b []byte) {
+	mb.lk.Lock()
+	defer mb.lk.Unlock()
 	mb.beaconForTicket = b
 }
 
 // SetJustification sets the justification in the message builder.
 func (mb *MessageBuilder) SetJustification(j *Justification) {
+	mb.lk.Lock()
+	defer mb.lk.Unlock()
 	mb.justification = j
 }
 
 // SetPayload sets the payload in the message builder.
 func (mb *MessageBuilder) SetPayload(p Payload) {
+	mb.lk.Lock()
+	defer mb.lk.Unlock()
 	mb.payload = p
 }
 
 func (mb *MessageBuilder) Payload() Payload {
+	mb.lk.RLock()
+	defer mb.lk.RUnlock()
 	return mb.payload
 }
 
 func (mb *MessageBuilder) BeaconForTicket() []byte {
+	mb.lk.RLock()
+	defer mb.lk.RUnlock()
 	return mb.beaconForTicket
 }
 
 func (mb *MessageBuilder) Justification() *Justification {
+	mb.lk.RLock()
+	defer mb.lk.RUnlock()
 	return mb.justification
 }
 
 func (mb *MessageBuilder) SetNetworkName(nn NetworkName) {
+	mb.lk.Lock()
+	defer mb.lk.Unlock()
 	mb.networkName = nn
 }
 
 func (mb *MessageBuilder) NetworkName() NetworkName {
+	mb.lk.RLock()
+	defer mb.lk.RUnlock()
 	return mb.networkName
 }
 
 func (mb *MessageBuilder) SetSigningMarshaler(sm SigningMarshaler) {
+	mb.lk.Lock()
+	defer mb.lk.Unlock()
 	mb.signingMarshaller = sm
 }
 
@@ -104,6 +124,8 @@ type SignatureBuilder struct {
 }
 
 func (mb *MessageBuilder) PrepareSigningInputs(id ActorID) (*SignatureBuilder, error) {
+	mb.lk.RLock()
+	defer mb.lk.RUnlock()
 	effectivePower, pubKey := mb.powerTable.Get(id)
 	if pubKey == nil || effectivePower == 0 {
 		return nil, xerrors.Errorf("could not find pubkey for actor %d: %w", id, ErrNoPower)
