@@ -264,13 +264,13 @@ func (t *peerTracker) maybeGc() {
 	if len(t.peers) < gcHighWater {
 		return
 	}
-	eligable := make([]*peerRecord, 0, len(t.peers))
+	eligible := make([]*peerRecord, 0, len(t.peers))
 
 	for _, r := range t.peers {
-		eligable = append(eligable, r)
+		eligible = append(eligible, r)
 	}
 
-	slices.SortFunc(eligable, func(a, b *peerRecord) int {
+	slices.SortFunc(eligible, func(a, b *peerRecord) int {
 		// Evil peers always sort later.
 		if (a.state == peerEvil) != (b.state == peerEvil) {
 			return cmp.Compare(b.state, a.state)
@@ -317,7 +317,7 @@ func (t *peerTracker) maybeGc() {
 	})
 
 	// gc
-	for _, r := range eligable[gcLowWater:] {
+	for _, r := range eligible[gcLowWater:] {
 		delete(t.peers, r.id)
 	}
 
