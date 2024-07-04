@@ -60,7 +60,7 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	if err != nil {
 		return nil, nil, err
 	}
-	// Reset the stream if the parent context is canceled. We never call the returned cancel
+	// Reset the stream if the parent context is canceled. We never call the returned stop
 	// function because we call the cancel function returned by `withDeadline` (which cancels
 	// the entire context tree).
 	context.AfterFunc(ctx, func() { _ = stream.Reset() })
