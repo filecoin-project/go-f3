@@ -87,35 +87,19 @@ func TestSubscriber(t *testing.T) {
 			require.NoError(t, s.Store.Put(ctx, certificates[i]))
 		}
 
-		if i < 10 {
-			// We put the first 10 certificates regularly and don't expect any
-			// variation in timing.
-			polling.MockClock.Add(100 * time.Millisecond)
-			require.Eventually(t, func() bool {
-				latest := clientCs.Latest()
-				return latest != nil && latest.GPBFTInstance == uint64(i)
-			}, 10*time.Second, time.Millisecond)
-		} else {
-			// After we settle for a bit, every 4 instances, stop updating 20% of the
-			// network. We now do expect some variation in timing so we can't just wait
-			// 100ms each time.
+		require.Eventually(t, func() bool {
 			polling.MockClock.WaitForAllTimers()
+			latest := clientCs.Latest()
+			return latest != nil && latest.GPBFTInstance == uint64(i)
+		}, 10*time.Second, time.Millisecond)
 
-			require.Eventually(t, func() bool {
-				latest := clientCs.Latest()
-				found := latest != nil && latest.GPBFTInstance == uint64(i)
-				if !found {
-					polling.MockClock.WaitForAllTimers()
-				}
-				return found
-			}, 10*time.Second, time.Millisecond)
-
-			if i%4 == 0 {
-				rand.Shuffle(len(liveServers), func(a, b int) {
-					liveServers[a], liveServers[b] = liveServers[b], liveServers[a]
-				})
-				liveServers = liveServers[:8*len(liveServers)/10]
-			}
+		// After we settle for a bit, every 4 instances, stop updating 20% of the
+		// network.
+		if i > 10 && i%4 == 0 {
+			rand.Shuffle(len(liveServers), func(a, b int) {
+				liveServers[a], liveServers[b] = liveServers[b], liveServers[a]
+			})
+			liveServers = liveServers[:8*len(liveServers)/10]
 		}
 	}
 }
