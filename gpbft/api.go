@@ -46,7 +46,7 @@ type Receiver interface {
 	// Begins executing the protocol from some instance.
 	// The node will subsequently request the canonical chain to propose from the host.
 	// If the participant is already executing some instance, it will be abandoned.
-	StartInstance(uint64) error
+	StartInstanceAt(uint64, time.Time) error
 	MessageValidator
 	MessageReceiver
 }

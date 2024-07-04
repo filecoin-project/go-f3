@@ -1,6 +1,8 @@
 package adversary
 
 import (
+	"time"
+
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
@@ -37,7 +39,7 @@ func NewSpamGenerator(power *gpbft.StoragePower, roundsAhead uint64) Generator {
 	}
 }
 
-func (s *Spam) StartInstance(instance uint64) error {
+func (s *Spam) StartInstanceAt(instance uint64, _when time.Time) error {
 	// Immediately start spamming the network.
 	s.latestObservedInstance = instance
 	s.spamAtInstance(s.latestObservedInstance)

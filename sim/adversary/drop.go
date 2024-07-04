@@ -92,4 +92,4 @@ func (*Drop) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error
 
 func (*Drop) ReceiveMessage(gpbft.ValidatedMessage) error { return nil }
 func (*Drop) ReceiveAlarm() error                         { return nil }
-func (*Drop) StartInstance(uint64) error                  { return nil }
+func (*Drop) StartInstanceAt(uint64, time.Time) error     { return nil }

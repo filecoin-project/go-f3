@@ -57,7 +57,7 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 	h.runningCtx, h.ctxCancel = context.WithCancel(ctx)
 	defer h.ctxCancel()
 
-	err := h.participant.StartInstance(instance)
+	err := h.participant.StartInstanceAt(instance, time.Now())
 	if err != nil {
 		return xerrors.Errorf("starting a participant: %w", err)
 	}
@@ -99,7 +99,7 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 		select {
 		case start := <-h.client.manifestUpdate:
 			h.log.Debugf("Manifest update detected, refreshing message queue")
-			err = h.participant.StartInstance(start)
+			err = h.participant.StartInstanceAt(start, time.Now())
 			if err != nil {
 				h.log.Errorf("gpbfthost exiting on maifest update: %+v", err)
 				return err

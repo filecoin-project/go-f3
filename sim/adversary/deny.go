@@ -64,7 +64,7 @@ func (d *Deny) isTargeted(id gpbft.ActorID) bool {
 	return found
 }
 
-func (*Deny) StartInstance(uint64) error { return nil }
+func (*Deny) StartInstanceAt(uint64, time.Time) error { return nil }
 func (*Deny) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
 	return Validated(msg), nil
 }

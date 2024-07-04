@@ -1,6 +1,8 @@
 package adversary
 
 import (
+	"time"
+
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
@@ -108,6 +110,6 @@ func (r *Repeat) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
 }
 
 func (r *Repeat) ID() gpbft.ActorID                                              { return r.id }
-func (r *Repeat) StartInstance(uint64) error                                     { return nil }
+func (r *Repeat) StartInstanceAt(uint64, time.Time) error                        { return nil }
 func (r *Repeat) ReceiveAlarm() error                                            { return nil }
 func (r *Repeat) AllowMessage(gpbft.ActorID, gpbft.ActorID, gpbft.GMessage) bool { return true }
