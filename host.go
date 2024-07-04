@@ -320,6 +320,10 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 	h.log.Infof("got decision at instance %d, finalized head at epoch: %d",
 		decision.Vote.Instance, decision.Vote.Value.Head().Epoch)
 	err := h.saveDecision(decision)
+
+	manifest := h.manifest.Manifest()
+	ecDelay := time.Duration(manifest.ECDelayMultiplier * float64(manifest.ECPeriod))
+
 	if err != nil {
 		h.log.Errorf("error while saving decision: %+v", err)
 	}
@@ -327,25 +331,18 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 	if err != nil {
 		// this should not happen
 		h.log.Errorf("could not get timestamp of just finalized tipset: %+v", err)
-		return time.Now().Add(h.manifest.Manifest().ECDelay)
+		return time.Now().Add(ecDelay)
 	}
 
 	if decision.Vote.Value.HasSuffix() {
 		// we decided on something new, the tipset that got finalized can at minimum be 30-60s old.
-		return ts.Timestamp().Add(h.manifest.Manifest().ECDelay)
+		return ts.Timestamp().Add(ecDelay)
 	}
-
-	// we decided on base, calculate how much we should back off
-	const (
-		maxBackoff = 30. // 30min with 60s ECDelay
-	)
-	// the backoff is defined in multiples of ECDelay anchoring at the last finalized tipset
-	// each additional base decision beyond that will incurr the maxBackoff
-	var backoffTable = []float64{1.3, 1.69, 2.2, 2.86, 3.71, 4.83, 6.27, 8.16, 10.6, 13.79, 17.92, 23.3, 30.29} // 1.3^(i+1) backoff, table for more flexibility
+	backoffTable := manifest.BaseDecisionBackoffTable
 
 	attempts := 0
 	backoffMultipler := 1.0 // to account for the one ECDelay after which we got the base decistion
-	for instance := decision.Vote.Instance - 1; instance > h.manifest.Manifest().InitialInstance; instance-- {
+	for instance := decision.Vote.Instance - 1; instance > manifest.InitialInstance; instance-- {
 		cert, err := h.client.certStore.Get(h.runningCtx, instance)
 		if err != nil {
 			h.log.Errorf("error while getting instance %d from certstore: %+v", instance, err)
@@ -355,13 +352,14 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 			attempts += 1
 		}
 		if attempts < len(backoffTable) {
-			backoffMultipler += min(backoffTable[attempts], maxBackoff)
+			backoffMultipler += backoffTable[attempts]
 		} else {
-			backoffMultipler += maxBackoff
+			// if we are beyond backoffTable, reuse the last element
+			backoffMultipler += backoffTable[len(backoffTable)-1]
 		}
 	}
 
-	backoff := time.Duration(float64(h.manifest.Manifest().ECDelay) * backoffMultipler)
+	backoff := time.Duration(float64(ecDelay) * backoffMultipler)
 	h.log.Infof("backing off for: %v", backoff)
 
 	return ts.Timestamp().Add(backoff)

@@ -173,8 +173,8 @@ var base manifest.Manifest = manifest.Manifest{
 		ECFinality:       10,
 		CommiteeLookback: 5,
 		// increased delay and period to accelerate test times.
-		ECDelay:  500 * time.Millisecond,
-		ECPeriod: 500 * time.Millisecond,
+		ECPeriod:          500 * time.Millisecond,
+		ECDelayMultiplier: 1.0,
 	},
 }
 

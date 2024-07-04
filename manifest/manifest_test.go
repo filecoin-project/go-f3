@@ -37,9 +37,9 @@ var base manifest.Manifest = manifest.Manifest{
 		MaxLookaheadRounds:   10,
 	},
 	EcConfig: &manifest.EcConfig{
-		ECFinality:       900,
-		CommiteeLookback: 5,
-		ECDelay:          30 * time.Second,
+		ECFinality:        900,
+		CommiteeLookback:  5,
+		ECDelayMultiplier: 2.0,
 
 		ECPeriod: 30 * time.Second,
 	},
