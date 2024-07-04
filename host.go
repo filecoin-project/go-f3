@@ -62,10 +62,20 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 		return xerrors.Errorf("starting a participant: %w", err)
 	}
 
+	// Subscribe to new certificates. We don't bother canceling the subscription as that'll
+	// happen automatically when the channel fills.
+	finalityCertificates := make(chan *certs.FinalityCertificate, 4)
+	_, _ = h.client.certStore.SubscribeForNewCerts(finalityCertificates)
+
 	messageQueue := h.client.IncomingMessages()
 	for {
-		// prioritise alarm delivery
+		// prioritise finality certificates and alarm delivery
 		select {
+		case c, ok := <-finalityCertificates:
+			if !ok {
+				c, _ = h.client.certStore.SubscribeForNewCerts(finalityCertificates)
+			}
+			err = h.receiveCertificate(c)
 		case <-h.alertTimer.C:
 			err = h.participant.ReceiveAlarm()
 		default:
@@ -75,8 +85,13 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 			return err
 		}
 
-		// Handle messages and alarms
+		// Handle messages, finality certificates, and alarms
 		select {
+		case c, ok := <-finalityCertificates:
+			if !ok {
+				c, _ = h.client.certStore.SubscribeForNewCerts(finalityCertificates)
+			}
+			err = h.receiveCertificate(c)
 		case <-h.alertTimer.C:
 			err = h.participant.ReceiveAlarm()
 		case msg, ok := <-messageQueue:
@@ -109,6 +124,58 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 		default:
 		}
 	}
+}
+
+func (h *gpbftRunner) receiveCertificate(c *certs.FinalityCertificate) error {
+	nextInstance := c.GPBFTInstance + 1
+	if h.participant.CurrentInstance() <= nextInstance {
+		return nil
+	}
+
+	nextInstanceStart := h.computeNextInstanceStart(c)
+	return h.participant.StartInstanceAt(nextInstance, nextInstanceStart)
+}
+
+func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) time.Time {
+	manifest := h.manifest.Manifest()
+	ecDelay := time.Duration(manifest.ECDelayMultiplier * float64(manifest.ECPeriod))
+
+	ts, err := h.client.ec.GetTipset(h.runningCtx, cert.ECChain.Head().Key)
+	if err != nil {
+		// this should not happen
+		h.log.Errorf("could not get timestamp of just finalized tipset: %+v", err)
+		return time.Now().Add(ecDelay)
+	}
+
+	if cert.ECChain.HasSuffix() {
+		// we decided on something new, the tipset that got finalized can at minimum be 30-60s old.
+		return ts.Timestamp().Add(ecDelay)
+	}
+	backoffTable := manifest.BaseDecisionBackoffTable
+
+	attempts := 0
+	backoffMultipler := 1.0 // to account for the one ECDelay after which we got the base decistion
+	for instance := cert.GPBFTInstance - 1; instance > manifest.InitialInstance; instance-- {
+		cert, err := h.client.certStore.Get(h.runningCtx, instance)
+		if err != nil {
+			h.log.Errorf("error while getting instance %d from certstore: %+v", instance, err)
+			break
+		}
+		if !cert.ECChain.HasSuffix() {
+			attempts += 1
+		}
+		if attempts < len(backoffTable) {
+			backoffMultipler += backoffTable[attempts]
+		} else {
+			// if we are beyond backoffTable, reuse the last element
+			backoffMultipler += backoffTable[len(backoffTable)-1]
+		}
+	}
+
+	backoff := time.Duration(float64(ecDelay) * backoffMultipler)
+	h.log.Infof("backing off for: %v", backoff)
+
+	return ts.Timestamp().Add(backoff)
 }
 
 func (h *gpbftRunner) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
@@ -327,80 +394,41 @@ func (h *gpbftHost) SetAlarm(at time.Time) {
 func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 	h.log.Infof("got decision at instance %d, finalized head at epoch: %d",
 		decision.Vote.Instance, decision.Vote.Value.Head().Epoch)
-	err := h.saveDecision(decision)
-
-	manifest := h.manifest.Manifest()
-	ecDelay := time.Duration(manifest.ECDelayMultiplier * float64(manifest.ECPeriod))
-
+	cert, err := h.saveDecision(decision)
 	if err != nil {
 		h.log.Errorf("error while saving decision: %+v", err)
 	}
-	ts, err := h.client.ec.GetTipset(h.runningCtx, decision.Vote.Value.Head().Key)
-	if err != nil {
-		// this should not happen
-		h.log.Errorf("could not get timestamp of just finalized tipset: %+v", err)
-		return time.Now().Add(ecDelay)
-	}
-
-	if decision.Vote.Value.HasSuffix() {
-		// we decided on something new, the tipset that got finalized can at minimum be 30-60s old.
-		return ts.Timestamp().Add(ecDelay)
-	}
-	backoffTable := manifest.BaseDecisionBackoffTable
-
-	attempts := 0
-	backoffMultipler := 1.0 // to account for the one ECDelay after which we got the base decistion
-	for instance := decision.Vote.Instance - 1; instance > manifest.InitialInstance; instance-- {
-		cert, err := h.client.certStore.Get(h.runningCtx, instance)
-		if err != nil {
-			h.log.Errorf("error while getting instance %d from certstore: %+v", instance, err)
-			break
-		}
-		if !cert.ECChain.HasSuffix() {
-			attempts += 1
-		}
-		if attempts < len(backoffTable) {
-			backoffMultipler += backoffTable[attempts]
-		} else {
-			// if we are beyond backoffTable, reuse the last element
-			backoffMultipler += backoffTable[len(backoffTable)-1]
-		}
-	}
-
-	backoff := time.Duration(float64(ecDelay) * backoffMultipler)
-	h.log.Infof("backing off for: %v", backoff)
-
-	return ts.Timestamp().Add(backoff)
+	return (*gpbftRunner)(h).computeNextInstanceStart(cert)
 }
 
-func (h *gpbftHost) saveDecision(decision *gpbft.Justification) error {
+func (h *gpbftHost) saveDecision(decision *gpbft.Justification) (*certs.FinalityCertificate, error) {
 	instance := decision.Vote.Instance
 	current, _, err := h.GetCommitteeForInstance(instance)
 	if err != nil {
-		return xerrors.Errorf("getting commitee for current instance %d: %w", instance, err)
+		return nil, xerrors.Errorf("getting commitee for current instance %d: %w", instance, err)
 	}
 
 	next, _, err := h.GetCommitteeForInstance(instance + 1)
 	if err != nil {
-		return xerrors.Errorf("getting commitee for next instance %d: %w", instance+1, err)
+		return nil, xerrors.Errorf("getting commitee for next instance %d: %w", instance+1, err)
 	}
 	powerDiff := certs.MakePowerTableDiff(current.Entries, next.Entries)
 
 	cert, err := certs.NewFinalityCertificate(powerDiff, decision)
 	if err != nil {
-		return xerrors.Errorf("forming certificate out of decision: %w", err)
+		return nil, xerrors.Errorf("forming certificate out of decision: %w", err)
 	}
 	_, _, _, err = certs.ValidateFinalityCertificates(h, h.NetworkName(), current.Entries, decision.Vote.Instance, nil, *cert)
 	if err != nil {
-		return xerrors.Errorf("certificate is invalid: %w", err)
+		return nil, xerrors.Errorf("certificate is invalid: %w", err)
 	}
 
 	err = h.client.certStore.Put(h.runningCtx, cert)
 	if err != nil {
-		return xerrors.Errorf("saving ceritifcate in a store: %w", err)
+		return nil, xerrors.Errorf("saving ceritifcate in a store: %w", err)
 	}
 
-	return nil
+	return cert, nil
 }
 
 // MarshalPayloadForSigning marshals the given payload into the bytes that should be signed.
