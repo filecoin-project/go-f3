@@ -418,6 +418,9 @@ func (e *testEnv) monitorNodesError(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case err := <-n.errCh:
+				if ctx.Err() != nil {
+					return
+				}
 				require.NoError(e.t, err)
 			}
 		}(n)
