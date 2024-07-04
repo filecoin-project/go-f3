@@ -166,7 +166,7 @@ func TestPeerTracker(t *testing.T) {
 	// We always pick at least 4 peers, even if we have high confidence in one.
 	{
 		suggested := pt.suggestPeers()
-		require.Len(t, suggested, 4)
+		require.Len(t, suggested, minRequests)
 		require.Equal(t, peers[0], suggested[0])
 	}
 
@@ -180,12 +180,24 @@ func TestPeerTracker(t *testing.T) {
 		pt.peerSeen(peers[0])
 	}
 
+	pt.recordHit(peers[1])
+	require.Contains(t, pt.suggestPeers(), peers[1])
+	pt.lastHitRound = pt.currentRound
+
+	// Discover a whole bunch of peers.
+	discoverPeers(gcHighWater)
+
+	// We should have garbage collected
+	require.Less(t, len(pt.peers), gcHighWater)
+
+	{
+		// The new peers shouldn't affect out discovered peers.
+		require.Contains(t, pt.suggestPeers(), peers[1])
+	}
+
 	// We should never suggest more than 32 peers at a time.
 	{
-		// Now, add a bunch of peers.
-		discoverPeers(100)
-		// And treat them all as "bad".
-		for _, p := range peers {
+		for p := range pt.peers {
 			for i := 0; i < 10; i++ {
 				pt.recordMiss(p)
 			}
@@ -193,4 +205,5 @@ func TestPeerTracker(t *testing.T) {
 
 		require.Len(t, pt.suggestPeers(), maxRequests)
 	}
+
 }

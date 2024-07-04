@@ -5,6 +5,7 @@ import (
 	"container/heap"
 	"math/rand"
 	"slices"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -21,6 +22,10 @@ const (
 	maxRequests = 32
 	// How confident should we be that we've suggested enough peers. 1.125 == 112.5%
 	targetConfidence = 1.125
+
+	gcHighWater      = 10000 // GC the oldest peers when we have 10k
+	gcLowWater       = 1000  // GC down to 1000 peers
+	gcFailureCuttoff = 3     // Ignore failure counts below N when garbage collecting.
 )
 
 type peerState int
@@ -34,6 +39,9 @@ const (
 
 // TODO: Track latency and connectedness.
 type peerRecord struct {
+	id peer.ID
+
+	// Number of sequential failures since the last successful request.
 	sequentialFailures int
 
 	// Sliding windows of hits/misses (0-3 each). If either would exceed 3, we subtract 1 from
@@ -45,6 +53,8 @@ type peerRecord struct {
 	hits, misses int
 
 	state peerState
+
+	lastSeen time.Time
 }
 
 type backoffHeap []*backoffRecord
@@ -62,9 +72,7 @@ func newPeerTracker() *peerTracker {
 }
 
 type peerTracker struct {
-	// TODO: garbage collect this.
-	peers map[peer.ID]*peerRecord
-	// TODO: Limit the number of active peers.
+	peers                      map[peer.ID]*peerRecord
 	active                     []peer.ID
 	backoff                    backoffHeap
 	lastHitRound, currentRound int
@@ -136,6 +144,7 @@ func (r *peerRecord) recordFailure() int {
 
 func (r *peerRecord) recordHit() {
 	r.sequentialFailures = 0
+	r.lastSeen = time.Now()
 	if r.hits < hitMissSlidingWindow {
 		r.hits++
 	} else if r.misses > 0 {
@@ -145,11 +154,18 @@ func (r *peerRecord) recordHit() {
 
 func (r *peerRecord) recordMiss() {
 	r.sequentialFailures = 0
+	r.lastSeen = time.Now()
 	if r.misses < hitMissSlidingWindow {
 		r.misses++
 	} else if r.hits > 0 {
 		r.hits--
 	}
+}
+
+func (r *peerRecord) recordInvalid() {
+	r.state = peerEvil
+	r.sequentialFailures = 0
+	r.lastSeen = time.Now()
 }
 
 // Return the hit rate a number between 0-10 indicating how "full" our window is.
@@ -167,14 +183,15 @@ func (r *peerRecord) hitRate() (float64, int) {
 func (t *peerTracker) getOrCreate(p peer.ID) *peerRecord {
 	r, ok := t.peers[p]
 	if !ok {
-		r = new(peerRecord)
+		now := clk.Now()
+		r = &peerRecord{id: p, lastSeen: now}
 		t.peers[p] = r
 	}
 	return r
 }
 
 func (t *peerTracker) recordInvalid(p peer.ID) {
-	t.getOrCreate(p).state = peerEvil
+	t.getOrCreate(p).recordInvalid()
 }
 
 func (t *peerTracker) recordMiss(p peer.ID) {
@@ -195,8 +212,13 @@ func (t *peerTracker) recordHit(p peer.ID) {
 	t.getOrCreate(p).recordHit()
 }
 
-func (t *peerTracker) makeActive(p peer.ID) {
-	r := t.getOrCreate(p)
+// Reactivate a peer from backoff.
+func (t *peerTracker) reactivate(p peer.ID) {
+	r, ok := t.peers[p]
+	if !ok {
+		// If we're not still tracking this peer, just forget about them.
+		return
+	}
 	switch r.state {
 	case peerEvil, peerActive:
 		return
@@ -208,10 +230,90 @@ func (t *peerTracker) makeActive(p peer.ID) {
 }
 
 func (t *peerTracker) peerSeen(p peer.ID) {
-	if _, ok := t.peers[p]; !ok {
-		t.peers[p] = &peerRecord{state: peerActive, lastSeen: clk.Now()}
+	now := clk.Now()
+	if r, ok := t.peers[p]; !ok {
+		t.peers[p] = &peerRecord{id: p, state: peerActive, lastSeen: now}
 		t.active = append(t.active, p)
+		t.maybeGc()
+	} else {
+		r.lastSeen = now
 	}
+}
+
+// Garbage collect peers down to our "low" water mark (1000)
+func (t *peerTracker) maybeGc() {
+	if len(t.peers) < gcHighWater {
+		return
+	}
+	eligable := make([]*peerRecord, 0, len(t.peers))
+
+	for _, r := range t.peers {
+		eligable = append(eligable, r)
+	}
+
+	slices.SortFunc(eligable, func(a, b *peerRecord) int {
+		// Evil peers always sort later.
+		if (a.state == peerEvil) != (b.state == peerEvil) {
+			return cmp.Compare(b.state, a.state)
+		}
+
+		// Peers with 3+ sequential failures are considered "worse" than all peers with
+		// fewer failures.
+		if (a.sequentialFailures < gcFailureCuttoff) != (b.sequentialFailures < gcFailureCuttoff) {
+			return cmp.Compare(a.sequentialFailures, b.sequentialFailures)
+		}
+
+		// Then compare success metrics.
+
+		hitRateA, hitCountA := a.hitRate()
+		hitRateB, hitCountB := b.hitRate()
+
+		// If exactly one of the peers has a 0 hit-rate, it's always worse than the other.
+		if (hitRateA == 0) != (hitRateB == 0) {
+			return cmp.Compare(hitRateB, hitRateA)
+		}
+
+		// If we have no information on one peer but have information on the other, prefer
+		// the peer we have information on.
+		if (hitCountA == 0) != (hitCountB == 0) {
+			return cmp.Compare(hitCountB, hitCountA)
+		}
+
+		// Otherwise, pick the peer with the higher hit rate.
+		if c := cmp.Compare(hitRateB, hitRateA); c != 0 {
+			return c
+		}
+
+		// Otherwise, pick the peer with more information.
+		if c := cmp.Compare(hitCountB, hitCountA); c != 0 {
+			return c
+		}
+
+		// Finally, exclude the peer with the most request failures.
+		if c := cmp.Compare(a.sequentialFailures, b.sequentialFailures); c != 0 {
+			return c
+		}
+
+		return 0
+	})
+
+	// gc
+	for _, r := range eligable[gcLowWater:] {
+		delete(t.peers, r.id)
+	}
+
+	// filter active peers
+	t.active = slices.DeleteFunc(t.active, func(p peer.ID) bool {
+		_, ok := t.peers[p]
+		return !ok
+	})
+
+	// filter backoff
+	t.backoff = slices.DeleteFunc(t.backoff, func(r *backoffRecord) bool {
+		_, ok := t.peers[r.peer]
+		return !ok
+	})
+	heap.Init(&t.backoff)
 }
 
 // Advance the round and move peers from backoff to active, if necessary.
@@ -222,32 +324,40 @@ func (t *peerTracker) advanceRound() {
 			break
 		}
 		heap.Pop(&t.backoff)
-		t.makeActive(r.peer)
+		t.reactivate(r.peer)
 	}
 	t.currentRound++
 }
 
-// Suggest a number of peers from which to request new certificates based on their historical
-// record.
-func (t *peerTracker) suggestPeers() []peer.ID {
-	t.advanceRound()
-
+// Re-rank peers.
+func (t *peerTracker) rank() {
 	// Sort from best to worst.
 	slices.SortFunc(t.active, func(a, b peer.ID) int {
 		return t.getOrCreate(b).Cmp(t.getOrCreate(a))
 	})
+
 	// Trim off any inactive/evil peers from the end, they'll be sorted last.
+	activePeers := len(t.active)
 trimLoop:
-	for l := len(t.active); l > 0; l-- {
-		r := t.getOrCreate(t.active[l-1])
+	for ; activePeers > 0; activePeers-- {
+		r := t.getOrCreate(t.active[activePeers-1])
 		switch r.state {
 		case peerActive:
 			break trimLoop
 		case peerDeactivating:
 			r.state = peerInactive
 		}
-		t.active = t.active[:l-1]
 	}
+	clear(t.active[activePeers:])
+	t.active = t.active[:activePeers]
+}
+
+// Suggest a number of peers from which to request new certificates based on their historical
+// record.
+func (t *peerTracker) suggestPeers() []peer.ID {
+	t.advanceRound()
+	t.maybeGc()
+	t.rank()
 
 	// Adjust the minimum peer count and probability threshold based on the current distance to
 	// the last successful round (capped at 8 rounds).
