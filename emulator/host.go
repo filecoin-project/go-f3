@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const networkName = "emulator-net"
+
 var _ gpbft.Host = (*driverHost)(nil)
 
 type driverHost struct {
@@ -82,12 +84,16 @@ func (h *driverHost) GetCommitteeForInstance(id uint64) (power *gpbft.PowerTable
 	return instance.powerTable, instance.beacon, nil
 }
 
-func (h *driverHost) setInstance(instance *Instance) error {
+func (h *driverHost) addInstance(instance *Instance) error {
 	if existing := h.chain[instance.id]; existing != nil {
 		return fmt.Errorf("instance ID %d is already set", instance.id)
 	}
 	h.chain[instance.id] = instance
 	return nil
+}
+
+func (h *driverHost) getInstance(id uint64) *Instance {
+	return h.chain[id]
 }
 
 func (h *driverHost) popReceivedBroadcast() *gpbft.GMessage {
@@ -101,6 +107,6 @@ func (h *driverHost) popReceivedBroadcast() *gpbft.GMessage {
 	}
 }
 
-func (h *driverHost) NetworkName() gpbft.NetworkName { return "emulator-net" }
+func (h *driverHost) NetworkName() gpbft.NetworkName { return networkName }
 func (h *driverHost) Time() time.Time                { return h.now }
 func (h *driverHost) SetAlarm(at time.Time)          { h.pendingAlarm = &at }

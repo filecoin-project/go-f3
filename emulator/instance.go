@@ -12,6 +12,7 @@ import (
 // Instance represents a GPBFT instance capturing all the information necessary
 // for GPBFT to function, along with the final decision reached if any.
 type Instance struct {
+	t                *testing.T
 	id               uint64
 	supplementalData gpbft.SupplementalData
 	proposal         gpbft.ECChain
@@ -25,7 +26,7 @@ type Instance struct {
 // public keys Power Table CID, etc. for the given params. The given proposal
 // must contain at least one tipset.
 //
-// See Driver.Start.
+// See Driver.StartInstance.
 func NewInstance(t *testing.T, id uint64, powerEntries gpbft.PowerEntries, proposal ...gpbft.TipSet) *Instance {
 	// UX of the gpbft API is pretty painful; encapsulate the pain of getting an
 	// instance going here at the price of accepting partial data and implicitly
@@ -54,6 +55,7 @@ func NewInstance(t *testing.T, id uint64, powerEntries gpbft.PowerEntries, propo
 	proposalChain, err := gpbft.NewChain(proposal[0], proposal[1:]...)
 	require.NoError(t, err)
 	return &Instance{
+		t:          t,
 		id:         id,
 		powerTable: pt,
 		beacon:     []byte(fmt.Sprintf("🥓%d", id)),
@@ -111,32 +113,32 @@ func (i *Instance) NewMessageBuilder(payload gpbft.Payload, justification *gpbft
 	return builder
 }
 
-func (d *Driver) NewJustification(round uint64, step gpbft.Phase, vote gpbft.ECChain, from ...gpbft.ActorID) *gpbft.Justification {
+func (i *Instance) NewJustification(round uint64, step gpbft.Phase, vote gpbft.ECChain, from ...gpbft.ActorID) *gpbft.Justification {
 	payload := gpbft.Payload{
-		Instance:         d.currentInstance.ID(),
+		Instance:         i.id,
 		Round:            round,
 		Step:             step,
-		SupplementalData: d.currentInstance.SupplementalData(),
+		SupplementalData: i.supplementalData,
 		Value:            vote,
 	}
-	msg := signing.MarshalPayloadForSigning(d.host.NetworkName(), &payload)
+	msg := signing.MarshalPayloadForSigning(networkName, &payload)
 	qr := gpbft.QuorumResult{
 		Signers:    make([]int, len(from)),
 		PubKeys:    make([]gpbft.PubKey, len(from)),
 		Signatures: make([][]byte, len(from)),
 	}
-	for i, actor := range from {
-		index, found := d.currentInstance.powerTable.Lookup[actor]
-		d.require.True(found)
-		entry := d.currentInstance.powerTable.Entries[index]
+	for j, actor := range from {
+		index, found := i.powerTable.Lookup[actor]
+		require.True(i.t, found)
+		entry := i.powerTable.Entries[index]
 		signature, err := signing.Sign(entry.PubKey, msg)
-		d.require.NoError(err)
-		qr.Signatures[i] = signature
-		qr.PubKeys[i] = entry.PubKey
-		qr.Signers[i] = index
+		require.NoError(i.t, err)
+		qr.Signatures[j] = signature
+		qr.PubKeys[j] = entry.PubKey
+		qr.Signers[j] = index
 	}
 	aggregate, err := signing.Aggregate(qr.PubKeys, qr.Signatures)
-	d.require.NoError(err)
+	require.NoError(i.t, err)
 	return &gpbft.Justification{
 		Vote:      payload,
 		Signers:   qr.SignersBitfield(),
