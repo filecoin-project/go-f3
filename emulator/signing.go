@@ -2,6 +2,7 @@ package emulator
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"hash/crc32"
 
@@ -23,7 +24,7 @@ var (
 // negligible.
 type adhocSigning struct{}
 
-func (s adhocSigning) Sign(sender gpbft.PubKey, msg []byte) ([]byte, error) {
+func (s adhocSigning) Sign(_ context.Context, sender gpbft.PubKey, msg []byte) ([]byte, error) {
 	hasher := crc32.NewIEEE()
 	if _, err := hasher.Write(sender); err != nil {
 		return nil, err
@@ -35,7 +36,7 @@ func (s adhocSigning) Sign(sender gpbft.PubKey, msg []byte) ([]byte, error) {
 }
 
 func (s adhocSigning) Verify(sender gpbft.PubKey, msg, got []byte) error {
-	switch want, err := s.Sign(sender, msg); {
+	switch want, err := s.Sign(context.Background(), sender, msg); {
 	case err != nil:
 		return err
 	case !bytes.Equal(want, got):
@@ -65,7 +66,7 @@ func (s adhocSigning) VerifyAggregate(payload, got []byte, signers []gpbft.PubKe
 	signatures := make([][]byte, len(signers))
 	var err error
 	for i, signer := range signers {
-		signatures[i], err = s.Sign(signer, payload)
+		signatures[i], err = s.Sign(context.Background(), signer, payload)
 		if err != nil {
 			return err
 		}

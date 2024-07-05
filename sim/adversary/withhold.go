@@ -1,6 +1,7 @@
 package adversary
 
 import (
+	"context"
 	"errors"
 	"sort"
 	"time"
@@ -166,7 +167,7 @@ func (w *WithholdCommit) AllowMessage(_ gpbft.ActorID, to gpbft.ActorID, msg gpb
 }
 
 func (w *WithholdCommit) sign(pubkey gpbft.PubKey, msg []byte) []byte {
-	sig, err := w.host.Sign(pubkey, msg)
+	sig, err := w.host.Sign(context.Background(), pubkey, msg)
 	if err != nil {
 		panic(err)
 	}

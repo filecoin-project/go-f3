@@ -1,6 +1,7 @@
 package adversary
 
 import (
+	"context"
 	"time"
 
 	"github.com/filecoin-project/go-bitfield"
@@ -64,7 +65,7 @@ func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) erro
 	}
 	sigPayload := i.host.MarshalPayloadForSigning(i.host.NetworkName(), &justificationPayload)
 	_, pubkey := powertable.Get(i.id)
-	sig, err := i.host.Sign(pubkey, sigPayload)
+	sig, err := i.host.Sign(context.Background(), pubkey, sigPayload)
 	if err != nil {
 		panic(err)
 	}

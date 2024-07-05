@@ -2,6 +2,7 @@ package sim
 
 import (
 	"cmp"
+	"context"
 	"math/rand"
 	"slices"
 
@@ -47,7 +48,7 @@ func MakeJustification(backend signing.Backend, nn gpbft.NetworkName, chain gpbf
 	var votes []vote
 	for _, i := range signers {
 		pe := powerTable[i]
-		sig, err := backend.Sign(pe.PubKey, msg)
+		sig, err := backend.Sign(context.Background(), pe.PubKey, msg)
 		if err != nil {
 			return nil, err
 		}

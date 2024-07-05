@@ -1,6 +1,7 @@
 package emulator
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -43,7 +44,7 @@ func (h *driverHost) maybeReceiveAlarm() bool {
 func (h *driverHost) RequestBroadcast(mb *gpbft.MessageBuilder) error {
 	mb.SetNetworkName(h.NetworkName())
 	mb.SetSigningMarshaler(h)
-	msg, err := mb.Build(h, h.id)
+	msg, err := mb.Build(context.Background(), h, h.id)
 	if err != nil {
 		return err
 	}
