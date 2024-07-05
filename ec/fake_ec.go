@@ -74,7 +74,11 @@ func (ec *FakeEC) genTipset(epoch int64) *Tipset {
 	rng := h.Sum(nil)
 	var size uint8
 	size, rng = rng[0]%8, rng[1:]
-	_ = rng
+	if size == 0 {
+		// if tipset is empty, try again to reduce change for empty tipset
+		// from 12.5% to 1.5%
+		size = rng[0] % 8
+	}
 	tsk := make([]byte, 0, size*gpbft.CID_MAX_LEN)
 
 	if size == 0 {

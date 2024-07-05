@@ -155,6 +155,10 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 		// we decided on something new, the tipset that got finalized can at minimum be 30-60s old.
 		return ts.Timestamp().Add(ecDelay)
 	}
+	if decision.Vote.Instance == manifest.InitialInstance {
+		// if we are at initial instance, there is no history to look at
+		return ts.Timestamp().Add(ecDelay)
+	}
 	backoffTable := manifest.BaseDecisionBackoffTable
 
 	attempts := 0
