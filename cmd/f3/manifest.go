@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -84,6 +85,11 @@ var manifestServeCmd = cli.Command{
 			Name:  "bootstrapAddr",
 			Usage: "The list of bootstrap addrs.",
 		},
+		&cli.PathFlag{
+			Name: "bootstrapAddrsFile",
+			Usage: "The list of bootstrap addrs read from a file with one address per line. " +
+				"The entries are used in conjunction with any addresses specified via <bootstrapAddr>.",
+		},
 		&cli.DurationFlag{
 			Name:  "checkInterval",
 			Usage: "The interval at which to check the manifest file for change.",
@@ -137,7 +143,24 @@ var manifestServeCmd = cli.Command{
 		//
 		// For now, simply connect to bootstrappers and test if it suffices before doing
 		// extra work.
-		for _, bootstrapper := range c.StringSlice("bootstrapAddr") {
+		bootstrappers := c.StringSlice("bootstrapAddr")
+		if c.IsSet("bootstrapAddrsFile") {
+			bootstrapersFile, err := os.Open(c.Path("bootstrapAddrsFile"))
+			if err != nil {
+				return xerrors.Errorf("opening bootstrapAddrsFile: %w", err)
+			}
+			defer func() {
+				_ = bootstrapersFile.Close()
+			}()
+			scanner := bufio.NewScanner(bootstrapersFile)
+			for scanner.Scan() {
+				bootstrappers = append(bootstrappers, scanner.Text())
+			}
+			if err := scanner.Err(); err != nil {
+				return xerrors.Errorf("reading bootstrapAddrsFile: %w", err)
+			}
+		}
+		for _, bootstrapper := range bootstrappers {
 			addr, err := peer.AddrInfoFromString(bootstrapper)
 			if err != nil {
 				return xerrors.Errorf("parsing bootstrap address %s: %w", bootstrapper, err)
