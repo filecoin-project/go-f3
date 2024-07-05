@@ -346,10 +346,15 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
 		// we decided on something new, the tipset that got finalized can at minimum be 30-60s old.
 		return ts.Timestamp().Add(ecDelay)
 	}
+	if decision.Vote.Instance == manifest.InitialInstance {
+		// if we are at initial instance, there is no history to look at
+		return ts.Timestamp().Add(ecDelay)
+	}
 	backoffTable := manifest.BaseDecisionBackoffTable
 
 	attempts := 0
-	backoffMultipler := 1.0 // to account for the one ECDelay after which we got the base decistion
+	backoffMultipler := 1.0 // to account for the one ECDelay after which we got the base decision
+	// instance - 1 is safe due to check above
 	for instance := decision.Vote.Instance - 1; instance > manifest.InitialInstance; instance-- {
 		cert, err := h.client.certStore.Get(h.runningCtx, instance)
 		if err != nil {

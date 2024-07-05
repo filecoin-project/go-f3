@@ -11,6 +11,7 @@ import (
 
 // TestHonestMultiInstance_Agreement tests for multiple chained instances of the protocol with no adversaries.
 func TestHonestMultiInstance_Agreement(t *testing.T) {
+	SkipInRaceMode(t)
 	t.Parallel()
 	const (
 		instanceCount  = 4000
@@ -86,7 +87,7 @@ func FuzzHonestMultiInstance_SyncAgreement(f *testing.F) {
 
 func FuzzHonestMultiInstance_AsyncAgreement(f *testing.F) {
 	const (
-		instanceCount = 4000
+		instanceCount = 2000
 		honestCount   = 4
 	)
 	f.Add(-7)

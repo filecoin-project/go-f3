@@ -12,6 +12,7 @@ import (
 )
 
 func TestDrop_ReachesConsensusDespiteMessageLoss(t *testing.T) {
+	SkipInRaceMode(t)
 	t.Parallel()
 	const (
 		instanceCount       = 5000

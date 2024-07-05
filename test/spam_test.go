@@ -14,12 +14,16 @@ import (
 )
 
 func TestSpamAdversary(t *testing.T) {
+	SkipInRaceMode(t)
 	t.Parallel()
 	const (
 		instanceCount = 2000
 		maxRounds     = 30
 	)
 	honestCounts := []int{3, 4, 5, 6, 7, 8, 9}
+	if testing.Short() {
+		honestCounts = []int{3, 4, 5}
+	}
 	tests := []struct {
 		name               string
 		maxLookaheadRounds uint64
