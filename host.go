@@ -79,6 +79,7 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) (_err error) {
 		select {
 		case c, ok := <-finalityCertificates:
 			if !ok {
+				finalityCertificates = make(chan *certs.FinalityCertificate, 4)
 				c, _ = h.client.certStore.SubscribeForNewCerts(finalityCertificates)
 			}
 			if err := h.receiveCertificate(c); err != nil {
@@ -97,6 +98,7 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) (_err error) {
 		select {
 		case c, ok := <-finalityCertificates:
 			if !ok {
+				finalityCertificates = make(chan *certs.FinalityCertificate, 4)
 				c, _ = h.client.certStore.SubscribeForNewCerts(finalityCertificates)
 			}
 			if err := h.receiveCertificate(c); err != nil {
