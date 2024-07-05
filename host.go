@@ -113,23 +113,18 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) (_err error) {
 			if err := h.participant.ReceiveMessage(msg); err != nil {
 				return err
 			}
-		case <-ctx.Done():
-			return nil
-		}
-
-		// Check for manifest update in the inner loop to exit and update the messageQueue
-		// and start from the last instance
-		select {
 		case start := <-h.client.manifestUpdate:
-			// XXX: This can't be right. The manifest must tell us _when_ to start.
-			// Also, why aren't we checking this earlier?
+			// Check for manifest update in the inner loop to exit and update the
+			// messageQueue and start from the last instance
 			h.log.Debugf("Manifest update detected, refreshing message queue")
 			if err := h.participant.StartInstanceAt(start, time.Now()); err != nil {
 				return xerrors.Errorf("on maifest update: %+v", err)
 			}
 			messageQueue = h.client.IncomingMessages()
-		default:
+		case <-ctx.Done():
+			return nil
 		}
+
 	}
 }
 
