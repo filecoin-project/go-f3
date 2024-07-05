@@ -173,9 +173,9 @@ var base manifest.Manifest = manifest.Manifest{
 		ECFinality:       10,
 		CommiteeLookback: 5,
 		// increased delay and period to accelerate test times.
-		ECPeriod:                 500 * time.Millisecond,
+		ECPeriod:                 100 * time.Millisecond,
 		ECDelayMultiplier:        1.0,
-		BaseDecisionBackoffTable: []float64{1.3, 1.69, 2.2, 2.86, 3.71, 4.83, 6.27, 8.16, 10.6, 13.79, 15.},
+		BaseDecisionBackoffTable: []float64{1., 1.2},
 	},
 }
 

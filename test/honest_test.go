@@ -94,7 +94,7 @@ func TestHonest_Disagreement(t *testing.T) {
 	t.Parallel()
 	maxParticipantCases := 10
 	if testing.Short() {
-		// Reduce max participants to 1
+		// Reduce max participants to 5
 		maxParticipantCases = 5
 	}
 
