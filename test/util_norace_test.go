@@ -5,5 +5,5 @@ package test
 
 import "testing"
 
-func SkipInRaceMode(_ *testing.T) {
+func SkipInRaceMode(*testing.T) {
 }
