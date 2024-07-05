@@ -3,6 +3,7 @@ package adversary
 import (
 	"errors"
 	"sort"
+	"time"
 
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -49,7 +50,7 @@ func (w *WithholdCommit) ID() gpbft.ActorID {
 	return w.id
 }
 
-func (w *WithholdCommit) StartInstance(instance uint64) error {
+func (w *WithholdCommit) StartInstanceAt(instance uint64, _when time.Time) error {
 	if len(w.victims) == 0 {
 		return errors.New("victims must be set")
 	}

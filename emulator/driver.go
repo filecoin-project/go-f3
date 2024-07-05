@@ -33,7 +33,7 @@ func NewDriver(t *testing.T, o ...gpbft.Option) *Driver {
 //
 // See NewInstance.
 func (d *Driver) StartInstance(id uint64) {
-	d.require.NoError(d.subject.StartInstance(id))
+	d.require.NoError(d.subject.StartInstanceAt(id, d.host.Time()))
 	// Trigger alarm once based on the implicit assumption that go-f3 uses alarm to
 	// kickstart an instance internally.
 	d.RequireDeliverAlarm()

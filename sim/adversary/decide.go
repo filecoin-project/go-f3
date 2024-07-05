@@ -1,6 +1,8 @@
 package adversary
 
 import (
+	"time"
+
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-f3/gpbft"
 )
@@ -35,7 +37,7 @@ func (i *ImmediateDecide) ID() gpbft.ActorID {
 	return i.id
 }
 
-func (i *ImmediateDecide) StartInstance(instance uint64) error {
+func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) error {
 	supplementalData, _, err := i.host.GetProposalForInstance(instance)
 	if err != nil {
 		panic(err)

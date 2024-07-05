@@ -143,9 +143,8 @@ func (pt *participantTestSubject) requireStart() {
 // ReceiveAlarm() in tests that require starting instances.
 // See [participant.go:Start()] for reference
 func (pt *participantTestSubject) Start() error {
-	pt.host.On("Time").Return(pt.time)
 	pt.host.EXPECT().SetAlarm(pt.time)
-	require.NoError(pt.t, pt.Participant.StartInstance(pt.instance))
+	require.NoError(pt.t, pt.Participant.StartInstanceAt(pt.instance, pt.time))
 	return pt.ReceiveAlarm()
 }
 
@@ -288,7 +287,7 @@ func TestParticipant(t *testing.T) {
 				subject.instance = fInstance
 				subject.expectBeginInstance()
 				// Receiving the certificate should skip directly to the finality instance.
-				require.NoError(t, subject.StartInstance(fInstance))
+				require.NoError(t, subject.StartInstanceAt(fInstance, subject.time))
 				// set subject to the finality instance to see if participant
 				// has begun the right instance.
 				require.NoError(t, subject.ReceiveAlarm())

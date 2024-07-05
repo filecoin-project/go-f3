@@ -6,6 +6,7 @@ import (
 	"runtime/debug"
 	"sort"
 	"sync"
+	"time"
 
 	xerrors "golang.org/x/xerrors"
 )
@@ -81,7 +82,7 @@ func NewParticipant(host Host, o ...Option) (*Participant, error) {
 	}, nil
 }
 
-func (p *Participant) StartInstance(instance uint64) (err error) {
+func (p *Participant) StartInstanceAt(instance uint64, when time.Time) (err error) {
 	if !p.apiMutex.TryLock() {
 		panic("concurrent API method invocation")
 	}
@@ -96,10 +97,8 @@ func (p *Participant) StartInstance(instance uint64) (err error) {
 	// and prepare to begin a new instance.
 	p.finishCurrentInstance(instance)
 
-	// Set the alarm to begin a new instance immediately.
-	// This will fetch the chain, drain existing messages for that instance,
-	// and start the instance.
-	p.host.SetAlarm(p.host.Time())
+	// Set the alarm to begin a new instance at the specified time.
+	p.host.SetAlarm(when)
 
 	return err
 }

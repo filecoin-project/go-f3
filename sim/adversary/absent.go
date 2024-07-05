@@ -1,6 +1,8 @@
 package adversary
 
 import (
+	"time"
+
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
@@ -32,7 +34,7 @@ func (a *Absent) ID() gpbft.ActorID {
 	return a.id
 }
 
-func (*Absent) StartInstance(uint64) error { return nil }
+func (*Absent) StartInstanceAt(uint64, time.Time) error { return nil }
 
 func (*Absent) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
 	return Validated(msg), nil
