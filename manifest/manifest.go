@@ -19,7 +19,7 @@ var (
 	// Default configuration for the EC Backend
 	DefaultEcConfig = &EcConfig{
 		ECFinality:        900,
-		CommiteeLookback:  5,
+		CommiteeLookback:  10,
 		ECPeriod:          30 * time.Second,
 		ECDelayMultiplier: 2.,
 		// MaxBackoff is 15min given default params
