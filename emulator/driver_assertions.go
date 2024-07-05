@@ -2,6 +2,7 @@ package emulator
 
 import (
 	"bytes"
+	"context"
 
 	"github.com/filecoin-project/go-f3/gpbft"
 )
@@ -20,7 +21,7 @@ func (d *Driver) RequireDeliverMessage(message *gpbft.GMessage) {
 	mb := instance.NewMessageBuilder(message.Vote, message.Justification, withTicket)
 	mb.SetNetworkName(d.host.NetworkName())
 	mb.SetSigningMarshaler(d.host.adhocSigning)
-	msg, err := mb.Build(d.host.adhocSigning, message.Sender)
+	msg, err := mb.Build(context.Background(), d.host.adhocSigning, message.Sender)
 	d.require.NoError(err)
 	d.require.NotNil(msg)
 

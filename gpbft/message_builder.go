@@ -1,6 +1,7 @@
 package gpbft
 
 import (
+	"context"
 	"errors"
 	"sync"
 
@@ -97,13 +98,13 @@ type SignerWithMarshaler interface {
 
 // Build uses the builder and a signer interface to build GMessage
 // It is a shortcut for when separated flow is not required
-func (mt *MessageBuilder) Build(signer Signer, id ActorID) (*GMessage, error) {
+func (mt *MessageBuilder) Build(ctx context.Context, signer Signer, id ActorID) (*GMessage, error) {
 	st, err := mt.PrepareSigningInputs(id)
 	if err != nil {
 		return nil, xerrors.Errorf("preparing signing inputs: %w", err)
 	}
 
-	payloadSig, vrf, err := st.Sign(signer)
+	payloadSig, vrf, err := st.Sign(ctx, signer)
 	if err != nil {
 		return nil, xerrors.Errorf("signing message builder: %w", err)
 	}
@@ -158,14 +159,14 @@ func NewMessageBuilderWithPowerTable(power *PowerTable) *MessageBuilder {
 
 // Sign creates the signed payload from the signature builder and returns the payload
 // and VRF signatures. These signatures can be used independent from the builder.
-func (st *SignatureBuilder) Sign(signer Signer) ([]byte, []byte, error) {
-	payloadSignature, err := signer.Sign(st.PubKey, st.PayloadToSign)
+func (st *SignatureBuilder) Sign(ctx context.Context, signer Signer) ([]byte, []byte, error) {
+	payloadSignature, err := signer.Sign(ctx, st.PubKey, st.PayloadToSign)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("signing payload: %w", err)
 	}
 	var vrf []byte
 	if st.VRFToSign != nil {
-		vrf, err = signer.Sign(st.PubKey, st.VRFToSign)
+		vrf, err = signer.Sign(ctx, st.PubKey, st.VRFToSign)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("signing vrf: %w", err)
 		}

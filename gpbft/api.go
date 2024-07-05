@@ -1,6 +1,7 @@
 package gpbft
 
 import (
+	"context"
 	"time"
 )
 
@@ -88,7 +89,7 @@ type Clock interface {
 
 type Signer interface {
 	// Signs a message with the secret key corresponding to a public key.
-	Sign(sender PubKey, msg []byte) ([]byte, error)
+	Sign(ctx context.Context, sender PubKey, msg []byte) ([]byte, error)
 }
 
 type SigningMarshaler interface {

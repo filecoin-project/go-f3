@@ -2,6 +2,7 @@ package signing
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -41,7 +42,7 @@ func (s *FakeBackend) Allow(i int) gpbft.PubKey {
 	return pubKey
 }
 
-func (s *FakeBackend) Sign(signer gpbft.PubKey, msg []byte) ([]byte, error) {
+func (s *FakeBackend) Sign(_ context.Context, signer gpbft.PubKey, msg []byte) ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if _, ok := s.allowed[string(signer)]; !ok {

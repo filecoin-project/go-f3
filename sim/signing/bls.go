@@ -1,6 +1,7 @@
 package signing
 
 import (
+	"context"
 	"errors"
 	"sync"
 
@@ -23,7 +24,7 @@ type BLSBackend struct {
 	signersByPubKey map[string]*blssig.Signer
 }
 
-func (b *BLSBackend) Sign(sender gpbft.PubKey, msg []byte) ([]byte, error) {
+func (b *BLSBackend) Sign(ctx context.Context, sender gpbft.PubKey, msg []byte) ([]byte, error) {
 	b.signersMutex.RLock()
 	signer, known := b.signersByPubKey[string(sender)]
 	b.signersMutex.RUnlock()
@@ -31,7 +32,7 @@ func (b *BLSBackend) Sign(sender gpbft.PubKey, msg []byte) ([]byte, error) {
 	if !known {
 		return nil, errors.New("cannot sign: unknown sender")
 	}
-	return signer.Sign(sender, msg)
+	return signer.Sign(ctx, sender, msg)
 }
 
 func NewBLSBackend() *BLSBackend {

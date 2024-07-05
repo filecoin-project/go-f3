@@ -2,14 +2,15 @@ package gpbft
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 )
 
 // A ticket is a signature over some common payload.
 type Ticket []byte
 
-func MakeTicket(nn NetworkName, beacon []byte, instance uint64, round uint64, source PubKey, signer Signer) (Ticket, error) {
-	return signer.Sign(source, vrfSerializeSigInput(beacon, instance, round, nn))
+func MakeTicket(ctx context.Context, nn NetworkName, beacon []byte, instance uint64, round uint64, source PubKey, signer Signer) (Ticket, error) {
+	return signer.Sign(ctx, source, vrfSerializeSigInput(beacon, instance, round, nn))
 }
 
 func VerifyTicket(nn NetworkName, beacon []byte, instance uint64, round uint64, source PubKey, verifier Verifier, ticket Ticket) bool {

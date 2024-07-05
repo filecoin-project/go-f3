@@ -1,6 +1,7 @@
 package emulator
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -131,7 +132,7 @@ func (i *Instance) NewJustification(round uint64, step gpbft.Phase, vote gpbft.E
 		index, found := i.powerTable.Lookup[actor]
 		require.True(i.t, found)
 		entry := i.powerTable.Entries[index]
-		signature, err := signing.Sign(entry.PubKey, msg)
+		signature, err := signing.Sign(context.Background(), entry.PubKey, msg)
 		require.NoError(i.t, err)
 		qr.Signatures[j] = signature
 		qr.PubKeys[j] = entry.PubKey

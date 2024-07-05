@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -93,7 +94,7 @@ func (nf *networkFor) RequestSynchronousBroadcast(mb *gpbft.MessageBuilder) erro
 func (nf *networkFor) requestBroadcast(mb *gpbft.MessageBuilder, sync bool) error {
 	mb.SetNetworkName(nf.networkName)
 	mb.SetSigningMarshaler(nf.Signer)
-	msg, err := mb.Build(nf.Signer, nf.ParticipantID)
+	msg, err := mb.Build(context.Background(), nf.Signer, nf.ParticipantID)
 	if err != nil {
 		nf.Log("building message for: %d: %+v", nf.ParticipantID, err)
 		return err

@@ -1,6 +1,7 @@
 package test
 
 import (
+	"context"
 	"testing"
 
 	bls12381 "github.com/drand/kyber-bls12381"
@@ -50,10 +51,11 @@ func NewSigningSuite(signer SignerTestSubject, verifier gpbft.Verifier) *Signing
 }
 
 func (s *SigningTestSuite) TestSignAndVerify() {
+	ctx := context.Background()
 	t := s.Suite.T()
 	pubKey, signer := s.signerTestSubject(s.T())
 	msg := []byte("test message")
-	sig, err := signer.Sign(pubKey, msg)
+	sig, err := signer.Sign(ctx, pubKey, msg)
 	require.NoError(t, err)
 
 	err = s.verifier.Verify(pubKey, msg, sig)
@@ -69,7 +71,7 @@ func (s *SigningTestSuite) TestSignAndVerify() {
 	err = s.verifier.Verify(pubKey, msg, []byte("short sig"))
 	require.Error(t, err)
 
-	sig2, err := signer2.Sign(pubKey2, msg)
+	sig2, err := signer2.Sign(ctx, pubKey2, msg)
 	require.NoError(t, err)
 
 	err = s.verifier.Verify(pubKey, msg, sig2)
@@ -77,6 +79,7 @@ func (s *SigningTestSuite) TestSignAndVerify() {
 }
 
 func (s *SigningTestSuite) TestAggregateAndVerify() {
+	ctx := context.Background()
 	t := s.Suite.T()
 	msg := []byte("test message")
 	pubKey1, signer1 := s.signerTestSubject(s.T())
@@ -85,9 +88,9 @@ func (s *SigningTestSuite) TestAggregateAndVerify() {
 
 	sigs := make([][]byte, len(pubKeys))
 	var err error
-	sigs[0], err = signer1.Sign(pubKey1, msg)
+	sigs[0], err = signer1.Sign(ctx, pubKey1, msg)
 	require.NoError(s.T(), err)
-	sigs[1], err = signer2.Sign(pubKey2, msg)
+	sigs[1], err = signer2.Sign(ctx, pubKey2, msg)
 	require.NoError(s.T(), err)
 
 	aggSig, err := s.verifier.Aggregate(pubKeys, sigs)

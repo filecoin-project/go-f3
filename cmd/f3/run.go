@@ -152,7 +152,7 @@ func runMessageSubscription(ctx context.Context, module *f3.F3, actorID gpbft.Ac
 					log.Errorf("preparing signing inputs: %+v", err)
 				}
 				// signatureBuilder can be sent over RPC
-				payloadSig, vrfSig, err := signatureBuilder.Sign(signer)
+				payloadSig, vrfSig, err := signatureBuilder.Sign(ctx, signer)
 				if err != nil {
 					log.Errorf("signing message: %+v", err)
 				}
