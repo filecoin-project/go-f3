@@ -11,6 +11,7 @@ import (
 
 // TestHonestMultiInstance_Agreement tests for multiple chained instances of the protocol with no adversaries.
 func TestHonestMultiInstance_Agreement(t *testing.T) {
+	SkipInRaceMode(t)
 	t.Parallel()
 	const (
 		instanceCount  = 4000

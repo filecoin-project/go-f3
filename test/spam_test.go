@@ -14,6 +14,7 @@ import (
 )
 
 func TestSpamAdversary(t *testing.T) {
+	SkipInRaceMode(t)
 	t.Parallel()
 	const (
 		instanceCount = 2000

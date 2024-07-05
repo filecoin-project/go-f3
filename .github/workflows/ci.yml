@@ -110,7 +110,7 @@ jobs:
           # Run tests with race detector, excluding fuzz tests.
           # Fuzz tests are excluded because they will otherwise
           # take too long to complete.
-          GOTEST_ARGS: -race -run='^[^Fuzz]' -timeout=20m
+          GOTEST_ARGS: -race -run='^[^Fuzz]' -short -timeout=20m
         run: make test
   
   generate:
