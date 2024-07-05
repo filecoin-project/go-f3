@@ -166,7 +166,7 @@ var manifestServeCmd = cli.Command{
 				return xerrors.Errorf("parsing bootstrap address %s: %w", bootstrapper, err)
 			}
 			if err := host.Connect(c.Context, *addr); err != nil {
-				return xerrors.Errorf("connecting to bootstrapper %s: %w", bootstrapper, err)
+				_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed to connect to bootstrap address: %v\n", err)
 			}
 		}
 
