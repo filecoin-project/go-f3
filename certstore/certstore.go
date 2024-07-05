@@ -15,6 +15,7 @@ import (
 	"github.com/Kubuxu/go-broadcast"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
+	"github.com/ipfs/go-datastore/query"
 	"golang.org/x/xerrors"
 )
 
@@ -44,6 +45,10 @@ func open(ctx context.Context, ds datastore.Datastore) (*Store, error) {
 	cs := &Store{
 		ds:                  namespace.Wrap(ds, datastore.NewKey("/certstore")),
 		powerTableFrequency: defaultPowerTableFrequency,
+	}
+	err := maybeContinueDelete(ctx, ds)
+	if err != nil {
+		return nil, xerrors.Errorf("continuing deletion: %w", err)
 	}
 
 	latestInstance, err := cs.readInstanceNumber(ctx, certStoreLatestKey)
@@ -142,7 +147,7 @@ func CreateStore(ctx context.Context, ds datastore.Datastore, firstInstance uint
 
 // OpenStore opens an existing certificate store.
 // The passed Datastore has to be thread safe.
-// Returns ErrCertstoreNotInitialized if the CertStore does not exist
+// Returns ErrNotInitialized if the CertStore does not exist
 func OpenStore(ctx context.Context, ds datastore.Datastore) (*Store, error) {
 	cs, err := open(ctx, ds)
 	if err != nil {
@@ -411,17 +416,48 @@ func (cs *Store) SubscribeForNewCerts(ch chan<- *certs.FinalityCertificate) (las
 	return cs.busCerts.Subscribe(ch)
 }
 
+var tombstoneKey = datastore.NewKey("/tombstone")
+
+func maybeContinueDelete(ctx context.Context, ds datastore.Datastore) error {
+	ok, err := ds.Has(ctx, tombstoneKey)
+	if err != nil {
+		return xerrors.Errorf("checking tombstoneKey: %w", err)
+	}
+	if !ok {
+		// no tombstone, exit
+		return nil
+	}
+
+	qr, err := ds.Query(ctx, query.Query{KeysOnly: true})
+	if err != nil {
+		return xerrors.Errorf("starting a query for certs: %w", err)
+	}
+	for r := range qr.Next() {
+		key := datastore.NewKey(r.Key)
+		if key == tombstoneKey {
+			continue
+		}
+		err := ds.Delete(ctx, key)
+		if err != nil {
+			return xerrors.Errorf("error while deleting: %w", err)
+		}
+	}
+	err = ds.Delete(ctx, tombstoneKey)
+	if err != nil {
+		return xerrors.Errorf("error while deleting tombstone: %w", err)
+	}
+	return nil
+}
+
 // DeleteAll is used to remove all certificates from the store and clean it for a new instance
 // to be able to use it from scratch.
 func (cs *Store) DeleteAll(ctx context.Context) error {
-	// TODO: Right now we don't clear the content of certs, we just remove the pointers to the
-	// latest instance and certs. Removing all the certificates requires iterating
-	// through all the namespace datastore. Leaving it as future work.
-	// Tracked in: https://github.com/filecoin-project/go-f3/issues/376
-	if err := cs.ds.Delete(ctx, certStoreFirstKey); err != nil {
-		return err
+	err := cs.ds.Put(ctx, tombstoneKey, []byte("tombstone"))
+	if err != nil {
+		return xerrors.Errorf("creating a tombstone: %w", err)
 	}
-	return cs.ds.Delete(ctx, certStoreLatestKey)
+
+	return maybeContinueDelete(ctx, cs.ds)
 }
 
 // Delete removes all asset belonging to an instance.

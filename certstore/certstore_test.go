@@ -8,6 +8,7 @@ import (
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
 	datastore "github.com/ipfs/go-datastore"
+	"github.com/ipfs/go-datastore/query"
 	ds_sync "github.com/ipfs/go-datastore/sync"
 	"github.com/stretchr/testify/require"
 )
@@ -122,6 +123,45 @@ func TestGetRange(t *testing.T) {
 	certs, err := cs.GetRange(ctx, 1, 5)
 	require.NoError(t, err)
 	require.Len(t, certs, 5)
+}
+
+func TestDeleteAll(t *testing.T) {
+	ctx := context.Background()
+	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
+
+	pt, ptCid := testPowerTable(10)
+	supp := gpbft.SupplementalData{PowerTable: ptCid}
+	cs, err := CreateStore(ctx, ds, 1, pt)
+	require.NoError(t, err)
+
+	for i := uint64(1); i <= 5; i++ {
+		cert := &certs.FinalityCertificate{GPBFTInstance: i, SupplementalData: supp}
+		err := cs.Put(ctx, cert)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, cs.DeleteAll(ctx))
+	_, err = OpenStore(ctx, ds)
+	require.ErrorIs(t, err, ErrNotInitialized)
+
+	verifyEmpty := func() {
+		res, err := ds.Query(ctx, query.Query{})
+		require.NoError(t, err)
+		_, ok := res.NextSync()
+		require.False(t, ok, "there should be nothing in the datastore")
+	}
+	verifyEmpty()
+
+	// create it again
+	_, err = CreateStore(ctx, ds, 1, pt)
+	require.NoError(t, err)
+
+	// put in the tombstone, as if we crashed during DeleteAll
+	require.NoError(t, ds.Put(ctx, tombstoneKey, []byte("AAAAAAAA")))
+	// re-opening should delete and fail
+	_, err = OpenStore(ctx, ds)
+	require.ErrorIs(t, err, ErrNotInitialized)
+	verifyEmpty()
 }
 
 func TestSubscribeForNewCerts(t *testing.T) {
