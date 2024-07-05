@@ -15,10 +15,10 @@ import (
 	"github.com/filecoin-project/go-f3/sim/signing"
 	leveldb "github.com/ipfs/go-ds-leveldb"
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+	mocknet "github.com/libp2p/go-libp2p/p2p/net/mock"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/xerrors"
 )
@@ -200,6 +200,7 @@ type testEnv struct {
 	nodes          []*testNode
 	ec             *ec.FakeEC
 	manifestSender *manifest.ManifestSender
+	net            mocknet.Mocknet
 
 	manifest manifest.Manifest
 }
@@ -246,7 +247,10 @@ func (e *testEnv) addPowerDeltaForParticipants(ctx context.Context, m *manifest.
 		if runNodes && newNode {
 			// connect node
 			for j := 0; j < nodeLen-1; j++ {
-				e.connectNodes(ctx, e.nodes[nodeLen-1], e.nodes[j])
+				_, err := e.net.LinkPeers(e.nodes[nodeLen-1].h.ID(), e.nodes[j].h.ID())
+				require.NoError(e.t, err)
+				_, err = e.net.ConnectPeers(e.nodes[nodeLen-1].h.ID(), e.nodes[j].h.ID())
+				require.NoError(e.t, err)
 			}
 			// run
 			e.runNode(ctx, e.nodes[nodeLen-1])
@@ -296,7 +300,7 @@ func (e *testEnv) waitForManifestChange(prev manifest.Manifest, timeout time.Dur
 }
 
 func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) testEnv {
-	env := testEnv{t: t}
+	env := testEnv{t: t, net: mocknet.New()}
 
 	// populate manifest
 	m := base
@@ -427,24 +431,23 @@ func (e *testEnv) monitorNodesError(ctx context.Context) {
 	}
 }
 
-func (e *testEnv) connectNodes(ctx context.Context, n1, n2 *testNode) {
-	pi := n2.h.Peerstore().PeerInfo(n2.h.ID())
-	err := n1.h.Connect(ctx, pi)
-	require.NoError(e.t, err)
-}
-
 func (e *testEnv) Connect(ctx context.Context) {
 	for i, n := range e.nodes {
 		for j := i + 1; j < len(e.nodes); j++ {
-			e.connectNodes(ctx, n, e.nodes[j])
+			_, err := e.net.LinkPeers(n.h.ID(), e.nodes[j].h.ID())
+			require.NoError(e.t, err)
+			_, err = e.net.ConnectPeers(n.h.ID(), e.nodes[j].h.ID())
+			require.NoError(e.t, err)
 		}
 	}
 
 	// connect to the manifest server if it exists
 	if e.manifestSender != nil {
+		id := e.manifestSender.PeerInfo().ID
 		for _, n := range e.nodes {
-			pi := e.manifestSender.PeerInfo()
-			err := n.h.Connect(ctx, pi)
+			_, err := e.net.LinkPeers(n.h.ID(), id)
+			require.NoError(e.t, err)
+			_, err = e.net.ConnectPeers(n.h.ID(), id)
 			require.NoError(e.t, err)
 		}
 
@@ -452,7 +455,7 @@ func (e *testEnv) Connect(ctx context.Context) {
 }
 
 func (e *testEnv) newManifestSender(ctx context.Context) {
-	h, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/0.0.0.0/udp/0/quic-v1"))
+	h, err := e.net.GenPeer()
 	require.NoError(e.t, err)
 
 	ps, err := pubsub.NewGossipSub(ctx, h)
@@ -463,7 +466,7 @@ func (e *testEnv) newManifestSender(ctx context.Context) {
 }
 
 func (e *testEnv) newF3Instance(ctx context.Context, id int, manifestServer peer.ID) (*testNode, error) {
-	h, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/0.0.0.0/udp/0/quic-v1"))
+	h, err := e.net.GenPeer()
 	if err != nil {
 		return nil, xerrors.Errorf("creating libp2p host: %w", err)
 	}
