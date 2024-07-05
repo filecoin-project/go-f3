@@ -53,12 +53,11 @@ func newRunner(m manifest.ManifestProvider, client *client) (*gpbftRunner, error
 	return runner, nil
 }
 
-func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
+func (h *gpbftRunner) Run(instance uint64, ctx context.Context) (_err error) {
 	h.runningCtx, h.ctxCancel = context.WithCancel(ctx)
 	defer h.ctxCancel()
 
-	err := h.participant.StartInstanceAt(instance, time.Now())
-	if err != nil {
+	if err := h.participant.StartInstanceAt(instance, time.Now()); err != nil {
 		return xerrors.Errorf("starting a participant: %w", err)
 	}
 
@@ -67,22 +66,31 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 	finalityCertificates := make(chan *certs.FinalityCertificate, 4)
 	_, _ = h.client.certStore.SubscribeForNewCerts(finalityCertificates)
 
+	defer func() {
+		if _err != nil {
+			h.log.Errorf("gpbfthost exiting: %+v", _err)
+		}
+	}()
+
 	messageQueue := h.client.IncomingMessages()
 	for {
+
 		// prioritise finality certificates and alarm delivery
 		select {
 		case c, ok := <-finalityCertificates:
 			if !ok {
 				c, _ = h.client.certStore.SubscribeForNewCerts(finalityCertificates)
 			}
-			err = h.receiveCertificate(c)
+			if err := h.receiveCertificate(c); err != nil {
+				return err
+			}
+			continue
 		case <-h.alertTimer.C:
-			err = h.participant.ReceiveAlarm()
+			if err := h.participant.ReceiveAlarm(); err != nil {
+				return err
+			}
+			continue
 		default:
-		}
-		if err != nil {
-			h.log.Errorf("gpbfthost exiting: %+v", err)
-			return err
 		}
 
 		// Handle messages, finality certificates, and alarms
@@ -91,36 +99,35 @@ func (h *gpbftRunner) Run(instance uint64, ctx context.Context) error {
 			if !ok {
 				c, _ = h.client.certStore.SubscribeForNewCerts(finalityCertificates)
 			}
-			err = h.receiveCertificate(c)
-		case <-h.alertTimer.C:
-			err = h.participant.ReceiveAlarm()
-		case msg, ok := <-messageQueue:
-			if !ok {
-				err = xerrors.Errorf("incoming message queue closed")
-				h.log.Errorf("gpbfthost exiting: %+v", err)
+			if err := h.receiveCertificate(c); err != nil {
 				return err
 			}
-			err = h.participant.ReceiveMessage(msg)
+		case <-h.alertTimer.C:
+			if err := h.participant.ReceiveAlarm(); err != nil {
+				return err
+			}
+		case msg, ok := <-messageQueue:
+			if !ok {
+				return xerrors.Errorf("incoming message queue closed")
+			}
+			if err := h.participant.ReceiveMessage(msg); err != nil {
+				return err
+			}
 		case <-ctx.Done():
 			return nil
-		}
-		if err != nil {
-			h.log.Errorf("gpbfthost exiting: %+v", err)
-			return err
 		}
 
 		// Check for manifest update in the inner loop to exit and update the messageQueue
 		// and start from the last instance
 		select {
 		case start := <-h.client.manifestUpdate:
+			// XXX: This can't be right. The manifest must tell us _when_ to start.
+			// Also, why aren't we checking this earlier?
 			h.log.Debugf("Manifest update detected, refreshing message queue")
-			err = h.participant.StartInstanceAt(start, time.Now())
-			if err != nil {
-				h.log.Errorf("gpbfthost exiting on maifest update: %+v", err)
-				return err
+			if err := h.participant.StartInstanceAt(start, time.Now()); err != nil {
+				return xerrors.Errorf("on maifest update: %+v", err)
 			}
 			messageQueue = h.client.IncomingMessages()
-			continue
 		default:
 		}
 	}
