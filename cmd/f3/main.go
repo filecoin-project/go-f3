@@ -39,7 +39,7 @@ func main() {
 	}()
 
 	if err := app.RunContext(ctx, os.Args); err != nil {
-		fmt.Fprintf(os.Stderr, "runtime error: %+v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "runtime error: %+v\n", err)
 		os.Exit(1)
 	}
 }
