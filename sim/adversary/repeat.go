@@ -102,8 +102,9 @@ func (r *Repeat) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
 	}
 	for i := 0; i < echoCount; i++ {
 		if msg.Sender != r.ID() {
-			_ = r.host.RequestBroadcast(mt)
-
+			if err := r.host.RequestBroadcast(mt); err != nil {
+				panic(err)
+			}
 		}
 	}
 	return nil

@@ -1,11 +1,17 @@
 package emulator
 
 import (
+	"bytes"
+	"context"
 	"testing"
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/stretchr/testify/require"
 )
+
+// ValidTicket is a sentinel value to generate and set a valid gpbft.Ticket when
+// delivering messages via Driver.deliverMessage.
+var ValidTicket gpbft.Ticket = []byte("filled in by driver")
 
 // Driver drives the emulation of a GPBFT instance for one honest participant,
 // and allows frame-by-frame control over progress of a GPBFT instance.
@@ -49,6 +55,31 @@ func (d *Driver) deliverAlarm() (bool, error) {
 		return true, d.subject.ReceiveAlarm()
 	}
 	return false, nil
+}
+
+// prepareMessage prepares a partial message for delivery to the subject
+// participant. If the given message has the sentinel ValidTicket set as its
+// ticket then the Driver will prepare the final message with a valid ticket.
+// Otherwise, ticket from partial messages is set as is on the final prepared
+// message.
+func (d *Driver) prepareMessage(partialMessage *gpbft.GMessage) *gpbft.GMessage {
+	// A small hack to fill the ticket with the right value as whatever "right" is
+	// dictated to be by signing. This keeps the signing swappable without ripple
+	// effect across the driver.
+	withValidTicket := bytes.Equal(partialMessage.Ticket, ValidTicket)
+	instance := d.host.getInstance(partialMessage.Vote.Instance)
+	d.require.NotNil(instance)
+
+	mb := instance.NewMessageBuilder(partialMessage.Vote, partialMessage.Justification, withValidTicket)
+	mb.SetNetworkName(d.host.NetworkName())
+	mb.SetSigningMarshaler(d.host.adhocSigning)
+	msg, err := mb.Build(context.Background(), d.host.adhocSigning, partialMessage.Sender)
+	d.require.NoError(err)
+	d.require.NotNil(msg)
+	if !withValidTicket {
+		msg.Ticket = partialMessage.Ticket
+	}
+	return msg
 }
 
 func (d *Driver) deliverMessage(msg *gpbft.GMessage) error {
