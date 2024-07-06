@@ -611,6 +611,7 @@ func (i *instance) beginQuality() error {
 	// Broadcast input value and wait to receive from others.
 	i.phase = QUALITY_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony()
+	i.resetRebroadcastParams()
 	i.broadcast(i.round, QUALITY_PHASE, i.proposal, false, nil)
 	return nil
 }
@@ -656,6 +657,7 @@ func (i *instance) beginConverge(justification *Justification) {
 
 	i.phase = CONVERGE_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony()
+	i.resetRebroadcastParams()
 
 	// Notify the round's convergeState that the self participant has begun the
 	// CONVERGE phase. Because, we cannot guarantee that the CONVERGE message
@@ -713,6 +715,7 @@ func (i *instance) beginPrepare(justification *Justification) {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony()
+	i.resetRebroadcastParams()
 
 	i.broadcast(i.round, PREPARE_PHASE, i.value, false, justification)
 }
@@ -750,6 +753,7 @@ func (i *instance) tryPrepare() error {
 func (i *instance) beginCommit() {
 	i.phase = COMMIT_PHASE
 	i.phaseTimeout = i.alarmAfterSynchrony()
+	i.resetRebroadcastParams()
 
 	// The PREPARE phase exited either with i.value == i.proposal having a strong quorum agreement,
 	// or with i.value == bottom otherwise.
@@ -816,6 +820,7 @@ func (i *instance) tryCommit(round uint64) error {
 
 func (i *instance) beginDecide(round uint64) {
 	i.phase = DECIDE_PHASE
+	i.resetRebroadcastParams()
 	var justification *Justification
 	// Value cannot be empty here.
 	if quorum, ok := i.getRound(round).committed.FindStrongQuorumFor(i.value.Key()); ok {
@@ -840,6 +845,7 @@ func (i *instance) skipToDecide(value ECChain, justification *Justification) {
 	i.phase = DECIDE_PHASE
 	i.proposal = value
 	i.value = i.proposal
+	i.resetRebroadcastParams()
 	i.broadcast(0, DECIDE_PHASE, i.value, false, justification)
 }
 
@@ -924,6 +930,7 @@ func (i *instance) terminate(decision *Justification) {
 	i.phase = TERMINATED_PHASE
 	i.value = decision.Vote.Value
 	i.terminationValue = decision
+	i.resetRebroadcastParams()
 }
 
 func (i *instance) terminated() bool {
@@ -946,28 +953,16 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, createTick
 		mb.SetBeaconForTicket(i.beacon)
 	}
 
-	_ = i.participant.host.RequestBroadcast(mb)
+	if err := i.participant.host.RequestBroadcast(mb); err != nil {
+		i.log("failed to request broadcast: %v", err)
+	}
 	i.broadcasted.record(mb)
 }
 
-// tryRebroadcast checks whether the conditions for rebroadcasting messages are
-// met, and if so rebroadcasts messages from current and previous rounds.
-// Rebroadcast is needed when both of the following conditions are met:
-//   - There has been no progress since latest broadcast.
-//   - Rebroadcast backoff duration has elapsed.
-//
-// If there has been progress since latest broadcast this function resets the
-// number of rebroadcast attempts and returns immediately.
+// tryRebroadcast checks whether re-broadcast timeout has elapsed, and if so
+// rebroadcasts messages from current and previous rounds. If not, it sets an
+// alarm for re-broadcast relative to the number of attempts.
 func (i *instance) tryRebroadcast() error {
-	if i.progressedSinceLatestBroadcast() && i.rebroadcastAttempts != 0 {
-		// Rebroadcast is not necessary, since progress has been made. Reset rebroadcast
-		// parameters.
-		i.rebroadcastAttempts = 0
-		i.rebroadcastTimeout = time.Time{}
-		i.broadcasted.lastBroadcastRound = 0
-		i.broadcasted.lastBroadcastPhase = INITIAL_PHASE
-	}
-
 	if i.rebroadcastAttempts == 0 && i.rebroadcastTimeout.IsZero() {
 		// It is the first time that rebroadcast has become necessary; set initial
 		// rebroadcast timeout relative to the phase timeout, and schedule a rebroadcast.
@@ -1009,18 +1004,14 @@ func (i *instance) tryRebroadcast() error {
 	return nil
 }
 
+func (i *instance) resetRebroadcastParams() {
+	i.rebroadcastAttempts = 0
+	i.rebroadcastTimeout = time.Time{}
+}
+
 func (i *instance) rebroadcastTimeoutElapsed() bool {
 	now := i.participant.host.Time()
 	return atOrAfter(now, i.rebroadcastTimeout)
-}
-
-func (i *instance) progressedSinceLatestBroadcast() bool {
-	if i.broadcasted.lastBroadcastPhase == DECIDE_PHASE {
-		// Progress could not have been made if the latest broadcasted phase is DECIDE.
-		// Otherwise this instance would have been terminated.
-		return false
-	}
-	return i.phase != i.broadcasted.lastBroadcastPhase || i.round != i.broadcasted.lastBroadcastRound
 }
 
 func (i *instance) rebroadcast() error {
@@ -1032,7 +1023,16 @@ func (i *instance) rebroadcast() error {
 	// Note that the implementation here rebroadcasts more messages than FIP-0086
 	// strictly requires. Because, the cost of rebroadcasting additional messages is
 	// small compared to the reduction in need for rebroadcast.
-	for _, mbs := range i.broadcasted.messagesByRound {
+	//
+	// It is also not strictly required to sort the rebroadcasted messages. But we do
+	// so for deterministic behaviour, useful for testing.
+	var rounds []uint64
+	for round := range i.broadcasted.messagesByRound {
+		rounds = append(rounds, round)
+	}
+	slices.Sort(rounds)
+	for _, round := range rounds {
+		mbs := i.broadcasted.messagesByRound[round]
 		for _, mb := range mbs {
 			if err := i.participant.host.RequestBroadcast(mb); err != nil {
 				return err
@@ -1466,9 +1466,7 @@ func (c *convergeState) FindProposalFor(chain ECChain) (ConvergeValue, bool) {
 }
 
 type broadcastState struct {
-	lastBroadcastPhase Phase
-	lastBroadcastRound uint64
-	messagesByRound    map[uint64][]*MessageBuilder
+	messagesByRound map[uint64][]*MessageBuilder
 }
 
 func newBroadcastState() *broadcastState {
@@ -1487,12 +1485,6 @@ func newBroadcastState() *broadcastState {
 // the benefit of less reliance on rebroadcast and reduction in the possibility
 // of participants getting stuck.
 func (bs *broadcastState) record(mb *MessageBuilder) {
-	bs.lastBroadcastPhase = mb.payload.Step
-	// Payload round will always be zero at DECIDE step. This is OK because
-	// progressedSinceLatestBroadcast handles this complexity by always returning
-	// false if lastBroadcastPhase is DECIDE. Therefore, the actual round at which
-	// DECIDE step is reached is irrelevant.
-	bs.lastBroadcastRound = mb.payload.Round
 	switch mb.payload.Step {
 	case DECIDE_PHASE:
 		// Clear all previous messages, as only DECIDE message need to be rebroadcasted.
