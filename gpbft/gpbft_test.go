@@ -393,6 +393,64 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 	})
 }
 
+func TestGPBFT_SkipsToDecide(t *testing.T) {
+	newInstanceAndDriver := func(t *testing.T) (*emulator.Instance, *emulator.Driver) {
+		driver := emulator.NewDriver(t)
+		instance := emulator.NewInstance(t,
+			0,
+			gpbft.PowerEntries{
+				gpbft.PowerEntry{
+					ID:    0,
+					Power: gpbft.NewStoragePower(1),
+				},
+				gpbft.PowerEntry{
+					ID: 1,
+					// Set majority power.
+					Power: gpbft.NewStoragePower(3),
+				},
+			},
+			tipset0, tipSet1, tipSet2,
+		)
+		driver.AddInstance(instance)
+		driver.RequireNoBroadcast()
+		return instance, driver
+	}
+
+	t.Run("After Instance started", func(t *testing.T) {
+		instance, driver := newInstanceAndDriver(t)
+		wantDecision := instance.Proposal().Extend(tipSet4.Key)
+
+		driver.StartInstance(instance.ID())
+		driver.RequireQuality()
+		driver.RequireNoBroadcast()
+
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender: 1,
+			Vote:   instance.NewDecide(0, wantDecision),
+			// Justify by strong evidence of COMMIT from 1, the participant with majority power.
+			Justification: instance.NewJustification(0, gpbft.COMMIT_PHASE, wantDecision, 1),
+		})
+		// Expect immediate decision.
+		driver.RequireDecision(instance.ID(), wantDecision)
+	})
+	t.Run("Before instance started via dequeue messages", func(t *testing.T) {
+		instance, driver := newInstanceAndDriver(t)
+		wantDecision := instance.Proposal().Extend(tipSet4.Key)
+
+		// Send the DECIDE message before instance start to force it to be queued.
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender: 1,
+			Vote:   instance.NewDecide(0, wantDecision),
+			// Justify by strong evidence of COMMIT from 1, the participant with majority power.
+			Justification: instance.NewJustification(0, gpbft.COMMIT_PHASE, wantDecision, 1),
+		})
+
+		driver.StartInstance(instance.ID())
+		// Expect immediate decision.
+		driver.RequireDecision(instance.ID(), wantDecision)
+	})
+}
+
 func TestGPBFT_SoloParticipant(t *testing.T) {
 	newInstanceAndDriver := func(t *testing.T) (*emulator.Instance, *emulator.Driver) {
 		driver := emulator.NewDriver(t)
