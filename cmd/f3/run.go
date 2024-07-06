@@ -121,20 +121,18 @@ var runCmd = cli.Command{
 			return xerrors.Errorf("creating module: %w", err)
 		}
 
-		mprovider.SetManifestChangeCallback(f3.ManifestChangeCallback(module))
 		go runMessageSubscription(ctx, module, gpbft.ActorID(id), signingBackend)
 
-		return module.Run(ctx)
+		if err := module.Start(ctx); err != nil {
+			return nil
+		}
+		<-ctx.Done()
+		return module.Stop(context.Background())
 	},
 }
 
 func runMessageSubscription(ctx context.Context, module *f3.F3, actorID gpbft.ActorID, signer gpbft.Signer) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
+	for ctx.Err() == nil {
 
 		ch := make(chan *gpbft.MessageBuilder, 4)
 		module.SubscribeForMessagesToSign(ch)

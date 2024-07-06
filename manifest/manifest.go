@@ -39,18 +39,15 @@ var (
 	}
 )
 
-type OnManifestChange func(ctx context.Context, prevManifest Manifest, errCh chan error)
+type OnManifestChange func(ctx context.Context, prevManifest Manifest) error
 
 type ManifestProvider interface {
-	// Run starts any background tasks required for the operation
-	// of the manifest provider.
-	Run(context.Context, chan error)
-	// Returns the list of gpbft options to be used for gpbft configuration
-	GpbftOptions() []gpbft.Option
-	// Set callback to trigger to apply new manifests from F3.
-	SetManifestChangeCallback(OnManifestChange)
-	// Manifest accessor
-	Manifest() Manifest
+	// Start any background tasks required for the operation of the manifest provider.
+	Start(context.Context) error
+	// Stop stops a running manifest provider.
+	Stop(context.Context) error
+	// The channel on which manifest updates are returned.
+	ManifestUpdates() <-chan *Manifest
 }
 
 type Version string
@@ -74,21 +71,12 @@ type EcConfig struct {
 	CommiteeLookback         uint64
 }
 
-// Manifest identifies the specific configuration for
-// the F3 instance currently running.
+// Manifest identifies the specific configuration for the F3 instance currently running.
 type Manifest struct {
-	// Sequence number of the manifest.
-	// This is used to identify if a new config needs to be applied
-	Sequence uint64
 	// Initial instance to used for the f3 instance
 	InitialInstance uint64
 	// BootstrapEpoch from which the manifest should be applied
 	BootstrapEpoch int64
-	// Flag to determine if the peer should rebootstrap in this configuration
-	// change at BootstrapEpoch
-	ReBootstrap bool
-	// Specifies if the manifest should pause F3 until a new configuration arrives.
-	Pause bool
 	// Network name to apply for this manifest.
 	NetworkName gpbft.NetworkName
 	// Updates to perform over the power table retrieved by the host
@@ -100,10 +88,10 @@ type Manifest struct {
 	*EcConfig
 }
 
-func LocalDevnetManifest() Manifest {
+func LocalDevnetManifest() *Manifest {
 	rng := make([]byte, 4)
 	_, _ = rand.Read(rng)
-	m := Manifest{
+	m := &Manifest{
 		NetworkName:    gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng)),
 		BootstrapEpoch: 1000,
 		EcConfig:       DefaultEcConfig,
@@ -112,7 +100,7 @@ func LocalDevnetManifest() Manifest {
 }
 
 // Version that uniquely identifies the manifest.
-func (m Manifest) Version() (Version, error) {
+func (m *Manifest) Version() (Version, error) {
 	b, err := json.Marshal(m)
 	if err != nil {
 		return "", xerrors.Errorf("computing manifest version: %w", err)
@@ -123,7 +111,7 @@ func (m Manifest) Version() (Version, error) {
 // Marshal the manifest into JSON
 // We use JSON because we need to serialize a float and time.Duration
 // and the cbor serializer we use do not support these types yet.
-func (m Manifest) Marshal() ([]byte, error) {
+func (m *Manifest) Marshal() ([]byte, error) {
 	b, err := json.Marshal(m)
 	if err != nil {
 		return nil, xerrors.Errorf("marshaling JSON: %w", err)
@@ -139,11 +127,11 @@ func (m *Manifest) Unmarshal(r io.Reader) error {
 	return nil
 }
 
-func (m Manifest) DatastorePrefix() datastore.Key {
+func (m *Manifest) DatastorePrefix() datastore.Key {
 	return datastore.NewKey("/f3/" + string(m.NetworkName))
 }
 
-func (m Manifest) PubSubTopic() string {
+func (m *Manifest) PubSubTopic() string {
 	return PubSubTopicFromNetworkName(m.NetworkName)
 }
 
@@ -151,7 +139,7 @@ func PubSubTopicFromNetworkName(nn gpbft.NetworkName) string {
 	return "/f3/granite/0.0.1/" + string(nn)
 }
 
-func (m Manifest) GpbftOptions() []gpbft.Option {
+func (m *Manifest) GpbftOptions() []gpbft.Option {
 	var opts []gpbft.Option
 
 	if m.GpbftConfig == nil {

@@ -14,6 +14,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 )
 
@@ -137,6 +138,8 @@ var manifestServeCmd = cli.Command{
 			return xerrors.Errorf("initializing libp2p host: %w", err)
 		}
 
+		defer func() { _ = host.Close() }()
+
 		// Connect to all bootstrap addresses once. This should be sufficient to build
 		// the pubsub mesh, if not then we need to periodically re-connect and/or pull in
 		// the Lotus bootstrapping, which includes DHT connectivity.
@@ -171,15 +174,15 @@ var manifestServeCmd = cli.Command{
 		}
 
 		manifestPath := c.String("manifest")
-		loadManifestAndVersion := func() (manifest.Manifest, manifest.Version, error) {
+		loadManifestAndVersion := func() (*manifest.Manifest, manifest.Version, error) {
 
 			m, err := loadManifest(manifestPath)
 			if err != nil {
-				return manifest.Manifest{}, "", xerrors.Errorf("loading manifest: %w", err)
+				return nil, "", xerrors.Errorf("loading manifest: %w", err)
 			}
 			version, err := m.Version()
 			if err != nil {
-				return manifest.Manifest{}, "", xerrors.Errorf("versioning manifest: %w", err)
+				return nil, "", xerrors.Errorf("versioning manifest: %w", err)
 			}
 			return m, version, nil
 		}
@@ -200,46 +203,49 @@ var manifestServeCmd = cli.Command{
 		}
 		_, _ = fmt.Fprintf(c.App.Writer, "Started manifest sender with version: %s\n", manifestVersion)
 
-		go func() {
-			sender.Start(c.Context)
-		}()
-		defer func() {
-			sender.Stop()
-			_ = host.Close()
-		}()
+		checkInterval := c.Duration("checkInterval")
 
-		checkTicker := time.NewTicker(c.Duration("checkInterval"))
-		for c.Context.Err() == nil {
-			select {
-			case <-c.Context.Done():
-				return c.Context.Err()
-			case <-checkTicker.C:
-				if nextManifest, nextManifestVersion, err := loadManifestAndVersion(); err != nil {
-					_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed reload manifest: %v\n", err)
-				} else if manifestVersion != nextManifestVersion {
-					_, _ = fmt.Fprintf(c.App.Writer, "Loaded manifest with version: %s\n", nextManifestVersion)
-					sender.UpdateManifest(nextManifest)
-					manifestVersion = nextManifestVersion
+		errgrp, ctx := errgroup.WithContext(c.Context)
+		errgrp.Go(func() error { return sender.Run(ctx) })
+		errgrp.Go(func() error {
+			checkTicker := time.NewTicker(checkInterval)
+			defer checkTicker.Stop()
+
+			for ctx.Err() == nil {
+				select {
+				case <-ctx.Done():
+					return nil
+				case <-checkTicker.C:
+					if nextManifest, nextManifestVersion, err := loadManifestAndVersion(); err != nil {
+						_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed reload manifest: %v\n", err)
+					} else if manifestVersion != nextManifestVersion {
+						_, _ = fmt.Fprintf(c.App.Writer, "Loaded manifest with version: %s\n", nextManifestVersion)
+						sender.UpdateManifest(nextManifest)
+						manifestVersion = nextManifestVersion
+					}
 				}
 			}
-		}
-		return nil
+
+			return nil
+		})
+
+		return errgrp.Wait()
 	},
 }
 
-func getManifest(c *cli.Context) (manifest.Manifest, error) {
+func getManifest(c *cli.Context) (*manifest.Manifest, error) {
 	manifestPath := c.String("manifest")
 	return loadManifest(manifestPath)
 }
 
-func loadManifest(path string) (manifest.Manifest, error) {
+func loadManifest(path string) (*manifest.Manifest, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return manifest.Manifest{}, xerrors.Errorf("opening %s to load manifest: %w", path, err)
+		return nil, xerrors.Errorf("opening %s to load manifest: %w", path, err)
 	}
 	defer f.Close()
 	var m manifest.Manifest
 
 	err = m.Unmarshal(f)
-	return m, err
+	return &m, err
 }

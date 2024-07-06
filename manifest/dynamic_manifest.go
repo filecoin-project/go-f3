@@ -3,27 +3,27 @@ package manifest
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
-	"sync"
-	"time"
+	"io"
 
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
+
 	logging "github.com/ipfs/go-log/v2"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"go.uber.org/multierr"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 )
 
-var _ ManifestProvider = (*DynamicManifestProvider)(nil)
-
 var log = logging.Logger("f3-dynamic-manifest")
 
-const (
-	ManifestPubSubTopicName = "/f3/manifests/0.0.1"
-	ManifestCheckTick       = 5 * time.Second
-)
+var _ ManifestProvider = (*DynamicManifestProvider)(nil)
+
+const ManifestPubSubTopicName = "/f3/manifests/0.0.1"
 
 // DynamicManifestProvider is a manifest provider that allows
 // the manifest to be changed at runtime.
@@ -31,169 +31,156 @@ type DynamicManifestProvider struct {
 	pubsub           *pubsub.PubSub
 	ec               ec.Backend
 	manifestServerID peer.ID
-	manifestTopic    *pubsub.Topic
 
-	// the lk guards all dynamic manifest-specific fields
-	lk               sync.RWMutex
-	manifest         Manifest
-	onManifestChange OnManifestChange
-	nextManifest     *Manifest
+	runningCtx context.Context
+	errgrp     *errgroup.Group
+	cancel     context.CancelFunc
+
+	initialManifest *Manifest
+	manifestChanges chan *Manifest
 }
 
-func NewDynamicManifestProvider(manifest Manifest, pubsub *pubsub.PubSub, ec ec.Backend, manifestServerID peer.ID) ManifestProvider {
+type ManifestUpdateMessage struct {
+	MessageSequence uint64
+	ManifestVersion uint64
+	Manifest        *Manifest
+}
+
+func (mu ManifestUpdateMessage) toManifest() *Manifest {
+	if mu.Manifest == nil {
+		return nil
+	}
+
+	// When a manifest configuration changes, a new network name is set that depends on the
+	// manifest version of the previous version to avoid overlapping previous configurations.
+	cpy := *mu.Manifest
+	newName := fmt.Sprintf("%s/%d", string(cpy.NetworkName), mu.ManifestVersion)
+	cpy.NetworkName = gpbft.NetworkName(newName)
+	return &cpy
+}
+
+func (m ManifestUpdateMessage) Marshal() ([]byte, error) {
+	b, err := json.Marshal(m)
+	if err != nil {
+		return nil, xerrors.Errorf("marshaling JSON: %w", err)
+	}
+	return b, nil
+}
+
+func (m *ManifestUpdateMessage) Unmarshal(r io.Reader) error {
+	err := json.NewDecoder(r).Decode(&m)
+	if err != nil {
+		return xerrors.Errorf("decoding JSON: %w", err)
+	}
+	return nil
+}
+
+func NewDynamicManifestProvider(initialManifest *Manifest, pubsub *pubsub.PubSub, ec ec.Backend, manifestServerID peer.ID) ManifestProvider {
+	ctx, cancel := context.WithCancel(context.Background())
+	errgrp, ctx := errgroup.WithContext(ctx)
+
 	return &DynamicManifestProvider{
-		manifest:         manifest,
 		pubsub:           pubsub,
 		ec:               ec,
 		manifestServerID: manifestServerID,
+		runningCtx:       ctx,
+		errgrp:           errgrp,
+		cancel:           cancel,
+		initialManifest:  initialManifest,
+		manifestChanges:  make(chan *Manifest, 1),
 	}
 }
 
-func (m *DynamicManifestProvider) Manifest() Manifest {
-	m.lk.RLock()
-	defer m.lk.RUnlock()
-	return m.manifest
+func (m *DynamicManifestProvider) ManifestUpdates() <-chan *Manifest {
+	return m.manifestChanges
 }
 
-func (m *DynamicManifestProvider) GpbftOptions() []gpbft.Option {
-	return m.manifest.GpbftOptions()
+func (m *DynamicManifestProvider) Stop(ctx context.Context) (_err error) {
+	m.cancel()
+	return m.errgrp.Wait()
 }
 
-func (m *DynamicManifestProvider) SetManifestChangeCallback(mc OnManifestChange) {
-	m.lk.Lock()
-	defer m.lk.Unlock()
-	m.onManifestChange = mc
-}
-
-// When a manifest configuration changes, a new network name
-// is set that depends on the manifest version of the previous version to avoid
-// overlapping previous configurations.
-func (m *DynamicManifestProvider) networkNameOnChange() gpbft.NetworkName {
-	return gpbft.NetworkName(string(m.manifest.NetworkName) + "/" + fmt.Sprintf("%d", m.manifest.Sequence))
-}
-
-func (m *DynamicManifestProvider) Run(ctx context.Context, errCh chan error) {
-	if m.onManifestChange == nil {
-		errCh <- xerrors.New("onManifestChange is nil. Callback for manifest change required")
-	}
-	go m.handleIncomingManifests(ctx, errCh)
-	m.handleApplyManifest(ctx, errCh)
-}
-
-func (m *DynamicManifestProvider) handleApplyManifest(ctx context.Context, errCh chan error) {
-	// add a timer for EC period
-	ticker := time.NewTicker(ManifestCheckTick)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			m.lk.Lock()
-			if m.nextManifest != nil {
-				ts, err := m.ec.GetHead(ctx)
-				if err != nil {
-					log.Errorf("error fetching chain head: %+v", err)
-					m.lk.Unlock()
-					continue
-				}
-
-				// if the upgrade epoch is reached or already passed.
-				if ts.Epoch() >= m.nextManifest.BootstrapEpoch {
-					log.Debugf("reached bootstrap epoch, triggering manifest change: %d", ts.Epoch())
-					// update the current manifest
-					prevManifest := m.manifest
-					m.manifest = *m.nextManifest
-					nn := m.networkNameOnChange()
-					m.manifest.NetworkName = nn
-					m.nextManifest = nil
-					// trigger manifest change callback.
-					go m.onManifestChange(ctx, prevManifest, errCh)
-					m.lk.Unlock()
-					continue
-				}
-			}
-			m.lk.Unlock()
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-// listen to manifests being broadcast through the network.
-func (m *DynamicManifestProvider) handleIncomingManifests(ctx context.Context, errCh chan error) {
-	if err := m.setupManifestPubsub(); err != nil {
-		errCh <- xerrors.Errorf("setting up pubsub: %w", err)
-		return
+func (m *DynamicManifestProvider) Start(startCtx context.Context) (_err error) {
+	if err := m.registerTopicValidator(); err != nil {
+		return err
 	}
 
-	manifestSub, err := m.manifestTopic.Subscribe()
+	manifestTopic, err := m.pubsub.Join(ManifestPubSubTopicName)
 	if err != nil {
-		errCh <- xerrors.Errorf("subscribing to topic: %w", err)
-		return
+		return xerrors.Errorf("could not join manifest pubsub topic: %w", err)
 	}
 
-loop:
-	for ctx.Err() == nil {
-		select {
-		case <-ctx.Done():
-			break loop
+	manifestSub, err := manifestTopic.Subscribe()
+	if err != nil {
+		return xerrors.Errorf("subscribing to manifest pubsub topic: %w", err)
+	}
 
-		default:
-			var msg *pubsub.Message
-			msg, err = manifestSub.Next(ctx)
-			if err != nil {
-				log.Errorf("manifestPubsub subscription.Next() returned an error: %+v", err)
-				break
+	// XXX: load the initial manifest from disk!
+	// And save it!
+
+	m.manifestChanges <- ManifestUpdateMessage{
+		MessageSequence: 0,
+		ManifestVersion: 0,
+		Manifest:        m.initialManifest,
+	}.toManifest()
+
+	m.errgrp.Go(func() error {
+		defer func() {
+			manifestSub.Cancel()
+			err := multierr.Combine(
+				manifestTopic.Close(),
+				m.unregisterTopicValidator(),
+			)
+			// Pubsub likes to return context canceled errors if/when we unregister after
+			// closing pubsub. Ignore it.
+			if err != nil && !errors.Is(err, context.Canceled) {
+				_err = multierr.Append(_err, err)
 			}
-			manifest, ok := msg.ValidatorData.(*Manifest)
+			if _err != nil {
+				log.Error("exited manifest subscription early: %+v", _err)
+			}
+		}()
+
+		var msgSeqNumber uint64
+		for m.runningCtx.Err() == nil {
+			msg, err := manifestSub.Next(m.runningCtx)
+			if err != nil {
+				if m.runningCtx.Err() == nil {
+					return xerrors.Errorf("error from manifest subscription: %w", err)
+				}
+				return nil
+			}
+			update, ok := msg.ValidatorData.(*ManifestUpdateMessage)
 			if !ok {
 				log.Errorf("invalid manifestValidatorData: %+v", msg.ValidatorData)
 				continue
 			}
 
-			m.acceptNextManifest(manifest)
+			if update.MessageSequence <= msgSeqNumber {
+				log.Warnf("discarded manifest update %d", update.MessageSequence)
+				continue
+			}
+			log.Infof("received manifest update %d", update.MessageSequence)
+			msgSeqNumber = update.MessageSequence
+			select {
+			case m.manifestChanges <- update.toManifest():
+			case <-m.runningCtx.Done():
+				return nil
+			}
 		}
-	}
+		return nil
+	})
 
-	manifestSub.Cancel()
-	if err := m.teardownManifestPubsub(); err != nil {
-		errCh <- xerrors.Errorf("shutting down manifest pubsub: %w", err)
-	}
+	return nil
 }
 
-func (m *DynamicManifestProvider) teardownPubsub(topic *pubsub.Topic, topicName string) error {
-	return multierr.Combine(
-		m.pubsub.UnregisterTopicValidator(topicName),
-		topic.Close(),
-	)
-}
-
-func (m *DynamicManifestProvider) teardownManifestPubsub() error {
-	return m.teardownPubsub(m.manifestTopic, ManifestPubSubTopicName)
-}
-
-// Checks if we should accept the manifest that we received through pubsub
-// and sets nextManifest if it is the case
-func (m *DynamicManifestProvider) acceptNextManifest(manifest *Manifest) {
-	m.lk.Lock()
-	defer m.lk.Unlock()
-
-	if manifest.Sequence <= m.manifest.Sequence {
-		return
-	}
-	// TODO: Any additional logic here to determine what manifests to accept or not?
-
-	m.nextManifest = manifest
-}
-
-func (m *DynamicManifestProvider) setupManifestPubsub() (err error) {
-	topicName := ManifestPubSubTopicName
+func (m *DynamicManifestProvider) registerTopicValidator() error {
 	// using the same validator approach used for the message pubsub
 	// to be homogeneous.
 	var validator pubsub.ValidatorEx = func(ctx context.Context, pID peer.ID,
 		msg *pubsub.Message) pubsub.ValidationResult {
-		var manifest Manifest
-		err := manifest.Unmarshal(bytes.NewReader(msg.Data))
+		var update ManifestUpdateMessage
+		err := update.Unmarshal(bytes.NewReader(msg.Data))
 		if err != nil {
 			return pubsub.ValidationReject
 		}
@@ -208,18 +195,17 @@ func (m *DynamicManifestProvider) setupManifestPubsub() (err error) {
 		// Expect an BootstrapEpoch over the BootstrapEpoch of the current manifests?
 		// These should probably not be ValidationRejects to avoid banning in gossipsub
 		// the centralized server in case of misconfigurations or bugs.
-		msg.ValidatorData = &manifest
+		msg.ValidatorData = &update
 		return pubsub.ValidationAccept
 	}
 
-	err = m.pubsub.RegisterTopicValidator(topicName, validator)
+	err := m.pubsub.RegisterTopicValidator(ManifestPubSubTopicName, validator)
 	if err != nil {
 		return xerrors.Errorf("registering topic validator: %w", err)
 	}
+	return nil
+}
 
-	m.manifestTopic, err = m.pubsub.Join(topicName)
-	if err != nil {
-		return xerrors.Errorf("could not join on pubsub topic: %s: %w", topicName, err)
-	}
-	return
+func (m *DynamicManifestProvider) unregisterTopicValidator() error {
+	return m.pubsub.UnregisterTopicValidator(ManifestPubSubTopicName)
 }
