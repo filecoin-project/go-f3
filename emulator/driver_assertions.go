@@ -1,31 +1,19 @@
 package emulator
 
 import (
-	"bytes"
-	"context"
-
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
-// ValidTicket is a sentinel value to generate and set a valid gpbft.Ticket when
-// delivering messages via Driver.RequireDeliverMessage.
-var ValidTicket gpbft.Ticket = []byte("filled by driver when non-empty")
-
 func (d *Driver) RequireDeliverMessage(message *gpbft.GMessage) {
-	// A small hack to fill the ticket with the right value as whatever "right" is
-	// dictated to be by signing. This keeps the signing swappable without ripple
-	// effect across the driver.
-	withTicket := bytes.Equal(message.Ticket, ValidTicket)
-	instance := d.host.getInstance(message.Vote.Instance)
-	d.require.NotNil(instance)
-	mb := instance.NewMessageBuilder(message.Vote, message.Justification, withTicket)
-	mb.SetNetworkName(d.host.NetworkName())
-	mb.SetSigningMarshaler(d.host.adhocSigning)
-	msg, err := mb.Build(context.Background(), d.host.adhocSigning, message.Sender)
-	d.require.NoError(err)
-	d.require.NotNil(msg)
-
+	msg := d.prepareMessage(message)
 	d.require.NoError(d.deliverMessage(msg))
+}
+
+func (d *Driver) RequireErrOnDeliverMessage(message *gpbft.GMessage, err error) {
+	msg := d.prepareMessage(message)
+	gotErr := d.deliverMessage(msg)
+	d.require.Error(gotErr)
+	d.require.ErrorIs(err, gotErr)
 }
 
 func (d *Driver) RequireDeliverAlarm() {
