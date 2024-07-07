@@ -37,6 +37,8 @@ func (s *FakeBackend) GenerateKey() (gpbft.PubKey, any) {
 }
 
 func (s *FakeBackend) Allow(i int) gpbft.PubKey {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	pubKey := gpbft.PubKey(fmt.Sprintf("pubkey::%08x", i))
 	s.allowed[string(pubKey)] = struct{}{}
 	return pubKey
