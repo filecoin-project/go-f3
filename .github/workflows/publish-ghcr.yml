@@ -1,4 +1,4 @@
-name: Continuous Integration
+name: Container
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
 
 jobs:
   publish:
-    name: Publish Container
+    name: publish
     runs-on: ubuntu-latest
     permissions:
       contents: read
