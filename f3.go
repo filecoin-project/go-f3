@@ -141,19 +141,18 @@ func (m *F3) computeBootstrapDelay(manifest *manifest.Manifest) (time.Duration, 
 		return 0, err
 	}
 
-	// We bootstrap now if we're at the correct time, whether or
-	// not we've hit the correct epoch. The important thing is
-	// that:
-	//
-	// 1. All nodes will use BootstrapEpoch - Finality to pick the base.
-	// 2. All nodes will bootstrap at the same time.
 	currentEpoch := ts.Epoch()
 	if currentEpoch >= manifest.BootstrapEpoch {
 		return 0, nil
 	}
 	epochDelay := manifest.BootstrapEpoch - currentEpoch
 	start := ts.Timestamp().Add(time.Duration(epochDelay) * manifest.ECPeriod)
-	return max(time.Until(start), 0), nil
+	delay := time.Until(start)
+	// Add additional delay to skip over null epochs. That way we wait the full 900 epochs.
+	if delay <= 0 {
+		delay = manifest.ECPeriod + delay%manifest.ECPeriod
+	}
+	return delay, nil
 }
 
 // Run start the module. It will exit when context is cancelled.
@@ -195,29 +194,28 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 		}
 
 		defer manifestChangeTimer.Stop()
-
 		for m.runningCtx.Err() == nil {
 			select {
 			case update := <-m.manifestProvider.ManifestUpdates():
 				if pendingManifest != nil && !manifestChangeTimer.Stop() {
 					<-manifestChangeTimer.C
 				}
-
 				pendingManifest = update
-				if delay, err := m.computeBootstrapDelay(update); err != nil {
-					return err
-				} else if delay > 0 {
-					manifestChangeTimer.Reset(delay)
-					continue
-				}
 			case <-manifestChangeTimer.C:
 			case <-m.runningCtx.Done():
 				return nil
 			}
-			if err := m.reconfigure(m.runningCtx, pendingManifest); err != nil {
-				return xerrors.Errorf("failed to reconfigure F3: %w", err)
+
+			if delay, err := m.computeBootstrapDelay(pendingManifest); err != nil {
+				return err
+			} else if delay > 0 {
+				manifestChangeTimer.Reset(delay)
+			} else {
+				if err := m.reconfigure(m.runningCtx, pendingManifest); err != nil {
+					return xerrors.Errorf("failed to reconfigure F3: %w", err)
+				}
+				pendingManifest = nil
 			}
-			pendingManifest = nil
 		}
 		return nil
 	})
