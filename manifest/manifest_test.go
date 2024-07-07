@@ -15,9 +15,7 @@ import (
 )
 
 var base manifest.Manifest = manifest.Manifest{
-	Sequence:       0,
 	BootstrapEpoch: 10,
-	ReBootstrap:    true,
 	NetworkName:    gpbft.NetworkName("test"),
 	PowerUpdate: []certs.PowerTableDelta{
 		{
