@@ -1419,10 +1419,9 @@ func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket, ju
 	return nil
 }
 
-// Returns the value with the highest ticket, weighted by sender power.
-// Returns the self value (which may be zero) if and only if no other value is found.
-// Note that introduces a brief possibility where the nodes own value may be ignored
-// while waiting to learn its ticket after receiving a message from some other.
+// FindMaxTicketProposal finds the value with the highest ticket, weighted by
+// sender power. Returns the self value (which may be zero) if and only if no
+// other value is found.
 func (c *convergeState) FindMaxTicketProposal(table PowerTable) ConvergeValue {
 	// Non-determinism in case of matching tickets from an equivocation is ok.
 	// If the same ticket is used for two different values then either we get a decision on one of them
