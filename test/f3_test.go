@@ -62,11 +62,11 @@ func TestDynamicManifest_WithRebootstrap(t *testing.T) {
 	env.waitForInstanceNumber(3, 15*time.Second, false)
 	prevInstance := env.nodes[0].currentGpbftInstance()
 
-	env.manifest.BootstrapEpoch = 953
+	env.manifest.BootstrapEpoch = 1253
 	env.addPowerDeltaForParticipants(&env.manifest, []gpbft.ActorID{2, 3}, big.NewInt(1), false)
 	env.updateManifest()
 
-	env.waitForManifestChange(prev, 15*time.Second)
+	env.waitForManifestChange(prev, 35*time.Second)
 
 	// check that it rebootstrapped and the number of instances is below prevInstance
 	require.True(t, env.nodes[0].currentGpbftInstance() < prevInstance)
@@ -178,9 +178,18 @@ func (e *testEnv) newHeadEveryPeriod(period time.Duration) {
 			select {
 			case <-e.testCtx.Done():
 				return nil
-			case <-ticker.C:
-				e.ec.SetCurrentHead(e.ec.GetCurrentHead() + 1)
-				// fmt.Println("Setting new head", e.ec.GetCurrentHead())
+			case now := <-ticker.C:
+				// Catchup in case we fall behind.
+				for {
+					h, err := e.ec.GetHead(e.testCtx)
+					if err != nil {
+						return err
+					}
+					if !h.Timestamp().Before(now) {
+						break
+					}
+					e.ec.SetCurrentHead(e.ec.GetCurrentHead() + 1)
+				}
 			}
 		}
 		return nil
