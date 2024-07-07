@@ -14,6 +14,7 @@ import (
 	"github.com/filecoin-project/go-bitfield"
 	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
 	"github.com/filecoin-project/go-f3/merkle"
+	"golang.org/x/crypto/blake2b"
 	"golang.org/x/xerrors"
 )
 
@@ -1433,7 +1434,8 @@ func (c *convergeState) FindMaxTicketProposal(table PowerTable) ConvergeValue {
 	for key, value := range c.values {
 		for _, ticket := range c.tickets[key] {
 			senderPower, _ := table.Get(ticket.Sender)
-			ticketAsInt := new(big.Int).SetBytes(ticket.Ticket)
+			ticketHash := blake2b.Sum256(ticket.Ticket)
+			ticketAsInt := new(big.Int).SetBytes(ticketHash[:])
 			weightedTicket := new(big.Int).Mul(ticketAsInt, big.NewInt(int64(senderPower)))
 			if maxTicket == nil || weightedTicket.Cmp(maxTicket) > 0 {
 				maxTicket = weightedTicket
