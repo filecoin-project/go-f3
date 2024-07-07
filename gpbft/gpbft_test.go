@@ -505,3 +505,143 @@ func TestGPBFT_SoloParticipant(t *testing.T) {
 		driver.RequireDecision(instance.ID(), baseChain)
 	})
 }
+
+func TestGPBFT_SkipsToRound(t *testing.T) {
+	newInstanceAndDriver := func(t *testing.T) (*emulator.Instance, *emulator.Driver) {
+		driver := emulator.NewDriver(t)
+		instance := emulator.NewInstance(t,
+			0,
+			gpbft.PowerEntries{
+				gpbft.PowerEntry{
+					ID:    0,
+					Power: gpbft.NewStoragePower(1),
+				},
+				gpbft.PowerEntry{
+					ID:    1,
+					Power: gpbft.NewStoragePower(4),
+				},
+			},
+			tipset0, tipSet1, tipSet2,
+		)
+		driver.AddInstance(instance)
+		driver.RequireNoBroadcast()
+		return instance, driver
+	}
+
+	t.Run("Will not skip round in Decide phase", func(t *testing.T) {
+		instance, driver := newInstanceAndDriver(t)
+		futureRoundProposal := instance.Proposal().Extend(tipSet4.Key)
+
+		driver.StartInstance(instance.ID())
+		driver.RequireQuality()
+		driver.RequireNoBroadcast()
+
+		// Advance driver to Decide phase by sending an early arriving Decide justified
+		// by strong quorum of commits from participant IDs 1 and 2, making up 2/3 of the
+		// power.
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        1,
+			Vote:          instance.NewDecide(0, instance.Proposal()),
+			Justification: instance.NewJustification(0, gpbft.COMMIT_PHASE, instance.Proposal(), 1),
+		})
+
+		// At this point, the subject must be in Decide phase; therefore assert that any
+		// further messages will fail due to decision at instance zero and progress to
+		// next instance.
+		//
+		// Note, sending any message from instance 0 would fail. For clarity we send
+		// explicit messages that otherwise would have caused skip to round.
+		driver.RequireErrOnDeliverMessage(&gpbft.GMessage{
+			Sender:        1,
+			Vote:          instance.NewPrepare(77, futureRoundProposal),
+			Justification: instance.NewJustification(76, gpbft.PREPARE_PHASE, futureRoundProposal, 1),
+		}, gpbft.ErrValidationTooOld)
+		driver.RequireErrOnDeliverMessage(&gpbft.GMessage{
+			Sender:        1,
+			Vote:          instance.NewConverge(77, futureRoundProposal),
+			Justification: instance.NewJustification(76, gpbft.PREPARE_PHASE, futureRoundProposal, 1),
+			Ticket:        emulator.ValidTicket,
+		}, gpbft.ErrValidationTooOld)
+		// Expect decision.
+		driver.RequireDecision(instance.ID(), instance.Proposal())
+	})
+
+	t.Run("Will not skip round on absence of weak quorum of prepare", func(t *testing.T) {
+		instance, driver := newInstanceAndDriver(t)
+		futureRoundProposal := instance.Proposal().Extend(tipSet4.Key)
+
+		driver.StartInstance(instance.ID())
+		driver.RequireQuality()
+		driver.RequireNoBroadcast()
+
+		// Send Converge at future round to facilitate proposal with highest ticket.
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        1,
+			Vote:          instance.NewConverge(77, futureRoundProposal),
+			Justification: instance.NewJustification(76, gpbft.PREPARE_PHASE, futureRoundProposal, 1),
+			Ticket:        emulator.ValidTicket,
+		})
+
+		// Expect no broadcasts as the subject must still be in quality round.
+		driver.RequireNoBroadcast()
+		// Deliver an alarm, which must cause progress to prepare for instance proposal.
+		driver.RequireDeliverAlarm()
+		// Expect prepare for base chain at round zero to clearly assert that skip round has not occurred.
+		driver.RequirePrepare(instance.Proposal().BaseChain())
+	})
+
+	t.Run("Will skip round on weak quorum of prepare and max ticket", func(t *testing.T) {
+		instance, driver := newInstanceAndDriver(t)
+		futureRoundProposal := instance.Proposal().Extend(tipSet4.Key)
+
+		driver.StartInstance(instance.ID())
+		driver.RequireQuality()
+		driver.RequireNoBroadcast()
+
+		// Send Prepare messages to facilitate weak quorum of prepare at future round.
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        1,
+			Vote:          instance.NewPrepare(77, futureRoundProposal),
+			Justification: instance.NewJustification(76, gpbft.PREPARE_PHASE, futureRoundProposal, 1),
+		})
+		// Send Converge at future round to facilitate proposal with highest ticket.
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        1,
+			Vote:          instance.NewConverge(77, futureRoundProposal),
+			Justification: instance.NewJustification(76, gpbft.PREPARE_PHASE, futureRoundProposal, 1),
+			Ticket:        emulator.ValidTicket,
+		})
+		// Expect skip to round.
+		driver.RequireConverge(77, futureRoundProposal, instance.NewJustification(76, gpbft.PREPARE_PHASE, futureRoundProposal, 1))
+	})
+
+	t.Run("Will skip round before start on weak quorum of prepare and max ticket", func(t *testing.T) {
+		instance, driver := newInstanceAndDriver(t)
+		futureRoundProposal := instance.Proposal().Extend(tipSet4.Key)
+
+		// Here we send the necessary messages before the instance start, which means
+		// messages are queued first then drained once the instance starts. This
+		// exercises a different path, where skip round occurs by draining the queued
+		// messages.
+
+		// Send Prepare messages to facilitate weak quorum of prepare at future round.
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        1,
+			Vote:          instance.NewPrepare(77, futureRoundProposal),
+			Justification: instance.NewJustification(76, gpbft.PREPARE_PHASE, futureRoundProposal, 1),
+		})
+		// Send Converge at future round to facilitate proposal with highest ticket.
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        1,
+			Vote:          instance.NewConverge(77, futureRoundProposal),
+			Justification: instance.NewJustification(76, gpbft.PREPARE_PHASE, futureRoundProposal, 1),
+			Ticket:        emulator.ValidTicket,
+		})
+
+		driver.StartInstance(instance.ID())
+		driver.RequireQuality()
+
+		// Expect skip to round.
+		driver.RequireConverge(77, futureRoundProposal, instance.NewJustification(76, gpbft.PREPARE_PHASE, futureRoundProposal, 1))
+	})
+}

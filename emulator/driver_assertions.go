@@ -13,7 +13,7 @@ func (d *Driver) RequireErrOnDeliverMessage(message *gpbft.GMessage, err error) 
 	msg := d.prepareMessage(message)
 	gotErr := d.deliverMessage(msg)
 	d.require.Error(gotErr)
-	d.require.ErrorIs(err, gotErr)
+	d.require.ErrorIs(gotErr, err)
 }
 
 func (d *Driver) RequireDeliverAlarm() {
