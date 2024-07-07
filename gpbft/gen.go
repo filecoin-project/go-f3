@@ -227,7 +227,7 @@ func (t *GMessage) MarshalCBOR(w io.Writer) error {
 	}
 
 	// t.Signature ([]uint8) (slice)
-	if len(t.Signature) > 2097152 {
+	if len(t.Signature) > 96 {
 		return xerrors.Errorf("Byte array in field t.Signature was too long")
 	}
 
@@ -240,7 +240,7 @@ func (t *GMessage) MarshalCBOR(w io.Writer) error {
 	}
 
 	// t.Ticket (gpbft.Ticket) (slice)
-	if len(t.Ticket) > 2097152 {
+	if len(t.Ticket) > 96 {
 		return xerrors.Errorf("Byte array in field t.Ticket was too long")
 	}
 
@@ -312,7 +312,7 @@ func (t *GMessage) UnmarshalCBOR(r io.Reader) (err error) {
 		return err
 	}
 
-	if extra > 2097152 {
+	if extra > 96 {
 		return fmt.Errorf("t.Signature: byte array too large (%d)", extra)
 	}
 	if maj != cbg.MajByteString {
@@ -334,7 +334,7 @@ func (t *GMessage) UnmarshalCBOR(r io.Reader) (err error) {
 		return err
 	}
 
-	if extra > 2097152 {
+	if extra > 96 {
 		return fmt.Errorf("t.Ticket: byte array too large (%d)", extra)
 	}
 	if maj != cbg.MajByteString {
@@ -675,7 +675,7 @@ func (t *Justification) MarshalCBOR(w io.Writer) error {
 	}
 
 	// t.Signature ([]uint8) (slice)
-	if len(t.Signature) > 2097152 {
+	if len(t.Signature) > 96 {
 		return xerrors.Errorf("Byte array in field t.Signature was too long")
 	}
 
@@ -738,7 +738,7 @@ func (t *Justification) UnmarshalCBOR(r io.Reader) (err error) {
 		return err
 	}
 
-	if extra > 2097152 {
+	if extra > 96 {
 		return fmt.Errorf("t.Signature: byte array too large (%d)", extra)
 	}
 	if maj != cbg.MajByteString {

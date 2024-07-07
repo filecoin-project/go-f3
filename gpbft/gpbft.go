@@ -64,9 +64,9 @@ type GMessage struct {
 	// Vote is the payload that is signed by the signature
 	Vote Payload
 	// Signature by the sender's public key over Instance || Round || Step || Value.
-	Signature []byte
+	Signature []byte `cborgen:"maxlen=96"`
 	// VRF ticket for CONVERGE messages (otherwise empty byte array).
-	Ticket Ticket
+	Ticket Ticket `cborgen:"maxlen=96"`
 	// Justification for this message (some messages must be justified by a strong quorum of messages from some previous step).
 	Justification *Justification
 }
@@ -77,7 +77,7 @@ type Justification struct {
 	// Indexes in the base power table of the signers (bitset)
 	Signers bitfield.BitField
 	// BLS aggregate signature of signers
-	Signature []byte
+	Signature []byte `cborgen:"maxlen=96"`
 }
 
 type SupplementalData struct {
