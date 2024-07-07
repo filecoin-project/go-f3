@@ -168,7 +168,10 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 					// return errors for, e.g., messages from old instances.
 					// Given the async nature of our pubsub message handling, we
 					// could easily receive these.
-					h.log.Debugf("error when processing message: %+v", err)
+					// TODO: we need to distinguish between "fatal" and
+					// "non-fatal" errors here. Ideally only returning "real"
+					// errors.
+					h.log.Errorf("error when processing message: %+v", err)
 				}
 			case <-h.runningCtx.Done():
 				return nil

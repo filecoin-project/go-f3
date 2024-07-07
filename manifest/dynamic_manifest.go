@@ -40,10 +40,16 @@ type DynamicManifestProvider struct {
 	manifestChanges chan *Manifest
 }
 
+// ManifestUpdateMessage updates the GPBFT manifest.
 type ManifestUpdateMessage struct {
+	// A monotonically increasing sequence number for ordering manifest
+	// updates received over the network.
 	MessageSequence uint64
+	// The manifest version changes each time we distribute a new manifest. Pausing/resuming
+	// does not update the version number.
 	ManifestVersion uint64
-	Manifest        *Manifest
+	// The manifest to apply or nil to pause the network.
+	Manifest *Manifest
 }
 
 func (mu ManifestUpdateMessage) toManifest() *Manifest {

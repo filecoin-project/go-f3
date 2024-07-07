@@ -130,7 +130,7 @@ func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCerti
 
 // Returns the time at which the F3 instance specified by the passed manifest should be started, or
 // 0 if the passed manifest is nil.
-func (m *F3) computeBootstrapDelay(manifest *manifest.Manifest) (delay time.Duration, err error) {
+func (m *F3) computeBootstrapDelay(manifest *manifest.Manifest) (time.Duration, error) {
 	if manifest == nil {
 		return 0, nil
 	}
@@ -148,12 +148,12 @@ func (m *F3) computeBootstrapDelay(manifest *manifest.Manifest) (delay time.Dura
 	// 1. All nodes will use BootstrapEpoch - Finality to pick the base.
 	// 2. All nodes will bootstrap at the same time.
 	currentEpoch := ts.Epoch()
-	if currentEpoch < manifest.BootstrapEpoch {
-		epochDelay := manifest.BootstrapEpoch - currentEpoch
-		start := ts.Timestamp().Add(time.Duration(epochDelay) * manifest.ECPeriod)
-		return max(time.Until(start), 0), nil
+	if currentEpoch >= manifest.BootstrapEpoch {
+		return 0, nil
 	}
-	return 0, nil
+	epochDelay := manifest.BootstrapEpoch - currentEpoch
+	start := ts.Timestamp().Add(time.Duration(epochDelay) * manifest.ECPeriod)
+	return max(time.Until(start), 0), nil
 }
 
 // Run start the module. It will exit when context is cancelled.
