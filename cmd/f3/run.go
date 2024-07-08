@@ -21,7 +21,7 @@ import (
 	"golang.org/x/xerrors"
 )
 
-var log = logging.Logger("f3-cli")
+var log = logging.Logger("f3/cli")
 
 const DiscoveryTag = "f3-standalone"
 
