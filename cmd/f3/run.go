@@ -21,9 +21,9 @@ import (
 	"golang.org/x/xerrors"
 )
 
-const DiscoveryTag = "f3-standalone"
+var log = logging.Logger("f3/cli")
 
-var log = logging.Logger("f3")
+const DiscoveryTag = "f3-standalone"
 
 var runCmd = cli.Command{
 	Name:  "run",
@@ -115,8 +115,7 @@ var runCmd = cli.Command{
 
 		ec := ec.NewFakeEC(1, m.BootstrapEpoch, m.ECPeriod, initialPowerTable, true)
 
-		module, err := f3.New(ctx, mprovider, ds, h, ps,
-			signingBackend, ec, log, nil)
+		module, err := f3.New(ctx, mprovider, ds, h, ps, signingBackend, ec, nil)
 		if err != nil {
 			return xerrors.Errorf("creating module: %w", err)
 		}

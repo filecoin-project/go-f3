@@ -31,7 +31,6 @@ type F3 struct {
 	host   host.Host
 	ds     datastore.Datastore
 	ec     ec.Backend
-	log    Logger
 	pubsub *pubsub.PubSub
 
 	runningCtx context.Context
@@ -48,7 +47,7 @@ type F3 struct {
 // The context is used for initialization not runtime.
 // signingMarshaller can be nil for default SigningMarshaler
 func New(_ctx context.Context, manifest manifest.ManifestProvider, ds datastore.Datastore, h host.Host,
-	ps *pubsub.PubSub, verif gpbft.Verifier, ec ec.Backend, log Logger, signingMarshaller gpbft.SigningMarshaler) (*F3, error) {
+	ps *pubsub.PubSub, verif gpbft.Verifier, ec ec.Backend, signingMarshaller gpbft.SigningMarshaler) (*F3, error) {
 	runningCtx, cancel := context.WithCancel(context.Background())
 	errgrp, runningCtx := errgroup.WithContext(runningCtx)
 
@@ -63,7 +62,6 @@ func New(_ctx context.Context, manifest manifest.ManifestProvider, ds datastore.
 		host:              h,
 		ds:                ds,
 		ec:                ec,
-		log:               log,
 		pubsub:            ps,
 		runningCtx:        runningCtx,
 		cancelCtx:         cancel,
@@ -96,13 +94,13 @@ func (m *F3) Broadcast(ctx context.Context, signatureBuilder *gpbft.SignatureBui
 	m.mu.Unlock()
 
 	if runner == nil {
-		m.log.Error("attempted to broadcast message while F3 wasn't running")
+		log.Error("attempted to broadcast message while F3 wasn't running")
 		return
 	}
 
 	err := runner.BroadcastMessage(msg)
 	if err != nil {
-		m.log.Errorf("failed to broadcast message: %+v", err)
+		log.Errorf("failed to broadcast message: %+v", err)
 	}
 }
 
@@ -258,7 +256,7 @@ func (m *F3) reconfigure(ctx context.Context, manifest *manifest.Manifest) error
 	m.cs = cs
 	m.manifest = manifest
 	m.runner, err = newRunner(
-		ctx, m.cs, runnerEc, m.log, m.pubsub,
+		ctx, m.cs, runnerEc, m.pubsub,
 		m.signingMarshaller, m.verifier,
 		m.busBroadcast.Publish, m.manifest,
 	)

@@ -49,7 +49,6 @@ func TestPoller(t *testing.T) {
 		NetworkName: polling.TestNetworkName,
 		Host:        serverHost,
 		Store:       serverCs,
-		Log:         polling.TestLog,
 	}
 
 	require.NoError(t, server.Start())
@@ -62,7 +61,6 @@ func TestPoller(t *testing.T) {
 	client := certexchange.Client{
 		Host:        clientHost,
 		NetworkName: polling.TestNetworkName,
-		Log:         polling.TestLog,
 	}
 
 	poller, err := polling.NewPoller(ctx, &client, clientCs, backend)

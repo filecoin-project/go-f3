@@ -8,12 +8,15 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
+
+	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 )
+
+var log = logging.Logger("f3/certexchange")
 
 const maxResponseLen = 256
 
@@ -24,7 +27,6 @@ type Server struct {
 	NetworkName    gpbft.NetworkName
 	Host           host.Host
 	Store          *certstore.Store
-	Log            f3.Logger
 
 	cancel context.CancelFunc
 }
@@ -40,7 +42,7 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 	defer func() {
 		if perr := recover(); perr != nil {
 			_err = fmt.Errorf("panicked in server response: %v", perr)
-			s.Log.Errorf("%s\n%s", string(debug.Stack()))
+			log.Errorf("%s\n%s", string(debug.Stack()))
 		}
 	}()
 
@@ -56,7 +58,7 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 	// Request has no variable-length fields, so we don't need a limited reader.
 	var req Request
 	if err := req.UnmarshalCBOR(br); err != nil {
-		s.Log.Debugf("failed to read request from stream: %w", err)
+		log.Debugf("failed to read request from stream: %w", err)
 		return err
 	}
 
@@ -72,14 +74,14 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 	if resp.PendingInstance >= req.FirstInstance && req.IncludePowerTable {
 		pt, err := s.Store.GetPowerTable(ctx, req.FirstInstance)
 		if err != nil {
-			s.Log.Errorf("failed to load power table: %w", err)
+			log.Errorf("failed to load power table: %w", err)
 			return err
 		}
 		resp.PowerTable = pt
 	}
 
 	if err := resp.MarshalCBOR(bw); err != nil {
-		s.Log.Debugf("failed to write header to stream: %w", err)
+		log.Debugf("failed to write header to stream: %w", err)
 		return err
 	}
 
@@ -96,12 +98,12 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 		if err == nil || errors.Is(err, certstore.ErrCertNotFound) {
 			for i := range certs {
 				if err := certs[i].MarshalCBOR(bw); err != nil {
-					s.Log.Debugf("failed to write certificate to stream: %w", err)
+					log.Debugf("failed to write certificate to stream: %w", err)
 					return err
 				}
 			}
 		} else {
-			s.Log.Errorf("failed to load finality certificates: %w", err)
+			log.Errorf("failed to load finality certificates: %w", err)
 		}
 	}
 	return bw.Flush()

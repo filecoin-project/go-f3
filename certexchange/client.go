@@ -8,7 +8,6 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -27,8 +26,6 @@ type Client struct {
 	Host           host.Host
 	NetworkName    gpbft.NetworkName
 	RequestTimeout time.Duration
-
-	Log f3.Logger
 }
 
 func (c *Client) withDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -44,7 +41,7 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	defer func() {
 		if perr := recover(); perr != nil {
 			_err = fmt.Errorf("panicked requesting certificates from peer %s: %v\n%s", p, perr, string(debug.Stack()))
-			c.Log.Error(_err)
+			log.Error(_err)
 		}
 	}()
 
@@ -75,7 +72,7 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	bw := bufio.NewWriter(stream)
 
 	if err := req.MarshalCBOR(bw); err != nil {
-		c.Log.Debugf("failed to marshal certificate exchange request to peer %s: %w", p, err)
+		log.Debugf("failed to marshal certificate exchange request to peer %s: %w", p, err)
 		return nil, nil, err
 	}
 	if err := bw.Flush(); err != nil {
@@ -91,7 +88,7 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	}
 	err = resp.UnmarshalCBOR(br)
 	if err != nil {
-		c.Log.Debugf("failed to unmarshal certificate exchange response header from peer %s: %w", p, err)
+		log.Debugf("failed to unmarshal certificate exchange response header from peer %s: %w", p, err)
 		return nil, nil, err
 	}
 
@@ -105,7 +102,7 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	go func() {
 		defer func() {
 			if perr := recover(); perr != nil {
-				c.Log.Errorf("panicked while receiving certificates from peer %s: %v\n%s", p, perr, string(debug.Stack()))
+				log.Errorf("panicked while receiving certificates from peer %s: %v\n%s", p, perr, string(debug.Stack()))
 			}
 			cancelReq()
 			close(ch)
@@ -122,12 +119,12 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 			case io.EOF:
 				return
 			default:
-				c.Log.Debugf("failed to unmarshal certificate from peer %s: %w", p, err)
+				log.Debugf("failed to unmarshal certificate from peer %s: %w", p, err)
 				return
 			}
 			// One quick sanity check. The rest will be validated by the caller.
 			if cert.GPBFTInstance != request.FirstInstance+i {
-				c.Log.Warnf("received out-of-order certificate from peer %s", p)
+				log.Warnf("received out-of-order certificate from peer %s", p)
 				return
 			}
 
