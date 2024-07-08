@@ -185,7 +185,16 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 		pendingManifest = nil
 	}
 
-	m.errgrp.Go(func() error {
+	m.errgrp.Go(func() (_err error) {
+		defer func() {
+			m.mu.Lock()
+			defer m.mu.Unlock()
+			if m.runner != nil {
+				_err = multierr.Append(_err, m.runner.Stop(context.Background()))
+				m.runner = nil
+			}
+		}()
+
 		manifestChangeTimer := time.NewTimer(initialDelay)
 		if pendingManifest == nil && !manifestChangeTimer.Stop() {
 			<-manifestChangeTimer.C
