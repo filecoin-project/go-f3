@@ -24,13 +24,12 @@ type BroadcastMessage func(*gpbft.MessageBuilder)
 // gpbftRunner is responsible for running gpbft.Participant, taking in all concurrent events and
 // passing them to gpbft in a single thread.
 type gpbftRunner struct {
-	certStore         *certstore.Store
-	manifest          *manifest.Manifest
-	ec                ec.Backend
-	pubsub            *pubsub.PubSub
-	signingMarshaller gpbft.SigningMarshaler
-	verifier          gpbft.Verifier
-	broadcastCb       BroadcastMessage
+	certStore   *certstore.Store
+	manifest    *manifest.Manifest
+	ec          ec.Backend
+	pubsub      *pubsub.PubSub
+	verifier    gpbft.Verifier
+	broadcastCb BroadcastMessage
 
 	participant *gpbft.Participant
 	topic       *pubsub.Topic
@@ -47,7 +46,6 @@ func newRunner(
 	cs *certstore.Store,
 	ec ec.Backend,
 	ps *pubsub.PubSub,
-	signer gpbft.SigningMarshaler,
 	verifier gpbft.Verifier,
 	broadcastCb BroadcastMessage,
 	m *manifest.Manifest,
@@ -56,16 +54,15 @@ func newRunner(
 	errgrp, runningCtx := errgroup.WithContext(runningCtx)
 
 	runner := &gpbftRunner{
-		certStore:         cs,
-		manifest:          m,
-		ec:                ec,
-		pubsub:            ps,
-		signingMarshaller: signer,
-		verifier:          verifier,
-		broadcastCb:       broadcastCb,
-		runningCtx:        runningCtx,
-		errgrp:            errgrp,
-		ctxCancel:         ctxCancel,
+		certStore:   cs,
+		manifest:    m,
+		ec:          ec,
+		pubsub:      ps,
+		verifier:    verifier,
+		broadcastCb: broadcastCb,
+		runningCtx:  runningCtx,
+		errgrp:      errgrp,
+		ctxCancel:   ctxCancel,
 	}
 
 	// create a stopped timer to facilitate alerts requested from gpbft
@@ -527,7 +524,7 @@ func (h *gpbftHost) NetworkName() gpbft.NetworkName {
 // The message's sender must be one that the network interface can sign on behalf of.
 func (h *gpbftHost) RequestBroadcast(mb *gpbft.MessageBuilder) error {
 	mb.SetNetworkName(h.manifest.NetworkName)
-	mb.SetSigningMarshaler(h.signingMarshaller)
+	mb.SetSigningMarshaler(h)
 	(h.broadcastCb)(mb)
 	return nil
 }
@@ -599,7 +596,7 @@ func (h *gpbftHost) saveDecision(decision *gpbft.Justification) (*certs.Finality
 // This should usually call `Payload.MarshalForSigning(NetworkName)` except when testing as
 // that method is slow (computes a merkle tree that's necessary for testing).
 func (h *gpbftHost) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Payload) []byte {
-	return h.signingMarshaller.MarshalPayloadForSigning(nn, p)
+	return p.MarshalForSigning(nn)
 }
 
 // Verifies a signature for the given public key.
