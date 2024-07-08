@@ -16,7 +16,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 )
 
-var log = logging.Logger("f3-certexchange")
+var log = logging.Logger("f3/certexchange")
 
 const maxResponseLen = 256
 
