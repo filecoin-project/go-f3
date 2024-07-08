@@ -22,7 +22,7 @@ func TestSubscriber(t *testing.T) {
 	backend := signing.NewFakeBackend()
 	rng := rand.New(rand.NewSource(1234))
 
-	certificates, powerTable := polling.MakeCertificates(t, rng, backend)
+	cg := polling.MakeCertificates(t, rng, backend)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -38,7 +38,7 @@ func TestSubscriber(t *testing.T) {
 		require.NoError(t, err)
 
 		ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
-		cs, err := certstore.CreateStore(ctx, ds, 0, powerTable)
+		cs, err := certstore.CreateStore(ctx, ds, 0, cg.PowerTable)
 		require.NoError(t, err)
 
 		servers[i] = &certexchange.Server{
@@ -56,7 +56,7 @@ func TestSubscriber(t *testing.T) {
 	}
 
 	clientDs := ds_sync.MutexWrap(datastore.NewMapDatastore())
-	clientCs, err := certstore.CreateStore(ctx, clientDs, 0, powerTable)
+	clientCs, err := certstore.CreateStore(ctx, clientDs, 0, cg.PowerTable)
 	require.NoError(t, err)
 
 	client := certexchange.Client{
@@ -88,8 +88,9 @@ func TestSubscriber(t *testing.T) {
 		certCount := timeDelta/subscriber.InitialPollInterval + 1
 		waitTime := certCount * subscriber.InitialPollInterval
 		for target := i + int(certCount); i < target; i++ {
+			cert := cg.MakeCertificate()
 			for _, s := range liveServers {
-				require.NoError(t, s.Store.Put(ctx, certificates[i]))
+				require.NoError(t, s.Store.Put(ctx, cert))
 			}
 		}
 

@@ -58,7 +58,7 @@ func RandomPowerTable(backend signing.Backend, entries int64) gpbft.PowerEntries
 	return powerTable
 }
 
-func MakeCertificates(t *testing.T, rng *rand.Rand, backend signing.Backend) ([]*certs.FinalityCertificate, gpbft.PowerEntries) {
+func MakeCertificates(t *testing.T, rng *rand.Rand, backend signing.Backend) *CertificateGenerator {
 	powerTable := RandomPowerTable(backend, 10)
 	tableCid, err := certs.MakePowerTableCID(powerTable)
 	require.NoError(t, err)
@@ -66,11 +66,31 @@ func MakeCertificates(t *testing.T, rng *rand.Rand, backend signing.Backend) ([]
 	tsg := sim.NewTipSetGenerator(rng.Uint64())
 	base := &gpbft.TipSet{Epoch: 0, Key: tsg.Sample(), PowerTable: tableCid}
 
-	certificates := make([]*certs.FinalityCertificate, 1000)
-	for i := range certificates {
-		cert := MakeCertificate(t, rng, tsg, backend, base, uint64(i), powerTable, powerTable)
-		base = cert.ECChain.Head()
-		certificates[i] = cert
+	return &CertificateGenerator{
+		PowerTable:   powerTable,
+		t:            t,
+		rng:          rng,
+		backend:      backend,
+		tsg:          tsg,
+		base:         base,
+		NextInstance: 0,
 	}
-	return certificates, powerTable
+}
+
+type CertificateGenerator struct {
+	PowerTable   gpbft.PowerEntries
+	NextInstance uint64
+
+	t       *testing.T
+	rng     *rand.Rand
+	backend signing.Backend
+	tsg     *sim.TipSetGenerator
+	base    *gpbft.TipSet
+}
+
+func (cg *CertificateGenerator) MakeCertificate() *certs.FinalityCertificate {
+	cert := MakeCertificate(cg.t, cg.rng, cg.tsg, cg.backend, cg.base, cg.NextInstance, cg.PowerTable, cg.PowerTable)
+	cg.base = cert.ECChain.Head()
+	cg.NextInstance++
+	return cert
 }
