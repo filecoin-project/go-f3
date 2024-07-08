@@ -22,9 +22,8 @@ import (
 )
 
 type F3 struct {
-	verifier          gpbft.Verifier
-	signingMarshaller gpbft.SigningMarshaler
-	manifestProvider  manifest.ManifestProvider
+	verifier         gpbft.Verifier
+	manifestProvider manifest.ManifestProvider
 
 	busBroadcast broadcast.Channel[*gpbft.MessageBuilder]
 
@@ -47,25 +46,20 @@ type F3 struct {
 // The context is used for initialization not runtime.
 // signingMarshaller can be nil for default SigningMarshaler
 func New(_ctx context.Context, manifest manifest.ManifestProvider, ds datastore.Datastore, h host.Host,
-	ps *pubsub.PubSub, verif gpbft.Verifier, ec ec.Backend, signingMarshaller gpbft.SigningMarshaler) (*F3, error) {
+	ps *pubsub.PubSub, verif gpbft.Verifier, ec ec.Backend) (*F3, error) {
 	runningCtx, cancel := context.WithCancel(context.Background())
 	errgrp, runningCtx := errgroup.WithContext(runningCtx)
 
-	if signingMarshaller == nil {
-		signingMarshaller = gpbft.DefaultSigningMarshaller
-	}
-
 	return &F3{
-		verifier:          verif,
-		signingMarshaller: signingMarshaller,
-		manifestProvider:  manifest,
-		host:              h,
-		ds:                ds,
-		ec:                ec,
-		pubsub:            ps,
-		runningCtx:        runningCtx,
-		cancelCtx:         cancel,
-		errgrp:            errgrp,
+		verifier:         verif,
+		manifestProvider: manifest,
+		host:             h,
+		ds:               ds,
+		ec:               ec,
+		pubsub:           ps,
+		runningCtx:       runningCtx,
+		cancelCtx:        cancel,
+		errgrp:           errgrp,
 	}, nil
 }
 
@@ -265,8 +259,7 @@ func (m *F3) reconfigure(ctx context.Context, manifest *manifest.Manifest) error
 	m.cs = cs
 	m.manifest = manifest
 	m.runner, err = newRunner(
-		ctx, m.cs, runnerEc, m.pubsub,
-		m.signingMarshaller, m.verifier,
+		ctx, m.cs, runnerEc, m.pubsub, m.verifier,
 		m.busBroadcast.Publish, m.manifest,
 	)
 	if err != nil {

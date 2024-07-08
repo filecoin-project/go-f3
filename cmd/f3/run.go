@@ -115,7 +115,7 @@ var runCmd = cli.Command{
 
 		ec := ec.NewFakeEC(1, m.BootstrapEpoch, m.ECPeriod, initialPowerTable, true)
 
-		module, err := f3.New(ctx, mprovider, ds, h, ps, signingBackend, ec, nil)
+		module, err := f3.New(ctx, mprovider, ds, h, ps, signingBackend, ec)
 		if err != nil {
 			return xerrors.Errorf("creating module: %w", err)
 		}
