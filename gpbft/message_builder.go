@@ -184,15 +184,3 @@ func (st *SignatureBuilder) Build(payloadSignature []byte, vrf []byte) *GMessage
 		Justification: st.Justification,
 	}
 }
-
-type defaultSigningMarshaller struct{}
-
-var DefaultSigningMarshaller SigningMarshaler = defaultSigningMarshaller{}
-
-// MarshalPayloadForSigning marshals the given payload into the bytes that should be signed.
-// This should usually call `Payload.MarshalForSigning(NetworkName)` except when testing as
-// that method is slow (computes a merkle tree that's necessary for testing).
-// Implementations must be safe for concurrent use.
-func (defaultSigningMarshaller) MarshalPayloadForSigning(nn NetworkName, p *Payload) []byte {
-	return p.MarshalForSigning(nn)
-}

@@ -8,6 +8,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type testSigningMarshaler struct{}
+
+var signingMarshaler SigningMarshaler = testSigningMarshaler{}
+
+func (testSigningMarshaler) MarshalPayloadForSigning(nn NetworkName, p *Payload) []byte {
+	return p.MarshalForSigning(nn)
+}
+
 func TestMessageBuilder(t *testing.T) {
 	pt := NewPowerTable()
 	err := pt.Add([]PowerEntry{
@@ -32,7 +40,7 @@ func TestMessageBuilder(t *testing.T) {
 	mt := NewMessageBuilder(pt)
 	mt.SetPayload(payload)
 	mt.SetNetworkName(nn)
-	mt.SetSigningMarshaler(DefaultSigningMarshaller)
+	mt.SetSigningMarshaler(signingMarshaler)
 
 	_, err = mt.PrepareSigningInputs(2)
 	require.Error(t, err, "unknown ID should return an error")
@@ -80,7 +88,7 @@ func TestMessageBuilderWithVRF(t *testing.T) {
 	mt := NewMessageBuilder(pt)
 	mt.SetPayload(payload)
 	mt.SetNetworkName(nn)
-	mt.SetSigningMarshaler(DefaultSigningMarshaller)
+	mt.SetSigningMarshaler(signingMarshaler)
 	mt.SetBeaconForTicket([]byte{0xbe, 0xac, 0x04})
 
 	st, err := mt.PrepareSigningInputs(0)
