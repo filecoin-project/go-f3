@@ -29,6 +29,8 @@ type Server struct {
 	Host           host.Host
 	Store          *certstore.Store
 
+	// - held (read) by all active requests.
+	// - taken (write) on shutdown to block until said requests complete.
 	runningLk sync.RWMutex
 	stopFunc  context.CancelFunc
 }
@@ -122,9 +124,18 @@ func (s *Server) Start() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.stopFunc = cancel
 	s.Host.SetStreamHandler(FetchProtocolName(s.NetworkName), func(stream network.Stream) {
-		s.runningLk.RLock()
+		// Hold the read-lock for the duration of the request so shutdown can block on
+		// closing all request handlers.
+		if !s.runningLk.TryRLock() {
+			// We use a try-lock because blocking means we're trying to shutdown.
+			_ = stream.Reset()
+			return
+		}
+
 		defer s.runningLk.RUnlock()
-		if s.stopFunc == nil {
+
+		// Short-circuit if we're already closed.
+		if ctx.Err() != nil {
 			_ = stream.Reset()
 			return
 		}
@@ -149,14 +160,12 @@ func (s *Server) Start() error {
 func (s *Server) Stop() error {
 	// Ask the handlers to cancel/stop.
 	s.runningLk.RLock()
-	cancel := s.stopFunc
-	s.runningLk.RUnlock()
-	if cancel == nil {
-		return nil
+	if s.stopFunc != nil {
+		s.stopFunc()
 	}
-	cancel()
+	s.runningLk.RUnlock()
 
-	// Wait and finish shutdown.
+	// Take the write-lock to wait for all outstanding requests to return.
 	s.runningLk.Lock()
 	defer s.runningLk.Unlock()
 	if s.stopFunc == nil {
