@@ -10,15 +10,11 @@ import (
 	"github.com/filecoin-project/go-f3/sim/signing"
 
 	"github.com/benbjohnson/clock"
-	logging "github.com/ipfs/go-log/v2"
 	"github.com/stretchr/testify/require"
 )
 
 // The network name used in tests.
 const TestNetworkName gpbft.NetworkName = "testnet"
-
-// The logger used in tests.
-var TestLog = logging.Logger("f3-testing")
 
 // The clock used in tests. Time doesn't pass in tests unless you add time to this clock.
 var MockClock = clock.NewMock()

@@ -64,7 +64,7 @@ func (s *Subscriber) Start() error {
 		}()
 
 		if err := s.run(ctx); err != nil && ctx.Err() == nil {
-			s.Log.Errorf("polling certificate exchange subscriber exited early: %s", err)
+			log.Errorf("polling certificate exchange subscriber exited early: %s", err)
 		}
 	}()
 
@@ -115,7 +115,7 @@ func (s *Subscriber) run(ctx context.Context) error {
 			nextInterval := predictor.update(progress)
 			nextPollTime := pollTime.Add(nextInterval)
 			delay := max(clk.Until(nextPollTime), 0)
-			s.Log.Infof("predicted interval is %s (waiting %s)", nextInterval, delay)
+			log.Infof("predicted interval is %s (waiting %s)", nextInterval, delay)
 			timer.Reset(delay)
 		case <-ctx.Done():
 			return ctx.Err()
@@ -132,14 +132,14 @@ func (s *Subscriber) poll(ctx context.Context) (uint64, error) {
 
 	peers := s.peerTracker.suggestPeers()
 	start := s.poller.NextInstance
-	s.Log.Debugf("polling %d peers for instance %d", len(peers), s.poller.NextInstance)
+	log.Debugf("polling %d peers for instance %d", len(peers), s.poller.NextInstance)
 	for _, peer := range peers {
 		oldInstance := s.poller.NextInstance
 		res, err := s.poller.Poll(ctx, peer)
 		if err != nil {
 			return s.poller.NextInstance - start, err
 		}
-		s.Log.Debugf("polled %s for instance %d, got %+v", peer, s.poller.NextInstance, res)
+		log.Debugf("polled %s for instance %d, got %+v", peer, s.poller.NextInstance, res)
 		// If we manage to advance, all old "hits" are actually misses.
 		if oldInstance < s.poller.NextInstance {
 			misses = append(misses, hits...)

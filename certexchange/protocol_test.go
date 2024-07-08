@@ -11,14 +11,11 @@ import (
 
 	"github.com/ipfs/go-datastore"
 	ds_sync "github.com/ipfs/go-datastore/sync"
-	logging "github.com/ipfs/go-log/v2"
 	mocknetwork "github.com/libp2p/go-libp2p/p2p/net/mock"
 	"github.com/stretchr/testify/require"
 )
 
 const testNetworkName gpbft.NetworkName = "testnet"
-
-var log = logging.Logger("certexchange-test")
 
 func testPowerTable(entries int64) (gpbft.PowerEntries, gpbft.CID) {
 	powerTable := make(gpbft.PowerEntries, entries)
@@ -68,13 +65,11 @@ func TestClientServer(t *testing.T) {
 		NetworkName: testNetworkName,
 		Host:        h1,
 		Store:       cs,
-		Log:         log,
 	}
 
 	client := certexchange.Client{
 		Host:        h2,
 		NetworkName: testNetworkName,
-		Log:         log,
 	}
 
 	require.NoError(t, server.Start())

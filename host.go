@@ -12,7 +12,6 @@ import (
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/manifest"
-	logging "github.com/ipfs/go-log/v2"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	peer "github.com/libp2p/go-libp2p/core/peer"
 	"go.uber.org/multierr"
@@ -32,7 +31,6 @@ type gpbftRunner struct {
 	signingMarshaller gpbft.SigningMarshaler
 	verifier          gpbft.Verifier
 	broadcastCb       BroadcastMessage
-	log, logWithSkip  Logger
 
 	participant *gpbft.Participant
 	topic       *pubsub.Topic
@@ -48,7 +46,6 @@ func newRunner(
 	_ context.Context,
 	cs *certstore.Store,
 	ec ec.Backend,
-	log Logger,
 	ps *pubsub.PubSub,
 	signer gpbft.SigningMarshaler,
 	verifier gpbft.Verifier,
@@ -66,15 +63,9 @@ func newRunner(
 		signingMarshaller: signer,
 		verifier:          verifier,
 		broadcastCb:       broadcastCb,
-		log:               log,
-		logWithSkip:       log,
 		runningCtx:        runningCtx,
 		errgrp:            errgrp,
 		ctxCancel:         ctxCancel,
-	}
-
-	if zapLogger, ok := runner.log.(*logging.ZapEventLogger); ok {
-		runner.logWithSkip = logging.WithSkip(zapLogger, 1)
 	}
 
 	// create a stopped timer to facilitate alerts requested from gpbft
@@ -83,8 +74,8 @@ func newRunner(
 		<-runner.alertTimer.C
 	}
 
-	runner.log.Infof("Starting gpbft runner")
-	opts := append(m.GpbftOptions(), gpbft.WithTracer((*gpbftTracer)(runner)))
+	log.Infof("Starting gpbft runner")
+	opts := append(m.GpbftOptions(), gpbft.WithTracer(tracer))
 	p, err := gpbft.NewParticipant((*gpbftHost)(runner), opts...)
 	if err != nil {
 		return nil, xerrors.Errorf("creating participant: %w", err)
@@ -122,7 +113,7 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 	h.errgrp.Go(func() (_err error) {
 		defer func() {
 			if _err != nil && h.runningCtx.Err() == nil {
-				h.log.Errorf("exited GPBFT runner early: %+v", _err)
+				log.Errorf("exited GPBFT runner early: %+v", _err)
 			}
 		}()
 		for h.runningCtx.Err() == nil {
@@ -171,7 +162,7 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 					// TODO: we need to distinguish between "fatal" and
 					// "non-fatal" errors here. Ideally only returning "real"
 					// errors.
-					h.log.Errorf("error when processing message: %+v", err)
+					log.Errorf("error when processing message: %+v", err)
 				}
 			case <-h.runningCtx.Done():
 				return nil
@@ -199,7 +190,7 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 	ts, err := h.ec.GetTipset(h.runningCtx, cert.ECChain.Head().Key)
 	if err != nil {
 		// this should not happen
-		h.log.Errorf("could not get timestamp of just finalized tipset: %+v", err)
+		log.Errorf("could not get timestamp of just finalized tipset: %+v", err)
 		return time.Now().Add(ecDelay)
 	}
 
@@ -218,7 +209,7 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 	for instance := cert.GPBFTInstance - 1; instance > h.manifest.InitialInstance; instance-- {
 		cert, err := h.certStore.Get(h.runningCtx, instance)
 		if err != nil {
-			h.log.Errorf("error while getting instance %d from certstore: %+v", instance, err)
+			log.Errorf("error while getting instance %d from certstore: %+v", instance, err)
 			break
 		}
 		if !cert.ECChain.HasSuffix() {
@@ -233,7 +224,7 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 	}
 
 	backoff := time.Duration(float64(ecDelay) * backoffMultipler)
-	h.log.Infof("backing off for: %v", backoff)
+	log.Infof("backing off for: %v", backoff)
 
 	return ts.Timestamp().Add(backoff)
 }
@@ -269,11 +260,11 @@ func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, pID peer.ID,
 
 	validatedMessage, err := h.participant.ValidateMessage(&gmsg)
 	if errors.Is(err, gpbft.ErrValidationInvalid) {
-		h.log.Debugf("validation error during validation: %+v", err)
+		log.Debugf("validation error during validation: %+v", err)
 		return pubsub.ValidationReject
 	}
 	if err != nil {
-		h.log.Warnf("unknown error during validation: %+v", err)
+		log.Warnf("unknown error during validation: %+v", err)
 		return pubsub.ValidationIgnore
 	}
 	msg.ValidatorData = validatedMessage
@@ -338,7 +329,7 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 			}
 			gmsg, ok := msg.ValidatorData.(gpbft.ValidatedMessage)
 			if !ok {
-				h.log.Errorf("invalid msgValidatorData: %+v", msg.ValidatorData)
+				log.Errorf("invalid msgValidatorData: %+v", msg.ValidatorData)
 				continue
 			}
 			select {
@@ -351,15 +342,6 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 	})
 	return messageQueue, nil
 }
-
-type gpbftTracer gpbftRunner
-
-// Log fulfills the gpbft.Tracer interface
-func (h *gpbftTracer) Log(fmt string, args ...any) {
-	h.logWithSkip.Debugf(fmt, args...)
-}
-
-var _ gpbft.Tracer = (*gpbftTracer)(nil)
 
 // gpbftHost is a newtype of gpbftRunner exposing APIs required by the gpbft.Participant
 type gpbftHost gpbftRunner
@@ -513,7 +495,7 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 
 		powerEntries, err = h.certStore.GetPowerTable(h.runningCtx, instance)
 		if err != nil {
-			h.log.Debugf("failed getting power table from certstore: %v, falling back to EC", err)
+			log.Debugf("failed getting power table from certstore: %v, falling back to EC", err)
 
 			powerEntries, err = h.ec.GetPowerTable(h.runningCtx, powerTsk)
 			if err != nil {
@@ -561,7 +543,7 @@ func (h *gpbftHost) Time() time.Time {
 // The timestamp may be in the past, in which case the alarm will fire as soon as possible
 // (but not synchronously).
 func (h *gpbftHost) SetAlarm(at time.Time) {
-	h.log.Debugf("set alarm for %v", at)
+	log.Debugf("set alarm for %v", at)
 	// we cannot reuse the timer because we don't know if it was read or not
 	h.alertTimer.Stop()
 	h.alertTimer = time.NewTimer(time.Until(at))
@@ -574,11 +556,11 @@ func (h *gpbftHost) SetAlarm(at time.Time) {
 // based on the decision received (which may be in the past).
 // E.g. this might be: finalised tipset timestamp + epoch duration + stabilisation delay.
 func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
-	h.log.Infof("got decision at instance %d, finalized head at epoch: %d",
+	log.Infof("got decision at instance %d, finalized head at epoch: %d",
 		decision.Vote.Instance, decision.Vote.Value.Head().Epoch)
 	cert, err := h.saveDecision(decision)
 	if err != nil {
-		h.log.Errorf("error while saving decision: %+v", err)
+		log.Errorf("error while saving decision: %+v", err)
 	}
 	return (*gpbftRunner)(h).computeNextInstanceStart(cert)
 }

@@ -457,8 +457,7 @@ func (e *testEnv) newF3Instance(id int, manifestServer peer.ID) (*testNode, erro
 
 	e.signingBackend.Allow(int(id))
 
-	module, err := f3.New(e.testCtx, mprovider, ds, h, ps,
-		e.signingBackend, e.ec, log, nil)
+	module, err := f3.New(e.testCtx, mprovider, ds, h, ps, e.signingBackend, e.ec, nil)
 	if err != nil {
 		return nil, xerrors.Errorf("creating module: %w", err)
 	}

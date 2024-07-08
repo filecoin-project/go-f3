@@ -45,7 +45,6 @@ func TestSubscriber(t *testing.T) {
 			NetworkName: polling.TestNetworkName,
 			Host:        h,
 			Store:       cs,
-			Log:         polling.TestLog,
 		}
 	}
 
@@ -63,7 +62,6 @@ func TestSubscriber(t *testing.T) {
 	client := certexchange.Client{
 		Host:        clientHost,
 		NetworkName: polling.TestNetworkName,
-		Log:         polling.TestLog,
 	}
 
 	subscriber := polling.Subscriber{
