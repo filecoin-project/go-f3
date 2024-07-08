@@ -80,15 +80,28 @@ func TestSubscriber(t *testing.T) {
 	require.NoError(t, mocknet.ConnectAllButSelf())
 
 	liveServers := slices.Clone(servers)
-	for i := 0; len(liveServers) > 0; i++ {
-		for _, s := range liveServers {
-			require.NoError(t, s.Store.Put(ctx, certificates[i]))
+	lastPoll := time.Now()
+	i := 0
+	for len(liveServers) > 0 {
+		now := time.Now()
+		timeDelta := now.Sub(lastPoll)
+		certCount := timeDelta/subscriber.InitialPollInterval + 1
+		waitTime := certCount * subscriber.InitialPollInterval
+		for target := i + int(certCount); i < target; i++ {
+			for _, s := range liveServers {
+				require.NoError(t, s.Store.Put(ctx, certificates[i]))
+			}
 		}
 
+		polling.MockClock.Add(waitTime)
+
 		require.Eventually(t, func() bool {
-			polling.MockClock.WaitForAllTimers()
 			latest := clientCs.Latest()
-			return latest != nil && latest.GPBFTInstance == uint64(i)
+			if latest != nil && latest.GPBFTInstance == uint64(i-1) {
+				return true
+			}
+			polling.MockClock.WaitForAllTimers()
+			return false
 		}, 10*time.Second, time.Millisecond)
 
 		// After we settle for a bit, every 4 instances, stop updating 20% of the
