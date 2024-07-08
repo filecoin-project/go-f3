@@ -20,7 +20,7 @@ func TestPoller(t *testing.T) {
 	backend := signing.NewFakeBackend()
 	rng := rand.New(rand.NewSource(1234))
 
-	certificates, powerTable := polling.MakeCertificates(t, rng, backend)
+	cg := polling.MakeCertificates(t, rng, backend)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -37,12 +37,11 @@ func TestPoller(t *testing.T) {
 
 	serverDs := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
-	serverCs, err := certstore.CreateStore(ctx, serverDs, 0, powerTable)
+	serverCs, err := certstore.CreateStore(ctx, serverDs, 0, cg.PowerTable)
 	require.NoError(t, err)
 
-	certificatesAdded := 10
-	for _, cert := range certificates[:certificatesAdded] {
-		require.NoError(t, serverCs.Put(ctx, cert))
+	for cg.NextInstance < 10 {
+		require.NoError(t, serverCs.Put(ctx, cg.MakeCertificate()))
 	}
 
 	server := certexchange.Server{
@@ -55,7 +54,7 @@ func TestPoller(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, server.Stop()) })
 
 	clientDs := ds_sync.MutexWrap(datastore.NewMapDatastore())
-	clientCs, err := certstore.CreateStore(ctx, clientDs, 0, powerTable)
+	clientCs, err := certstore.CreateStore(ctx, clientDs, 0, cg.PowerTable)
 	require.NoError(t, err)
 
 	client := certexchange.Client{
@@ -82,21 +81,21 @@ func TestPoller(t *testing.T) {
 		res, err := poller.Poll(ctx, serverHost.ID())
 		require.NoError(t, err)
 		require.Equal(t, polling.PollHit, res.Status)
-		require.Equal(t, uint64(certificatesAdded), poller.NextInstance)
+		require.Equal(t, cg.NextInstance, poller.NextInstance)
 	}
 
 	// If we put a certificate on the client, we should call it a _miss_
 	{
-		require.NoError(t, clientCs.Put(ctx, certificates[certificatesAdded]))
+		cert := cg.MakeCertificate()
+		require.NoError(t, clientCs.Put(ctx, cert))
 
 		res, err := poller.Poll(ctx, serverHost.ID())
 		require.NoError(t, err)
 		require.Equal(t, polling.PollMiss, res.Status)
-	}
 
-	// Add that cert to the server.
-	require.NoError(t, serverCs.Put(ctx, certificates[certificatesAdded]))
-	certificatesAdded++
+		// Add that cert to the server.
+		require.NoError(t, serverCs.Put(ctx, cert))
+	}
 
 	// And now it's a hit!
 	{
@@ -106,8 +105,8 @@ func TestPoller(t *testing.T) {
 	}
 
 	// Add more than the request maximum (up till the last cert)
-	for ; certificatesAdded < len(certificates)-1; certificatesAdded++ {
-		require.NoError(t, serverCs.Put(ctx, certificates[certificatesAdded]))
+	for cg.NextInstance < 500 {
+		require.NoError(t, serverCs.Put(ctx, cg.MakeCertificate()))
 	}
 
 	// We should poll multiple times and completely catch up.
@@ -115,22 +114,22 @@ func TestPoller(t *testing.T) {
 		res, err := poller.Poll(ctx, serverHost.ID())
 		require.NoError(t, err)
 		require.Equal(t, polling.PollHit, res.Status)
-		require.Equal(t, uint64(certificatesAdded), poller.NextInstance)
+		require.Equal(t, cg.NextInstance, poller.NextInstance)
 	}
 
 	// We catch evil servers!
 	{
-		lastCert := certificates[certificatesAdded]
-		lastCert.Signature = []byte("bad sig")
-		require.NoError(t, serverCs.Put(ctx, lastCert))
+		badCert := cg.MakeCertificate()
+		badCert.Signature = []byte("bad sig")
+		require.NoError(t, serverCs.Put(ctx, badCert))
 
 		res, err := poller.Poll(ctx, serverHost.ID())
 		require.NoError(t, err)
 		require.Equal(t, polling.PollIllegal, res.Status)
 
 		// And we don't store certificates from them!
-		require.Equal(t, uint64(certificatesAdded), poller.NextInstance)
-		_, err = clientCs.Get(ctx, lastCert.GPBFTInstance)
+		require.Equal(t, badCert.GPBFTInstance, poller.NextInstance)
+		_, err = clientCs.Get(ctx, badCert.GPBFTInstance)
 		require.ErrorIs(t, err, certstore.ErrCertNotFound)
 	}
 
