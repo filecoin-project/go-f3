@@ -6,7 +6,7 @@ import (
 )
 
 var log = logging.Logger("f3")
-var tracer gpbft.Tracer = (*gpbftTracer)(log)
+var tracer gpbft.Tracer = (*gpbftTracer)(logging.WithSkip(logging.Logger("gpbft"), 1))
 
 // Tracer used by GPBFT, backed by a Zap logger.
 type gpbftTracer logging.ZapEventLogger
