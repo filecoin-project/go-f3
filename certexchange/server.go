@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/filecoin-project/go-f3/certstore"
@@ -28,7 +29,10 @@ type Server struct {
 	Host           host.Host
 	Store          *certstore.Store
 
-	cancel context.CancelFunc
+	// - held (read) by all active requests.
+	// - taken (write) on shutdown to block until said requests complete.
+	runningLk sync.RWMutex
+	stopFunc  context.CancelFunc
 }
 
 func (s *Server) withDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -111,9 +115,34 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 
 // Start the server.
 func (s *Server) Start() error {
+	s.runningLk.Lock()
+	defer s.runningLk.Unlock()
+	if s.stopFunc != nil {
+		return fmt.Errorf("certificate exchange already running")
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
-	s.cancel = cancel
+	s.stopFunc = cancel
 	s.Host.SetStreamHandler(FetchProtocolName(s.NetworkName), func(stream network.Stream) {
+		// Hold the read-lock for the duration of the request so shutdown can block on
+		// closing all request handlers.
+		if !s.runningLk.TryRLock() {
+			// We use a try-lock because blocking means we're trying to shutdown.
+			_ = stream.Reset()
+			return
+		}
+
+		defer s.runningLk.RUnlock()
+
+		// Short-circuit if we're already closed.
+		if ctx.Err() != nil {
+			_ = stream.Reset()
+			return
+		}
+
+		// Kill the stream if/when we shutdown the server.
+		defer context.AfterFunc(ctx, func() { _ = stream.Reset() })()
+
 		ctx, cancel := s.withDeadline(ctx)
 		defer cancel()
 
@@ -129,7 +158,21 @@ func (s *Server) Start() error {
 
 // Stop the server.
 func (s *Server) Stop() error {
+	// Ask the handlers to cancel/stop.
+	s.runningLk.RLock()
+	if s.stopFunc != nil {
+		s.stopFunc()
+	}
+	s.runningLk.RUnlock()
+
+	// Take the write-lock to wait for all outstanding requests to return.
+	s.runningLk.Lock()
+	defer s.runningLk.Unlock()
+	if s.stopFunc == nil {
+		return nil
+	}
+	s.stopFunc = nil
 	s.Host.RemoveStreamHandler(FetchProtocolName(s.NetworkName))
-	s.cancel()
+
 	return nil
 }
