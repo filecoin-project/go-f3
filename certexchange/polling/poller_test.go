@@ -50,8 +50,8 @@ func TestPoller(t *testing.T) {
 		Store:       serverCs,
 	}
 
-	require.NoError(t, server.Start())
-	t.Cleanup(func() { require.NoError(t, server.Stop()) })
+	require.NoError(t, server.Start(ctx))
+	t.Cleanup(func() { require.NoError(t, server.Stop(context.Background())) })
 
 	clientDs := ds_sync.MutexWrap(datastore.NewMapDatastore())
 	clientCs, err := certstore.CreateStore(ctx, clientDs, 0, cg.PowerTable)
@@ -134,7 +134,7 @@ func TestPoller(t *testing.T) {
 	}
 
 	// Stop the server, and make sure we get a failure.
-	require.NoError(t, server.Stop())
+	require.NoError(t, server.Stop(ctx))
 
 	{
 		res, err := poller.Poll(ctx, serverHost.ID())

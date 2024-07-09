@@ -113,7 +113,7 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 }
 
 // Start the server.
-func (s *Server) Start() error {
+func (s *Server) Start(startCtx context.Context) error {
 	s.runningLk.Lock()
 	defer s.runningLk.Unlock()
 	if s.stopFunc != nil {
@@ -156,7 +156,7 @@ func (s *Server) Start() error {
 }
 
 // Stop the server.
-func (s *Server) Stop() error {
+func (s *Server) Stop(stopCtx context.Context) error {
 	// Ask the handlers to cancel/stop.
 	s.runningLk.RLock()
 	if s.stopFunc != nil {

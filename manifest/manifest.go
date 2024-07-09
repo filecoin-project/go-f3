@@ -52,6 +52,18 @@ type ManifestProvider interface {
 
 type Version string
 
+// Certificate Exchange config
+type CxConfig struct {
+	// Request timeout for the certificate exchange client.
+	ClientRequestTimeout time.Duration
+	// Request timeout for the certificate exchange server.
+	ServerRequestTimeout time.Duration
+	// Minimum CX polling interval.
+	MinimumPollInterval time.Duration
+	// Maximum CX polling interval.
+	MaximumPollInterval time.Duration
+}
+
 type GpbftConfig struct {
 	Delta                time.Duration
 	DeltaBackOffExponent float64
@@ -86,6 +98,8 @@ type Manifest struct {
 	*GpbftConfig
 	// EC-specific parameters
 	*EcConfig
+	// Certificate Exchange specific parameters
+	*CxConfig
 }
 
 func LocalDevnetManifest() *Manifest {

@@ -33,14 +33,14 @@ type Subscriber struct {
 	stop context.CancelFunc
 }
 
-func (s *Subscriber) Start() error {
+func (s *Subscriber) Start(startCtx context.Context) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.stop = cancel
 
 	var err error
 
 	s.peerTracker = newPeerTracker()
-	s.poller, err = NewPoller(ctx, &s.Client, s.Store, s.SignatureVerifier)
+	s.poller, err = NewPoller(startCtx, &s.Client, s.Store, s.SignatureVerifier)
 	if err != nil {
 		return err
 	}
@@ -71,7 +71,7 @@ func (s *Subscriber) Start() error {
 	return nil
 }
 
-func (s *Subscriber) Stop() error {
+func (s *Subscriber) Stop(stopCtx context.Context) error {
 	if s.stop != nil {
 		s.stop()
 		s.wg.Wait()

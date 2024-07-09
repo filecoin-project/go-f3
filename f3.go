@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/filecoin-project/go-f3/certexchange"
+	certexpoll "github.com/filecoin-project/go-f3/certexchange/polling"
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/ec"
@@ -40,6 +42,8 @@ type F3 struct {
 	cs       *certstore.Store
 	manifest *manifest.Manifest
 	runner   *gpbftRunner
+	certsub  *certexpoll.Subscriber
+	certserv *certexchange.Server
 }
 
 // New creates and setups f3 with libp2p
@@ -183,10 +187,7 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 		defer func() {
 			m.mu.Lock()
 			defer m.mu.Unlock()
-			if m.runner != nil {
-				_err = multierr.Append(_err, m.runner.Stop(context.Background()))
-				m.runner = nil
-			}
+			m.stopInternal(context.Background())
 		}()
 
 		manifestChangeTimer := time.NewTimer(initialDelay)
@@ -232,16 +233,34 @@ func (m *F3) Stop(stopCtx context.Context) (_err error) {
 	)
 }
 
-func (m *F3) reconfigure(ctx context.Context, manifest *manifest.Manifest) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+func (m *F3) stopInternal(ctx context.Context) {
 	if m.runner != nil {
+		// Log and ignore shutdown errors.
 		if err := m.runner.Stop(ctx); err != nil {
-			return err
+			log.Errorw("failed to stop gpbft", "error", err)
 		}
 		m.runner = nil
 	}
+	if m.certsub != nil {
+		if err := m.certsub.Stop(ctx); err != nil {
+			log.Errorw("failed to stop certificate exchange subscriber", "error", err)
+		}
+		m.certsub = nil
+	}
+	if m.certserv != nil {
+		if err := m.certserv.Stop(ctx); err != nil {
+			log.Errorw("failed to stop certificate exchange server", "error", err)
+		}
+		m.certserv = nil
+	}
+}
+
+func (m *F3) reconfigure(ctx context.Context, manifest *manifest.Manifest) (_err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.stopInternal(ctx)
+
 	if manifest == nil {
 		return nil
 	}
@@ -258,12 +277,39 @@ func (m *F3) reconfigure(ctx context.Context, manifest *manifest.Manifest) error
 
 	m.cs = cs
 	m.manifest = manifest
-	m.runner, err = newRunner(
+	m.certserv = &certexchange.Server{
+		NetworkName:    m.manifest.NetworkName,
+		RequestTimeout: m.manifest.ServerRequestTimeout,
+		Host:           m.host,
+		Store:          m.cs,
+	}
+	if err := m.certserv.Start(ctx); err != nil {
+		return err
+	}
+
+	m.certsub = &certexpoll.Subscriber{
+		Client: certexchange.Client{
+			Host:           m.host,
+			NetworkName:    m.manifest.NetworkName,
+			RequestTimeout: m.manifest.ClientRequestTimeout,
+		},
+		Store:               m.cs,
+		SignatureVerifier:   m.verifier,
+		InitialPollInterval: m.manifest.ECPeriod,
+		MaximumPollInterval: m.manifest.MaximumPollInterval,
+		MinimumPollInterval: m.manifest.MinimumPollInterval,
+	}
+	if err := m.certsub.Start(ctx); err != nil {
+		return err
+	}
+
+	if runner, err := newRunner(
 		ctx, m.cs, runnerEc, m.pubsub, m.verifier,
 		m.busBroadcast.Publish, m.manifest,
-	)
-	if err != nil {
+	); err != nil {
 		return err
+	} else {
+		m.runner = runner
 	}
 
 	return m.runner.Start(ctx)

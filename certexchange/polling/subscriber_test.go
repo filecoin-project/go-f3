@@ -51,8 +51,8 @@ func TestSubscriber(t *testing.T) {
 	require.NoError(t, mocknet.LinkAll())
 
 	for _, server := range servers {
-		require.NoError(t, server.Start())
-		t.Cleanup(func() { require.NoError(t, server.Stop()) })
+		require.NoError(t, server.Start(ctx))
+		t.Cleanup(func() { require.NoError(t, server.Stop(context.Background())) })
 	}
 
 	clientDs := ds_sync.MutexWrap(datastore.NewMapDatastore())
@@ -73,9 +73,9 @@ func TestSubscriber(t *testing.T) {
 		InitialPollInterval: 100 * time.Millisecond,
 	}
 
-	require.NoError(t, subscriber.Start())
+	require.NoError(t, subscriber.Start(ctx))
 
-	t.Cleanup(func() { require.NoError(t, subscriber.Stop()) })
+	t.Cleanup(func() { require.NoError(t, subscriber.Stop(context.Background())) })
 
 	require.NoError(t, mocknet.ConnectAllButSelf())
 

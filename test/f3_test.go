@@ -133,6 +133,12 @@ var base manifest.Manifest = manifest.Manifest{
 		ECDelayMultiplier:        1.0,
 		BaseDecisionBackoffTable: []float64{1., 1.2},
 	},
+	CxConfig: &manifest.CxConfig{
+		ClientRequestTimeout: 10 * time.Second,
+		ServerRequestTimeout: time.Minute,
+		MinimumPollInterval:  100 * time.Millisecond,
+		MaximumPollInterval:  time.Second,
+	},
 }
 
 type testNode struct {
