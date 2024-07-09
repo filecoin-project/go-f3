@@ -2,6 +2,7 @@ package f3
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -187,7 +188,9 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 		defer func() {
 			m.mu.Lock()
 			defer m.mu.Unlock()
-			m.stopInternal(context.Background())
+			if err := m.stopInternal(context.Background()); err != nil {
+				_err = multierr.Append(_err, err)
+			}
 		}()
 
 		manifestChangeTimer := time.NewTimer(initialDelay)
@@ -233,50 +236,83 @@ func (m *F3) Stop(stopCtx context.Context) (_err error) {
 	)
 }
 
-func (m *F3) stopInternal(ctx context.Context) {
-	if m.runner != nil {
-		// Log and ignore shutdown errors.
-		if err := m.runner.Stop(ctx); err != nil {
-			log.Errorw("failed to stop gpbft", "error", err)
-		}
-		m.runner = nil
-	}
-	if m.certsub != nil {
-		if err := m.certsub.Stop(ctx); err != nil {
-			log.Errorw("failed to stop certificate exchange subscriber", "error", err)
-		}
-		m.certsub = nil
-	}
-	if m.certserv != nil {
-		if err := m.certserv.Stop(ctx); err != nil {
-			log.Errorw("failed to stop certificate exchange server", "error", err)
-		}
-		m.certserv = nil
-	}
-}
-
 func (m *F3) reconfigure(ctx context.Context, manifest *manifest.Manifest) (_err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.stopInternal(ctx)
+	if err := m.stopInternal(ctx); err != nil {
+		// Log but don't abort.
+		log.Errorw("failed to properly stop F3 while reconfiguring", "error", err)
+	}
 
 	if manifest == nil {
 		return nil
 	}
 
+	// If we have a new manifest, reconfigure.
+	if m.manifest == nil || m.manifest.NetworkName != manifest.NetworkName {
+		m.cs = nil
+		m.manifest = manifest
+	}
+
+	return m.resumeInternal(m.runningCtx)
+}
+
+func (m *F3) Pause() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.stopInternal(m.runningCtx)
+}
+
+func (m *F3) Resume() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.resumeInternal(m.runningCtx)
+}
+
+func (m *F3) stopInternal(ctx context.Context) error {
+	var err error
+	if m.runner != nil {
+		// Log and ignore shutdown errors.
+		if serr := m.runner.Stop(ctx); serr != nil {
+			err = multierr.Append(err, fmt.Errorf("failed to stop gpbft: %w", serr))
+		}
+		m.runner = nil
+	}
+	if m.certsub != nil {
+		if serr := m.certsub.Stop(ctx); serr != nil {
+			err = multierr.Append(err, fmt.Errorf("failed to stop certificate exchange subscriber: %w", serr))
+		}
+		m.certsub = nil
+	}
+	if m.certserv != nil {
+		if serr := m.certserv.Stop(ctx); serr != nil {
+
+			err = multierr.Append(err, fmt.Errorf("failed to stop certificate exchange server: %w", serr))
+		}
+		m.certserv = nil
+	}
+	return err
+}
+
+func (m *F3) resumeInternal(ctx context.Context) error {
 	runnerEc := m.ec
-	if len(manifest.PowerUpdate) > 0 {
-		runnerEc = ec.WithModifiedPower(m.ec, manifest.PowerUpdate)
+	if len(m.manifest.PowerUpdate) > 0 {
+		runnerEc = ec.WithModifiedPower(m.ec, m.manifest.PowerUpdate)
 	}
 
-	cs, err := openCertstore(m.runningCtx, runnerEc, m.ds, manifest)
-	if err != nil {
-		return xerrors.Errorf("failed to open certstore: %w", err)
+	// We don't reset this field if we only pause/resume.
+	if m.cs == nil {
+		cs, err := openCertstore(m.runningCtx, runnerEc, m.ds, m.manifest)
+		if err != nil {
+			return xerrors.Errorf("failed to open certstore: %w", err)
+		}
+
+		m.cs = cs
 	}
 
-	m.cs = cs
-	m.manifest = manifest
 	m.certserv = &certexchange.Server{
 		NetworkName:    m.manifest.NetworkName,
 		RequestTimeout: m.manifest.ServerRequestTimeout,

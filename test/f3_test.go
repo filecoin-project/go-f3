@@ -384,6 +384,16 @@ func (e *testEnv) start() {
 	e.newHeadEveryPeriod(e.manifest.ECPeriod)
 }
 
+func (e *testEnv) pauseNode(i int) {
+	n := e.nodes[i]
+	require.NoError(e.t, n.f3.Pause())
+}
+
+func (e *testEnv) resumeNode(i int) {
+	n := e.nodes[i]
+	require.NoError(e.t, n.f3.Resume())
+}
+
 func (e *testEnv) startNode(i int) {
 	n := e.nodes[i]
 	require.NoError(e.t, n.f3.Start(e.testCtx))
