@@ -72,8 +72,8 @@ func TestClientServer(t *testing.T) {
 		NetworkName: testNetworkName,
 	}
 
-	require.NoError(t, server.Start())
-	t.Cleanup(func() { require.NoError(t, server.Stop()) })
+	require.NoError(t, server.Start(ctx))
+	t.Cleanup(func() { require.NoError(t, server.Stop(context.Background())) })
 
 	require.NoError(t, mocknet.ConnectAllButSelf())
 

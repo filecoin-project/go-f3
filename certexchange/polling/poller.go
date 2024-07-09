@@ -127,6 +127,7 @@ func (p *Poller) Poll(ctx context.Context, peer peer.ID) (*PollResult, error) {
 			)
 			if err != nil {
 				res.Status = PollIllegal
+				res.Error = err
 				return res, nil
 			}
 			if err := p.Store.Put(ctx, cert); err != nil {

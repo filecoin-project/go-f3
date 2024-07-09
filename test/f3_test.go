@@ -39,6 +39,48 @@ func TestSimpleF3(t *testing.T) {
 	env.waitForInstanceNumber(5, 10*time.Second, false)
 }
 
+func TestPauseResumeCatchup(t *testing.T) {
+	env := newTestEnvironment(t, 3, false)
+
+	env.connectAll()
+	env.start()
+	env.waitForInstanceNumber(1, 10*time.Second, true)
+
+	// Pausing two nodes should pause the network.
+	env.pauseNode(1)
+	env.pauseNode(2)
+
+	oldInstance := env.nodes[0].currentGpbftInstance()
+	time.Sleep(time.Second)
+	newInstance := env.nodes[0].currentGpbftInstance()
+	require.Equal(t, oldInstance, newInstance)
+
+	// Resuming node 1 should continue agreeing on instances.
+	env.resumeNode(1)
+	require.Equal(t, oldInstance, newInstance)
+	resumeInstance := newInstance + 1
+	env.waitForInstanceNumber(resumeInstance, 10*time.Second, false)
+
+	// Wait until we're far enough that pure GPBFT catchup should be impossible.
+	targetInstance := resumeInstance + env.manifest.CommiteeLookback
+	env.waitForInstanceNumber(targetInstance, 30*time.Second, false)
+
+	pausedInstance := env.nodes[2].currentGpbftInstance()
+	require.Less(t, pausedInstance, resumeInstance)
+
+	env.resumeNode(2)
+
+	// Everyone should catch up eventually
+	env.waitForInstanceNumber(targetInstance, 30*time.Second, true)
+
+	// Pause the "good" node.
+	env.pauseNode(0)
+	node0failInstance := env.nodes[0].currentGpbftInstance()
+
+	// We should be able to make progress with the remaining nodes.
+	env.waitForInstanceNumber(node0failInstance+3, 30*time.Second, false)
+}
+
 func TestDynamicManifest_WithoutChanges(t *testing.T) {
 	env := newTestEnvironment(t, 2, true)
 
@@ -132,6 +174,12 @@ var base manifest.Manifest = manifest.Manifest{
 		ECPeriod:                 100 * time.Millisecond,
 		ECDelayMultiplier:        1.0,
 		BaseDecisionBackoffTable: []float64{1., 1.2},
+	},
+	CxConfig: &manifest.CxConfig{
+		ClientRequestTimeout: 10 * time.Second,
+		ServerRequestTimeout: time.Minute,
+		MinimumPollInterval:  100 * time.Millisecond,
+		MaximumPollInterval:  time.Second,
 	},
 }
 
@@ -376,6 +424,16 @@ func (e *testEnv) start() {
 
 	// start creating new heads every ECPeriod
 	e.newHeadEveryPeriod(e.manifest.ECPeriod)
+}
+
+func (e *testEnv) pauseNode(i int) {
+	n := e.nodes[i]
+	require.NoError(e.t, n.f3.Pause())
+}
+
+func (e *testEnv) resumeNode(i int) {
+	n := e.nodes[i]
+	require.NoError(e.t, n.f3.Resume())
 }
 
 func (e *testEnv) startNode(i int) {
