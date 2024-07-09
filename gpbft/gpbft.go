@@ -2,6 +2,7 @@ package gpbft
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/filecoin-project/go-bitfield"
 	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
 	"github.com/filecoin-project/go-f3/merkle"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/xerrors"
 )
@@ -216,6 +218,7 @@ func newInstance(
 	if input.IsZero() {
 		return nil, fmt.Errorf("input is empty")
 	}
+	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrInitialPhase))
 	return &instance{
 		participant:      participant,
 		instanceID:       instanceID,
@@ -614,6 +617,7 @@ func (i *instance) beginQuality() error {
 	i.phaseTimeout = i.alarmAfterSynchrony()
 	i.resetRebroadcastParams()
 	i.broadcast(i.round, QUALITY_PHASE, i.proposal, false, nil)
+	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrQualityPhase))
 	return nil
 }
 
@@ -666,6 +670,7 @@ func (i *instance) beginConverge(justification *Justification) {
 	i.getRound(i.round).converged.SetSelfValue(i.proposal, justification)
 
 	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, true, justification)
+	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrConvergePhase))
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
@@ -719,6 +724,7 @@ func (i *instance) beginPrepare(justification *Justification) {
 	i.resetRebroadcastParams()
 
 	i.broadcast(i.round, PREPARE_PHASE, i.value, false, justification)
+	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrPreparePhase))
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -770,6 +776,7 @@ func (i *instance) beginCommit() {
 	}
 
 	i.broadcast(i.round, COMMIT_PHASE, i.value, false, justification)
+	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrCommitPhase))
 }
 
 func (i *instance) tryCommit(round uint64) error {
@@ -837,6 +844,7 @@ func (i *instance) beginDecide(round uint64) {
 	// Since each node sends only one DECIDE message, they must share the same vote
 	// in order to be aggregated.
 	i.broadcast(0, DECIDE_PHASE, i.value, false, justification)
+	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrDecidePhase))
 }
 
 // Skips immediately to the DECIDE phase and sends a DECIDE message
@@ -932,6 +940,8 @@ func (i *instance) terminate(decision *Justification) {
 	i.value = decision.Vote.Value
 	i.terminationValue = decision
 	i.resetRebroadcastParams()
+	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrTerminatedPhase))
+	metrics.roundHistogram.Record(context.TODO(), int64(i.round))
 }
 
 func (i *instance) terminated() bool {
@@ -958,6 +968,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, createTick
 		i.log("failed to request broadcast: %v", err)
 	}
 	i.broadcasted.record(mb)
+	metrics.broadcastCounter.Add(context.TODO(), 1)
 }
 
 // tryRebroadcast checks whether re-broadcast timeout has elapsed, and if so
@@ -1038,6 +1049,7 @@ func (i *instance) rebroadcast() error {
 			if err := i.participant.host.RequestBroadcast(mb); err != nil {
 				return err
 			}
+			metrics.reBroadcastCounter.Add(context.TODO(), 1)
 		}
 	}
 	return nil
