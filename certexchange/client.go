@@ -63,9 +63,8 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	context.AfterFunc(ctx, func() { _ = stream.Reset() })
 
 	if deadline, ok := ctx.Deadline(); ok {
-		if err := stream.SetDeadline(deadline); err != nil {
-			return nil, nil, err
-		}
+		// Not all transports support deadlines.
+		_ = stream.SetDeadline(deadline)
 	}
 
 	br := &io.LimitedReader{R: bufio.NewReader(stream), N: 100}

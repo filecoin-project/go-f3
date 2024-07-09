@@ -51,9 +51,8 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 	}()
 
 	if deadline, ok := ctx.Deadline(); ok {
-		if err := stream.SetDeadline(deadline); err != nil {
-			return err
-		}
+		// Not all transports support deadlines.
+		_ = stream.SetDeadline(deadline)
 	}
 
 	br := bufio.NewReader(stream)
