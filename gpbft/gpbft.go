@@ -110,6 +110,12 @@ type Payload struct {
 }
 
 func (p *Payload) Eq(other *Payload) bool {
+	if p == other {
+		return true
+	}
+	if other == nil {
+		return false
+	}
 	return p.Instance == other.Instance &&
 		p.Round == other.Round &&
 		p.Step == other.Step &&
