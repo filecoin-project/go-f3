@@ -117,6 +117,11 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 			// prioritise finality certificates and alarm delivery
 			select {
 			case c, ok := <-finalityCertificates:
+				// We only care about the latest certificate, skip passed old ones.
+				if len(finalityCertificates) > 0 {
+					continue
+				}
+
 				if !ok {
 					finalityCertificates = make(chan *certs.FinalityCertificate, 4)
 					c, _ = h.certStore.SubscribeForNewCerts(finalityCertificates)
@@ -136,6 +141,11 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 			// Handle messages, finality certificates, and alarms
 			select {
 			case c, ok := <-finalityCertificates:
+				// We only care about the latest certificate, skip passed old ones.
+				if len(finalityCertificates) > 0 {
+					continue
+				}
+
 				if !ok {
 					finalityCertificates = make(chan *certs.FinalityCertificate, 4)
 					c, _ = h.certStore.SubscribeForNewCerts(finalityCertificates)
@@ -173,9 +183,12 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 
 func (h *gpbftRunner) receiveCertificate(c *certs.FinalityCertificate) error {
 	nextInstance := c.GPBFTInstance + 1
-	if h.participant.CurrentInstance() <= nextInstance {
+	currentInstance := h.participant.CurrentInstance()
+	if h.participant.CurrentInstance() >= nextInstance {
 		return nil
 	}
+
+	log.Warnf("skipping from isntance %d to instance %d", currentInstance, nextInstance)
 
 	nextInstanceStart := h.computeNextInstanceStart(c)
 	return h.participant.StartInstanceAt(nextInstance, nextInstanceStart)
