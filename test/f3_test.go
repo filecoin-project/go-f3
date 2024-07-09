@@ -3,7 +3,7 @@ package test
 import (
 	"context"
 	"math/big"
-	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,7 +13,10 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/filecoin-project/go-f3/sim/signing"
-	leveldb "github.com/ipfs/go-ds-leveldb"
+
+	"github.com/ipfs/go-datastore"
+	"github.com/ipfs/go-datastore/failstore"
+	ds_sync "github.com/ipfs/go-datastore/sync"
 	logging "github.com/ipfs/go-log/v2"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -79,6 +82,37 @@ func TestPauseResumeCatchup(t *testing.T) {
 
 	// We should be able to make progress with the remaining nodes.
 	env.waitForInstanceNumber(node0failInstance+3, 30*time.Second, false)
+}
+
+func TestFailRecover(t *testing.T) {
+	env := newTestEnvironment(t, 2, false)
+
+	// Make it possible to fail a single write for node 0.
+	var failDsWrite atomic.Bool
+	dsFailureFunc := func(op string) error {
+		if failDsWrite.Load() {
+			switch op {
+			case "put", "batch-put":
+				failDsWrite.Store(false)
+				return xerrors.Errorf("FAILURE!")
+			}
+		}
+		return nil
+	}
+
+	env.injectDatastoreFailures(0, dsFailureFunc)
+
+	env.connectAll()
+	env.start()
+	env.waitForInstanceNumber(1, 10*time.Second, true)
+
+	// Inject a single write failure. This should prevent us from storing a single decision
+	// decision.
+	failDsWrite.Store(true)
+
+	// We should proceed anyways (catching up via the certificate exchange protocol).
+	oldInstance := env.nodes[0].currentGpbftInstance()
+	env.waitForInstanceNumber(oldInstance+3, 10*time.Second, true)
 }
 
 func TestDynamicManifest_WithoutChanges(t *testing.T) {
@@ -184,9 +218,10 @@ var base manifest.Manifest = manifest.Manifest{
 }
 
 type testNode struct {
-	e  *testEnv
-	h  host.Host
-	f3 *f3.F3
+	e         *testEnv
+	h         host.Host
+	f3        *f3.F3
+	dsErrFunc func(string) error
 }
 
 func (n *testNode) currentGpbftInstance() uint64 {
@@ -485,14 +520,11 @@ func (e *testEnv) newF3Instance(id int, manifestServer peer.ID) (*testNode, erro
 		return nil, xerrors.Errorf("creating libp2p host: %w", err)
 	}
 
+	n := &testNode{e: e, h: h}
+
 	ps, err := pubsub.NewGossipSub(e.testCtx, h)
 	if err != nil {
 		return nil, xerrors.Errorf("creating gossipsub: %w", err)
-	}
-
-	tmpdir, err := os.MkdirTemp("", "f3-*")
-	if err != nil {
-		return nil, xerrors.Errorf("creating temp dir: %w", err)
 	}
 
 	err = logging.SetLogLevel("f3-testing", logLevel)
@@ -500,10 +532,12 @@ func (e *testEnv) newF3Instance(id int, manifestServer peer.ID) (*testNode, erro
 		return nil, xerrors.Errorf("setting log level: %w", err)
 	}
 
-	ds, err := leveldb.NewDatastore(tmpdir, nil)
-	if err != nil {
-		return nil, xerrors.Errorf("creating a datastore: %w", err)
-	}
+	ds := ds_sync.MutexWrap(failstore.NewFailstore(datastore.NewMapDatastore(), func(s string) error {
+		if n.dsErrFunc != nil {
+			return (n.dsErrFunc)(s)
+		}
+		return nil
+	}))
 
 	m := e.manifest // copy because we mutate this
 	var mprovider manifest.ManifestProvider
@@ -515,16 +549,20 @@ func (e *testEnv) newF3Instance(id int, manifestServer peer.ID) (*testNode, erro
 
 	e.signingBackend.Allow(int(id))
 
-	module, err := f3.New(e.testCtx, mprovider, ds, h, ps, e.signingBackend, e.ec)
+	n.f3, err = f3.New(e.testCtx, mprovider, ds, h, ps, e.signingBackend, e.ec)
 	if err != nil {
 		return nil, xerrors.Errorf("creating module: %w", err)
 	}
 
 	e.errgrp.Go(func() error {
-		return runMessageSubscription(e.testCtx, module, gpbft.ActorID(id), e.signingBackend)
+		return runMessageSubscription(e.testCtx, n.f3, gpbft.ActorID(id), e.signingBackend)
 	})
 
-	return &testNode{e: e, h: h, f3: module}, nil
+	return n, nil
+}
+
+func (e *testEnv) injectDatastoreFailures(i int, fn func(op string) error) {
+	e.nodes[i].dsErrFunc = fn
 }
 
 // TODO: This code is copy-pasta from cmd/f3/run.go, consider taking it out into a shared testing lib.

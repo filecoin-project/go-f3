@@ -309,7 +309,7 @@ func (_c *MockHost_NetworkName_Call) RunAndReturn(run func() NetworkName) *MockH
 }
 
 // ReceiveDecision provides a mock function with given fields: decision
-func (_m *MockHost) ReceiveDecision(decision *Justification) time.Time {
+func (_m *MockHost) ReceiveDecision(decision *Justification) (time.Time, error) {
 	ret := _m.Called(decision)
 
 	if len(ret) == 0 {
@@ -317,13 +317,23 @@ func (_m *MockHost) ReceiveDecision(decision *Justification) time.Time {
 	}
 
 	var r0 time.Time
+	var r1 error
+	if rf, ok := ret.Get(0).(func(*Justification) (time.Time, error)); ok {
+		return rf(decision)
+	}
 	if rf, ok := ret.Get(0).(func(*Justification) time.Time); ok {
 		r0 = rf(decision)
 	} else {
 		r0 = ret.Get(0).(time.Time)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(*Justification) error); ok {
+		r1 = rf(decision)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockHost_ReceiveDecision_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReceiveDecision'
@@ -344,12 +354,12 @@ func (_c *MockHost_ReceiveDecision_Call) Run(run func(decision *Justification)) 
 	return _c
 }
 
-func (_c *MockHost_ReceiveDecision_Call) Return(_a0 time.Time) *MockHost_ReceiveDecision_Call {
-	_c.Call.Return(_a0)
+func (_c *MockHost_ReceiveDecision_Call) Return(_a0 time.Time, _a1 error) *MockHost_ReceiveDecision_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockHost_ReceiveDecision_Call) RunAndReturn(run func(*Justification) time.Time) *MockHost_ReceiveDecision_Call {
+func (_c *MockHost_ReceiveDecision_Call) RunAndReturn(run func(*Justification) (time.Time, error)) *MockHost_ReceiveDecision_Call {
 	_c.Call.Return(run)
 	return _c
 }

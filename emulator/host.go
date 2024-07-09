@@ -50,9 +50,9 @@ func (h *driverHost) RequestBroadcast(mb *gpbft.MessageBuilder) error {
 	return nil
 }
 
-func (h *driverHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
+func (h *driverHost) ReceiveDecision(decision *gpbft.Justification) (time.Time, error) {
 	require.NoError(h.t, h.maybeReceiveDecision(decision))
-	return h.now
+	return h.now, nil
 }
 
 func (h *driverHost) maybeReceiveDecision(decision *gpbft.Justification) error {
