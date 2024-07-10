@@ -94,11 +94,15 @@ func (r *Repeat) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
 		SupplementalData: *supplementalData,
 		Value:            msg.Vote.Value,
 	}
-	mt := gpbft.NewMessageBuilderWithPowerTable(power)
-	mt.SetPayload(p)
-	mt.SetJustification(msg.Justification)
-	if len(msg.Ticket) != 0 {
-		mt.SetBeaconForTicket(beacon)
+	mt := &gpbft.MessageBuilder{
+		NetworkName:       r.host.NetworkName(),
+		PowerTable:        power,
+		Payload:           p,
+		Justification:     msg.Justification,
+		SigningMarshaller: r.host,
+	}
+	if len(msg.Ticket) > 0 {
+		mt.BeaconForTicket = beacon
 	}
 	for i := 0; i < echoCount; i++ {
 		if msg.Sender != r.ID() {

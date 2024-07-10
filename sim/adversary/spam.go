@@ -78,8 +78,12 @@ func (s *Spam) spamAtInstance(instance uint64) {
 			SupplementalData: *supplementalData,
 			Step:             gpbft.COMMIT_PHASE,
 		}
-		mt := gpbft.NewMessageBuilderWithPowerTable(power)
-		mt.SetPayload(p)
+		mt := &gpbft.MessageBuilder{
+			NetworkName:       s.host.NetworkName(),
+			PowerTable:        power,
+			Payload:           p,
+			SigningMarshaller: s.host,
+		}
 		if err := s.host.RequestBroadcast(mt); err != nil {
 			panic(err)
 		}

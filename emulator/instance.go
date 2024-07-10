@@ -100,18 +100,17 @@ func (i *Instance) NewPayload(round uint64, step gpbft.Phase, value gpbft.ECChai
 }
 
 func (i *Instance) NewMessageBuilder(payload gpbft.Payload, justification *gpbft.Justification, withTicket bool) *gpbft.MessageBuilder {
-
 	payload.SupplementalData = i.supplementalData
 	payload.Instance = i.id
-	builder := gpbft.NewMessageBuilder(i.powerTable)
-	builder.SetPayload(payload)
-	if justification != nil {
-		builder.SetJustification(justification)
+	mb := &gpbft.MessageBuilder{
+		PowerTable:    i.powerTable,
+		Payload:       payload,
+		Justification: justification,
 	}
 	if withTicket {
-		builder.SetBeaconForTicket(i.beacon)
+		mb.BeaconForTicket = i.beacon
 	}
-	return builder
+	return mb
 }
 
 func (i *Instance) NewJustification(round uint64, step gpbft.Phase, vote gpbft.ECChain, from ...gpbft.ActorID) *gpbft.Justification {

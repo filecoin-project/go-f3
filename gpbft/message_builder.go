@@ -3,7 +3,6 @@ package gpbft
 import (
 	"context"
 	"errors"
-	"sync"
 
 	xerrors "golang.org/x/xerrors"
 )
@@ -12,79 +11,12 @@ import (
 var ErrNoPower = errors.New("no power")
 
 type MessageBuilder struct {
-	lk              sync.RWMutex
-	networkName     NetworkName
-	powerTable      powerTableAccessor
-	payload         Payload
-	beaconForTicket []byte
-	justification   *Justification
-
-	signingMarshaller SigningMarshaler
-}
-
-// NewMessageBuilder creates a new message builder with the provided beacon for ticket,
-// justification and payload.
-func NewMessageBuilder(powerTable powerTableAccessor) *MessageBuilder {
-	return &MessageBuilder{
-		powerTable: powerTable,
-	}
-}
-
-// SetBeaconForTicket sets the beacon for the ticket in the message builder.
-func (mb *MessageBuilder) SetBeaconForTicket(b []byte) {
-	mb.lk.Lock()
-	defer mb.lk.Unlock()
-	mb.beaconForTicket = b
-}
-
-// SetJustification sets the justification in the message builder.
-func (mb *MessageBuilder) SetJustification(j *Justification) {
-	mb.lk.Lock()
-	defer mb.lk.Unlock()
-	mb.justification = j
-}
-
-// SetPayload sets the payload in the message builder.
-func (mb *MessageBuilder) SetPayload(p Payload) {
-	mb.lk.Lock()
-	defer mb.lk.Unlock()
-	mb.payload = p
-}
-
-func (mb *MessageBuilder) Payload() Payload {
-	mb.lk.RLock()
-	defer mb.lk.RUnlock()
-	return mb.payload
-}
-
-func (mb *MessageBuilder) BeaconForTicket() []byte {
-	mb.lk.RLock()
-	defer mb.lk.RUnlock()
-	return mb.beaconForTicket
-}
-
-func (mb *MessageBuilder) Justification() *Justification {
-	mb.lk.RLock()
-	defer mb.lk.RUnlock()
-	return mb.justification
-}
-
-func (mb *MessageBuilder) SetNetworkName(nn NetworkName) {
-	mb.lk.Lock()
-	defer mb.lk.Unlock()
-	mb.networkName = nn
-}
-
-func (mb *MessageBuilder) NetworkName() NetworkName {
-	mb.lk.RLock()
-	defer mb.lk.RUnlock()
-	return mb.networkName
-}
-
-func (mb *MessageBuilder) SetSigningMarshaler(sm SigningMarshaler) {
-	mb.lk.Lock()
-	defer mb.lk.Unlock()
-	mb.signingMarshaller = sm
+	NetworkName       NetworkName
+	PowerTable        powerTableAccessor
+	Payload           Payload
+	BeaconForTicket   []byte
+	Justification     *Justification
+	SigningMarshaller SigningMarshaler
 }
 
 type powerTableAccessor interface {
@@ -125,36 +57,24 @@ type SignatureBuilder struct {
 }
 
 func (mb *MessageBuilder) PrepareSigningInputs(id ActorID) (*SignatureBuilder, error) {
-	mb.lk.RLock()
-	defer mb.lk.RUnlock()
-	effectivePower, pubKey := mb.powerTable.Get(id)
+	effectivePower, pubKey := mb.PowerTable.Get(id)
 	if pubKey == nil || effectivePower == 0 {
 		return nil, xerrors.Errorf("could not find pubkey for actor %d: %w", id, ErrNoPower)
 	}
 	sb := SignatureBuilder{
 		ParticipantID: id,
-		NetworkName:   mb.networkName,
-		Payload:       mb.payload,
-		Justification: mb.justification,
+		NetworkName:   mb.NetworkName,
+		Payload:       mb.Payload,
+		Justification: mb.Justification,
 
 		PubKey: pubKey,
 	}
 
-	sb.PayloadToSign = mb.signingMarshaller.MarshalPayloadForSigning(mb.networkName, &mb.payload)
-	if mb.beaconForTicket != nil {
-		sb.VRFToSign = vrfSerializeSigInput(mb.beaconForTicket, mb.payload.Instance, mb.payload.Round, mb.networkName)
+	sb.PayloadToSign = mb.SigningMarshaller.MarshalPayloadForSigning(mb.NetworkName, &mb.Payload)
+	if mb.BeaconForTicket != nil {
+		sb.VRFToSign = vrfSerializeSigInput(mb.BeaconForTicket, mb.Payload.Instance, mb.Payload.Round, mb.NetworkName)
 	}
 	return &sb, nil
-}
-
-// NewMessageBuilderWithPowerTable allows to create a new message builder
-// from an existing power table.
-//
-// This is needed to sign forged messages in adversary hosts
-func NewMessageBuilderWithPowerTable(power *PowerTable) *MessageBuilder {
-	return &MessageBuilder{
-		powerTable: power,
-	}
 }
 
 // Sign creates the signed payload from the signature builder and returns the payload
