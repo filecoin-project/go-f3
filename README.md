@@ -1,66 +1,48 @@
-# Go implementation of Fast Finality for Filecoin
+# Go implementation of Fast Finality in Filecoin
 
-This repository contains a Go implementation of the [Filecoin finality module,
-F3](https://github.com/filecoin-project/FIPs/blob/f3564189d11817328168c9e75a80ff5f7292ba13/FIPS/fip-xxxx.md)
-(WIP).
+[![Go Test](https://github.com/filecoin-project/go-f3/actions/workflows/go-test.yml/badge.svg)](https://github.com/filecoin-project/go-f3/actions/workflows/go-test.yml) [![codecov](https://codecov.io/gh/filecoin-project/go-f3/graph/badge.svg?token=6uD131t7gs)](https://codecov.io/gh/filecoin-project/go-f3)
 
-This executes an iterative GossiPBFT consensus protocol to declare tipsets as
-final when voted for by >2/3 of the consensus power.
+This repository contains the golang implementation of the Fast Finality (F3) protocol for Filecoin as specified
+by [FIP-0086](https://github.com/filecoin-project/FIPs/blob/master/FIPS/fip-0086.md). This protocol uses GossipPBFT
+consensus protocol to finalize tipsets when voted for by more than two-thirds of the storage power.
+
+## Key Features
+
+- **Core Implementation of GossipBFT Consensus Protocol**: The heart of Go-F3.
+- **F3 Filecoin Integration Module**: Streamlines the integration of the F3 protocol within the broader Filecoin
+  ecosystem, specifically Lotus and other Filecoin full nodes.
+- **Simulation Package**: Includes a robust simulation environment with various adversary models, enabling rigorous
+  testing of the protocol under different network conditions and attack scenarios.
+- **Emulator Package**: Facilitates message-by-message interaction with the GossipPBFT protocol, providing a detailed
+  view of protocol mechanics and performance.
+- **Standalone F3 Participant Implementation**: A complete implementation of an F3 protocol participant, capable of
+  operating independently within the Filecoin network.
+- **Finality Certificate**: Implements the generation and management of finality certificates, which cary transportable
+  proofs of finality.
+- **Finality Certificate Exchange Protocol**: Features an adaptive self-configuring polling mechanism, enhancing the
+  efficiency and reliability of certificate exchange among participants.
 
 ## Status
 
-Work in progress.
+**:test_tube: Under Passive Testing**
 
-This implementation began as a simulation during the protocol design phase. It
-is currently being transformed into production code, while maintaining and
-expanding the simulator.
+The implementation of Go-F3 is complete and is currently undergoing passive testing in nv23. It has also been integrated
+into Lotus.
 
-## Usage
+## Project Structure
 
-Run the unit tests to exercise the GossipPBFT protocol.
-
-```
-$ go test ./...
-```
-
-There is also a main entry point to run GossiPBFT instance with honest nodes in
-simulation.
-
-```
-$ go run ./sim/cmd/f3sim -help
-Usage of f3sim:
-  -delta-back-off-exponent float
-        exponential factor adjusting the delta value per round (default 1.3)
-  -granite-delta float
-        granite delta parameter (bound on message delay) (default 2)
-  -iterations int
-        number of simulation iterations (default 1)
-  -latency-mean float
-        mean network latency in seconds (default 0.5)
-  -latency-seed int
-        random seed for network latency (default <current time>)
-  -max-rounds uint
-        max rounds to allow before failing (default 10)
-  -participants int
-        number of participants (default 3)
-  -trace int
-        trace verbosity level
-```
-
-## Integration
-
-The code does not yet express an API for integration into a Filecoin node.
-Coming soon!
-
-## Structure
-
-Modules:
-
-- `f3`: the protocol implementation
-- `sim`: the simulation harness
-- `adversary`: specific adversarial behaviors for use in tests
-- `test`: unit tests which execute the protocol in simulation
+- `blssig`: BLS signature schemes.
+- `certexchange`: Certificate exchange mechanisms.
+- `certstore`: Certificate storage.
+- `cmd`: Command line to run a standalone F3 participant.
+- `ec`: Expected Consensus utilities.
+- `emulator`: Network emulation tools.
+- `gpbft`: GossipPBFT protocol implementation.
+- `merkle`: Merkle tree implementations.
+- `sim`: Simulation harness.
+- `test`: Test suite for various components.
 
 ## License
 
-Dual-licensed under MIT + Apache 2.0
+This project is dual-licensed under the MIT and Apache 2.0 licenses. See [LICENSE-APACHE](LICENSE-APACHE)
+and [LICENSE-MIT](LICENSE-MIT) for more details.
