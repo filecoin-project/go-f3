@@ -645,3 +645,190 @@ func TestGPBFT_SkipsToRound(t *testing.T) {
 		driver.RequireConverge(77, futureRoundProposal, instance.NewJustification(76, gpbft.PREPARE_PHASE, futureRoundProposal, 1))
 	})
 }
+
+func TestGPBFT_Equivocations(t *testing.T) {
+	t.Parallel()
+	newInstanceAndDriver := func(t *testing.T) (*emulator.Instance, *emulator.Driver) {
+		driver := emulator.NewDriver(t)
+		instance := emulator.NewInstance(t,
+			0,
+			gpbft.PowerEntries{
+				gpbft.PowerEntry{
+					ID:    0,
+					Power: gpbft.NewStoragePower(1),
+				},
+				gpbft.PowerEntry{
+					ID:    1,
+					Power: gpbft.NewStoragePower(1),
+				},
+			},
+			tipset0, tipSet1, tipSet2,
+		)
+		driver.AddInstance(instance)
+		driver.RequireNoBroadcast()
+		return instance, driver
+	}
+
+	t.Run("Decides on proposal at instance", func(t *testing.T) {
+		instance, driver := newInstanceAndDriver(t)
+
+		equivocations := []gpbft.ECChain{
+			instance.Proposal().Extend(tipSet3.Key),
+			instance.Proposal().Extend(tipSet4.Key),
+		}
+
+		driver.StartInstance(instance.ID())
+
+		// Send the first Quality message for instance proposal
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender: 1,
+			Vote:   instance.NewQuality(instance.Proposal()),
+		})
+
+		// Equivocate in Quality round.
+		for _, equivocation := range equivocations {
+			driver.RequireDeliverMessage(&gpbft.GMessage{
+				Sender: 1,
+				Vote:   instance.NewQuality(equivocation),
+			})
+		}
+
+		// Then deliver the quality message from the participant to itself.
+		// This must result in progress to Prepare.
+		driver.RequireQuality()
+
+		// Send prepare for instance proposal.
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender: 1,
+			Vote:   instance.NewPrepare(0, instance.Proposal()),
+		})
+
+		// Equivocate in Prepare round.
+		for _, equivocation := range equivocations {
+			driver.RequireDeliverMessage(&gpbft.GMessage{
+				Sender: 1,
+				Vote:   instance.NewPrepare(0, equivocation),
+			})
+		}
+		driver.RequirePrepare(instance.Proposal())
+
+		evidenceOfPrepare := instance.NewJustification(0, gpbft.PREPARE_PHASE, instance.Proposal(), 0, 1)
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        1,
+			Vote:          instance.NewCommit(0, instance.Proposal()),
+			Justification: evidenceOfPrepare,
+		})
+
+		// Equivocate in Commit round.
+		for _, equivocation := range equivocations {
+			equivocatingEvidenceOfPrepare := instance.NewJustification(0, gpbft.PREPARE_PHASE, equivocation, 0, 1)
+			driver.RequireDeliverMessage(&gpbft.GMessage{
+				Sender:        1,
+				Vote:          instance.NewCommit(0, equivocation),
+				Justification: equivocatingEvidenceOfPrepare,
+			})
+		}
+		// Require commit with expected evidence of prepare for proposal despite equivocations.
+		driver.RequireCommit(0, instance.Proposal(), evidenceOfPrepare)
+
+		evidenceOfCommit := instance.NewJustification(0, gpbft.COMMIT_PHASE, instance.Proposal(), 0, 1)
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        1,
+			Vote:          instance.NewDecide(0, instance.Proposal()),
+			Justification: evidenceOfCommit,
+		})
+
+		// Equivocate in Decide round.
+		for _, equivocation := range equivocations {
+			equivocatingEvidenceOfCommit := instance.NewJustification(0, gpbft.COMMIT_PHASE, equivocation, 0, 1)
+			driver.RequireDeliverMessage(&gpbft.GMessage{
+				Sender:        1,
+				Vote:          instance.NewDecide(0, equivocation),
+				Justification: equivocatingEvidenceOfCommit,
+			})
+		}
+		// Expect decide with the right evidence regardless of equivocations.
+		driver.RequireDecide(instance.Proposal(), evidenceOfCommit)
+
+		// Expect decision on instance proposal.
+		driver.RequireDecision(instance.ID(), instance.Proposal())
+	})
+
+	t.Run("With queued messages/Decides on proposal", func(t *testing.T) {
+
+		// This test sends all the messages first, then asserts state transition.
+
+		instance, driver := newInstanceAndDriver(t)
+
+		equivocations := []gpbft.ECChain{
+			instance.Proposal().Extend(tipSet3.Key),
+			instance.Proposal().Extend(tipSet4.Key),
+		}
+
+		// Send the first Quality message for instance proposal
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender: 1,
+			Vote:   instance.NewQuality(instance.Proposal()),
+		})
+
+		// Equivocate in Quality round.
+		for _, equivocation := range equivocations {
+			driver.RequireDeliverMessage(&gpbft.GMessage{
+				Sender: 1,
+				Vote:   instance.NewQuality(equivocation),
+			})
+		}
+
+		// Send prepare for instance proposal.
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender: 1,
+			Vote:   instance.NewPrepare(0, instance.Proposal()),
+		})
+
+		// Equivocate in Prepare round.
+		for _, equivocation := range equivocations {
+			driver.RequireDeliverMessage(&gpbft.GMessage{
+				Sender: 1,
+				Vote:   instance.NewPrepare(0, equivocation),
+			})
+		}
+
+		evidenceOfPrepare := instance.NewJustification(0, gpbft.PREPARE_PHASE, instance.Proposal(), 0, 1)
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        1,
+			Vote:          instance.NewCommit(0, instance.Proposal()),
+			Justification: evidenceOfPrepare,
+		})
+		for _, equivocation := range equivocations {
+			equivocatingEvidenceOfPrepare := instance.NewJustification(0, gpbft.PREPARE_PHASE, equivocation, 0, 1)
+			driver.RequireDeliverMessage(&gpbft.GMessage{
+				Sender:        1,
+				Vote:          instance.NewCommit(0, equivocation),
+				Justification: equivocatingEvidenceOfPrepare,
+			})
+		}
+
+		// Start the instance before sending decide messages to avoid skip to decide.
+		driver.StartInstance(instance.ID())
+		driver.RequireQuality()
+		driver.RequirePrepare(instance.Proposal())
+		driver.RequireCommit(0, instance.Proposal(), evidenceOfPrepare)
+
+		evidenceOfCommit := instance.NewJustification(0, gpbft.COMMIT_PHASE, instance.Proposal(), 0, 1)
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        1,
+			Vote:          instance.NewDecide(0, instance.Proposal()),
+			Justification: evidenceOfCommit,
+		})
+		for _, equivocation := range equivocations {
+			equivocatingEvidenceOfCommit := instance.NewJustification(0, gpbft.COMMIT_PHASE, equivocation, 0, 1)
+			driver.RequireDeliverMessage(&gpbft.GMessage{
+				Sender:        1,
+				Vote:          instance.NewDecide(0, equivocation),
+				Justification: equivocatingEvidenceOfCommit,
+			})
+		}
+		driver.RequireDecide(instance.Proposal(), evidenceOfCommit)
+		driver.RequireDecision(instance.ID(), instance.Proposal())
+	})
+}
