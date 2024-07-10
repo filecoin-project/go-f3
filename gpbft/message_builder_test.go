@@ -37,10 +37,12 @@ func TestMessageBuilder(t *testing.T) {
 	}
 	nn := NetworkName("test")
 
-	mt := NewMessageBuilder(pt)
-	mt.SetPayload(payload)
-	mt.SetNetworkName(nn)
-	mt.SetSigningMarshaler(signingMarshaler)
+	mt := &MessageBuilder{
+		NetworkName:       nn,
+		PowerTable:        pt,
+		Payload:           payload,
+		SigningMarshaller: signingMarshaler,
+	}
 
 	_, err = mt.PrepareSigningInputs(2)
 	require.Error(t, err, "unknown ID should return an error")
@@ -85,11 +87,13 @@ func TestMessageBuilderWithVRF(t *testing.T) {
 	}
 
 	nn := NetworkName("test")
-	mt := NewMessageBuilder(pt)
-	mt.SetPayload(payload)
-	mt.SetNetworkName(nn)
-	mt.SetSigningMarshaler(signingMarshaler)
-	mt.SetBeaconForTicket([]byte{0xbe, 0xac, 0x04})
+	mt := &MessageBuilder{
+		NetworkName:       nn,
+		PowerTable:        pt,
+		Payload:           payload,
+		SigningMarshaller: signingMarshaler,
+		BeaconForTicket:   []byte{0xbe, 0xac, 0x04},
+	}
 
 	st, err := mt.PrepareSigningInputs(0)
 	require.NoError(t, err)

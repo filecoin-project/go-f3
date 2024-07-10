@@ -47,15 +47,6 @@ func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) erro
 	if err != nil {
 		panic(err)
 	}
-	// Immediately send a DECIDE message
-	mb := gpbft.NewMessageBuilder(powertable)
-	mb.SetPayload(gpbft.Payload{
-		Instance:         instance,
-		Round:            0,
-		Step:             gpbft.DECIDE_PHASE,
-		Value:            i.value,
-		SupplementalData: *supplementalData,
-	})
 	justificationPayload := gpbft.Payload{
 		Instance:         instance,
 		Round:            0,
@@ -76,11 +67,25 @@ func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) erro
 	if err != nil {
 		panic(err)
 	}
-	mb.SetJustification(&gpbft.Justification{
-		Vote:      justificationPayload,
-		Signers:   signers,
-		Signature: aggregatedSig,
-	})
+
+	// Immediately send a DECIDE message
+	mb := &gpbft.MessageBuilder{
+		NetworkName:       i.host.NetworkName(),
+		PowerTable:        powertable,
+		SigningMarshaller: i.host,
+		Payload: gpbft.Payload{
+			Instance:         instance,
+			Round:            0,
+			Step:             gpbft.DECIDE_PHASE,
+			Value:            i.value,
+			SupplementalData: *supplementalData,
+		},
+		Justification: &gpbft.Justification{
+			Vote:      justificationPayload,
+			Signers:   signers,
+			Signature: aggregatedSig,
+		},
+	}
 
 	if err := i.host.RequestSynchronousBroadcast(mb); err != nil {
 		panic(err)

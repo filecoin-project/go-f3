@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -107,16 +106,17 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	pt.host.EXPECT().SetAlarm(pt.time.Add(2 * pt.delta))
 
 	// Expect a broadcast occurs with quality phase message, and the expected chain, signature.
-	wantQualityPhaseBroadcastBuilder := &gpbft.MessageBuilder{}
-	wantQualityPhaseBroadcastBuilder.SetPayload(
-		gpbft.Payload{
-			Instance: pt.instance,
-			Step:     gpbft.QUALITY_PHASE,
-			Value:    pt.canonicalChain,
-		},
-	)
-	pt.host.EXPECT().RequestBroadcast(mock.MatchedBy(func(mt *gpbft.MessageBuilder) bool {
-		return assert.EqualExportedValues(pt.t, mt, wantQualityPhaseBroadcastBuilder) //nolint
+	payload := gpbft.Payload{
+		Instance:         pt.instance,
+		Step:             gpbft.QUALITY_PHASE,
+		Value:            pt.canonicalChain,
+		SupplementalData: *pt.supplementalData,
+	}
+	pt.host.EXPECT().RequestBroadcast(mock.MatchedBy(func(o *gpbft.MessageBuilder) bool {
+		return o.NetworkName == pt.networkName &&
+			payload.Eq(&o.Payload) &&
+			o.Justification == nil &&
+			o.BeaconForTicket == nil
 	})).Return(nil)
 }
 

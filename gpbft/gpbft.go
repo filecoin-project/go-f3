@@ -963,13 +963,16 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, createTick
 		Value:            value,
 	}
 
-	mb := NewMessageBuilder(&i.powerTable)
-	mb.SetPayload(p)
-	mb.SetJustification(justification)
-	if createTicket {
-		mb.SetBeaconForTicket(i.beacon)
+	mb := &MessageBuilder{
+		NetworkName:       i.participant.host.NetworkName(),
+		PowerTable:        &i.powerTable,
+		SigningMarshaller: i.participant.host,
+		Payload:           p,
+		Justification:     justification,
 	}
-
+	if createTicket {
+		mb.BeaconForTicket = i.beacon
+	}
 	if err := i.participant.host.RequestBroadcast(mb); err != nil {
 		i.log("failed to request broadcast: %v", err)
 	}
@@ -1504,7 +1507,7 @@ func newBroadcastState() *broadcastState {
 // the benefit of less reliance on rebroadcast and reduction in the possibility
 // of participants getting stuck.
 func (bs *broadcastState) record(mb *MessageBuilder) {
-	switch mb.payload.Step {
+	switch mb.Payload.Step {
 	case DECIDE_PHASE:
 		// Clear all previous messages, as only DECIDE message need to be rebroadcasted.
 		// Note that DECIDE message is not associated to any round, and is always
@@ -1512,9 +1515,9 @@ func (bs *broadcastState) record(mb *MessageBuilder) {
 		bs.messagesByRound = make(map[uint64][]*MessageBuilder)
 		bs.messagesByRound[0] = []*MessageBuilder{mb}
 	case COMMIT_PHASE, PREPARE_PHASE, CONVERGE_PHASE:
-		bs.messagesByRound[mb.payload.Round] = append(bs.messagesByRound[mb.payload.Round], mb)
+		bs.messagesByRound[mb.Payload.Round] = append(bs.messagesByRound[mb.Payload.Round], mb)
 		// Remove all messages that are older than the latest two rounds.
-		for round := int(mb.payload.Round) - 2; round >= 0; round-- {
+		for round := int(mb.Payload.Round) - 2; round >= 0; round-- {
 			redundantRound := uint64(round)
 			delete(bs.messagesByRound, redundantRound)
 		}

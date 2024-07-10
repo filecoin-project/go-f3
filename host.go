@@ -534,10 +534,7 @@ func (h *gpbftHost) NetworkName() gpbft.NetworkName {
 }
 
 // Sends a message to all other participants.
-// The message's sender must be one that the network interface can sign on behalf of.
 func (h *gpbftHost) RequestBroadcast(mb *gpbft.MessageBuilder) error {
-	mb.SetNetworkName(h.manifest.NetworkName)
-	mb.SetSigningMarshaler(h)
 	(h.broadcastCb)(mb)
 	return nil
 }
