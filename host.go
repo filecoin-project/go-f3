@@ -29,7 +29,7 @@ type gpbftRunner struct {
 	ec          ec.Backend
 	pubsub      *pubsub.PubSub
 	verifier    gpbft.Verifier
-	broadcastCb BroadcastMessage
+	outMessages chan<- *gpbft.MessageBuilder
 
 	participant *gpbft.Participant
 	topic       *pubsub.Topic
@@ -47,7 +47,7 @@ func newRunner(
 	ec ec.Backend,
 	ps *pubsub.PubSub,
 	verifier gpbft.Verifier,
-	broadcastCb BroadcastMessage,
+	out chan<- *gpbft.MessageBuilder,
 	m *manifest.Manifest,
 ) (*gpbftRunner, error) {
 	runningCtx, ctxCancel := context.WithCancel(context.Background())
@@ -59,7 +59,7 @@ func newRunner(
 		ec:          ec,
 		pubsub:      ps,
 		verifier:    verifier,
-		broadcastCb: broadcastCb,
+		outMessages: out,
 		runningCtx:  runningCtx,
 		errgrp:      errgrp,
 		ctxCancel:   ctxCancel,
@@ -535,8 +535,12 @@ func (h *gpbftHost) NetworkName() gpbft.NetworkName {
 
 // Sends a message to all other participants.
 func (h *gpbftHost) RequestBroadcast(mb *gpbft.MessageBuilder) error {
-	(h.broadcastCb)(mb)
-	return nil
+	select {
+	case h.outMessages <- mb:
+		return nil
+	case <-h.runningCtx.Done():
+		return h.runningCtx.Err()
+	}
 }
 
 // Returns the current network time.

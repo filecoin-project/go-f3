@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"os"
 
@@ -120,47 +121,46 @@ var runCmd = cli.Command{
 			return xerrors.Errorf("creating module: %w", err)
 		}
 
-		go runMessageSubscription(ctx, module, gpbft.ActorID(id), signingBackend)
+		errCh := make(chan error, 1)
+		go func() { errCh <- runMessageSubscription(ctx, module, gpbft.ActorID(id), signingBackend) }()
 
 		if err := module.Start(ctx); err != nil {
 			return nil
 		}
-		<-ctx.Done()
+		select {
+		case err := <-errCh:
+			if err != nil {
+				log.Error(err)
+			}
+		case <-ctx.Done():
+		}
 		return module.Stop(context.Background())
 	},
 }
 
-func runMessageSubscription(ctx context.Context, module *f3.F3, actorID gpbft.ActorID, signer gpbft.Signer) {
+func runMessageSubscription(ctx context.Context, module *f3.F3, actorID gpbft.ActorID, signer gpbft.Signer) error {
 	for ctx.Err() == nil {
-
-		ch := make(chan *gpbft.MessageBuilder, 4)
-		module.SubscribeForMessagesToSign(ch)
-	inner:
-		for {
-			select {
-			case mb, ok := <-ch:
-				if !ok {
-					// the broadcast bus kicked us out
-					log.Infof("lost message bus subscription, retrying")
-					break inner
-				}
-				signatureBuilder, err := mb.PrepareSigningInputs(actorID)
-				if err != nil {
-					log.Errorf("preparing signing inputs: %+v", err)
-				}
-				// signatureBuilder can be sent over RPC
-				payloadSig, vrfSig, err := signatureBuilder.Sign(ctx, signer)
-				if err != nil {
-					log.Errorf("signing message: %+v", err)
-				}
-				// signatureBuilder and signatures can be returned back over RPC
-				module.Broadcast(ctx, signatureBuilder, payloadSig, vrfSig)
-			case <-ctx.Done():
-				return
+		select {
+		case mb, ok := <-module.MessagesToSign():
+			if !ok {
+				return nil
 			}
+			signatureBuilder, err := mb.PrepareSigningInputs(actorID)
+			if err != nil {
+				return fmt.Errorf("preparing signing inputs: %w", err)
+			}
+			// signatureBuilder can be sent over RPC
+			payloadSig, vrfSig, err := signatureBuilder.Sign(ctx, signer)
+			if err != nil {
+				return fmt.Errorf("signing message: %w", err)
+			}
+			// signatureBuilder and signatures can be returned back over RPC
+			module.Broadcast(ctx, signatureBuilder, payloadSig, vrfSig)
+		case <-ctx.Done():
+			return nil
 		}
-
 	}
+	return nil
 }
 
 type discoveryNotifee struct {
