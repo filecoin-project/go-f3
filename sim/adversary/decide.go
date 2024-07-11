@@ -10,25 +10,39 @@ import (
 
 var _ Receiver = (*ImmediateDecide)(nil)
 
+type ImmediateDecideOption func(*ImmediateDecide)
+
+func ImmediateDecideWithNthParticipant(n uint64) ImmediateDecideOption {
+	return func(i *ImmediateDecide) {
+		i.additionalParticipant = &n
+	}
+}
+
 // / An "adversary" that immediately sends a DECIDE message, justified by its own COMMIT.
 type ImmediateDecide struct {
 	id    gpbft.ActorID
 	host  Host
 	value gpbft.ECChain
+
+	additionalParticipant *uint64
 }
 
-func NewImmediateDecide(id gpbft.ActorID, host Host, value gpbft.ECChain) *ImmediateDecide {
-	return &ImmediateDecide{
+func NewImmediateDecide(id gpbft.ActorID, host Host, value gpbft.ECChain, opts ...ImmediateDecideOption) *ImmediateDecide {
+	i := &ImmediateDecide{
 		id:    id,
 		host:  host,
 		value: value,
 	}
+	for _, opt := range opts {
+		opt(i)
+	}
+	return i
 }
 
-func NewImmediateDecideGenerator(value gpbft.ECChain, power *gpbft.StoragePower) Generator {
+func NewImmediateDecideGenerator(value gpbft.ECChain, power *gpbft.StoragePower, opts ...ImmediateDecideOption) Generator {
 	return func(id gpbft.ActorID, host Host) *Adversary {
 		return &Adversary{
-			Receiver: NewImmediateDecide(id, host, value),
+			Receiver: NewImmediateDecide(id, host, value, opts...),
 			Power:    power,
 		}
 	}
@@ -55,15 +69,39 @@ func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) erro
 		SupplementalData: *supplementalData,
 	}
 	sigPayload := i.host.MarshalPayloadForSigning(i.host.NetworkName(), &justificationPayload)
-	_, pubkey := powertable.Get(i.id)
-	sig, err := i.host.Sign(context.Background(), pubkey, sigPayload)
-	if err != nil {
+	signers := bitfield.New()
+
+	signers.Set(uint64(powertable.Lookup[i.id]))
+
+	if i.additionalParticipant != nil {
+		signers.Set(*i.additionalParticipant)
+	}
+
+	var (
+		pubkeys []gpbft.PubKey
+		sigs    [][]byte
+	)
+
+	if err := signers.ForEach(func(j uint64) error {
+		pubkey := gpbft.PubKey("fake pubkey")
+		sig := []byte("fake sig")
+		if j < uint64(len(powertable.Entries)) {
+			pubkey = powertable.Entries[j].PubKey
+			var err error
+			sig, err = i.host.Sign(context.Background(), pubkey, sigPayload)
+			if err != nil {
+				return err
+			}
+		}
+
+		pubkeys = append(pubkeys, pubkey)
+		sigs = append(sigs, sig)
+		return nil
+	}); err != nil {
 		panic(err)
 	}
 
-	signers := bitfield.New()
-	signers.Set(uint64(powertable.Lookup[i.id]))
-	aggregatedSig, err := i.host.Aggregate([]gpbft.PubKey{pubkey}, [][]byte{sig})
+	aggregatedSig, err := i.host.Aggregate(pubkeys, sigs)
 	if err != nil {
 		panic(err)
 	}
