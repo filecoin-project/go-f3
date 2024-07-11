@@ -160,8 +160,9 @@ func (p *Participant) ReceiveMessage(vmsg ValidatedMessage) (err error) {
 
 	// Drop messages for past instances.
 	if msg.Vote.Instance < p.currentInstance {
-		return fmt.Errorf("message %d, current instance %d: %w",
-			msg.Vote.Instance, p.currentInstance, ErrValidationTooOld)
+		p.tracer.Log("dropping message from old instance %d while received in instance %d",
+			msg.Vote.Instance, p.currentInstance)
+		return nil
 	}
 
 	// If the message is for the current instance, deliver immediately.

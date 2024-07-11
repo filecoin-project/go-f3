@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"sync/atomic"
 	"testing"
@@ -17,7 +18,6 @@ import (
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/failstore"
 	ds_sync "github.com/ipfs/go-datastore/sync"
-	logging "github.com/ipfs/go-log/v2"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -31,8 +31,6 @@ const (
 	ManifestSenderTimeout = 1 * time.Second
 	logLevel              = "info"
 )
-
-var log = logging.Logger("f3-testing")
 
 func TestSimpleF3(t *testing.T) {
 	env := newTestEnvironment(t, 2, false)
@@ -358,12 +356,17 @@ func (e *testEnv) waitForManifestChange(prev *manifest.Manifest, timeout time.Du
 	}, timeout, ManifestSenderTimeout)
 }
 
-func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) testEnv {
+func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) *testEnv {
 	ctx, cancel := context.WithCancel(context.Background())
 	grp, ctx := errgroup.WithContext(ctx)
-	env := testEnv{t: t, errgrp: grp, testCtx: ctx, net: mocknet.New()}
+	env := &testEnv{t: t, errgrp: grp, testCtx: ctx, net: mocknet.New()}
+
+	// Cleanup on exit.
 	env.t.Cleanup(func() {
 		cancel()
+		for _, n := range env.nodes {
+			require.NoError(env.t, n.f3.Stop(context.Background()))
+		}
 		require.NoError(env.t, env.errgrp.Wait())
 	})
 
@@ -395,6 +398,7 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) testEnv {
 	for i := 0; i < n; i++ {
 		env.initNode(i, manifestServer)
 	}
+
 	return env
 }
 
@@ -474,9 +478,6 @@ func (e *testEnv) resumeNode(i int) {
 func (e *testEnv) startNode(i int) {
 	n := e.nodes[i]
 	require.NoError(e.t, n.f3.Start(e.testCtx))
-	e.t.Cleanup(func() {
-		require.NoError(e.t, n.f3.Stop(context.Background()))
-	})
 }
 
 func (e *testEnv) connectAll() {
@@ -527,11 +528,6 @@ func (e *testEnv) newF3Instance(id int, manifestServer peer.ID) (*testNode, erro
 		return nil, xerrors.Errorf("creating gossipsub: %w", err)
 	}
 
-	err = logging.SetLogLevel("f3-testing", logLevel)
-	if err != nil {
-		return nil, xerrors.Errorf("setting log level: %w", err)
-	}
-
 	ds := ds_sync.MutexWrap(failstore.NewFailstore(datastore.NewMapDatastore(), func(s string) error {
 		if n.dsErrFunc != nil {
 			return (n.dsErrFunc)(s)
@@ -568,26 +564,20 @@ func (e *testEnv) injectDatastoreFailures(i int, fn func(op string) error) {
 // TODO: This code is copy-pasta from cmd/f3/run.go, consider taking it out into a shared testing lib.
 // We could do the same to the F3 test instantiation
 func runMessageSubscription(ctx context.Context, module *f3.F3, actorID gpbft.ActorID, signer gpbft.Signer) error {
-	ch := make(chan *gpbft.MessageBuilder, 4)
-	module.SubscribeForMessagesToSign(ch)
 	for ctx.Err() == nil {
 		select {
-		case mb, ok := <-ch:
+		case mb, ok := <-module.MessagesToSign():
 			if !ok {
-				// the broadcast bus kicked us out
-				log.Infof("lost message bus subscription, retrying")
-				ch = make(chan *gpbft.MessageBuilder, 4)
-				module.SubscribeForMessagesToSign(ch)
-				continue
+				return nil
 			}
 			signatureBuilder, err := mb.PrepareSigningInputs(actorID)
 			if err != nil {
-				return xerrors.Errorf("preparing signing inputs: %w", err)
+				return fmt.Errorf("preparing signing inputs: %w", err)
 			}
 			// signatureBuilder can be sent over RPC
 			payloadSig, vrfSig, err := signatureBuilder.Sign(ctx, signer)
 			if err != nil {
-				return xerrors.Errorf("signing message: %w", err)
+				return fmt.Errorf("signing message: %w", err)
 			}
 			// signatureBuilder and signatures can be returned back over RPC
 			module.Broadcast(ctx, signatureBuilder, payloadSig, vrfSig)

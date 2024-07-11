@@ -17,7 +17,6 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 
-	"github.com/Kubuxu/go-broadcast"
 	"github.com/ipfs/go-datastore"
 	"go.uber.org/multierr"
 	"golang.org/x/sync/errgroup"
@@ -28,7 +27,7 @@ type F3 struct {
 	verifier         gpbft.Verifier
 	manifestProvider manifest.ManifestProvider
 
-	busBroadcast broadcast.Channel[*gpbft.MessageBuilder]
+	outboundMessages chan *gpbft.MessageBuilder
 
 	host   host.Host
 	ds     datastore.Datastore
@@ -58,6 +57,7 @@ func New(_ctx context.Context, manifest manifest.ManifestProvider, ds datastore.
 	return &F3{
 		verifier:         verif,
 		manifestProvider: manifest,
+		outboundMessages: make(chan *gpbft.MessageBuilder, 128),
 		host:             h,
 		ds:               ds,
 		ec:               ec,
@@ -68,15 +68,11 @@ func New(_ctx context.Context, manifest manifest.ManifestProvider, ds datastore.
 	}, nil
 }
 
-// SubscribeForMessagesToSign is used to subscribe to the message broadcast channel.
-// After perparing inputs and signing over them, Broadcast should be called.
-//
-// If the passed channel is full at any point, it will be dropped from subscription and closed.
-// To stop subscribing, either the closer function can be used, or the channel can be abandoned.
-// Passing a channel multiple times to the Subscribe function will result in a panic.
-func (m *F3) SubscribeForMessagesToSign(ch chan<- *gpbft.MessageBuilder) (closer func()) {
-	_, closer = m.busBroadcast.Subscribe(ch)
-	return closer
+// MessageStoSign returns a channel of outbound messages that need to be signed by the client(s).
+// - The same channel is shared between all callers and will never be closed.
+// - GPBFT will block if this channel is not read from.
+func (m *F3) MessagesToSign() <-chan *gpbft.MessageBuilder {
+	return m.outboundMessages
 }
 
 func (m *F3) Manifest() *manifest.Manifest {
@@ -341,7 +337,7 @@ func (m *F3) resumeInternal(ctx context.Context) error {
 
 	if runner, err := newRunner(
 		ctx, m.cs, runnerEc, m.pubsub, m.verifier,
-		m.busBroadcast.Publish, m.manifest,
+		m.outboundMessages, m.manifest,
 	); err != nil {
 		return err
 	} else {
