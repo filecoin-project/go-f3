@@ -37,6 +37,7 @@ type participantTestSubject struct {
 	beacon           []byte
 	time             time.Time
 	delta            time.Duration
+	trace            []string
 }
 
 func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *participantTestSubject {
@@ -50,7 +51,7 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 	)
 
 	rng := rand.New(rand.NewSource(seed))
-	subject := participantTestSubject{
+	subject := &participantTestSubject{
 		t:              t,
 		rng:            rng,
 		id:             gpbft.ActorID(rng.Uint64()),
@@ -77,11 +78,16 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 
 	subject.host = gpbft.NewMockHost(t)
 	subject.Participant, err = gpbft.NewParticipant(subject.host,
+		gpbft.WithTracer(subject),
 		gpbft.WithDelta(delta),
 		gpbft.WithDeltaBackOffExponent(deltaBackOffExponent))
 	require.NoError(t, err)
 	subject.requireNotStarted()
-	return &subject
+	return subject
+}
+
+func (pt *participantTestSubject) Log(format string, args ...any) {
+	pt.trace = append(pt.trace, fmt.Sprintf(format, args...))
 }
 
 func (pt *participantTestSubject) expectBeginInstance() {
@@ -346,9 +352,10 @@ func TestParticipant(t *testing.T) {
 		t.Run("on ReceiveMessage", func(t *testing.T) {
 			const initialInstance = 47
 			tests := []struct {
-				name    string
-				message func(subject *participantTestSubject) *gpbft.GMessage
-				wantErr string
+				name      string
+				message   func(subject *participantTestSubject) *gpbft.GMessage
+				wantErr   string
+				wantTrace string
 			}{
 				{
 					name: "prior instance message is dropped",
@@ -357,7 +364,7 @@ func TestParticipant(t *testing.T) {
 							Vote: gpbft.Payload{Instance: initialInstance - 1},
 						}
 					},
-					wantErr: "message is for prior instance",
+					wantTrace: "dropping message from old instance",
 				},
 				{
 					name: "current instance message with unexpected base is rejected",
@@ -440,6 +447,14 @@ func TestParticipant(t *testing.T) {
 						require.NoError(t, gotErr)
 					} else {
 						require.ErrorContains(t, gotErr, test.wantErr)
+					}
+					if test.wantTrace != "" {
+						var found bool
+						for _, msg := range subject.trace {
+							require.Contains(t, msg, test.wantTrace)
+							found = true
+						}
+						require.True(t, found, "trace %s not found", test.wantTrace)
 					}
 				})
 			}
