@@ -13,7 +13,7 @@ import (
 //go:generate go run .
 
 func main() {
-	err := gen.WriteTupleEncodersToFile("../gpbft/gen.go", "gpbft",
+	err := gen.WriteTupleEncodersToFile("../gpbft/cbor_gen.go", "gpbft",
 		gpbft.TipSet{},
 		gpbft.GMessage{},
 		gpbft.SupplementalData{},
@@ -27,7 +27,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = gen.WriteTupleEncodersToFile("../certs/gen.go", "certs",
+	err = gen.WriteTupleEncodersToFile("../certs/cbor_gen.go", "certs",
 		certs.PowerTableDelta{},
 		certs.FinalityCertificate{},
 	)
@@ -35,7 +35,7 @@ func main() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	err = gen.WriteTupleEncodersToFile("../certexchange/gen.go", "certexchange",
+	err = gen.WriteTupleEncodersToFile("../certexchange/cbor_gen.go", "certexchange",
 		certexchange.Request{},
 		certexchange.ResponseHeader{},
 	)
