@@ -34,8 +34,6 @@ type Participant struct {
 	gpbft *instance
 	// Messages queued for future instances.
 	mqueue *messageQueue
-	// The output from the last terminated Granite instance.
-	finalised *Justification
 	// The round number during which the last instance was terminated.
 	// This is for informational purposes only. It does not necessarily correspond to the
 	// protocol round for which a strong quorum of COMMIT messages was observed,
@@ -95,7 +93,8 @@ func (p *Participant) StartInstanceAt(instance uint64, when time.Time) (err erro
 
 	// Finish current instance to clean old committees and old messages queued
 	// and prepare to begin a new instance.
-	p.finishCurrentInstance(instance)
+	_ = p.finishCurrentInstance()
+	p.beginNextInstance(instance)
 
 	// Set the alarm to begin a new instance at the specified time.
 	p.host.SetAlarm(when)
@@ -266,21 +265,31 @@ func (p *Participant) fetchCommittee(instance uint64) (*committee, error) {
 }
 
 func (p *Participant) handleDecision() {
-	if p.terminated() {
-		p.finishCurrentInstance(p.currentInstance + 1)
-		nextStart := p.host.ReceiveDecision(p.finalised)
-		// Set an alarm at which to fetch the next chain and begin a new instance.
+	if !p.terminated() {
+		return
+	}
+	decision := p.finishCurrentInstance()
+	nextStart, err := p.host.ReceiveDecision(decision)
+	if err != nil {
+		p.tracer.Log("failed to receive decision: %+v", err)
+		p.host.SetAlarm(time.Time{})
+	} else {
+		p.beginNextInstance(p.currentInstance + 1)
 		p.host.SetAlarm(nextStart)
 	}
 }
 
-func (p *Participant) finishCurrentInstance(nextInstance uint64) {
+func (p *Participant) finishCurrentInstance() *Justification {
+	var decision *Justification
 	if p.gpbft != nil {
-		p.finalised = p.gpbft.terminationValue
+		decision = p.gpbft.terminationValue
 		p.terminatedDuringRound = p.gpbft.round
 	}
 	p.gpbft = nil
+	return decision
+}
 
+func (p *Participant) beginNextInstance(nextInstance uint64) {
 	p.instanceMutex.Lock()
 	defer p.instanceMutex.Unlock()
 	// Clean all messages queued and old committees for instances below the next one.

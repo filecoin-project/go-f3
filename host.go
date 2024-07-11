@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -557,7 +558,16 @@ func (h *gpbftHost) SetAlarm(at time.Time) {
 	log.Debugf("set alarm for %v", at)
 	// we cannot reuse the timer because we don't know if it was read or not
 	h.alertTimer.Stop()
-	h.alertTimer = time.NewTimer(time.Until(at))
+	if at.IsZero() {
+		// It "at" is zero, we cancel the timer entirely. Unfortunately, we still have to
+		// replace it for the reason stated above.
+		h.alertTimer = time.NewTimer(0)
+		if !h.alertTimer.Stop() {
+			<-h.alertTimer.C
+		}
+	} else {
+		h.alertTimer = time.NewTimer(max(0, time.Until(at)))
+	}
 }
 
 // Receives a finality decision from the instance, with signatures from a strong quorum
@@ -566,14 +576,16 @@ func (h *gpbftHost) SetAlarm(at time.Time) {
 // The notification must return the timestamp at which the next instance should begin,
 // based on the decision received (which may be in the past).
 // E.g. this might be: finalised tipset timestamp + epoch duration + stabilisation delay.
-func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
+func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) (time.Time, error) {
 	log.Infof("got decision at instance %d, finalized head at epoch: %d",
 		decision.Vote.Instance, decision.Vote.Value.Head().Epoch)
 	cert, err := h.saveDecision(decision)
 	if err != nil {
-		log.Errorf("error while saving decision: %+v", err)
+		err := fmt.Errorf("error while saving decision: %+v", err)
+		log.Error(err)
+		return time.Time{}, err
 	}
-	return (*gpbftRunner)(h).computeNextInstanceStart(cert)
+	return (*gpbftRunner)(h).computeNextInstanceStart(cert), nil
 }
 
 func (h *gpbftHost) saveDecision(decision *gpbft.Justification) (*certs.FinalityCertificate, error) {

@@ -123,7 +123,7 @@ type DecisionReceiver interface {
 	// The notification must return the timestamp at which the next instance should begin,
 	// based on the decision received (which may be in the past).
 	// E.g. this might be: finalised tipset timestamp + epoch duration + stabilisation delay.
-	ReceiveDecision(decision *Justification) time.Time
+	ReceiveDecision(decision *Justification) (time.Time, error)
 }
 
 // Tracer collects trace logs that capture logical state changes.

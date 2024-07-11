@@ -100,10 +100,10 @@ func (v *simHost) Time() time.Time {
 	return v.sim.network.Time()
 }
 
-func (v *simHost) ReceiveDecision(decision *gpbft.Justification) time.Time {
+func (v *simHost) ReceiveDecision(decision *gpbft.Justification) (time.Time, error) {
 	v.sim.ec.NotifyDecision(v.id, decision)
 	v.ecChain = decision.Vote.Value
-	return v.Time().Add(v.sim.ecEpochDuration).Add(v.sim.ecStabilisationDelay)
+	return v.Time().Add(v.sim.ecEpochDuration).Add(v.sim.ecStabilisationDelay), nil
 }
 
 func (v *simHost) StoragePower(instance uint64) *gpbft.StoragePower {
