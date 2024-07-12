@@ -485,7 +485,7 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 	var powerEntries gpbft.PowerEntries
 	var err error
 
-	if instance < h.manifest.InitialInstance+h.manifest.CommiteeLookback {
+	if instance < h.manifest.InitialInstance+h.manifest.CommitteeLookback {
 		//boostrap phase
 		ts, err := h.ec.GetTipsetByEpoch(h.runningCtx, h.manifest.BootstrapEpoch-h.manifest.ECFinality)
 		if err != nil {
@@ -497,7 +497,7 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 			return nil, nil, fmt.Errorf("getting power table: %w", err)
 		}
 	} else {
-		cert, err := h.certStore.Get(h.runningCtx, instance-h.manifest.CommiteeLookback)
+		cert, err := h.certStore.Get(h.runningCtx, instance-h.manifest.CommitteeLookback)
 		if err != nil {
 			return nil, nil, fmt.Errorf("getting finality certificate: %w", err)
 		}

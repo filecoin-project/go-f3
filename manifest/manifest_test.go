@@ -36,7 +36,7 @@ var base manifest.Manifest = manifest.Manifest{
 	},
 	EcConfig: &manifest.EcConfig{
 		ECFinality:               900,
-		CommiteeLookback:         5,
+		CommitteeLookback:        5,
 		ECDelayMultiplier:        2.0,
 		ECPeriod:                 30 * time.Second,
 		BaseDecisionBackoffTable: []float64{1.3, 1.69, 2.2, 2.86, 3.71, 4.83, 6.27, 8.16, 10.6, 13.79, 15.},
