@@ -2,5 +2,6 @@ ignore:
   - "gen"
   - "test"
   - "sim"
+  - "cmd"
   - "**/*_test.go"
-  - "**/gen.go"
+  - "**/cbor_gen.go"
