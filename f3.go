@@ -20,7 +20,6 @@ import (
 	"github.com/ipfs/go-datastore"
 	"go.uber.org/multierr"
 	"golang.org/x/sync/errgroup"
-	"golang.org/x/xerrors"
 )
 
 type F3 struct {
@@ -105,7 +104,7 @@ func (m *F3) GetLatestCert(ctx context.Context) (*certs.FinalityCertificate, err
 	m.mu.Unlock()
 
 	if cs == nil {
-		return nil, xerrors.Errorf("F3 is not running")
+		return nil, fmt.Errorf("F3 is not running")
 	}
 	return cs.Latest(), nil
 }
@@ -116,7 +115,7 @@ func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCerti
 	m.mu.Unlock()
 
 	if cs == nil {
-		return nil, xerrors.Errorf("F3 is not running")
+		return nil, fmt.Errorf("F3 is not running")
 	}
 	return cs.Get(ctx, instance)
 }
@@ -130,7 +129,7 @@ func (m *F3) computeBootstrapDelay(manifest *manifest.Manifest) (time.Duration, 
 
 	ts, err := m.ec.GetHead(m.runningCtx)
 	if err != nil {
-		err := xerrors.Errorf("failed to get the EC chain head: %w", err)
+		err := fmt.Errorf("failed to get the EC chain head: %w", err)
 		return 0, err
 	}
 
@@ -175,7 +174,7 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 	// bootstrap. That way, we'll be fully started when we return from Start.
 	if initialDelay == 0 {
 		if err := m.reconfigure(startCtx, pendingManifest); err != nil {
-			return xerrors.Errorf("failed to start GPBFT: %w", err)
+			return fmt.Errorf("failed to start GPBFT: %w", err)
 		}
 		pendingManifest = nil
 	}
@@ -213,7 +212,7 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 				manifestChangeTimer.Reset(delay)
 			} else {
 				if err := m.reconfigure(m.runningCtx, pendingManifest); err != nil {
-					return xerrors.Errorf("failed to reconfigure F3: %w", err)
+					return fmt.Errorf("failed to reconfigure F3: %w", err)
 				}
 				pendingManifest = nil
 			}
@@ -303,7 +302,7 @@ func (m *F3) resumeInternal(ctx context.Context) error {
 	if m.cs == nil {
 		cs, err := openCertstore(m.runningCtx, runnerEc, m.ds, m.manifest)
 		if err != nil {
-			return xerrors.Errorf("failed to open certstore: %w", err)
+			return fmt.Errorf("failed to open certstore: %w", err)
 		}
 
 		m.cs = cs
@@ -374,7 +373,7 @@ func (m *F3) GetPowerTable(ctx context.Context, ts gpbft.TipSetKey) (gpbft.Power
 	m.mu.Unlock()
 
 	if manifest == nil {
-		return nil, xerrors.Errorf("no known network manifest")
+		return nil, fmt.Errorf("no known network manifest")
 	}
 
 	return ec.WithModifiedPower(m.ec, manifest.PowerUpdate).GetPowerTable(ctx, ts)

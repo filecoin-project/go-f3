@@ -15,7 +15,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
-	"golang.org/x/xerrors"
 )
 
 var manifestCmd = cli.Command{
@@ -42,15 +41,15 @@ var manifestGenCmd = cli.Command{
 
 		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0666)
 		if err != nil {
-			return xerrors.Errorf("opening manifest file for writing: %w", err)
+			return fmt.Errorf("opening manifest file for writing: %w", err)
 		}
 		err = json.NewEncoder(f).Encode(m)
 		if err != nil {
-			return xerrors.Errorf("encoding manifest: %w", err)
+			return fmt.Errorf("encoding manifest: %w", err)
 		}
 		err = f.Close()
 		if err != nil {
-			return xerrors.Errorf("closing file: %w", err)
+			return fmt.Errorf("closing file: %w", err)
 		}
 
 		return nil
@@ -108,24 +107,24 @@ var manifestServeCmd = cli.Command{
 		if c.IsSet("identity") {
 			enId, err := os.ReadFile(c.String("identity"))
 			if err != nil {
-				return xerrors.Errorf("reading libp2p identity file: %w", err)
+				return fmt.Errorf("reading libp2p identity file: %w", err)
 			}
 			id, err = crypto.UnmarshalPrivateKey(enId)
 			if err != nil {
-				return xerrors.Errorf("unmarshalling libp2p identity: %w", err)
+				return fmt.Errorf("unmarshalling libp2p identity: %w", err)
 			}
 		} else {
 			_, _ = fmt.Fprintln(c.App.Writer, "No lbp2p identity set; using random identity.")
 			var err error
 			id, _, err = crypto.GenerateEd25519Key(rand.Reader)
 			if err != nil {
-				return xerrors.Errorf("generating random libp2p identity: %w", err)
+				return fmt.Errorf("generating random libp2p identity: %w", err)
 			}
 		}
 
 		peerID, err := peer.IDFromPrivateKey(id)
 		if err != nil {
-			return xerrors.Errorf("getting peer ID from libp2p identity: %w", err)
+			return fmt.Errorf("getting peer ID from libp2p identity: %w", err)
 		}
 		_, _ = fmt.Fprintf(c.App.Writer, "Manifest server peer ID: %s\n", peerID)
 
@@ -135,7 +134,7 @@ var manifestServeCmd = cli.Command{
 			libp2p.UserAgent("f3-dynamic-manifest-server"),
 		)
 		if err != nil {
-			return xerrors.Errorf("initializing libp2p host: %w", err)
+			return fmt.Errorf("initializing libp2p host: %w", err)
 		}
 
 		defer func() { _ = host.Close() }()
@@ -150,7 +149,7 @@ var manifestServeCmd = cli.Command{
 		if c.IsSet("bootstrapAddrsFile") {
 			bootstrapersFile, err := os.Open(c.Path("bootstrapAddrsFile"))
 			if err != nil {
-				return xerrors.Errorf("opening bootstrapAddrsFile: %w", err)
+				return fmt.Errorf("opening bootstrapAddrsFile: %w", err)
 			}
 			defer func() {
 				_ = bootstrapersFile.Close()
@@ -160,13 +159,13 @@ var manifestServeCmd = cli.Command{
 				bootstrappers = append(bootstrappers, scanner.Text())
 			}
 			if err := scanner.Err(); err != nil {
-				return xerrors.Errorf("reading bootstrapAddrsFile: %w", err)
+				return fmt.Errorf("reading bootstrapAddrsFile: %w", err)
 			}
 		}
 		for _, bootstrapper := range bootstrappers {
 			addr, err := peer.AddrInfoFromString(bootstrapper)
 			if err != nil {
-				return xerrors.Errorf("parsing bootstrap address %s: %w", bootstrapper, err)
+				return fmt.Errorf("parsing bootstrap address %s: %w", bootstrapper, err)
 			}
 			if err := host.Connect(c.Context, *addr); err != nil {
 				_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed to connect to bootstrap address: %v\n", err)
@@ -178,28 +177,28 @@ var manifestServeCmd = cli.Command{
 
 			m, err := loadManifest(manifestPath)
 			if err != nil {
-				return nil, "", xerrors.Errorf("loading manifest: %w", err)
+				return nil, "", fmt.Errorf("loading manifest: %w", err)
 			}
 			version, err := m.Version()
 			if err != nil {
-				return nil, "", xerrors.Errorf("versioning manifest: %w", err)
+				return nil, "", fmt.Errorf("versioning manifest: %w", err)
 			}
 			return m, version, nil
 		}
 
 		initManifest, manifestVersion, err := loadManifestAndVersion()
 		if err != nil {
-			return xerrors.Errorf("loading initial manifest: %w", err)
+			return fmt.Errorf("loading initial manifest: %w", err)
 		}
 
 		pubSub, err := pubsub.NewGossipSub(c.Context, host, pubsub.WithPeerExchange(true))
 		if err != nil {
-			return xerrors.Errorf("initialzing pubsub: %w", err)
+			return fmt.Errorf("initialzing pubsub: %w", err)
 		}
 
 		sender, err := manifest.NewManifestSender(host, pubSub, initManifest, c.Duration("publishInterval"))
 		if err != nil {
-			return xerrors.Errorf("initialzing manifest sender: %w", err)
+			return fmt.Errorf("initialzing manifest sender: %w", err)
 		}
 		_, _ = fmt.Fprintf(c.App.Writer, "Started manifest sender with version: %s\n", manifestVersion)
 
@@ -241,7 +240,7 @@ func getManifest(c *cli.Context) (*manifest.Manifest, error) {
 func loadManifest(path string) (*manifest.Manifest, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, xerrors.Errorf("opening %s to load manifest: %w", path, err)
+		return nil, fmt.Errorf("opening %s to load manifest: %w", path, err)
 	}
 	defer f.Close()
 	var m manifest.Manifest

@@ -24,7 +24,6 @@ import (
 	mocknet "github.com/libp2p/go-libp2p/p2p/net/mock"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
-	"golang.org/x/xerrors"
 )
 
 const (
@@ -98,7 +97,7 @@ func TestFailRecover(t *testing.T) {
 			switch op {
 			case "put", "batch-put":
 				failDsWrite.Store(false)
-				return xerrors.Errorf("FAILURE!")
+				return fmt.Errorf("FAILURE!")
 			}
 		}
 		return nil
@@ -530,14 +529,14 @@ func (e *testEnv) newManifestSender() {
 func (e *testEnv) newF3Instance(id int, manifestServer peer.ID) (*testNode, error) {
 	h, err := e.net.GenPeer()
 	if err != nil {
-		return nil, xerrors.Errorf("creating libp2p host: %w", err)
+		return nil, fmt.Errorf("creating libp2p host: %w", err)
 	}
 
 	n := &testNode{e: e, h: h}
 
 	ps, err := pubsub.NewGossipSub(e.testCtx, h)
 	if err != nil {
-		return nil, xerrors.Errorf("creating gossipsub: %w", err)
+		return nil, fmt.Errorf("creating gossipsub: %w", err)
 	}
 
 	ds := ds_sync.MutexWrap(failstore.NewFailstore(datastore.NewMapDatastore(), func(s string) error {
@@ -559,7 +558,7 @@ func (e *testEnv) newF3Instance(id int, manifestServer peer.ID) (*testNode, erro
 
 	n.f3, err = f3.New(e.testCtx, mprovider, ds, h, ps, e.signingBackend, e.ec)
 	if err != nil {
-		return nil, xerrors.Errorf("creating module: %w", err)
+		return nil, fmt.Errorf("creating module: %w", err)
 	}
 
 	e.errgrp.Go(func() error {

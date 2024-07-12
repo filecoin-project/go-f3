@@ -17,7 +17,6 @@ import (
 	"github.com/filecoin-project/go-f3/merkle"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/crypto/blake2b"
-	"golang.org/x/xerrors"
 )
 
 type Phase uint8
@@ -472,50 +471,50 @@ func ValidateMessage(powerTable *PowerTable, beacon []byte, host Host, msg *GMes
 	// Check sender is eligible.
 	senderPower, senderPubKey := powerTable.Get(msg.Sender)
 	if senderPower == 0 {
-		return xerrors.Errorf("sender %d with zero power or not in power table", msg.Sender)
+		return fmt.Errorf("sender %d with zero power or not in power table", msg.Sender)
 	}
 
 	// Check that message value is a valid chain.
 	if err := msg.Vote.Value.Validate(); err != nil {
-		return xerrors.Errorf("invalid message vote value chain: %w", err)
+		return fmt.Errorf("invalid message vote value chain: %w", err)
 	}
 
 	// Check phase-specific constraints.
 	switch msg.Vote.Step {
 	case QUALITY_PHASE:
 		if msg.Vote.Round != 0 {
-			return xerrors.Errorf("unexpected round %d for quality phase", msg.Vote.Round)
+			return fmt.Errorf("unexpected round %d for quality phase", msg.Vote.Round)
 		}
 		if msg.Vote.Value.IsZero() {
-			return xerrors.Errorf("unexpected zero value for quality phase")
+			return fmt.Errorf("unexpected zero value for quality phase")
 		}
 	case CONVERGE_PHASE:
 		if msg.Vote.Round == 0 {
-			return xerrors.Errorf("unexpected round 0 for converge phase")
+			return fmt.Errorf("unexpected round 0 for converge phase")
 		}
 		if msg.Vote.Value.IsZero() {
-			return xerrors.Errorf("unexpected zero value for converge phase")
+			return fmt.Errorf("unexpected zero value for converge phase")
 		}
 		if !VerifyTicket(host.NetworkName(), beacon, msg.Vote.Instance, msg.Vote.Round, senderPubKey, host, msg.Ticket) {
-			return xerrors.Errorf("failed to verify ticket from %v", msg.Sender)
+			return fmt.Errorf("failed to verify ticket from %v", msg.Sender)
 		}
 	case DECIDE_PHASE:
 		if msg.Vote.Round != 0 {
-			return xerrors.Errorf("unexpected non-zero round %d for decide phase", msg.Vote.Round)
+			return fmt.Errorf("unexpected non-zero round %d for decide phase", msg.Vote.Round)
 		}
 		if msg.Vote.Value.IsZero() {
-			return xerrors.Errorf("unexpected zero value for decide phase")
+			return fmt.Errorf("unexpected zero value for decide phase")
 		}
 	case PREPARE_PHASE, COMMIT_PHASE:
 		// No additional checks for PREPARE and COMMIT.
 	default:
-		return xerrors.Errorf("invalid vote step: %d", msg.Vote.Step)
+		return fmt.Errorf("invalid vote step: %d", msg.Vote.Step)
 	}
 
 	// Check vote signature.
 	sigPayload := host.MarshalPayloadForSigning(host.NetworkName(), &msg.Vote)
 	if err := host.Verify(senderPubKey, sigPayload, msg.Signature); err != nil {
-		return xerrors.Errorf("invalid signature on %v, %v", msg, err)
+		return fmt.Errorf("invalid signature on %v, %v", msg, err)
 	}
 
 	// Check justification
@@ -535,7 +534,7 @@ func ValidateMessage(powerTable *PowerTable, beacon []byte, host Host, msg *GMes
 		}
 		// Check that justification vote value is a valid chain.
 		if err := msg.Justification.Vote.Value.Validate(); err != nil {
-			return xerrors.Errorf("invalid justification vote value chain: %w", err)
+			return fmt.Errorf("invalid justification vote value chain: %w", err)
 		}
 
 		// Check every remaining field of the justification, according to the phase requirements.
@@ -592,7 +591,7 @@ func ValidateMessage(powerTable *PowerTable, beacon []byte, host Host, msg *GMes
 			}
 			power := powerTable.ScaledPower[bit]
 			if power == 0 {
-				return xerrors.Errorf("signer with ID %d has no power", powerTable.Entries[bit].ID)
+				return fmt.Errorf("signer with ID %d has no power", powerTable.Entries[bit].ID)
 			}
 			justificationPower += power
 			signers = append(signers, powerTable.Entries[bit].PubKey)
@@ -607,7 +606,7 @@ func ValidateMessage(powerTable *PowerTable, beacon []byte, host Host, msg *GMes
 
 		payload := host.MarshalPayloadForSigning(host.NetworkName(), &msg.Justification.Vote)
 		if err := host.VerifyAggregate(payload, msg.Justification.Signature, signers); err != nil {
-			return xerrors.Errorf("verification of the aggregate failed: %+v: %w", msg.Justification, err)
+			return fmt.Errorf("verification of the aggregate failed: %+v: %w", msg.Justification, err)
 		}
 	} else if msg.Justification != nil {
 		return fmt.Errorf("message %v has unexpected justification", msg)
@@ -1082,7 +1081,7 @@ func (i *instance) alarmAfterSynchrony() time.Time {
 func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase Phase, value ECChain) *Justification {
 	aggSignature, err := quorum.Aggregate(i.participant.host)
 	if err != nil {
-		panic(xerrors.Errorf("aggregating for phase %v: %v", phase, err))
+		panic(fmt.Errorf("aggregating for phase %v: %v", phase, err))
 	}
 	return &Justification{
 		Vote: Payload{

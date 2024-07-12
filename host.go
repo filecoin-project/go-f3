@@ -17,7 +17,6 @@ import (
 	peer "github.com/libp2p/go-libp2p/core/peer"
 	"go.uber.org/multierr"
 	"golang.org/x/sync/errgroup"
-	"golang.org/x/xerrors"
 )
 
 type BroadcastMessage func(*gpbft.MessageBuilder)
@@ -76,7 +75,7 @@ func newRunner(
 	opts := append(m.GpbftOptions(), gpbft.WithTracer(tracer))
 	p, err := gpbft.NewParticipant((*gpbftHost)(runner), opts...)
 	if err != nil {
-		return nil, xerrors.Errorf("creating participant: %w", err)
+		return nil, fmt.Errorf("creating participant: %w", err)
 	}
 	runner.participant = p
 	return runner, nil
@@ -100,7 +99,7 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 	}
 
 	if err := h.participant.StartInstanceAt(startInstance, time.Now()); err != nil {
-		return xerrors.Errorf("starting a participant: %w", err)
+		return fmt.Errorf("starting a participant: %w", err)
 	}
 
 	// Subscribe to new certificates. We don't bother canceling the subscription as that'll
@@ -160,7 +159,7 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 				}
 			case msg, ok := <-messageQueue:
 				if !ok {
-					return xerrors.Errorf("incoming message queue closed")
+					return fmt.Errorf("incoming message queue closed")
 				}
 				if err := h.participant.ReceiveMessage(msg); err != nil {
 					// We silently drop failed messages because GPBFT will
@@ -249,12 +248,12 @@ func (h *gpbftRunner) BroadcastMessage(msg *gpbft.GMessage) error {
 	var bw bytes.Buffer
 	err := msg.MarshalCBOR(&bw)
 	if err != nil {
-		return xerrors.Errorf("marshalling GMessage for broadcast: %w", err)
+		return fmt.Errorf("marshalling GMessage for broadcast: %w", err)
 	}
 
 	err = h.topic.Publish(h.runningCtx, bw.Bytes())
 	if err != nil {
-		return xerrors.Errorf("publishing message: %w", err)
+		return fmt.Errorf("publishing message: %w", err)
 	}
 	return nil
 }
@@ -286,12 +285,12 @@ func (h *gpbftRunner) setupPubsub() error {
 	pubsubTopicName := h.manifest.PubSubTopic()
 	err := h.pubsub.RegisterTopicValidator(pubsubTopicName, h.validatePubsubMessage)
 	if err != nil {
-		return xerrors.Errorf("registering topic validator: %w", err)
+		return fmt.Errorf("registering topic validator: %w", err)
 	}
 
 	topic, err := h.pubsub.Join(pubsubTopicName)
 	if err != nil {
-		return xerrors.Errorf("could not join on pubsub topic: %s: %w", pubsubTopicName, err)
+		return fmt.Errorf("could not join on pubsub topic: %s: %w", pubsubTopicName, err)
 	}
 	h.topic = topic
 	return nil
@@ -319,7 +318,7 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 
 	sub, err := h.topic.Subscribe()
 	if err != nil {
-		return nil, xerrors.Errorf("could not subscribe to pubsub topic: %s: %w", sub.Topic(), err)
+		return nil, fmt.Errorf("could not subscribe to pubsub topic: %s: %w", sub.Topic(), err)
 	}
 
 	messageQueue := make(chan gpbft.ValidatedMessage, 20)
@@ -336,7 +335,7 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 				if h.runningCtx.Err() != nil {
 					return nil
 				}
-				return xerrors.Errorf("pubsub message subscription returned an error: %w", err)
+				return fmt.Errorf("pubsub message subscription returned an error: %w", err)
 			}
 			gmsg, ok := msg.ValidatorData.(gpbft.ValidatedMessage)
 			if !ok {
@@ -373,7 +372,7 @@ func (h *gpbftHost) collectChain(base ec.TipSet, head ec.TipSet) ([]ec.TipSet, e
 		var err error
 		head, err = h.ec.GetParent(h.runningCtx, head)
 		if err != nil {
-			return nil, xerrors.Errorf("walking back the chain: %w", err)
+			return nil, fmt.Errorf("walking back the chain: %w", err)
 		}
 		res = append(res, head)
 	}
@@ -402,37 +401,37 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 		ts, err := h.ec.GetTipsetByEpoch(h.runningCtx,
 			h.manifest.BootstrapEpoch-h.manifest.ECFinality)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("getting boostrap base: %w", err)
+			return nil, nil, fmt.Errorf("getting boostrap base: %w", err)
 		}
 		baseTsk = ts.Key()
 	} else {
 		cert, err := h.certStore.Get(h.runningCtx, instance-1)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("getting cert for previous instance(%d): %w", instance-1, err)
+			return nil, nil, fmt.Errorf("getting cert for previous instance(%d): %w", instance-1, err)
 		}
 		baseTsk = cert.ECChain.Head().Key
 	}
 
 	baseTs, err := h.ec.GetTipset(h.runningCtx, baseTsk)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("getting base TS: %w", err)
+		return nil, nil, fmt.Errorf("getting base TS: %w", err)
 	}
 	headTs, err := h.ec.GetHead(h.runningCtx)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("getting head TS: %w", err)
+		return nil, nil, fmt.Errorf("getting head TS: %w", err)
 	}
 	if time.Since(headTs.Timestamp()) < h.manifest.ECPeriod {
 		// less than ECPeriod since production of the head
 		// agreement is unlikely
 		headTs, err = h.ec.GetParent(h.runningCtx, headTs)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("getting the parent of head TS: %w", err)
+			return nil, nil, fmt.Errorf("getting the parent of head TS: %w", err)
 		}
 	}
 
 	collectedChain, err := h.collectChain(baseTs, headTs)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("collecting chain: %w", err)
+		return nil, nil, fmt.Errorf("collecting chain: %w", err)
 	}
 
 	base := gpbft.TipSet{
@@ -441,11 +440,11 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 	}
 	pte, err := h.ec.GetPowerTable(h.runningCtx, baseTs.Key())
 	if err != nil {
-		return nil, nil, xerrors.Errorf("getting power table for base: %w", err)
+		return nil, nil, fmt.Errorf("getting power table for base: %w", err)
 	}
 	base.PowerTable, err = certs.MakePowerTableCID(pte)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("computing powertable CID for base: %w", err)
+		return nil, nil, fmt.Errorf("computing powertable CID for base: %w", err)
 	}
 
 	suffix := make([]gpbft.TipSet, min(gpbft.CHAIN_MAX_LEN-1, len(collectedChain))) // -1 because of base
@@ -455,27 +454,27 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 
 		pte, err = h.ec.GetPowerTable(h.runningCtx, suffix[i].Key)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("getting power table for suffix %d: %w", i, err)
+			return nil, nil, fmt.Errorf("getting power table for suffix %d: %w", i, err)
 		}
 		suffix[i].PowerTable, err = certs.MakePowerTableCID(pte)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("computing powertable CID for base: %w", err)
+			return nil, nil, fmt.Errorf("computing powertable CID for base: %w", err)
 		}
 	}
 	chain, err := gpbft.NewChain(base, suffix...)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("making new chain: %w", err)
+		return nil, nil, fmt.Errorf("making new chain: %w", err)
 	}
 
 	var supplData gpbft.SupplementalData
 	pt, _, err := h.GetCommitteeForInstance(instance + 1)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("getting commite for %d: %w", instance+1, err)
+		return nil, nil, fmt.Errorf("getting commite for %d: %w", instance+1, err)
 	}
 
 	supplData.PowerTable, err = certs.MakePowerTableCID(pt.Entries)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("making power table cid for supplemental data: %w", err)
+		return nil, nil, fmt.Errorf("making power table cid for supplemental data: %w", err)
 	}
 
 	return &supplData, chain, nil
@@ -490,17 +489,17 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 		//boostrap phase
 		ts, err := h.ec.GetTipsetByEpoch(h.runningCtx, h.manifest.BootstrapEpoch-h.manifest.ECFinality)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("getting tipset for boostrap epoch with lookback: %w", err)
+			return nil, nil, fmt.Errorf("getting tipset for boostrap epoch with lookback: %w", err)
 		}
 		powerTsk = ts.Key()
 		powerEntries, err = h.ec.GetPowerTable(h.runningCtx, powerTsk)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("getting power table: %w", err)
+			return nil, nil, fmt.Errorf("getting power table: %w", err)
 		}
 	} else {
 		cert, err := h.certStore.Get(h.runningCtx, instance-h.manifest.CommiteeLookback)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("getting finality certificate: %w", err)
+			return nil, nil, fmt.Errorf("getting finality certificate: %w", err)
 		}
 		powerTsk = cert.ECChain.Head().Key
 
@@ -510,20 +509,20 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 
 			powerEntries, err = h.ec.GetPowerTable(h.runningCtx, powerTsk)
 			if err != nil {
-				return nil, nil, xerrors.Errorf("getting power table: %w", err)
+				return nil, nil, fmt.Errorf("getting power table: %w", err)
 			}
 		}
 	}
 
 	ts, err := h.ec.GetTipset(h.runningCtx, powerTsk)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("getting tipset: %w", err)
+		return nil, nil, fmt.Errorf("getting tipset: %w", err)
 	}
 
 	table := gpbft.NewPowerTable()
 	err = table.Add(powerEntries...)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("adding entries to power table: %w", err)
+		return nil, nil, fmt.Errorf("adding entries to power table: %w", err)
 	}
 
 	return table, ts.Beacon(), nil
@@ -592,27 +591,27 @@ func (h *gpbftHost) saveDecision(decision *gpbft.Justification) (*certs.Finality
 	instance := decision.Vote.Instance
 	current, _, err := h.GetCommitteeForInstance(instance)
 	if err != nil {
-		return nil, xerrors.Errorf("getting commitee for current instance %d: %w", instance, err)
+		return nil, fmt.Errorf("getting commitee for current instance %d: %w", instance, err)
 	}
 
 	next, _, err := h.GetCommitteeForInstance(instance + 1)
 	if err != nil {
-		return nil, xerrors.Errorf("getting commitee for next instance %d: %w", instance+1, err)
+		return nil, fmt.Errorf("getting commitee for next instance %d: %w", instance+1, err)
 	}
 	powerDiff := certs.MakePowerTableDiff(current.Entries, next.Entries)
 
 	cert, err := certs.NewFinalityCertificate(powerDiff, decision)
 	if err != nil {
-		return nil, xerrors.Errorf("forming certificate out of decision: %w", err)
+		return nil, fmt.Errorf("forming certificate out of decision: %w", err)
 	}
 	_, _, _, err = certs.ValidateFinalityCertificates(h, h.NetworkName(), current.Entries, decision.Vote.Instance, nil, *cert)
 	if err != nil {
-		return nil, xerrors.Errorf("certificate is invalid: %w", err)
+		return nil, fmt.Errorf("certificate is invalid: %w", err)
 	}
 
 	err = h.certStore.Put(h.runningCtx, cert)
 	if err != nil {
-		return nil, xerrors.Errorf("saving ceritifcate in a store: %w", err)
+		return nil, fmt.Errorf("saving ceritifcate in a store: %w", err)
 	}
 
 	return cert, nil
