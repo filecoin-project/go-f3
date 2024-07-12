@@ -832,3 +832,51 @@ func TestGPBFT_Equivocations(t *testing.T) {
 		driver.RequireDecision(instance.ID(), instance.Proposal())
 	})
 }
+
+func TestGPBFT_ImpossibleQuorum(t *testing.T) {
+	t.Parallel()
+	newInstanceAndDriver := func(t *testing.T) (*emulator.Instance, *emulator.Driver) {
+		driver := emulator.NewDriver(t)
+		instance := emulator.NewInstance(t,
+			0,
+			gpbft.PowerEntries{
+				gpbft.PowerEntry{
+					ID:    0,
+					Power: gpbft.NewStoragePower(1),
+				},
+				gpbft.PowerEntry{
+					ID:    1,
+					Power: gpbft.NewStoragePower(2),
+				},
+				gpbft.PowerEntry{
+					ID:    2,
+					Power: gpbft.NewStoragePower(1),
+				},
+			},
+			tipset0, tipSet1, tipSet2,
+		)
+		driver.AddInstance(instance)
+		driver.RequireNoBroadcast()
+		return instance, driver
+	}
+
+	t.Run("Exits early from Prepare", func(t *testing.T) {
+		instance, driver := newInstanceAndDriver(t)
+		alternativeProposal := instance.Proposal().BaseChain().Extend([]byte("barreleye"))
+
+		driver.StartInstance(instance.ID())
+		driver.RequireQuality()
+		driver.RequireNoBroadcast()
+		driver.RequireDeliverAlarm()
+		driver.RequirePrepare(instance.Proposal().BaseChain())
+
+		// Send Prepare for alternative proposal, which makes quorum impossible.
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender: 1,
+			Vote:   instance.NewPrepare(0, alternativeProposal),
+		})
+
+		// Expect immediate progress to Commit without any further messages or alarm.
+		driver.RequireCommitForBottom(0)
+	})
+}
