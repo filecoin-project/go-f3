@@ -966,11 +966,11 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, createTick
 	}
 
 	mb := &MessageBuilder{
-		NetworkName:       i.participant.host.NetworkName(),
-		PowerTable:        &i.powerTable,
-		SigningMarshaller: i.participant.host,
-		Payload:           p,
-		Justification:     justification,
+		NetworkName:      i.participant.host.NetworkName(),
+		PowerTable:       &i.powerTable,
+		SigningMarshaler: i.participant.host,
+		Payload:          p,
+		Justification:    justification,
 	}
 	if createTicket {
 		mb.BeaconForTicket = i.beacon

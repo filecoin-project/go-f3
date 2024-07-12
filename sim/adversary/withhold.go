@@ -177,11 +177,11 @@ func (w *WithholdCommit) sign(pubkey gpbft.PubKey, msg []byte) []byte {
 func (w *WithholdCommit) synchronousBroadcastRequester(powertable *gpbft.PowerTable) func(gpbft.Payload, *gpbft.Justification) {
 	return func(payload gpbft.Payload, justification *gpbft.Justification) {
 		mb := &gpbft.MessageBuilder{
-			NetworkName:       w.host.NetworkName(),
-			PowerTable:        powertable,
-			Payload:           payload,
-			Justification:     justification,
-			SigningMarshaller: w.host,
+			NetworkName:      w.host.NetworkName(),
+			PowerTable:       powertable,
+			Payload:          payload,
+			Justification:    justification,
+			SigningMarshaler: w.host,
 		}
 		if err := w.host.RequestSynchronousBroadcast(mb); err != nil {
 			panic(err)

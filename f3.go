@@ -47,7 +47,6 @@ type F3 struct {
 
 // New creates and setups f3 with libp2p
 // The context is used for initialization not runtime.
-// signingMarshaller can be nil for default SigningMarshaler
 func New(_ctx context.Context, manifest manifest.ManifestProvider, ds datastore.Datastore, h host.Host,
 	ps *pubsub.PubSub, verif gpbft.Verifier, ec ec.Backend) (*F3, error) {
 	runningCtx, cancel := context.WithCancel(context.Background())
