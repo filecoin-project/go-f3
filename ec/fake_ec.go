@@ -2,7 +2,6 @@ package ec
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"sync"
@@ -11,6 +10,7 @@ import (
 	"golang.org/x/crypto/blake2b"
 
 	"github.com/filecoin-project/go-f3/gpbft"
+	mbase "github.com/multiformats/go-multibase"
 )
 
 var _ Backend = (*FakeEC)(nil)
@@ -56,9 +56,10 @@ func (ts *Tipset) Timestamp() time.Time {
 }
 
 func (ts *Tipset) String() string {
-	res := base64.RawStdEncoding.EncodeToString(ts.tsk[:gpbft.CidMaxLen])
+	res, _ := mbase.Encode(mbase.Base32, ts.tsk[:gpbft.CidMaxLen])
 	for i := 1; i*gpbft.CidMaxLen < len(ts.tsk); i++ {
-		res += "," + base64.RawStdEncoding.EncodeToString(ts.tsk[gpbft.CidMaxLen*i:gpbft.CidMaxLen*(i+1)])
+		enc, _ := mbase.Encode(mbase.Base32, ts.tsk[gpbft.CidMaxLen*i:gpbft.CidMaxLen*(i+1)])
+		res += "," + enc
 	}
 	return res
 }

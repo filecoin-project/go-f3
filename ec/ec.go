@@ -2,6 +2,7 @@ package ec
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -22,11 +23,10 @@ type Backend interface {
 }
 
 type TipSet interface {
+	fmt.Stringer
+
 	Key() gpbft.TipSetKey
 	Beacon() []byte
 	Epoch() int64
 	Timestamp() time.Time
-
-	// User readable name of the tipset
-	String() string
 }

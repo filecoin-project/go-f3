@@ -365,7 +365,7 @@ func (h *gpbftHost) collectChain(base ec.TipSet, head ec.TipSet) ([]ec.TipSet, e
 	for !bytes.Equal(current.Key(), base.Key()) {
 		if current.Epoch() < base.Epoch() {
 			metrics.headDiverged.Add(h.runningCtx, 1)
-			log.Errorw("reorg-ed away from base, reboostrap is the answer",
+			log.Infow("reorg-ed away from base, proposing just base",
 				"head", head.String(), "base", base.String())
 			return nil, nil
 		}
