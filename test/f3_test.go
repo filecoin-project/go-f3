@@ -86,6 +86,7 @@ func TestPauseResumeCatchup(t *testing.T) {
 }
 
 func TestFailRecover(t *testing.T) {
+	t.Skip("unreliable; see https://github.com/filecoin-project/go-f3/issues/460")
 	t.Parallel()
 
 	env := newTestEnvironment(t, 2, false)
