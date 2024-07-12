@@ -100,7 +100,10 @@ func (i *Instance) NewPayload(round uint64, step gpbft.Phase, value gpbft.ECChai
 }
 
 func (i *Instance) NewMessageBuilder(payload gpbft.Payload, justification *gpbft.Justification, withTicket bool) *gpbft.MessageBuilder {
-	payload.SupplementalData = i.supplementalData
+	if len(payload.SupplementalData.PowerTable) == 0 {
+		// Only fill in the power table cid if empty to allow emulation of invalid supplemental data.
+		payload.SupplementalData.PowerTable = i.supplementalData.PowerTable
+	}
 	payload.Instance = i.id
 	mb := &gpbft.MessageBuilder{
 		PowerTable:    i.powerTable,
@@ -144,4 +147,8 @@ func (i *Instance) NewJustification(round uint64, step gpbft.Phase, vote gpbft.E
 		Signers:   qr.SignersBitfield(),
 		Signature: aggregate,
 	}
+}
+
+func (i *Instance) PowerTable() *gpbft.PowerTable {
+	return i.powerTable
 }
