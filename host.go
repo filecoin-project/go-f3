@@ -370,7 +370,7 @@ func (h *gpbftHost) collectChain(base ec.TipSet, head ec.TipSet) ([]ec.TipSet, e
 			return nil, nil
 		}
 		var err error
-		current, err = h.ec.GetParent(h.runningCtx, head)
+		current, err = h.ec.GetParent(h.runningCtx, current)
 		if err != nil {
 			return nil, fmt.Errorf("walking back the chain: %w", err)
 		}
