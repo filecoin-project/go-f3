@@ -2,6 +2,7 @@ package ec
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"sync"
@@ -52,6 +53,14 @@ func (ts *Tipset) Beacon() []byte {
 
 func (ts *Tipset) Timestamp() time.Time {
 	return ts.timestamp
+}
+
+func (ts *Tipset) String() string {
+	res := base64.RawStdEncoding.EncodeToString(ts.tsk[:gpbft.CidMaxLen])
+	for i := 1; i*gpbft.CidMaxLen < len(ts.tsk); i++ {
+		res += "," + base64.RawStdEncoding.EncodeToString(ts.tsk[gpbft.CidMaxLen*i:gpbft.CidMaxLen*(i+1)])
+	}
+	return res
 }
 
 func NewFakeEC(seed uint64, bootstrapEpoch int64, ecPeriod time.Duration, initialPowerTable gpbft.PowerEntries, useTime bool) *FakeEC {

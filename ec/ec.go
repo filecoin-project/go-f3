@@ -26,4 +26,7 @@ type TipSet interface {
 	Beacon() []byte
 	Epoch() int64
 	Timestamp() time.Time
+
+	// User readable name of the tipset
+	String() string
 }
