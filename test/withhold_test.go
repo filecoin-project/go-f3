@@ -14,6 +14,8 @@ import (
 )
 
 func TestWitholdCommitAdversary(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		gst  time.Duration

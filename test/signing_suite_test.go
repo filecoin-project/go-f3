@@ -27,6 +27,7 @@ func TestBLSSigning(t *testing.T) {
 		blsSuit   = bls12381.NewBLS12381Suite()
 		blsSchema = bdn.NewSchemeOnG2(blsSuit)
 	)
+	t.Parallel()
 	suite.Run(t, NewSigningSuite(func(t *testing.T) (gpbft.PubKey, gpbft.Signer) {
 		privKey, pubKey := blsSchema.NewKeyPair(blsSuit.RandomStream())
 		pubKeyB, err := pubKey.MarshalBinary()
@@ -36,6 +37,7 @@ func TestBLSSigning(t *testing.T) {
 }
 
 func TestFakeSigning(t *testing.T) {
+	t.Parallel()
 	var fakeSigning = signing.NewFakeBackend()
 	suite.Run(t, NewSigningSuite(func(t *testing.T) (gpbft.PubKey, gpbft.Signer) {
 		pubKey, _ := fakeSigning.GenerateKey()

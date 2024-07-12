@@ -31,6 +31,8 @@ func testPowerTable(entries int64) (gpbft.PowerEntries, gpbft.CID) {
 }
 
 func TestNewCertStore(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
@@ -40,6 +42,8 @@ func TestNewCertStore(t *testing.T) {
 }
 
 func TestLatest(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
@@ -52,6 +56,8 @@ func TestLatest(t *testing.T) {
 }
 
 func TestPut(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
@@ -81,6 +87,8 @@ func TestPut(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
@@ -103,6 +111,8 @@ func TestGet(t *testing.T) {
 }
 
 func TestGetRange(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
@@ -126,6 +136,8 @@ func TestGetRange(t *testing.T) {
 }
 
 func TestDeleteAll(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
@@ -165,6 +177,8 @@ func TestDeleteAll(t *testing.T) {
 }
 
 func TestSubscribeForNewCerts(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
@@ -191,6 +205,8 @@ func TestSubscribeForNewCerts(t *testing.T) {
 }
 
 func TestLatestAfterPut(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
@@ -217,6 +233,8 @@ func TestLatestAfterPut(t *testing.T) {
 }
 
 func TestPutSequential(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
@@ -237,6 +255,8 @@ func TestPutSequential(t *testing.T) {
 }
 
 func TestPersistency(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
@@ -264,6 +284,8 @@ func TestPersistency(t *testing.T) {
 }
 
 func TestClear(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
@@ -300,6 +322,8 @@ func TestClear(t *testing.T) {
 }
 
 func TestCreateOpen(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
@@ -333,6 +357,7 @@ func TestCreateOpen(t *testing.T) {
 }
 
 func TestPowerNoData(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 	pt, _ := testPowerTable(20)
@@ -352,6 +377,7 @@ func TestPowerNoData(t *testing.T) {
 }
 
 func TestPowerEmptyPowerTable(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 	pt, _ := testPowerTable(5)
@@ -380,10 +406,13 @@ func TestPowerEmptyPowerTable(t *testing.T) {
 }
 
 func TestPower(t *testing.T) {
+	t.Parallel()
 	t.Run("Offset", func(t *testing.T) {
+		t.Parallel()
 		testPowerInner(t, 2)
 	})
 	t.Run("NoOffset", func(t *testing.T) {
+		t.Parallel()
 		testPowerInner(t, 0)
 	})
 }

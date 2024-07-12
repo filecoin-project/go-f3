@@ -33,6 +33,8 @@ const (
 )
 
 func TestSimpleF3(t *testing.T) {
+	t.Parallel()
+
 	env := newTestEnvironment(t, 2, false)
 
 	env.connectAll()
@@ -41,6 +43,8 @@ func TestSimpleF3(t *testing.T) {
 }
 
 func TestPauseResumeCatchup(t *testing.T) {
+	t.Parallel()
+
 	env := newTestEnvironment(t, 3, false)
 
 	env.connectAll()
@@ -83,6 +87,8 @@ func TestPauseResumeCatchup(t *testing.T) {
 }
 
 func TestFailRecover(t *testing.T) {
+	t.Parallel()
+
 	env := newTestEnvironment(t, 2, false)
 
 	// Make it possible to fail a single write for node 0.
@@ -114,6 +120,8 @@ func TestFailRecover(t *testing.T) {
 }
 
 func TestDynamicManifest_WithoutChanges(t *testing.T) {
+	t.Parallel()
+
 	env := newTestEnvironment(t, 2, true)
 
 	env.connectAll()
@@ -127,6 +135,8 @@ func TestDynamicManifest_WithoutChanges(t *testing.T) {
 }
 
 func TestDynamicManifest_WithRebootstrap(t *testing.T) {
+	t.Parallel()
+
 	env := newTestEnvironment(t, 2, true)
 
 	env.connectAll()
@@ -157,6 +167,8 @@ func TestDynamicManifest_WithRebootstrap(t *testing.T) {
 }
 
 func TestDynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
+	t.Parallel()
+
 	env := newTestEnvironment(t, 2, true)
 
 	env.connectAll()
