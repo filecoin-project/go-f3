@@ -1,12 +1,15 @@
 package gpbft
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel/metric"
 )
 
 // An F3 participant runs repeated instances of Granite to finalise longer chains.
@@ -87,6 +90,9 @@ func (p *Participant) StartInstanceAt(instance uint64, when time.Time) (err erro
 		if r := recover(); r != nil {
 			err = newPanicError(r)
 		}
+		if err != nil {
+			metrics.errorCounter.Add(context.TODO(), 1, metric.WithAttributes(metricAttributeFromError(err)))
+		}
 	}()
 
 	// Finish current instance to clean old committees and old messages queued
@@ -129,6 +135,9 @@ func (p *Participant) ValidateMessage(msg *GMessage) (valid ValidatedMessage, er
 		if r := recover(); r != nil {
 			err = newPanicError(r)
 		}
+		if err != nil {
+			metrics.errorCounter.Add(context.TODO(), 1, metric.WithAttributes(metricAttributeFromError(err)))
+		}
 	}()
 
 	comt, err := p.fetchCommittee(msg.Vote.Instance)
@@ -152,6 +161,9 @@ func (p *Participant) ReceiveMessage(vmsg ValidatedMessage) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = newPanicError(r)
+		}
+		if err != nil {
+			metrics.errorCounter.Add(context.TODO(), 1, metric.WithAttributes(metricAttributeFromError(err)))
 		}
 	}()
 	msg := vmsg.Message()
@@ -184,6 +196,9 @@ func (p *Participant) ReceiveAlarm() (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = newPanicError(r)
+		}
+		if err != nil {
+			metrics.errorCounter.Add(context.TODO(), 1, metric.WithAttributes(metricAttributeFromError(err)))
 		}
 	}()
 
