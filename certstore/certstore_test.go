@@ -2,6 +2,7 @@ package certstore
 
 import (
 	"context"
+	"math"
 	"slices"
 	"testing"
 
@@ -86,6 +87,31 @@ func TestPut(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestPutWrongPowerDelta(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
+
+	pt, ptCid := testPowerTable(10)
+	supp := gpbft.SupplementalData{PowerTable: ptCid}
+	cs, err := CreateStore(ctx, ds, 0, pt)
+	require.NoError(t, err)
+
+	// Make sure we sanity check the produced power table.
+	cert := &certs.FinalityCertificate{
+		GPBFTInstance:    0,
+		SupplementalData: supp,
+		PowerTableDelta: []certs.PowerTableDelta{{
+			ParticipantID: 0,
+			PowerDelta:    gpbft.NewStoragePower(10),
+			SigningKey:    []byte("testkey"),
+		}}}
+
+	err = cs.Put(ctx, cert)
+	require.ErrorContains(t, err, "new power table differs from expected")
+}
+
 func TestGet(t *testing.T) {
 	t.Parallel()
 
@@ -133,6 +159,19 @@ func TestGetRange(t *testing.T) {
 	certs, err := cs.GetRange(ctx, 1, 5)
 	require.NoError(t, err)
 	require.Len(t, certs, 5)
+
+	// Can get one cert
+	certs, err = cs.GetRange(ctx, 1, 1)
+	require.NoError(t, err)
+	require.Len(t, certs, 1)
+
+	// Start cannot be after end.
+	_, err = cs.GetRange(ctx, 1, 0)
+	require.ErrorContains(t, err, "start is larger than end")
+
+	// Make sure we don't have any overflow issues.
+	_, err = cs.GetRange(ctx, 0, math.MaxInt)
+	require.ErrorContains(t, err, "is too large")
 }
 
 func TestDeleteAll(t *testing.T) {

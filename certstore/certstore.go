@@ -222,9 +222,9 @@ func (cs *Store) Get(ctx context.Context, instance uint64) (*certs.FinalityCerti
 // If it encounters missing cert, it returns a wrapped ErrCertNotFound and the available certs.
 func (cs *Store) GetRange(ctx context.Context, start uint64, end uint64) ([]certs.FinalityCertificate, error) {
 	if start > end {
-		return nil, xerrors.Errorf("start is larger then end: %d > %d", start, end)
+		return nil, xerrors.Errorf("start is larger than end: %d > %d", start, end)
 	}
-	if end-start > uint64(math.MaxInt)-1 {
+	if end-start >= math.MaxInt {
 		return nil, xerrors.Errorf("range %d to %d is too large", start, end)
 	}
 
