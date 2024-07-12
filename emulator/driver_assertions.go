@@ -9,11 +9,14 @@ func (d *Driver) RequireDeliverMessage(message *gpbft.GMessage) {
 	d.require.NoError(d.deliverMessage(msg))
 }
 
-func (d *Driver) RequireErrOnDeliverMessage(message *gpbft.GMessage, err error) {
+func (d *Driver) RequireErrOnDeliverMessage(message *gpbft.GMessage, err error, contains string) {
 	msg := d.prepareMessage(message)
 	gotErr := d.deliverMessage(msg)
 	d.require.Error(gotErr)
 	d.require.ErrorIs(gotErr, err)
+	if contains != "" {
+		d.require.ErrorContains(gotErr, contains)
+	}
 }
 
 func (d *Driver) RequireDeliverAlarm() {

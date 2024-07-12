@@ -555,13 +555,13 @@ func TestGPBFT_SkipsToRound(t *testing.T) {
 			Sender:        1,
 			Vote:          instance.NewPrepare(77, futureRoundProposal),
 			Justification: instance.NewJustification(76, gpbft.PREPARE_PHASE, futureRoundProposal, 1),
-		}, gpbft.ErrValidationTooOld)
+		}, gpbft.ErrValidationTooOld, "")
 		driver.RequireErrOnDeliverMessage(&gpbft.GMessage{
 			Sender:        1,
 			Vote:          instance.NewConverge(77, futureRoundProposal),
 			Justification: instance.NewJustification(76, gpbft.PREPARE_PHASE, futureRoundProposal, 1),
 			Ticket:        emulator.ValidTicket,
-		}, gpbft.ErrValidationTooOld)
+		}, gpbft.ErrValidationTooOld, "")
 		// Expect decision.
 		driver.RequireDecision(instance.ID(), instance.Proposal())
 	})
@@ -879,4 +879,145 @@ func TestGPBFT_ImpossibleQuorum(t *testing.T) {
 		// Expect immediate progress to Commit without any further messages or alarm.
 		driver.RequireCommitForBottom(0)
 	})
+}
+
+func TestGPBFT_Validation(t *testing.T) {
+	t.Parallel()
+	participants := gpbft.PowerEntries{
+		gpbft.PowerEntry{
+			ID:    0,
+			Power: gpbft.NewStoragePower(1),
+		},
+		gpbft.PowerEntry{
+			ID:    1,
+			Power: gpbft.NewStoragePower(1),
+		},
+	}
+
+	tests := []struct {
+		name        string
+		message     func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage
+		errContains string
+	}{
+		{
+			name: "Decide justified by Commit with minority power",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				return &gpbft.GMessage{
+					Sender:        1,
+					Vote:          instance.NewDecide(0, instance.Proposal()),
+					Ticket:        emulator.ValidTicket,
+					Justification: instance.NewJustification(77, gpbft.COMMIT_PHASE, instance.Proposal(), 1),
+				}
+			},
+			errContains: "insufficient power",
+		},
+		{
+			name: "Decide at non-zero round",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				return &gpbft.GMessage{
+					Sender: 1,
+					Vote:   instance.NewDecide(77, instance.Proposal()),
+					Ticket: emulator.ValidTicket,
+				}
+			},
+			errContains: "non-zero round",
+		},
+		{
+			name: "Invalid Chain",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				return &gpbft.GMessage{
+					Sender: 1,
+					Vote: instance.NewQuality(gpbft.ECChain{gpbft.TipSet{
+						Epoch: -1,
+					}}),
+				}
+			},
+			errContains: "invalid message vote value",
+		},
+		{
+			name: "inconsistent supp data",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				return &gpbft.GMessage{
+					Sender: 1,
+					Vote: gpbft.Payload{
+						Step: gpbft.DECIDE_PHASE,
+						SupplementalData: gpbft.SupplementalData{
+							PowerTable: []byte("fish"),
+						},
+						Value: instance.Proposal(),
+					},
+					Justification: instance.NewJustification(55, gpbft.COMMIT_PHASE, instance.Proposal(), 0, 1),
+				}
+			},
+			errContains: "inconsistent supplemental data",
+		},
+		{
+			name: "justification for different value",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				return &gpbft.GMessage{
+					Sender: 1,
+					Vote: gpbft.Payload{
+						Step:  gpbft.DECIDE_PHASE,
+						Value: instance.Proposal(),
+					},
+					Justification: instance.NewJustification(55, gpbft.COMMIT_PHASE, instance.Proposal().Extend([]byte("lobster")), 0, 1),
+				}
+			},
+			errContains: "justification for a different value",
+		},
+		{
+			name: "justification with invalid value",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				return &gpbft.GMessage{
+					Sender: 1,
+					Vote: gpbft.Payload{
+						Step:  gpbft.DECIDE_PHASE,
+						Value: instance.Proposal(),
+					},
+					Justification: instance.NewJustification(55, gpbft.COMMIT_PHASE, gpbft.ECChain{gpbft.TipSet{
+						Epoch: -2,
+					}}, 0, 1),
+				}
+			},
+			errContains: "invalid justification vote value",
+		},
+		{
+			name: "justification for different instance",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				newInstance := emulator.NewInstance(t, instance.ID()+1, instance.PowerTable().Entries, instance.Proposal()...)
+				return &gpbft.GMessage{
+					Sender: 1,
+					Vote: gpbft.Payload{
+						Step:  gpbft.DECIDE_PHASE,
+						Value: instance.Proposal(),
+					},
+					Justification: newInstance.NewJustification(55, gpbft.COMMIT_PHASE, instance.Proposal().Extend([]byte("lobster")), 0, 1),
+				}
+			},
+			errContains: "evidence from instanceID",
+		},
+		{
+			name: "missing justification",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				return &gpbft.GMessage{
+					Sender: 1,
+					Vote:   instance.NewConverge(12, instance.Proposal()),
+					Ticket: emulator.ValidTicket,
+				}
+			},
+			errContains: "has no justification",
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			driver := emulator.NewDriver(t)
+			instance := emulator.NewInstance(t, 0, participants, tipset0, tipSet1, tipSet2)
+			driver.AddInstance(instance)
+			driver.RequireNoBroadcast()
+			message := test.message(instance, driver)
+			driver.RequireErrOnDeliverMessage(message, gpbft.ErrValidationInvalid, test.errContains)
+		})
+	}
 }
