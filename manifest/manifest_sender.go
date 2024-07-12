@@ -2,13 +2,13 @@ package manifest
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"golang.org/x/xerrors"
 )
 
 // ManifestSender is responsible for periodically broadcasting
@@ -39,7 +39,7 @@ func NewManifestSender(h host.Host, pubsub *pubsub.PubSub, firstManifest *Manife
 	var err error
 	m.manifestTopic, err = m.pubsub.Join(topicName)
 	if err != nil {
-		return nil, xerrors.Errorf("could not join on pubsub topic: %s: %w", topicName, err)
+		return nil, fmt.Errorf("could not join on pubsub topic: %s: %w", topicName, err)
 	}
 
 	return m, nil
@@ -63,7 +63,7 @@ func (m *ManifestSender) Run(ctx context.Context) error {
 				if ctx.Err() != nil {
 					return nil
 				}
-				return xerrors.Errorf("error publishing manifest: %w", err)
+				return fmt.Errorf("error publishing manifest: %w", err)
 			}
 		case <-ctx.Done():
 			return nil

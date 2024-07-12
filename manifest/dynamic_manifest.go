@@ -16,7 +16,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"go.uber.org/multierr"
 	"golang.org/x/sync/errgroup"
-	"golang.org/x/xerrors"
 )
 
 var log = logging.Logger("f3-dynamic-manifest")
@@ -68,7 +67,7 @@ func (mu ManifestUpdateMessage) toManifest() *Manifest {
 func (m ManifestUpdateMessage) Marshal() ([]byte, error) {
 	b, err := json.Marshal(m)
 	if err != nil {
-		return nil, xerrors.Errorf("marshaling JSON: %w", err)
+		return nil, fmt.Errorf("marshaling JSON: %w", err)
 	}
 	return b, nil
 }
@@ -76,7 +75,7 @@ func (m ManifestUpdateMessage) Marshal() ([]byte, error) {
 func (m *ManifestUpdateMessage) Unmarshal(r io.Reader) error {
 	err := json.NewDecoder(r).Decode(&m)
 	if err != nil {
-		return xerrors.Errorf("decoding JSON: %w", err)
+		return fmt.Errorf("decoding JSON: %w", err)
 	}
 	return nil
 }
@@ -113,12 +112,12 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) (_err error) {
 
 	manifestTopic, err := m.pubsub.Join(ManifestPubSubTopicName)
 	if err != nil {
-		return xerrors.Errorf("could not join manifest pubsub topic: %w", err)
+		return fmt.Errorf("could not join manifest pubsub topic: %w", err)
 	}
 
 	manifestSub, err := manifestTopic.Subscribe()
 	if err != nil {
-		return xerrors.Errorf("subscribing to manifest pubsub topic: %w", err)
+		return fmt.Errorf("subscribing to manifest pubsub topic: %w", err)
 	}
 
 	// XXX: load the initial manifest from disk!
@@ -152,7 +151,7 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) (_err error) {
 			msg, err := manifestSub.Next(m.runningCtx)
 			if err != nil {
 				if m.runningCtx.Err() == nil {
-					return xerrors.Errorf("error from manifest subscription: %w", err)
+					return fmt.Errorf("error from manifest subscription: %w", err)
 				}
 				return nil
 			}
@@ -207,7 +206,7 @@ func (m *DynamicManifestProvider) registerTopicValidator() error {
 
 	err := m.pubsub.RegisterTopicValidator(ManifestPubSubTopicName, validator)
 	if err != nil {
-		return xerrors.Errorf("registering topic validator: %w", err)
+		return fmt.Errorf("registering topic validator: %w", err)
 	}
 	return nil
 }

@@ -12,7 +12,6 @@ import (
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/ipfs/go-datastore"
-	"golang.org/x/xerrors"
 )
 
 var (
@@ -117,7 +116,7 @@ func LocalDevnetManifest() *Manifest {
 func (m *Manifest) Version() (Version, error) {
 	b, err := json.Marshal(m)
 	if err != nil {
-		return "", xerrors.Errorf("computing manifest version: %w", err)
+		return "", fmt.Errorf("computing manifest version: %w", err)
 	}
 	return Version(hex.EncodeToString(gpbft.MakeCid(b))), nil
 }
@@ -128,7 +127,7 @@ func (m *Manifest) Version() (Version, error) {
 func (m *Manifest) Marshal() ([]byte, error) {
 	b, err := json.Marshal(m)
 	if err != nil {
-		return nil, xerrors.Errorf("marshaling JSON: %w", err)
+		return nil, fmt.Errorf("marshaling JSON: %w", err)
 	}
 	return b, nil
 }
@@ -136,7 +135,7 @@ func (m *Manifest) Marshal() ([]byte, error) {
 func (m *Manifest) Unmarshal(r io.Reader) error {
 	err := json.NewDecoder(r).Decode(&m)
 	if err != nil {
-		return xerrors.Errorf("decoding JSON: %w", err)
+		return fmt.Errorf("decoding JSON: %w", err)
 	}
 	return nil
 }
