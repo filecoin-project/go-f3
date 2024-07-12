@@ -18,20 +18,36 @@ func ImmediateDecideWithNthParticipant(n uint64) ImmediateDecideOption {
 	}
 }
 
+// Immediately decide with a value that may or may not match the justification.
+func ImmediateDecideWithJustifiedValue(value gpbft.ECChain) ImmediateDecideOption {
+	return func(i *ImmediateDecide) {
+		i.jValue = value
+	}
+}
+
+// Immediately decide with a value that may or may not match the justification.
+func ImmediateDecideWithJustifiedSupplementalData(data gpbft.SupplementalData) ImmediateDecideOption {
+	return func(i *ImmediateDecide) {
+		i.supplementalData = &data
+	}
+}
+
 // / An "adversary" that immediately sends a DECIDE message, justified by its own COMMIT.
 type ImmediateDecide struct {
-	id    gpbft.ActorID
-	host  Host
-	value gpbft.ECChain
+	id            gpbft.ActorID
+	host          Host
+	value, jValue gpbft.ECChain
 
 	additionalParticipant *uint64
+	supplementalData      *gpbft.SupplementalData
 }
 
 func NewImmediateDecide(id gpbft.ActorID, host Host, value gpbft.ECChain, opts ...ImmediateDecideOption) *ImmediateDecide {
 	i := &ImmediateDecide{
-		id:    id,
-		host:  host,
-		value: value,
+		id:     id,
+		host:   host,
+		value:  value,
+		jValue: value,
 	}
 	for _, opt := range opts {
 		opt(i)
@@ -65,8 +81,11 @@ func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) erro
 		Instance:         instance,
 		Round:            0,
 		Step:             gpbft.COMMIT_PHASE,
-		Value:            i.value,
+		Value:            i.jValue,
 		SupplementalData: *supplementalData,
+	}
+	if i.supplementalData != nil {
+		justificationPayload.SupplementalData = *i.supplementalData
 	}
 	sigPayload := i.host.MarshalPayloadForSigning(i.host.NetworkName(), &justificationPayload)
 	signers := bitfield.New()

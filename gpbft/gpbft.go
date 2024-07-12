@@ -530,6 +530,9 @@ func ValidateMessage(powerTable *PowerTable, beacon []byte, host Host, msg *GMes
 		if msg.Vote.Instance != msg.Justification.Vote.Instance {
 			return fmt.Errorf("message with instanceID %v has evidence from instanceID: %v", msg.Vote.Instance, msg.Justification.Vote.Instance)
 		}
+		if !msg.Vote.SupplementalData.Eq(&msg.Justification.Vote.SupplementalData) {
+			return fmt.Errorf("message and justification have inconsistent supplemental data: %v != %v", msg.Vote.SupplementalData, msg.Justification.Vote.SupplementalData)
+		}
 		// Check that justification vote value is a valid chain.
 		if err := msg.Justification.Vote.Value.Validate(); err != nil {
 			return xerrors.Errorf("invalid justification vote value chain: %w", err)
