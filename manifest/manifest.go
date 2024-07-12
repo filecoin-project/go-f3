@@ -18,7 +18,7 @@ var (
 	// Default configuration for the EC Backend
 	DefaultEcConfig = &EcConfig{
 		ECFinality:        900,
-		CommiteeLookback:  10,
+		CommitteeLookback: 10,
 		ECPeriod:          30 * time.Second,
 		ECDelayMultiplier: 2.,
 		// MaxBackoff is 15min given default params
@@ -72,14 +72,14 @@ type GpbftConfig struct {
 type EcConfig struct {
 	// The delay between tipsets.
 	ECPeriod time.Duration
-	// Number of epochs required to reach EC defined fianlity
+	// Number of epochs required to reach EC defined finality
 	ECFinality int64
 	// The multiplier on top of the ECPeriod of the time we will wait before starting a new instance,
-	// referencing the timestampt of the latest finalized tipset.
+	// referencing the timestamp of the latest finalized tipset.
 	ECDelayMultiplier float64
 	// Table of incremental multipliers to backoff in units of ECDelay in case of base decisions
 	BaseDecisionBackoffTable []float64
-	CommiteeLookback         uint64
+	CommitteeLookback        uint64
 }
 
 // Manifest identifies the specific configuration for the F3 instance currently running.

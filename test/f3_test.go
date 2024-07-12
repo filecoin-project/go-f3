@@ -66,7 +66,7 @@ func TestPauseResumeCatchup(t *testing.T) {
 	env.waitForInstanceNumber(resumeInstance, 10*time.Second, false)
 
 	// Wait until we're far enough that pure GPBFT catchup should be impossible.
-	targetInstance := resumeInstance + env.manifest.CommiteeLookback
+	targetInstance := resumeInstance + env.manifest.CommitteeLookback
 	env.waitForInstanceNumber(targetInstance, 30*time.Second, false)
 
 	pausedInstance := env.nodes[2].currentGpbftInstance()
@@ -200,7 +200,7 @@ func TestDynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 	env.requireEqualManifests(false)
 }
 
-var base manifest.Manifest = manifest.Manifest{
+var base = manifest.Manifest{
 	BootstrapEpoch:  950,
 	InitialInstance: 0,
 	NetworkName:     gpbft.NetworkName("f3-test"),
@@ -212,8 +212,8 @@ var base manifest.Manifest = manifest.Manifest{
 	},
 	// EcConfig:        manifest.DefaultEcConfig,
 	EcConfig: &manifest.EcConfig{
-		ECFinality:       10,
-		CommiteeLookback: 5,
+		ECFinality:        10,
+		CommitteeLookback: 5,
 		// increased delay and period to accelerate test times.
 		ECPeriod:                 100 * time.Millisecond,
 		ECDelayMultiplier:        1.0,
