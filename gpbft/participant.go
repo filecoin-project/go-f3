@@ -207,7 +207,7 @@ func (p *Participant) beginInstance() error {
 	if chain.IsZero() {
 		return errors.New("canonical chain cannot be zero-valued")
 	}
-	chain = chain.Prefix(CHAIN_MAX_LEN - 1)
+	chain = chain.Prefix(ChainMaxLen - 1)
 	if err := chain.Validate(); err != nil {
 		return fmt.Errorf("invalid canonical chain: %w", err)
 	}

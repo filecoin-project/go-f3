@@ -97,7 +97,7 @@ func TestPayload_MarshalForSigning(t *testing.T) {
 			name:    "zero-valued with empty network name",
 			subject: gpbft.Payload{},
 			want: []byte{
-				0x47, 0x50, 0x42, 0x46, 0x54, 0x3a, 0x3a, 0x00, // DOMAIN_SEPARATION_TAG ":" network name
+				0x47, 0x50, 0x42, 0x46, 0x54, 0x3a, 0x3a, 0x00, // gpbft.DomainSeparationTag ":" network name
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -144,7 +144,7 @@ func TestPayload_MarshalForSigning(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			got := test.subject.MarshalForSigning(test.networkName)
 			require.NotEmpty(t, got)
-			require.True(t, bytes.HasPrefix(got, []byte(gpbft.DOMAIN_SEPARATION_TAG+":"+test.networkName+":")))
+			require.True(t, bytes.HasPrefix(got, []byte(gpbft.DomainSeparationTag+":"+test.networkName+":")))
 			require.Equal(t, test.want, got)
 		})
 	}

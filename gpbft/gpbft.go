@@ -52,7 +52,7 @@ func (p Phase) String() string {
 	}
 }
 
-const DOMAIN_SEPARATION_TAG = "GPBFT"
+const DomainSeparationTag = "GPBFT"
 
 // A message in the Granite protocol.
 // The same message structure is used for all rounds and phases.
@@ -132,7 +132,7 @@ func (p *Payload) MarshalForSigning(nn NetworkName) []byte {
 	root := merkle.Tree(values)
 
 	var buf bytes.Buffer
-	buf.WriteString(DOMAIN_SEPARATION_TAG)
+	buf.WriteString(DomainSeparationTag)
 	buf.WriteString(":")
 	buf.WriteString(string(nn))
 	buf.WriteString(":")
