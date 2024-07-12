@@ -63,7 +63,10 @@ func TestIllegalCommittee_OutOfRange(t *testing.T) {
 				uniformOneStoragePower),
 			sim.WithBaseChain(&baseChain),
 			// Add the adversary to the simulation with 3/4 of total power.
-			sim.WithAdversary(adversary.NewImmediateDecideGenerator(adversaryValue, gpbft.NewStoragePower(3), adversary.ImmediateDecideWithNthParticipant(100))),
+			sim.WithAdversary(adversary.NewImmediateDecideGenerator(
+				adversaryValue,
+				gpbft.NewStoragePower(3),
+				adversary.ImmediateDecideWithNthParticipant(100))),
 		)...)
 	require.NoError(t, err)
 
@@ -85,11 +88,68 @@ func TestIllegalCommittee_NoPower(t *testing.T) {
 				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 5),
 				sim.UniformStoragePower(gpbft.NewStoragePower(1))),
 			sim.WithBaseChain(&baseChain),
-			// Add the adversary to the simulation with 3/4 of total power.
-			sim.WithAdversary(adversary.NewImmediateDecideGenerator(adversaryValue, gpbft.NewStoragePower(0xffff), adversary.ImmediateDecideWithNthParticipant(1))),
+			// Add the adversary to the simulation with enough power to make the honest
+			// node's power a rounding error. Then have that adversary include the
+			// honest participant in their decision (which is illegal because the
+			// decision has no effective power due to rounding).
+			sim.WithAdversary(adversary.NewImmediateDecideGenerator(
+				adversaryValue,
+				gpbft.NewStoragePower(0xffff),
+				adversary.ImmediateDecideWithNthParticipant(1))),
 		)...)
 	require.NoError(t, err)
 
 	err = sm.Run(1, maxRounds)
 	require.ErrorContains(t, err, "signer with ID 0 has no power")
+}
+
+func TestIllegalCommittee_WrongValue(t *testing.T) {
+	const seed = 98562314
+	t.Parallel()
+	rng := rand.New(rand.NewSource(int64(seed)))
+	tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
+	baseChain := generateECChain(t, tsg)
+	adversaryValue := baseChain.Extend(tsg.Sample())
+	sm, err := sim.NewSimulation(
+		asyncOptions(rng.Int(),
+			sim.AddHonestParticipants(
+				1,
+				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 5),
+				sim.UniformStoragePower(gpbft.NewStoragePower(1))),
+			sim.WithBaseChain(&baseChain),
+			sim.WithAdversary(adversary.NewImmediateDecideGenerator(
+				adversaryValue,
+				gpbft.NewStoragePower(3),
+				// Justify the base-chain, but attempt to decide on something else.
+				adversary.ImmediateDecideWithJustifiedValue(baseChain))),
+		)...)
+	require.NoError(t, err)
+
+	err = sm.Run(1, maxRounds)
+	require.ErrorContains(t, err, "has justification for a different value")
+}
+
+func TestIllegalCommittee_WrongSupplementalData(t *testing.T) {
+	const seed = 98562314
+	t.Parallel()
+	rng := rand.New(rand.NewSource(int64(seed)))
+	tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
+	baseChain := generateECChain(t, tsg)
+	adversaryValue := baseChain.Extend(tsg.Sample())
+	sm, err := sim.NewSimulation(
+		asyncOptions(rng.Int(),
+			sim.AddHonestParticipants(
+				1,
+				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 5),
+				sim.UniformStoragePower(gpbft.NewStoragePower(1))),
+			sim.WithBaseChain(&baseChain),
+			sim.WithAdversary(adversary.NewImmediateDecideGenerator(
+				adversaryValue,
+				gpbft.NewStoragePower(3),
+				// Justify the base-chain, but attempt to decide on something else.
+				adversary.ImmediateDecideWithJustifiedSupplementalData(gpbft.SupplementalData{}))))...)
+	require.NoError(t, err)
+
+	err = sm.Run(1, maxRounds)
+	require.ErrorContains(t, err, "message and justification have inconsistent supplemental data")
 }
