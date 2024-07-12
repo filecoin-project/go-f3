@@ -2,7 +2,6 @@ package gpbft
 
 import (
 	"bytes"
-	"context"
 	"encoding/binary"
 )
 
@@ -10,10 +9,6 @@ import (
 type Ticket []byte
 
 const DomainSeparationTagVRF = "VRF"
-
-func MakeTicket(ctx context.Context, nn NetworkName, beacon []byte, instance uint64, round uint64, source PubKey, signer Signer) (Ticket, error) {
-	return signer.Sign(ctx, source, vrfSerializeSigInput(beacon, instance, round, nn))
-}
 
 func VerifyTicket(nn NetworkName, beacon []byte, instance uint64, round uint64, source PubKey, verifier Verifier, ticket Ticket) bool {
 	return verifier.Verify(source, vrfSerializeSigInput(beacon, instance, round, nn), ticket) == nil
