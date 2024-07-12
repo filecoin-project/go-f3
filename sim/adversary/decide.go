@@ -127,9 +127,9 @@ func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) erro
 
 	// Immediately send a DECIDE message
 	mb := &gpbft.MessageBuilder{
-		NetworkName:       i.host.NetworkName(),
-		PowerTable:        powertable,
-		SigningMarshaller: i.host,
+		NetworkName:      i.host.NetworkName(),
+		PowerTable:       powertable,
+		SigningMarshaler: i.host,
 		Payload: gpbft.Payload{
 			Instance:         instance,
 			Round:            0,

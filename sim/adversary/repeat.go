@@ -95,11 +95,11 @@ func (r *Repeat) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
 		Value:            msg.Vote.Value,
 	}
 	mt := &gpbft.MessageBuilder{
-		NetworkName:       r.host.NetworkName(),
-		PowerTable:        power,
-		Payload:           p,
-		Justification:     msg.Justification,
-		SigningMarshaller: r.host,
+		NetworkName:      r.host.NetworkName(),
+		PowerTable:       power,
+		Payload:          p,
+		Justification:    msg.Justification,
+		SigningMarshaler: r.host,
 	}
 	if len(msg.Ticket) > 0 {
 		mt.BeaconForTicket = beacon

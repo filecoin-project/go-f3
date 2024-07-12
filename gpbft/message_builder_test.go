@@ -38,10 +38,10 @@ func TestMessageBuilder(t *testing.T) {
 	nn := NetworkName("test")
 
 	mt := &MessageBuilder{
-		NetworkName:       nn,
-		PowerTable:        pt,
-		Payload:           payload,
-		SigningMarshaller: signingMarshaler,
+		NetworkName:      nn,
+		PowerTable:       pt,
+		Payload:          payload,
+		SigningMarshaler: signingMarshaler,
 	}
 
 	_, err = mt.PrepareSigningInputs(2)
@@ -88,11 +88,11 @@ func TestMessageBuilderWithVRF(t *testing.T) {
 
 	nn := NetworkName("test")
 	mt := &MessageBuilder{
-		NetworkName:       nn,
-		PowerTable:        pt,
-		Payload:           payload,
-		SigningMarshaller: signingMarshaler,
-		BeaconForTicket:   []byte{0xbe, 0xac, 0x04},
+		NetworkName:      nn,
+		PowerTable:       pt,
+		Payload:          payload,
+		SigningMarshaler: signingMarshaler,
+		BeaconForTicket:  []byte{0xbe, 0xac, 0x04},
 	}
 
 	st, err := mt.PrepareSigningInputs(0)
