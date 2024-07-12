@@ -101,7 +101,7 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	// Without the `Maybe` the tests immediately fails here:
 	// https://github.com/filecoin-project/go-f3/blob/d27d281109d31485fc4ac103e2af58afb86c158f/gpbft/gpbft.go#L395
 	pt.host.On("MarshalPayloadForSigning", pt.networkName, mock.AnythingOfType("*gpbft.Payload")).
-		Return([]byte(gpbft.DOMAIN_SEPARATION_TAG + ":" + pt.networkName)).Maybe()
+		Return([]byte(gpbft.DomainSeparationTag + ":" + pt.networkName)).Maybe()
 
 	// Expect calls to get the host state prior to beginning of an instance.
 	pt.host.EXPECT().GetProposalForInstance(pt.instance)
@@ -174,7 +174,7 @@ func (pt *participantTestSubject) mockInvalidTicket(target gpbft.PubKey, ticket 
 		"Verify",
 		target,
 		mock.MatchedBy(func(msg []byte) bool {
-			return bytes.HasPrefix(msg, []byte(gpbft.DOMAIN_SEPARATION_TAG_VRF+":"+pt.networkName))
+			return bytes.HasPrefix(msg, []byte(gpbft.DomainSeparationTagVRF+":"+pt.networkName))
 		}), []byte(ticket)).
 		Return(errors.New("mock verification failure"))
 }
@@ -197,13 +197,13 @@ func (pt *participantTestSubject) mockCommitteeUnavailableForInstance(instance u
 
 func (pt *participantTestSubject) matchMessageSigningPayload() any {
 	return mock.MatchedBy(func(msg []byte) bool {
-		return bytes.HasPrefix(msg, []byte(gpbft.DOMAIN_SEPARATION_TAG+":"+pt.networkName))
+		return bytes.HasPrefix(msg, []byte(gpbft.DomainSeparationTag+":"+pt.networkName))
 	})
 }
 
 func (pt *participantTestSubject) matchTicketSigningPayload() any {
 	return mock.MatchedBy(func(msg []byte) bool {
-		return bytes.HasPrefix(msg, []byte(gpbft.DOMAIN_SEPARATION_TAG_VRF+":"+pt.networkName))
+		return bytes.HasPrefix(msg, []byte(gpbft.DomainSeparationTagVRF+":"+pt.networkName))
 	})
 }
 

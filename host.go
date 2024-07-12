@@ -358,7 +358,7 @@ type gpbftHost gpbftRunner
 
 func (h *gpbftHost) collectChain(base ec.TipSet, head ec.TipSet) ([]ec.TipSet, error) {
 	// TODO: optimize when head is way beyond base
-	res := make([]ec.TipSet, 0, 2*gpbft.CHAIN_MAX_LEN)
+	res := make([]ec.TipSet, 0, 2*gpbft.ChainMaxLen)
 	res = append(res, head)
 
 	for !bytes.Equal(head.Key(), base.Key()) {
@@ -447,7 +447,7 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 		return nil, nil, fmt.Errorf("computing powertable CID for base: %w", err)
 	}
 
-	suffix := make([]gpbft.TipSet, min(gpbft.CHAIN_MAX_LEN-1, len(collectedChain))) // -1 because of base
+	suffix := make([]gpbft.TipSet, min(gpbft.ChainMaxLen-1, len(collectedChain))) // -1 because of base
 	for i := range suffix {
 		suffix[i].Key = collectedChain[i].Key()
 		suffix[i].Epoch = collectedChain[i].Epoch()

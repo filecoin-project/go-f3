@@ -79,7 +79,7 @@ func (ec *FakeEC) genTipset(epoch int64) *Tipset {
 		// from 12.5% to 1.5%
 		size = rng[0] % 8
 	}
-	tsk := make([]byte, 0, size*gpbft.CID_MAX_LEN)
+	tsk := make([]byte, 0, size*gpbft.CidMaxLen)
 
 	if size == 0 {
 		return nil
