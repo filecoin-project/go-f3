@@ -53,6 +53,9 @@ func (s *FakeBackend) Sign(_ context.Context, signer gpbft.PubKey, msg []byte) (
 }
 
 func (s *FakeBackend) generateSignature(signer gpbft.PubKey, msg []byte) ([]byte, error) {
+	if len(signer) != 16 {
+		return nil, fmt.Errorf("wrong signer pubkey length: %d != 16", len(signer))
+	}
 	priv := "privkey" + string(signer[7:])
 
 	hasher := sha256.New()
@@ -79,6 +82,9 @@ func (*FakeBackend) Aggregate(signers []gpbft.PubKey, sigs [][]byte) ([]byte, er
 	}
 	hasher := sha256.New()
 	for i, signer := range signers {
+		if len(signer) != 16 {
+			return nil, fmt.Errorf("wrong signer pubkey length: %d != 16", len(signer))
+		}
 		hasher.Write(signer)
 		hasher.Write(sigs[i])
 	}
