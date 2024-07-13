@@ -191,6 +191,7 @@ func TestPowerTable(t *testing.T) {
 				gotCopy := subject.Copy()
 				require.Equal(t, subject, gotCopy)
 				require.NotSame(t, subject, gotCopy)
+				require.True(t, subject.Entries.Equal(gotCopy.Entries))
 			})
 		}
 	})
