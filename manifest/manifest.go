@@ -3,10 +3,10 @@ package manifest
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -15,7 +15,7 @@ import (
 
 var (
 	// Default configuration for the EC Backend
-	DefaultEcConfig = &EcConfig{
+	DefaultEcConfig = EcConfig{
 		ECFinality:        900,
 		CommitteeLookback: 10,
 		ECPeriod:          30 * time.Second,
@@ -24,7 +24,7 @@ var (
 		BaseDecisionBackoffTable: []float64{1.3, 1.69, 2.2, 2.86, 3.71, 4.83, 6.27, 7.5},
 	}
 
-	DefaultGpbftConfig = &GpbftConfig{
+	DefaultGpbftConfig = GpbftConfig{
 		Delta:                3 * time.Second,
 		DeltaBackOffExponent: 2.0,
 		MaxLookaheadRounds:   5,
@@ -34,6 +34,13 @@ var (
 		gpbft.WithMaxLookaheadRounds(DefaultGpbftConfig.MaxLookaheadRounds),
 		gpbft.WithDelta(DefaultGpbftConfig.Delta),
 		gpbft.WithDeltaBackOffExponent(DefaultGpbftConfig.DeltaBackOffExponent),
+	}
+
+	DefaultCxConfig = CxConfig{
+		ClientRequestTimeout: 10 * time.Second,
+		ServerRequestTimeout: time.Minute,
+		MinimumPollInterval:  DefaultEcConfig.ECPeriod,
+		MaximumPollInterval:  4 * DefaultEcConfig.ECPeriod,
 	}
 )
 
@@ -47,8 +54,6 @@ type ManifestProvider interface {
 	// The channel on which manifest updates are returned.
 	ManifestUpdates() <-chan *Manifest
 }
-
-type Version string
 
 // Certificate Exchange config
 type CxConfig struct {
@@ -81,6 +86,14 @@ type EcConfig struct {
 	CommitteeLookback        uint64
 }
 
+func (e *EcConfig) Equal(o *EcConfig) bool {
+	return e.ECPeriod == o.ECPeriod &&
+		e.ECFinality == o.ECFinality &&
+		e.ECDelayMultiplier == o.ECDelayMultiplier &&
+		e.CommitteeLookback == o.CommitteeLookback &&
+		slices.Equal(e.BaseDecisionBackoffTable, o.BaseDecisionBackoffTable)
+}
+
 // Manifest identifies the specific configuration for the F3 instance currently running.
 type Manifest struct {
 	// Initial instance to used for the f3 instance
@@ -95,11 +108,27 @@ type Manifest struct {
 	// Ignore the power table from EC.
 	IgnoreECPower bool
 	// Config parameters for gpbft
-	*GpbftConfig
+	GpbftConfig
 	// EC-specific parameters
-	*EcConfig
+	EcConfig
 	// Certificate Exchange specific parameters
-	*CxConfig
+	CxConfig
+}
+
+func (m *Manifest) Equal(o *Manifest) bool {
+	if m == nil || o == nil {
+		return m == o
+	}
+
+	return m.NetworkName == o.NetworkName &&
+		m.InitialInstance == o.InitialInstance &&
+		m.BootstrapEpoch == o.BootstrapEpoch &&
+		m.IgnoreECPower == o.IgnoreECPower &&
+		m.ExplicitPower.Equal(o.ExplicitPower) &&
+		m.GpbftConfig == o.GpbftConfig &&
+		m.EcConfig.Equal(&o.EcConfig) &&
+		m.CxConfig == o.CxConfig
+
 }
 
 func LocalDevnetManifest() *Manifest {
@@ -109,17 +138,9 @@ func LocalDevnetManifest() *Manifest {
 		NetworkName:    gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng)),
 		BootstrapEpoch: 1000,
 		EcConfig:       DefaultEcConfig,
+		GpbftConfig:    DefaultGpbftConfig,
 	}
 	return m
-}
-
-// Version that uniquely identifies the manifest.
-func (m *Manifest) Version() (Version, error) {
-	b, err := json.Marshal(m)
-	if err != nil {
-		return "", fmt.Errorf("computing manifest version: %w", err)
-	}
-	return Version(hex.EncodeToString(gpbft.MakeCid(b))), nil
 }
 
 // Marshal the manifest into JSON
@@ -154,12 +175,10 @@ func PubSubTopicFromNetworkName(nn gpbft.NetworkName) string {
 }
 
 func (m *Manifest) GpbftOptions() []gpbft.Option {
-	var opts []gpbft.Option
-
-	if m.GpbftConfig == nil {
+	if m.GpbftConfig == (GpbftConfig{}) {
 		return DefaultGpbftOptions
 	}
-
+	var opts []gpbft.Option
 	if m.Delta != 0 {
 		opts = append(opts, gpbft.WithDelta(m.Delta))
 	}

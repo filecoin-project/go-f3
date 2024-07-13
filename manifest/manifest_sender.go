@@ -22,7 +22,6 @@ type ManifestSender struct {
 	// lock to that guards the update of the manifest.
 	lk       sync.Mutex
 	manifest *Manifest
-	version  uint64
 	msgSeq   uint64
 	paused   bool
 }
@@ -34,6 +33,9 @@ func NewManifestSender(h host.Host, pubsub *pubsub.PubSub, firstManifest *Manife
 		h:        h,
 		pubsub:   pubsub,
 		interval: pubishInterval,
+		// seed the sequence number with nanoseconds so we can restart and don't have to
+		// remember the last sequence number.
+		msgSeq: uint64(time.Now().UnixNano()),
 	}
 
 	var err error
@@ -78,7 +80,6 @@ func (m *ManifestSender) publishManifest(ctx context.Context) error {
 
 	update := ManifestUpdateMessage{
 		MessageSequence: m.msgSeq,
-		ManifestVersion: m.version,
 	}
 	if !m.paused {
 		update.Manifest = m.manifest
@@ -95,7 +96,6 @@ func (m *ManifestSender) UpdateManifest(manifest *Manifest) {
 	m.lk.Lock()
 	m.manifest = manifest
 	m.msgSeq++
-	m.version++
 	m.paused = false
 	m.lk.Unlock()
 }

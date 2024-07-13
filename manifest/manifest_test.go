@@ -28,19 +28,19 @@ var base manifest.Manifest = manifest.Manifest{
 			PubKey: gpbft.PubKey{1},
 		},
 	},
-	GpbftConfig: &manifest.GpbftConfig{
+	GpbftConfig: manifest.GpbftConfig{
 		Delta:                10,
 		DeltaBackOffExponent: 0.2,
 		MaxLookaheadRounds:   10,
 	},
-	EcConfig: &manifest.EcConfig{
+	EcConfig: manifest.EcConfig{
 		ECFinality:               900,
 		CommitteeLookback:        5,
 		ECDelayMultiplier:        2.0,
 		ECPeriod:                 30 * time.Second,
 		BaseDecisionBackoffTable: []float64{1.3, 1.69, 2.2, 2.86, 3.71, 4.83, 6.27, 8.16, 10.6, 13.79, 15.},
 	},
-	CxConfig: &manifest.CxConfig{
+	CxConfig: manifest.CxConfig{
 		ClientRequestTimeout: 10 * time.Second,
 		ServerRequestTimeout: time.Minute,
 		MinimumPollInterval:  30 * time.Second,
@@ -58,22 +58,6 @@ func TestManifest_Serialization(t *testing.T) {
 	err = m2.Unmarshal(bytes.NewReader(b))
 	require.NoError(t, err)
 	require.Equal(t, base, m2)
-}
-
-func TestManifest_Version(t *testing.T) {
-	m := base
-	v1, err := m.Version()
-	require.NoError(t, err)
-	v2, err := base.Version()
-	require.NoError(t, err)
-	require.Equal(t, v1, v2)
-
-	m.Delta = 1
-	m.NetworkName = "test2"
-	v1, err = m.Version()
-	require.NoError(t, err)
-	require.NotEqual(t, v1, v2)
-
 }
 
 func TestManifest_NetworkName(t *testing.T) {

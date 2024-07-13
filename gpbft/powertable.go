@@ -1,6 +1,7 @@
 package gpbft
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"maps"
@@ -29,6 +30,22 @@ type PowerTable struct {
 	Lookup      map[ActorID]int // Maps ActorID to the index of the associated entry in Entries
 	Total       *StoragePower
 	ScaledTotal uint16
+}
+
+func (p *PowerEntry) Equal(o *PowerEntry) bool {
+	return p.ID == o.ID && p.Power.Cmp(o.Power) == 0 && bytes.Equal(p.PubKey, o.PubKey)
+}
+
+func (p PowerEntries) Equal(o PowerEntries) bool {
+	if len(p) != len(o) {
+		return false
+	}
+	for i := range p {
+		if !p[i].Equal(&o[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // Len returns the number of entries in this PowerTable.

@@ -8,9 +8,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/filecoin-project/go-f3/ec"
-	"github.com/filecoin-project/go-f3/gpbft"
-
 	logging "github.com/ipfs/go-log/v2"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -28,7 +25,6 @@ const ManifestPubSubTopicName = "/f3/manifests/0.0.1"
 // the manifest to be changed at runtime.
 type DynamicManifestProvider struct {
 	pubsub           *pubsub.PubSub
-	ec               ec.Backend
 	manifestServerID peer.ID
 
 	runningCtx context.Context
@@ -41,27 +37,10 @@ type DynamicManifestProvider struct {
 
 // ManifestUpdateMessage updates the GPBFT manifest.
 type ManifestUpdateMessage struct {
-	// A monotonically increasing sequence number for ordering manifest
-	// updates received over the network.
+	// An increasing sequence number for ordering manifest updates received over the network.
 	MessageSequence uint64
-	// The manifest version changes each time we distribute a new manifest. Pausing/resuming
-	// does not update the version number.
-	ManifestVersion uint64
 	// The manifest to apply or nil to pause the network.
 	Manifest *Manifest
-}
-
-func (mu ManifestUpdateMessage) toManifest() *Manifest {
-	if mu.Manifest == nil {
-		return nil
-	}
-
-	// When a manifest configuration changes, a new network name is set that depends on the
-	// manifest version of the previous version to avoid overlapping previous configurations.
-	cpy := *mu.Manifest
-	newName := fmt.Sprintf("%s/%d", string(cpy.NetworkName), mu.ManifestVersion)
-	cpy.NetworkName = gpbft.NetworkName(newName)
-	return &cpy
 }
 
 func (m ManifestUpdateMessage) Marshal() ([]byte, error) {
@@ -80,13 +59,12 @@ func (m *ManifestUpdateMessage) Unmarshal(r io.Reader) error {
 	return nil
 }
 
-func NewDynamicManifestProvider(initialManifest *Manifest, pubsub *pubsub.PubSub, ec ec.Backend, manifestServerID peer.ID) ManifestProvider {
+func NewDynamicManifestProvider(initialManifest *Manifest, pubsub *pubsub.PubSub, manifestServerID peer.ID) *DynamicManifestProvider {
 	ctx, cancel := context.WithCancel(context.Background())
 	errgrp, ctx := errgroup.WithContext(ctx)
 
 	return &DynamicManifestProvider{
 		pubsub:           pubsub,
-		ec:               ec,
 		manifestServerID: manifestServerID,
 		runningCtx:       ctx,
 		errgrp:           errgrp,
@@ -123,11 +101,8 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) (_err error) {
 	// XXX: load the initial manifest from disk!
 	// And save it!
 
-	m.manifestChanges <- ManifestUpdateMessage{
-		MessageSequence: 0,
-		ManifestVersion: 0,
-		Manifest:        m.initialManifest,
-	}.toManifest()
+	currentManifest := m.initialManifest
+	m.manifestChanges <- m.initialManifest
 
 	m.errgrp.Go(func() error {
 		defer func() {
@@ -167,8 +142,18 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) (_err error) {
 			}
 			log.Infof("received manifest update %d", update.MessageSequence)
 			msgSeqNumber = update.MessageSequence
+
+			oldManifest := currentManifest
+			currentManifest = update.Manifest
+
+			// If we're receiving the same manifest multiple times (manifest publisher
+			// could have restarted), don't re-apply it.
+			if oldManifest.Equal(currentManifest) {
+				continue
+			}
+
 			select {
-			case m.manifestChanges <- update.toManifest():
+			case m.manifestChanges <- update.Manifest:
 			case <-m.runningCtx.Done():
 				return nil
 			}
