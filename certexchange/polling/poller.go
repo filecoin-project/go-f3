@@ -9,6 +9,7 @@ import (
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
@@ -20,6 +21,7 @@ type Poller struct {
 	SignatureVerifier gpbft.Verifier
 	PowerTable        gpbft.PowerEntries
 	NextInstance      uint64
+	clock             clock.Clock
 }
 
 // NewPoller constructs a new certificate poller and initializes it from the passed certificate store.
@@ -38,6 +40,7 @@ func NewPoller(ctx context.Context, client *certexchange.Client, store *certstor
 		SignatureVerifier: verifier,
 		NextInstance:      nextInstance,
 		PowerTable:        pt,
+		clock:             clock.GetClock(ctx),
 	}, nil
 }
 
@@ -99,13 +102,13 @@ func (p *Poller) Poll(ctx context.Context, peer peer.ID) (*PollResult, error) {
 			return nil, err
 		}
 
-		start := clk.Now()
+		start := p.clock.Now()
 		resp, ch, err := p.Request(ctx, peer, &certexchange.Request{
 			FirstInstance:     p.NextInstance,
 			Limit:             maxRequestLength,
 			IncludePowerTable: false,
 		})
-		res.Latency = clk.Since(start)
+		res.Latency = p.clock.Since(start)
 		if err != nil {
 			res.Status = PollFailed
 			res.Error = err

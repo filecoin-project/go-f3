@@ -12,12 +12,13 @@ import (
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/manifest"
 
+	"github.com/ipfs/go-datastore"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 
-	"github.com/ipfs/go-datastore"
 	"go.uber.org/multierr"
 	"golang.org/x/sync/errgroup"
 )
@@ -32,6 +33,7 @@ type F3 struct {
 	ds     datastore.Datastore
 	ec     ec.Backend
 	pubsub *pubsub.PubSub
+	clock  clock.Clock
 
 	runningCtx context.Context
 	cancelCtx  context.CancelFunc
@@ -60,6 +62,7 @@ func New(_ctx context.Context, manifest manifest.ManifestProvider, ds datastore.
 		ds:               ds,
 		ec:               ec,
 		pubsub:           ps,
+		clock:            clock.GetClock(runningCtx),
 		runningCtx:       runningCtx,
 		cancelCtx:        cancel,
 		errgrp:           errgrp,
@@ -138,7 +141,7 @@ func (m *F3) computeBootstrapDelay(manifest *manifest.Manifest) (time.Duration, 
 	}
 	epochDelay := manifest.BootstrapEpoch - currentEpoch
 	start := ts.Timestamp().Add(time.Duration(epochDelay) * manifest.ECPeriod)
-	delay := time.Until(start)
+	delay := m.clock.Until(start)
 	// Add additional delay to skip over null epochs. That way we wait the full 900 epochs.
 	if delay <= 0 {
 		delay = manifest.ECPeriod + delay%manifest.ECPeriod
@@ -187,7 +190,7 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 			}
 		}()
 
-		manifestChangeTimer := time.NewTimer(initialDelay)
+		manifestChangeTimer := m.clock.Timer(initialDelay)
 		if pendingManifest == nil && !manifestChangeTimer.Stop() {
 			<-manifestChangeTimer.C
 		}
