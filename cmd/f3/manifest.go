@@ -204,8 +204,8 @@ var manifestServeCmd = cli.Command{
 				case <-checkTicker.C:
 					if nextManifest, err := loadManifest(manifestPath); err != nil {
 						_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed reload manifest: %v\n", err)
-					} else if nextManifest.NetworkName != currentManifest.NetworkName {
-						_, _ = fmt.Fprintf(c.App.Writer, "Loaded manifest: %q\n", nextManifest.NetworkName)
+					} else if !nextManifest.Equal(currentManifest) {
+						_, _ = fmt.Fprintf(c.App.Writer, "Loaded changed manifest with network name: %q\n", nextManifest.NetworkName)
 						sender.UpdateManifest(nextManifest)
 						currentManifest = nextManifest
 					}
