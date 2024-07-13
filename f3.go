@@ -49,7 +49,7 @@ type F3 struct {
 // The context is used for initialization not runtime.
 func New(_ctx context.Context, manifest manifest.ManifestProvider, ds datastore.Datastore, h host.Host,
 	ps *pubsub.PubSub, verif gpbft.Verifier, ec ec.Backend) (*F3, error) {
-	runningCtx, cancel := context.WithCancel(context.Background())
+	runningCtx, cancel := context.WithCancel(context.WithoutCancel(_ctx))
 	errgrp, runningCtx := errgroup.WithContext(runningCtx)
 
 	return &F3{
