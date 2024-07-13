@@ -183,7 +183,7 @@ var manifestServeCmd = cli.Command{
 			return fmt.Errorf("initialzing pubsub: %w", err)
 		}
 
-		sender, err := manifest.NewManifestSender(host, pubSub, currentManifest, c.Duration("publishInterval"))
+		sender, err := manifest.NewManifestSender(c.Context, host, pubSub, currentManifest, c.Duration("publishInterval"))
 		if err != nil {
 			return fmt.Errorf("initialzing manifest sender: %w", err)
 		}
