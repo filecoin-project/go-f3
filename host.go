@@ -69,7 +69,7 @@ func newRunner(
 	}
 
 	// create a stopped timer to facilitate alerts requested from gpbft
-	runner.alertTimer = runner.clock.Timer(100 * time.Hour)
+	runner.alertTimer = runner.clock.Timer(0)
 	if !runner.alertTimer.Stop() {
 		<-runner.alertTimer.C
 	}
@@ -191,7 +191,7 @@ func (h *gpbftRunner) receiveCertificate(c *certs.FinalityCertificate) error {
 		return nil
 	}
 
-	log.Warnf("skipping from isntance %d to instance %d", currentInstance, nextInstance)
+	log.Warnf("skipping from instance %d to instance %d", currentInstance, nextInstance)
 
 	nextInstanceStart := h.computeNextInstanceStart(c)
 	return h.participant.StartInstanceAt(nextInstance, nextInstanceStart)

@@ -33,7 +33,6 @@ const (
 
 func TestF3Simple(t *testing.T) {
 	t.Parallel()
-
 	env := newTestEnvironment(t, 2, false)
 
 	env.connectAll()
@@ -41,9 +40,8 @@ func TestF3Simple(t *testing.T) {
 	env.waitForInstanceNumber(5, 10*time.Second, false)
 }
 
-func TestPauseResumeCatchup(t *testing.T) {
+func TestF3PauseResumeCatchup(t *testing.T) {
 	t.Parallel()
-
 	env := newTestEnvironment(t, 3, false)
 
 	env.connectAll()
@@ -54,8 +52,9 @@ func TestPauseResumeCatchup(t *testing.T) {
 	env.pauseNode(1)
 	env.pauseNode(2)
 
+	env.clock.Add(1 * time.Second)
 	oldInstance := env.nodes[0].currentGpbftInstance()
-	time.Sleep(time.Second)
+	env.clock.Add(1 * time.Second)
 	newInstance := env.nodes[0].currentGpbftInstance()
 	require.Equal(t, oldInstance, newInstance)
 
@@ -85,10 +84,8 @@ func TestPauseResumeCatchup(t *testing.T) {
 	env.waitForInstanceNumber(node0failInstance+3, 30*time.Second, false)
 }
 
-func TestFailRecover(t *testing.T) {
-	t.Skip("unreliable; see https://github.com/filecoin-project/go-f3/issues/460")
+func TestF3FailRecover(t *testing.T) {
 	t.Parallel()
-
 	env := newTestEnvironment(t, 2, false)
 
 	// Make it possible to fail a single write for node 0.
@@ -119,9 +116,8 @@ func TestFailRecover(t *testing.T) {
 	env.waitForInstanceNumber(oldInstance+3, 10*time.Second, true)
 }
 
-func TestDynamicManifest_WithoutChanges(t *testing.T) {
+func TestF3DynamicManifest_WithoutChanges(t *testing.T) {
 	t.Parallel()
-
 	env := newTestEnvironment(t, 2, true)
 
 	env.connectAll()
@@ -134,9 +130,8 @@ func TestDynamicManifest_WithoutChanges(t *testing.T) {
 	env.requireEqualManifests(false)
 }
 
-func TestDynamicManifest_WithRebootstrap(t *testing.T) {
+func TestF3DynamicManifest_WithRebootstrap(t *testing.T) {
 	t.Parallel()
-
 	env := newTestEnvironment(t, 2, true)
 
 	env.connectAll()
@@ -166,16 +161,15 @@ func TestDynamicManifest_WithRebootstrap(t *testing.T) {
 	require.Equal(t, len(pt), 4)
 }
 
-func TestDynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
+func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 	t.Parallel()
-
 	env := newTestEnvironment(t, 2, true)
 
 	env.connectAll()
 	env.start()
 
 	prev := env.nodes[0].f3.Manifest()
-	env.waitForInstanceNumber(3, 15*time.Second, false)
+	env.waitForInstanceNumber(10, 15*time.Second, false)
 	prevInstance := env.nodes[0].currentGpbftInstance()
 
 	env.manifestSender.Pause()
@@ -192,9 +186,10 @@ func TestDynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 	env.updateManifest()
 
 	env.waitForManifestChange(prev, 15*time.Second)
+	env.clock.Add(1 * time.Minute)
 
 	// check that it rebootstrapped and the number of instances is below prevInstance
-	require.True(t, env.nodes[0].currentGpbftInstance() < prevInstance)
+	require.Less(t, env.nodes[0].currentGpbftInstance(), prevInstance)
 	env.waitForInstanceNumber(3, 15*time.Second, false)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest())
 	env.requireEqualManifests(false)
@@ -205,9 +200,8 @@ var base = manifest.Manifest{
 	InitialInstance: 0,
 	NetworkName:     gpbft.NetworkName("f3-test/0"),
 	GpbftConfig: manifest.GpbftConfig{
-		// Added a higher delta and lower backoff exponent so tests run faster
-		Delta:                500 * time.Millisecond,
-		DeltaBackOffExponent: 1,
+		Delta:                3 * time.Second,
+		DeltaBackOffExponent: 2.,
 		MaxLookaheadRounds:   5,
 	},
 	// EcConfig:        manifest.DefaultEcConfig,
@@ -215,17 +209,11 @@ var base = manifest.Manifest{
 		ECFinality:        10,
 		CommitteeLookback: 5,
 		// increased delay and period to accelerate test times.
-		ECPeriod:                 100 * time.Millisecond,
+		ECPeriod:                 30 * time.Second,
 		ECDelayMultiplier:        1.0,
 		BaseDecisionBackoffTable: []float64{1., 1.2},
 	},
-	CxConfig: manifest.CxConfig{
-		ClientRequestTimeout: 10 * time.Second,
-		ServerRequestTimeout: time.Minute,
-		MinimumPollInterval:  100 * time.Millisecond,
-		MaximumPollInterval:  time.Second,
-	},
-}
+	CxConfig: manifest.DefaultCxConfig}
 
 type testNode struct {
 	e         *testEnv
@@ -267,33 +255,6 @@ func (e *testEnv) updateManifest() {
 	e.manifestSender.UpdateManifest(&m)
 }
 
-func (e *testEnv) newHeadEveryPeriod(period time.Duration) {
-	e.errgrp.Go(func() error {
-		// set a timer that sets a new head every period
-		ticker := e.clock.Ticker(period)
-		defer ticker.Stop()
-		for e.testCtx.Err() == nil {
-			select {
-			case <-e.testCtx.Done():
-				return nil
-			case now := <-ticker.C:
-				// Catchup in case we fall behind.
-				for {
-					h, err := e.ec.GetHead(e.testCtx)
-					if err != nil {
-						return err
-					}
-					if !h.Timestamp().Before(now) {
-						break
-					}
-					e.ec.SetCurrentHead(e.ec.GetCurrentHead() + 1)
-				}
-			}
-		}
-		return nil
-	})
-}
-
 func (e *testEnv) addParticipants(m *manifest.Manifest, participants []gpbft.ActorID, power *big.Int, runNodes bool) {
 	for _, n := range participants {
 		nodeLen := len(e.nodes)
@@ -327,11 +288,23 @@ func (e *testEnv) addParticipants(m *manifest.Manifest, participants []gpbft.Act
 	}
 }
 
+func (e *testEnv) waitForCondition(condition func() bool, timeout time.Duration) {
+	start := time.Now()
+	for {
+		if condition() {
+			break
+		}
+		e.advance()
+		if time.Since(start) > timeout {
+			e.t.Fatalf("test took too long")
+		}
+	}
+}
+
 // waits for all nodes to reach a specific instance number.
 // If the `strict` flag is enabled the check also applies to the non-running nodes
 func (e *testEnv) waitForInstanceNumber(instanceNumber uint64, timeout time.Duration, strict bool) {
-	start := time.Now()
-	check := func() bool {
+	e.waitForCondition(func() bool {
 		for _, n := range e.nodes {
 			// nodes that are not running are not required to reach the instance
 			// (it will actually panic if we try to fetch it because there is no
@@ -347,23 +320,16 @@ func (e *testEnv) waitForInstanceNumber(instanceNumber uint64, timeout time.Dura
 			}
 		}
 		return true
-	}
+	}, timeout)
+}
 
-	for {
-		// advance clock in 100ms increments
-		e.clock.Add(100 * time.Millisecond)
-		if check() {
-			break
-		}
-		if time.Since(start) > timeout {
-			e.t.Fatalf("test took too long")
-		}
-	}
+func (e *testEnv) advance() {
+	e.clock.Add(1 * time.Second)
 }
 
 func (e *testEnv) waitForManifestChange(prev *manifest.Manifest, timeout time.Duration) {
 	e.t.Helper()
-	require.Eventually(e.t, func() bool {
+	e.waitForCondition(func() bool {
 		for _, n := range e.nodes {
 			if !n.f3.IsRunning() {
 				continue
@@ -379,7 +345,7 @@ func (e *testEnv) waitForManifestChange(prev *manifest.Manifest, timeout time.Du
 			}
 		}
 		return true
-	}, timeout, ManifestSenderTimeout)
+	}, timeout)
 }
 
 func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) *testEnv {
@@ -394,7 +360,7 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) *testEnv {
 		for _, n := range env.nodes {
 			require.NoError(env.t, n.f3.Stop(context.Background()))
 		}
-		env.clock.WaitForAllTimers()
+		env.clock.Add(500 * time.Second)
 		require.NoError(env.t, env.errgrp.Wait())
 	})
 
@@ -413,8 +379,7 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) *testEnv {
 		})
 	}
 	env.manifest = m
-	env.ec = ec.NewFakeEC(ctx, 1, m.BootstrapEpoch+m.ECFinality, m.ECPeriod, initialPowerTable, false)
-	env.ec.SetCurrentHead(m.BootstrapEpoch)
+	env.ec = ec.NewFakeEC(ctx, 1, m.BootstrapEpoch+m.ECFinality, m.ECPeriod, initialPowerTable, true)
 
 	var manifestServer peer.ID
 	if dynamicManifest {
@@ -447,7 +412,7 @@ func (e *testEnv) requireEqualManifests(strict bool) {
 }
 
 func (e *testEnv) waitFor(f func(n *testNode) bool, timeout time.Duration) {
-	require.Eventually(e.t, func() bool {
+	e.waitForCondition(func() bool {
 		reached := 0
 		for i := 0; i < len(e.nodes); i++ {
 			if f(e.nodes[i]) {
@@ -458,7 +423,7 @@ func (e *testEnv) waitFor(f func(n *testNode) bool, timeout time.Duration) {
 			}
 		}
 		return false
-	}, timeout, e.manifest.ECPeriod)
+	}, timeout)
 }
 
 func (e *testEnv) waitForNodesInitialization() {
@@ -488,9 +453,6 @@ func (e *testEnv) start() {
 	if e.manifestSender != nil {
 		e.errgrp.Go(func() error { return e.manifestSender.Run(e.testCtx) })
 	}
-
-	// start creating new heads every ECPeriod
-	e.newHeadEveryPeriod(e.manifest.ECPeriod)
 }
 
 func (e *testEnv) pauseNode(i int) {
@@ -539,7 +501,7 @@ func (e *testEnv) newManifestSender() {
 	require.NoError(e.t, err)
 
 	m := e.manifest // copy because we mutate this
-	e.manifestSender, err = manifest.NewManifestSender(h, ps, &m, ManifestSenderTimeout)
+	e.manifestSender, err = manifest.NewManifestSender(e.testCtx, h, ps, &m, ManifestSenderTimeout)
 	require.NoError(e.t, err)
 }
 
