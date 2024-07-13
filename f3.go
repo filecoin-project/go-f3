@@ -292,10 +292,7 @@ func (m *F3) stopInternal(ctx context.Context) error {
 }
 
 func (m *F3) resumeInternal(ctx context.Context) error {
-	runnerEc := m.ec
-	if len(m.manifest.PowerUpdate) > 0 {
-		runnerEc = ec.WithModifiedPower(m.ec, m.manifest.PowerUpdate)
-	}
+	runnerEc := ec.WithModifiedPower(m.ec, m.manifest.ExplicitPower, m.manifest.IgnoreECPower)
 
 	// We don't reset this field if we only pause/resume.
 	if m.cs == nil {
@@ -374,6 +371,6 @@ func (m *F3) GetPowerTable(ctx context.Context, ts gpbft.TipSetKey) (gpbft.Power
 	if manifest == nil {
 		return nil, fmt.Errorf("no known network manifest")
 	}
-
-	return ec.WithModifiedPower(m.ec, manifest.PowerUpdate).GetPowerTable(ctx, ts)
+	return ec.WithModifiedPower(m.ec, m.manifest.ExplicitPower, m.manifest.IgnoreECPower).
+		GetPowerTable(ctx, ts)
 }

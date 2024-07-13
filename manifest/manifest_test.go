@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/stretchr/testify/require"
@@ -17,16 +16,16 @@ import (
 var base manifest.Manifest = manifest.Manifest{
 	BootstrapEpoch: 10,
 	NetworkName:    gpbft.NetworkName("test"),
-	PowerUpdate: []certs.PowerTableDelta{
+	ExplicitPower: gpbft.PowerEntries{
 		{
-			ParticipantID: 2,
-			PowerDelta:    big.NewInt(1),
-			SigningKey:    gpbft.PubKey{0},
+			ID:     2,
+			Power:  big.NewInt(1),
+			PubKey: gpbft.PubKey{0},
 		},
 		{
-			ParticipantID: 3,
-			PowerDelta:    big.NewInt(1),
-			SigningKey:    gpbft.PubKey{1},
+			ID:     3,
+			Power:  big.NewInt(1),
+			PubKey: gpbft.PubKey{1},
 		},
 	},
 	GpbftConfig: &manifest.GpbftConfig{
