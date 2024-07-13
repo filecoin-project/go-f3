@@ -361,20 +361,20 @@ func (h *gpbftHost) collectChain(base ec.TipSet, head ec.TipSet) ([]ec.TipSet, e
 	res := make([]ec.TipSet, 0, 2*gpbft.ChainMaxLen)
 	res = append(res, head)
 
-	for !bytes.Equal(head.Key(), base.Key()) {
-		if head.Epoch() < base.Epoch() {
-			// we reorged away from base
-			// scream and panic??
-			// TODO make sure this is correct, re-boostrap/manifest swap code has to be able to
-			// catch it
-			panic("reorg-ed away from base, dunno what to do, reboostrap is the answer")
+	current := head
+	for !bytes.Equal(current.Key(), base.Key()) {
+		if current.Epoch() < base.Epoch() {
+			metrics.headDiverged.Add(h.runningCtx, 1)
+			log.Infow("reorg-ed away from base, proposing just base",
+				"head", head.String(), "base", base.String())
+			return nil, nil
 		}
 		var err error
-		head, err = h.ec.GetParent(h.runningCtx, head)
+		current, err = h.ec.GetParent(h.runningCtx, current)
 		if err != nil {
 			return nil, fmt.Errorf("walking back the chain: %w", err)
 		}
-		res = append(res, head)
+		res = append(res, current)
 	}
 	slices.Reverse(res)
 	return res[1:], nil

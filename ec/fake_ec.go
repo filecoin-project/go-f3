@@ -10,6 +10,7 @@ import (
 	"golang.org/x/crypto/blake2b"
 
 	"github.com/filecoin-project/go-f3/gpbft"
+	mbase "github.com/multiformats/go-multibase"
 )
 
 var _ Backend = (*FakeEC)(nil)
@@ -52,6 +53,15 @@ func (ts *Tipset) Beacon() []byte {
 
 func (ts *Tipset) Timestamp() time.Time {
 	return ts.timestamp
+}
+
+func (ts *Tipset) String() string {
+	res, _ := mbase.Encode(mbase.Base32, ts.tsk[:gpbft.CidMaxLen])
+	for i := 1; i*gpbft.CidMaxLen < len(ts.tsk); i++ {
+		enc, _ := mbase.Encode(mbase.Base32, ts.tsk[gpbft.CidMaxLen*i:gpbft.CidMaxLen*(i+1)])
+		res += "," + enc
+	}
+	return res
 }
 
 func NewFakeEC(seed uint64, bootstrapEpoch int64, ecPeriod time.Duration, initialPowerTable gpbft.PowerEntries, useTime bool) *FakeEC {
