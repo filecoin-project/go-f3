@@ -11,6 +11,7 @@ import (
 	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/filecoin-project/go-f3/sim/signing"
 
@@ -30,7 +31,7 @@ const (
 	logLevel              = "info"
 )
 
-func TestSimpleF3(t *testing.T) {
+func TestF3Simple(t *testing.T) {
 	t.Parallel()
 
 	env := newTestEnvironment(t, 2, false)
@@ -251,6 +252,7 @@ type testEnv struct {
 	ec             *ec.FakeEC
 	manifestSender *manifest.ManifestSender
 	net            mocknet.Mocknet
+	clock          *clock.Mock
 
 	manifest        manifest.Manifest
 	manifestVersion uint64
@@ -268,7 +270,7 @@ func (e *testEnv) updateManifest() {
 func (e *testEnv) newHeadEveryPeriod(period time.Duration) {
 	e.errgrp.Go(func() error {
 		// set a timer that sets a new head every period
-		ticker := time.NewTicker(period)
+		ticker := e.clock.Ticker(period)
 		defer ticker.Stop()
 		for e.testCtx.Err() == nil {
 			select {
@@ -328,7 +330,8 @@ func (e *testEnv) addParticipants(m *manifest.Manifest, participants []gpbft.Act
 // waits for all nodes to reach a specific instance number.
 // If the `strict` flag is enabled the check also applies to the non-running nodes
 func (e *testEnv) waitForInstanceNumber(instanceNumber uint64, timeout time.Duration, strict bool) {
-	require.Eventually(e.t, func() bool {
+	start := time.Now()
+	check := func() bool {
 		for _, n := range e.nodes {
 			// nodes that are not running are not required to reach the instance
 			// (it will actually panic if we try to fetch it because there is no
@@ -344,7 +347,18 @@ func (e *testEnv) waitForInstanceNumber(instanceNumber uint64, timeout time.Dura
 			}
 		}
 		return true
-	}, timeout, e.manifest.ECPeriod)
+	}
+
+	for {
+		// advance clock in 100ms increments
+		e.clock.Add(100 * time.Millisecond)
+		if check() {
+			break
+		}
+		if time.Since(start) > timeout {
+			e.t.Fatalf("test took too long")
+		}
+	}
 }
 
 func (e *testEnv) waitForManifestChange(prev *manifest.Manifest, timeout time.Duration) {
@@ -370,8 +384,9 @@ func (e *testEnv) waitForManifestChange(prev *manifest.Manifest, timeout time.Du
 
 func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) *testEnv {
 	ctx, cancel := context.WithCancel(context.Background())
+	ctx, clk := clock.WithMockClock(ctx)
 	grp, ctx := errgroup.WithContext(ctx)
-	env := &testEnv{t: t, errgrp: grp, testCtx: ctx, net: mocknet.New()}
+	env := &testEnv{t: t, errgrp: grp, testCtx: ctx, net: mocknet.New(), clock: clk}
 
 	// Cleanup on exit.
 	env.t.Cleanup(func() {
@@ -379,6 +394,7 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) *testEnv {
 		for _, n := range env.nodes {
 			require.NoError(env.t, n.f3.Stop(context.Background()))
 		}
+		env.clock.WaitForAllTimers()
 		require.NoError(env.t, env.errgrp.Wait())
 	})
 
