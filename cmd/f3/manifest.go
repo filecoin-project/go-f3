@@ -173,20 +173,7 @@ var manifestServeCmd = cli.Command{
 		}
 
 		manifestPath := c.String("manifest")
-		loadManifestAndVersion := func() (*manifest.Manifest, manifest.Version, error) {
-
-			m, err := loadManifest(manifestPath)
-			if err != nil {
-				return nil, "", fmt.Errorf("loading manifest: %w", err)
-			}
-			version, err := m.Version()
-			if err != nil {
-				return nil, "", fmt.Errorf("versioning manifest: %w", err)
-			}
-			return m, version, nil
-		}
-
-		initManifest, manifestVersion, err := loadManifestAndVersion()
+		currentManifest, err := loadManifest(manifestPath)
 		if err != nil {
 			return fmt.Errorf("loading initial manifest: %w", err)
 		}
@@ -196,11 +183,11 @@ var manifestServeCmd = cli.Command{
 			return fmt.Errorf("initialzing pubsub: %w", err)
 		}
 
-		sender, err := manifest.NewManifestSender(host, pubSub, initManifest, c.Duration("publishInterval"))
+		sender, err := manifest.NewManifestSender(host, pubSub, currentManifest, c.Duration("publishInterval"))
 		if err != nil {
 			return fmt.Errorf("initialzing manifest sender: %w", err)
 		}
-		_, _ = fmt.Fprintf(c.App.Writer, "Started manifest sender with version: %s\n", manifestVersion)
+		_, _ = fmt.Fprintf(c.App.Writer, "Started manifest sender with network name: %s\n", currentManifest.NetworkName)
 
 		checkInterval := c.Duration("checkInterval")
 
@@ -215,12 +202,12 @@ var manifestServeCmd = cli.Command{
 				case <-ctx.Done():
 					return nil
 				case <-checkTicker.C:
-					if nextManifest, nextManifestVersion, err := loadManifestAndVersion(); err != nil {
+					if nextManifest, err := loadManifest(manifestPath); err != nil {
 						_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed reload manifest: %v\n", err)
-					} else if manifestVersion != nextManifestVersion {
-						_, _ = fmt.Fprintf(c.App.Writer, "Loaded manifest with version: %s\n", nextManifestVersion)
+					} else if !nextManifest.Equal(currentManifest) {
+						_, _ = fmt.Fprintf(c.App.Writer, "Loaded changed manifest with network name: %q\n", nextManifest.NetworkName)
 						sender.UpdateManifest(nextManifest)
-						manifestVersion = nextManifestVersion
+						currentManifest = nextManifest
 					}
 				}
 			}

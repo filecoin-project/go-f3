@@ -202,15 +202,15 @@ func TestDynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 var base = manifest.Manifest{
 	BootstrapEpoch:  950,
 	InitialInstance: 0,
-	NetworkName:     gpbft.NetworkName("f3-test"),
-	GpbftConfig: &manifest.GpbftConfig{
+	NetworkName:     gpbft.NetworkName("f3-test/0"),
+	GpbftConfig: manifest.GpbftConfig{
 		// Added a higher delta and lower backoff exponent so tests run faster
 		Delta:                500 * time.Millisecond,
 		DeltaBackOffExponent: 1,
 		MaxLookaheadRounds:   5,
 	},
 	// EcConfig:        manifest.DefaultEcConfig,
-	EcConfig: &manifest.EcConfig{
+	EcConfig: manifest.EcConfig{
 		ECFinality:        10,
 		CommitteeLookback: 5,
 		// increased delay and period to accelerate test times.
@@ -218,7 +218,7 @@ var base = manifest.Manifest{
 		ECDelayMultiplier:        1.0,
 		BaseDecisionBackoffTable: []float64{1., 1.2},
 	},
-	CxConfig: &manifest.CxConfig{
+	CxConfig: manifest.CxConfig{
 		ClientRequestTimeout: 10 * time.Second,
 		ServerRequestTimeout: time.Minute,
 		MinimumPollInterval:  100 * time.Millisecond,
@@ -252,12 +252,16 @@ type testEnv struct {
 	manifestSender *manifest.ManifestSender
 	net            mocknet.Mocknet
 
-	manifest manifest.Manifest
+	manifest        manifest.Manifest
+	manifestVersion uint64
 }
 
 // signals the update to the latest manifest in the environment.
 func (e *testEnv) updateManifest() {
 	m := e.manifest // copy because we mutate it locally.
+	e.manifestVersion++
+	nn := fmt.Sprintf("%s/%d", e.manifest.NetworkName, e.manifestVersion)
+	m.NetworkName = gpbft.NetworkName(nn)
 	e.manifestSender.UpdateManifest(&m)
 }
 
@@ -344,9 +348,8 @@ func (e *testEnv) waitForInstanceNumber(instanceNumber uint64, timeout time.Dura
 }
 
 func (e *testEnv) waitForManifestChange(prev *manifest.Manifest, timeout time.Duration) {
+	e.t.Helper()
 	require.Eventually(e.t, func() bool {
-		oldVersion, err := prev.Version()
-		require.NoError(e.t, err)
 		for _, n := range e.nodes {
 			if !n.f3.IsRunning() {
 				continue
@@ -357,9 +360,7 @@ func (e *testEnv) waitForManifestChange(prev *manifest.Manifest, timeout time.Du
 				return false
 			}
 
-			v, err := m.Version()
-			require.NoError(e.t, err)
-			if v == oldVersion {
+			if prev.Equal(m) {
 				return false
 			}
 		}
@@ -549,7 +550,7 @@ func (e *testEnv) newF3Instance(id int, manifestServer peer.ID) (*testNode, erro
 	m := e.manifest // copy because we mutate this
 	var mprovider manifest.ManifestProvider
 	if manifestServer != peer.ID("") {
-		mprovider = manifest.NewDynamicManifestProvider(&m, ps, e.ec, manifestServer)
+		mprovider = manifest.NewDynamicManifestProvider(&m, ps, manifestServer)
 	} else {
 		mprovider = manifest.NewStaticManifestProvider(&m)
 	}
