@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	bls12381 "github.com/drand/kyber-bls12381"
@@ -115,4 +116,17 @@ func (s *SigningTestSuite) TestAggregateAndVerify() {
 
 	err = s.verifier.VerifyAggregate(msg, []byte("bad sig"), pubKeys)
 	require.Error(t, err)
+
+	_, err = s.verifier.Aggregate(pubKeys, [][]byte{sigs[0]})
+	require.Error(t, err, "Missmatched pubkeys and sigs lengths should fail")
+
+	{
+		pubKeys2 := slices.Clone(pubKeys)
+		pubKeys2[0] = slices.Clone(pubKeys2[0])
+		pubKeys2[0] = pubKeys2[0][1:len(pubKeys2)]
+		_, err = s.verifier.Aggregate(pubKeys2, sigs)
+		require.Error(t, err, "damaged pubkey should error")
+
+		require.Error(t, s.verifier.VerifyAggregate(msg, aggSig, pubKeys2), "damaged pubkey should error")
+	}
 }
