@@ -9,7 +9,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/ipfs/go-datastore"
 )
@@ -90,9 +89,11 @@ type Manifest struct {
 	BootstrapEpoch int64
 	// Network name to apply for this manifest.
 	NetworkName gpbft.NetworkName
-	// Updates to perform over the power table retrieved by the host
-	// starting from BootstrapEpoch.
-	PowerUpdate []certs.PowerTableDelta
+	// Updates to perform over the power table from EC (by replacement). Any entries with 0
+	// power will disable the participant.
+	ExplicitPower gpbft.PowerEntries
+	// Ignore the power table from EC.
+	IgnoreECPower bool
 	// Config parameters for gpbft
 	*GpbftConfig
 	// EC-specific parameters

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3"
-	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/manifest"
@@ -147,7 +146,7 @@ func TestDynamicManifest_WithRebootstrap(t *testing.T) {
 	prevInstance := env.nodes[0].currentGpbftInstance()
 
 	env.manifest.BootstrapEpoch = 1253
-	env.addPowerDeltaForParticipants(&env.manifest, []gpbft.ActorID{2, 3}, big.NewInt(1), false)
+	env.addParticipants(&env.manifest, []gpbft.ActorID{2, 3}, big.NewInt(1), false)
 	env.updateManifest()
 
 	env.waitForManifestChange(prev, 35*time.Second)
@@ -289,7 +288,7 @@ func (e *testEnv) newHeadEveryPeriod(period time.Duration) {
 	})
 }
 
-func (e *testEnv) addPowerDeltaForParticipants(m *manifest.Manifest, participants []gpbft.ActorID, power *big.Int, runNodes bool) {
+func (e *testEnv) addParticipants(m *manifest.Manifest, participants []gpbft.ActorID, power *big.Int, runNodes bool) {
 	for _, n := range participants {
 		nodeLen := len(e.nodes)
 		newNode := false
@@ -303,10 +302,10 @@ func (e *testEnv) addPowerDeltaForParticipants(m *manifest.Manifest, participant
 			newNode = true
 		}
 		pubkey, _ := e.signingBackend.GenerateKey()
-		m.PowerUpdate = append(m.PowerUpdate, certs.PowerTableDelta{
-			ParticipantID: gpbft.ActorID(nodeLen),
-			SigningKey:    pubkey,
-			PowerDelta:    power,
+		m.ExplicitPower = append(m.ExplicitPower, gpbft.PowerEntry{
+			ID:     gpbft.ActorID(nodeLen),
+			PubKey: pubkey,
+			Power:  power,
 		})
 		if runNodes && newNode {
 			// connect node
