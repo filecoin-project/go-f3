@@ -16,4 +16,7 @@ jobs:
   releaser:
     uses: ipdxco/unified-github-workflows/.github/workflows/releaser.yml@v1.0
     with:
-      UCI_GITHUB_TOKEN: ${{ secrets.UCI_GITHUB_TOKEN }}
+      # Use default GitHub actions secrets until a UCI-specific secret is created.
+      # See: https://github.com/filecoin-project/go-f3/issues/449
+      # UCI_GITHUB_TOKEN: ${{ secrets.UCI_GITHUB_TOKEN }}
+      UCI_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
