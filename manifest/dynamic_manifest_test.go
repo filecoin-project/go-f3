@@ -31,7 +31,7 @@ func TestDynamicManifest(t *testing.T) {
 
 		pubSub, err := pubsub.NewGossipSub(ctx, host, pubsub.WithPeerExchange(true))
 		require.NoError(t, err)
-		sender, err = NewManifestSender(host, pubSub, initialManifest, 10*time.Millisecond)
+		sender, err = NewManifestSender(ctx, host, pubSub, initialManifest, 10*time.Millisecond)
 		require.NoError(t, err)
 	}
 

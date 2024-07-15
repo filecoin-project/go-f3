@@ -9,19 +9,11 @@ import (
 	"github.com/filecoin-project/go-f3/sim"
 	"github.com/filecoin-project/go-f3/sim/signing"
 
-	"github.com/benbjohnson/clock"
 	"github.com/stretchr/testify/require"
 )
 
 // The network name used in tests.
 const TestNetworkName gpbft.NetworkName = "testnet"
-
-// The clock used in tests. Time doesn't pass in tests unless you add time to this clock.
-var MockClock = clock.NewMock()
-
-func init() {
-	clk = MockClock
-}
 
 func MakeCertificate(t *testing.T, rng *rand.Rand, tsg *sim.TipSetGenerator, backend signing.Backend, base *gpbft.TipSet, instance uint64, powerTable, nextPowerTable gpbft.PowerEntries) *certs.FinalityCertificate {
 	chainLen := rng.Intn(23) + 1

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/filecoin-project/go-f3/internal/clock"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -18,6 +19,7 @@ type ManifestSender struct {
 	pubsub        *pubsub.PubSub
 	manifestTopic *pubsub.Topic
 	interval      time.Duration
+	clock         clock.Clock
 
 	// lock to that guards the update of the manifest.
 	lk       sync.Mutex
@@ -26,8 +28,9 @@ type ManifestSender struct {
 	paused   bool
 }
 
-func NewManifestSender(h host.Host, pubsub *pubsub.PubSub, firstManifest *Manifest, pubishInterval time.Duration) (*ManifestSender, error) {
+func NewManifestSender(ctx context.Context, h host.Host, pubsub *pubsub.PubSub, firstManifest *Manifest, pubishInterval time.Duration) (*ManifestSender, error) {
 	topicName := ManifestPubSubTopicName
+	clk := clock.GetClock(ctx)
 	m := &ManifestSender{
 		manifest: firstManifest,
 		h:        h,
@@ -35,7 +38,8 @@ func NewManifestSender(h host.Host, pubsub *pubsub.PubSub, firstManifest *Manife
 		interval: pubishInterval,
 		// seed the sequence number with nanoseconds so we can restart and don't have to
 		// remember the last sequence number.
-		msgSeq: uint64(time.Now().UnixNano()),
+		msgSeq: uint64(clk.Now().UnixNano()),
+		clock:  clk,
 	}
 
 	var err error
@@ -56,7 +60,7 @@ func (m *ManifestSender) PeerInfo() peer.AddrInfo {
 }
 
 func (m *ManifestSender) Run(ctx context.Context) error {
-	ticker := time.NewTicker(m.interval)
+	ticker := m.clock.Ticker(m.interval)
 	for ctx.Err() == nil {
 		select {
 		case <-ticker.C:

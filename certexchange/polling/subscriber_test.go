@@ -10,6 +10,7 @@ import (
 	"github.com/filecoin-project/go-f3/certexchange"
 	"github.com/filecoin-project/go-f3/certexchange/polling"
 	"github.com/filecoin-project/go-f3/certstore"
+	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/sim/signing"
 
 	"github.com/ipfs/go-datastore"
@@ -25,6 +26,7 @@ func TestSubscriber(t *testing.T) {
 	cg := polling.MakeCertificates(t, rng, backend)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	ctx, clk := clock.WithMockClock(ctx)
 	defer cancel()
 
 	mocknet := mocknetwork.New()
@@ -94,14 +96,14 @@ func TestSubscriber(t *testing.T) {
 			}
 		}
 
-		polling.MockClock.Add(waitTime)
+		clk.Add(waitTime)
 
 		require.Eventually(t, func() bool {
 			latest := clientCs.Latest()
 			if latest != nil && latest.GPBFTInstance == uint64(i-1) {
 				return true
 			}
-			polling.MockClock.WaitForAllTimers()
+			clk.WaitForAllTimers()
 			return false
 		}, 10*time.Second, time.Millisecond)
 

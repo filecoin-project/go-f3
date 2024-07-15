@@ -4,10 +4,10 @@ go 1.21
 
 require (
 	github.com/Kubuxu/go-broadcast v0.0.0-20240621161059-1a8c90734cd6
-	github.com/benbjohnson/clock v1.3.5
 	github.com/drand/kyber v1.3.1
 	github.com/drand/kyber-bls12381 v0.3.1
 	github.com/filecoin-project/go-bitfield v0.2.4
+	github.com/filecoin-project/go-clock v0.1.0
 	github.com/ipfs/go-cid v0.4.1
 	github.com/ipfs/go-datastore v0.6.0
 	github.com/ipfs/go-ds-leveldb v0.5.0
@@ -27,6 +27,7 @@ require (
 )
 
 require (
+	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/containerd/cgroups v1.1.0 // indirect

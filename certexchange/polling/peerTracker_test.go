@@ -3,6 +3,7 @@ package polling
 import (
 	"testing"
 
+	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/test"
 	"github.com/stretchr/testify/require"
@@ -105,7 +106,7 @@ func TestPeerRecordExponentialBackoff(t *testing.T) {
 }
 
 func TestPeerTracker(t *testing.T) {
-	pt := newPeerTracker()
+	pt := newPeerTracker(clock.NewMock())
 
 	var peers []peer.ID
 	discoverPeers := func(count int) {

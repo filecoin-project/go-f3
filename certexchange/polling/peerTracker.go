@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
@@ -65,9 +66,10 @@ type backoffRecord struct {
 	delayUntil int
 }
 
-func newPeerTracker() *peerTracker {
+func newPeerTracker(clk clock.Clock) *peerTracker {
 	return &peerTracker{
 		peers: make(map[peer.ID]*peerRecord),
+		clock: clk,
 	}
 }
 
@@ -76,6 +78,8 @@ type peerTracker struct {
 	active                     []peer.ID
 	backoff                    backoffHeap
 	lastHitRound, currentRound int
+
+	clock clock.Clock
 }
 
 func (r *peerRecord) Cmp(other *peerRecord) int {
@@ -198,7 +202,7 @@ func (r *peerRecord) hitRate() (float64, int) {
 func (t *peerTracker) getOrCreate(p peer.ID) *peerRecord {
 	r, ok := t.peers[p]
 	if !ok {
-		now := clk.Now()
+		now := t.clock.Now()
 		r = &peerRecord{id: p, lastSeen: now}
 		t.peers[p] = r
 	}
@@ -249,7 +253,7 @@ func (t *peerTracker) reactivate(p peer.ID) {
 }
 
 func (t *peerTracker) peerSeen(p peer.ID) {
-	now := clk.Now()
+	now := t.clock.Now()
 	if r, ok := t.peers[p]; !ok {
 		t.peers[p] = &peerRecord{id: p, state: peerActive, lastSeen: now}
 		t.active = append(t.active, p)

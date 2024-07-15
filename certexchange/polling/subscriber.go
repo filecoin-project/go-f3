@@ -11,6 +11,7 @@ import (
 	"github.com/filecoin-project/go-f3/certexchange"
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/clock"
 )
 
 const maxRequestLength = 256
@@ -28,6 +29,7 @@ type Subscriber struct {
 	peerTracker *peerTracker
 	poller      *Poller
 	discoverCh  <-chan peer.ID
+	clock       clock.Clock
 
 	wg   sync.WaitGroup
 	stop context.CancelFunc
@@ -36,10 +38,11 @@ type Subscriber struct {
 func (s *Subscriber) Start(startCtx context.Context) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.stop = cancel
+	s.clock = clock.GetClock(startCtx)
 
 	var err error
 
-	s.peerTracker = newPeerTracker()
+	s.peerTracker = newPeerTracker(s.clock)
 	s.poller, err = NewPoller(startCtx, &s.Client, s.Store, s.SignatureVerifier)
 	if err != nil {
 		return err
@@ -81,7 +84,7 @@ func (s *Subscriber) Stop(stopCtx context.Context) error {
 }
 
 func (s *Subscriber) run(ctx context.Context) error {
-	timer := clk.Timer(s.InitialPollInterval)
+	timer := s.clock.Timer(s.InitialPollInterval)
 	defer timer.Stop()
 
 	predictor := newPredictor(
@@ -114,7 +117,7 @@ func (s *Subscriber) run(ctx context.Context) error {
 
 			nextInterval := predictor.update(progress)
 			nextPollTime := pollTime.Add(nextInterval)
-			delay := max(clk.Until(nextPollTime), 0)
+			delay := max(s.clock.Until(nextPollTime), 0)
 			log.Infof("predicted interval is %s (waiting %s)", nextInterval, delay)
 			timer.Reset(delay)
 		case <-ctx.Done():

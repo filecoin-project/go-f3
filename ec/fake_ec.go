@@ -10,12 +10,14 @@ import (
 	"golang.org/x/crypto/blake2b"
 
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/clock"
 	mbase "github.com/multiformats/go-multibase"
 )
 
 var _ Backend = (*FakeEC)(nil)
 
 type FakeEC struct {
+	clock             clock.Clock
 	useTime           bool
 	seed              []byte
 	initialPowerTable gpbft.PowerEntries
@@ -64,14 +66,16 @@ func (ts *Tipset) String() string {
 	return res
 }
 
-func NewFakeEC(seed uint64, bootstrapEpoch int64, ecPeriod time.Duration, initialPowerTable gpbft.PowerEntries, useTime bool) *FakeEC {
+func NewFakeEC(ctx context.Context, seed uint64, bootstrapEpoch int64, ecPeriod time.Duration, initialPowerTable gpbft.PowerEntries, useTime bool) *FakeEC {
+	clk := clock.GetClock(ctx)
 	return &FakeEC{
+		clock:             clk,
 		useTime:           useTime,
 		seed:              binary.BigEndian.AppendUint64(nil, seed),
 		initialPowerTable: initialPowerTable,
 
 		ecPeriod: ecPeriod,
-		ecStart:  time.Now().Add(-time.Duration(bootstrapEpoch) * ecPeriod),
+		ecStart:  clk.Now().Add(-time.Duration(bootstrapEpoch) * ecPeriod),
 	}
 }
 
@@ -112,7 +116,7 @@ func (ec *FakeEC) genTipset(epoch int64) *Tipset {
 }
 
 func (ec *FakeEC) currentEpoch() int64 {
-	return int64(time.Since(ec.ecStart) / ec.ecPeriod)
+	return int64(ec.clock.Since(ec.ecStart) / ec.ecPeriod)
 }
 
 // GetTipsetByHeight should return a tipset or nil/empty byte array if it does not exists

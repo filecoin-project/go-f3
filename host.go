@@ -12,6 +12,7 @@ import (
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/manifest"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	peer "github.com/libp2p/go-libp2p/core/peer"
@@ -28,13 +29,14 @@ type gpbftRunner struct {
 	manifest    *manifest.Manifest
 	ec          ec.Backend
 	pubsub      *pubsub.PubSub
+	clock       clock.Clock
 	verifier    gpbft.Verifier
 	outMessages chan<- *gpbft.MessageBuilder
 
 	participant *gpbft.Participant
 	topic       *pubsub.Topic
 
-	alertTimer *time.Timer
+	alertTimer *clock.Timer
 
 	runningCtx context.Context
 	errgrp     *errgroup.Group
@@ -42,7 +44,7 @@ type gpbftRunner struct {
 }
 
 func newRunner(
-	_ context.Context,
+	ctx context.Context,
 	cs *certstore.Store,
 	ec ec.Backend,
 	ps *pubsub.PubSub,
@@ -50,7 +52,7 @@ func newRunner(
 	out chan<- *gpbft.MessageBuilder,
 	m *manifest.Manifest,
 ) (*gpbftRunner, error) {
-	runningCtx, ctxCancel := context.WithCancel(context.Background())
+	runningCtx, ctxCancel := context.WithCancel(context.WithoutCancel(ctx))
 	errgrp, runningCtx := errgroup.WithContext(runningCtx)
 
 	runner := &gpbftRunner{
@@ -58,6 +60,7 @@ func newRunner(
 		manifest:    m,
 		ec:          ec,
 		pubsub:      ps,
+		clock:       clock.GetClock(runningCtx),
 		verifier:    verifier,
 		outMessages: out,
 		runningCtx:  runningCtx,
@@ -66,7 +69,7 @@ func newRunner(
 	}
 
 	// create a stopped timer to facilitate alerts requested from gpbft
-	runner.alertTimer = time.NewTimer(100 * time.Hour)
+	runner.alertTimer = runner.clock.Timer(0)
 	if !runner.alertTimer.Stop() {
 		<-runner.alertTimer.C
 	}
@@ -98,7 +101,7 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 		return err
 	}
 
-	if err := h.participant.StartInstanceAt(startInstance, time.Now()); err != nil {
+	if err := h.participant.StartInstanceAt(startInstance, h.clock.Now()); err != nil {
 		return fmt.Errorf("starting a participant: %w", err)
 	}
 
@@ -188,7 +191,7 @@ func (h *gpbftRunner) receiveCertificate(c *certs.FinalityCertificate) error {
 		return nil
 	}
 
-	log.Warnf("skipping from isntance %d to instance %d", currentInstance, nextInstance)
+	log.Warnf("skipping from instance %d to instance %d", currentInstance, nextInstance)
 
 	nextInstanceStart := h.computeNextInstanceStart(c)
 	return h.participant.StartInstanceAt(nextInstance, nextInstanceStart)
@@ -201,7 +204,7 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 	if err != nil {
 		// this should not happen
 		log.Errorf("could not get timestamp of just finalized tipset: %+v", err)
-		return time.Now().Add(ecDelay)
+		return h.clock.Now().Add(ecDelay)
 	}
 
 	if cert.ECChain.HasSuffix() {
@@ -420,7 +423,7 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 	if err != nil {
 		return nil, nil, fmt.Errorf("getting head TS: %w", err)
 	}
-	if time.Since(headTs.Timestamp()) < h.manifest.ECPeriod {
+	if h.clock.Since(headTs.Timestamp()) < h.manifest.ECPeriod {
 		// less than ECPeriod since production of the head
 		// agreement is unlikely
 		headTs, err = h.ec.GetParent(h.runningCtx, headTs)
@@ -545,7 +548,7 @@ func (h *gpbftHost) RequestBroadcast(mb *gpbft.MessageBuilder) error {
 
 // Returns the current network time.
 func (h *gpbftHost) Time() time.Time {
-	return time.Now()
+	return h.clock.Now()
 }
 
 // Sets an alarm to fire after the given timestamp.
@@ -560,12 +563,12 @@ func (h *gpbftHost) SetAlarm(at time.Time) {
 	if at.IsZero() {
 		// It "at" is zero, we cancel the timer entirely. Unfortunately, we still have to
 		// replace it for the reason stated above.
-		h.alertTimer = time.NewTimer(0)
+		h.alertTimer = h.clock.Timer(0)
 		if !h.alertTimer.Stop() {
 			<-h.alertTimer.C
 		}
 	} else {
-		h.alertTimer = time.NewTimer(max(0, time.Until(at)))
+		h.alertTimer = h.clock.Timer(max(0, h.clock.Until(at)))
 	}
 }
 
