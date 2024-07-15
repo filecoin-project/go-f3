@@ -3,7 +3,7 @@ package clock
 import (
 	"context"
 
-	"github.com/benbjohnson/clock"
+	"github.com/filecoin-project/go-clock"
 )
 
 type Clock = clock.Clock
