@@ -139,6 +139,7 @@ func LocalDevnetManifest() *Manifest {
 		BootstrapEpoch: 1000,
 		EcConfig:       DefaultEcConfig,
 		GpbftConfig:    DefaultGpbftConfig,
+		CxConfig:       DefaultCxConfig,
 	}
 	return m
 }
