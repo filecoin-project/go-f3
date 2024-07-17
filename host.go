@@ -490,14 +490,22 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 
 	if instance < h.manifest.InitialInstance+h.manifest.CommitteeLookback {
 		//boostrap phase
-		ts, err := h.ec.GetTipsetByEpoch(h.runningCtx, h.manifest.BootstrapEpoch-h.manifest.ECFinality)
-		if err != nil {
-			return nil, nil, fmt.Errorf("getting tipset for boostrap epoch with lookback: %w", err)
-		}
-		powerTsk = ts.Key()
-		powerEntries, err = h.ec.GetPowerTable(h.runningCtx, powerTsk)
+		powerEntries, err = h.certStore.GetPowerTable(h.runningCtx, h.manifest.InitialInstance)
 		if err != nil {
 			return nil, nil, fmt.Errorf("getting power table: %w", err)
+		}
+		if h.certStore.Latest() == nil {
+			ts, err := h.ec.GetTipsetByEpoch(h.runningCtx, h.manifest.BootstrapEpoch-h.manifest.ECFinality)
+			if err != nil {
+				return nil, nil, fmt.Errorf("getting tipset for boostrap epoch with lookback: %w", err)
+			}
+			powerTsk = ts.Key()
+		} else {
+			cert, err := h.certStore.Get(h.runningCtx, h.manifest.InitialInstance)
+			if err != nil {
+				return nil, nil, fmt.Errorf("getting finality certificate: %w", err)
+			}
+			powerTsk = cert.ECChain.Base().Key
 		}
 	} else {
 		cert, err := h.certStore.Get(h.runningCtx, instance-h.manifest.CommitteeLookback)
