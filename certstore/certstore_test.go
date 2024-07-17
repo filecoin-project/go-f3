@@ -102,7 +102,7 @@ func TestPutWrongPowerDelta(t *testing.T) {
 	cert := &certs.FinalityCertificate{
 		GPBFTInstance:    0,
 		SupplementalData: supp,
-		PowerTableDelta: []certs.PowerTableDelta{{
+		PowerTableDelta: certs.PowerTableDiff{{
 			ParticipantID: 0,
 			PowerDelta:    gpbft.NewStoragePower(10),
 			SigningKey:    []byte("testkey"),

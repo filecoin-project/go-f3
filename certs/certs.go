@@ -26,6 +26,8 @@ func (d *PowerTableDelta) IsZero() bool {
 	return d.PowerDelta.Sign() == 0 && len(d.SigningKey) == 0
 }
 
+type PowerTableDiff []PowerTableDelta
+
 // FinalityCertificate represents a single finalized GPBFT instance.
 type FinalityCertificate struct {
 	// The GPBFT instance to which this finality certificate corresponds.
@@ -42,7 +44,7 @@ type FinalityCertificate struct {
 	Signature []byte
 	// Changes between the power table used to validate this finality certificate and the power
 	// used to validate the next finality certificate. Sorted by ParticipantID, ascending.
-	PowerTableDelta []PowerTableDelta
+	PowerTableDelta PowerTableDiff
 }
 
 // NewFinalityCertificate constructs a new finality certificate from the given power delta (from
@@ -51,7 +53,7 @@ type FinalityCertificate struct {
 // Note, however, that this function does not attempt to validate the resulting finality
 // certificate (beyond verifying that it is a justification for the correct round). You can do so by
 // immediately calling `ValidateFinalityCertificates` on the result.
-func NewFinalityCertificate(powerDelta []PowerTableDelta, justification *gpbft.Justification) (*FinalityCertificate, error) {
+func NewFinalityCertificate(powerDelta PowerTableDiff, justification *gpbft.Justification) (*FinalityCertificate, error) {
 	if justification.Vote.Step != gpbft.DECIDE_PHASE {
 		return nil, fmt.Errorf("can only create a finality certificate from a decide vote, got phase %s", justification.Vote.Step)
 	}
@@ -197,14 +199,14 @@ func verifyFinalityCertificateSignature(verifier gpbft.Verifier, powerTable gpbf
 // MakePowerTableDiff create a power table diff between the two given power tables. It makes no
 // assumptions about order, but does assume that the power table entries are unique. The returned
 // diff is sorted by participant ID ascending.
-func MakePowerTableDiff(oldPowerTable, newPowerTable gpbft.PowerEntries) []PowerTableDelta {
+func MakePowerTableDiff(oldPowerTable, newPowerTable gpbft.PowerEntries) PowerTableDiff {
 	oldPowerMap := make(map[gpbft.ActorID]*gpbft.PowerEntry, len(oldPowerTable))
 	for i := range oldPowerTable {
 		e := &oldPowerTable[i]
 		oldPowerMap[e.ID] = e
 	}
 
-	var diff []PowerTableDelta
+	var diff PowerTableDiff
 	for i := range newPowerTable {
 		newEntry := &newPowerTable[i]
 		delta := PowerTableDelta{ParticipantID: newEntry.ID}
@@ -239,7 +241,7 @@ func MakePowerTableDiff(oldPowerTable, newPowerTable gpbft.PowerEntries) []Power
 //
 // - The delta must be sorted by participant ID, ascending.
 // - The returned power table is sorted by power, descending.
-func ApplyPowerTableDiffs(prevPowerTable gpbft.PowerEntries, diffs ...[]PowerTableDelta) (gpbft.PowerEntries, error) {
+func ApplyPowerTableDiffs(prevPowerTable gpbft.PowerEntries, diffs ...PowerTableDiff) (gpbft.PowerEntries, error) {
 	powerTableMap := make(map[gpbft.ActorID]gpbft.PowerEntry, len(prevPowerTable))
 	for _, pe := range prevPowerTable {
 		powerTableMap[pe.ID] = pe
