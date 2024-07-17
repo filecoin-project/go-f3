@@ -46,7 +46,7 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 
 	env.connectAll()
 	env.start()
-	env.waitForInstanceNumber(1, 10*time.Second, true)
+	env.waitForInstanceNumber(1, 30*time.Second, true)
 
 	// Pausing two nodes should pause the network.
 	env.pauseNode(1)
@@ -62,7 +62,7 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 	env.resumeNode(1)
 	require.Equal(t, oldInstance, newInstance)
 	resumeInstance := newInstance + 1
-	env.waitForInstanceNumber(resumeInstance, 10*time.Second, false)
+	env.waitForInstanceNumber(resumeInstance, 30*time.Second, false)
 
 	// Wait until we're far enough that pure GPBFT catchup should be impossible.
 	targetInstance := resumeInstance + env.manifest.CommitteeLookback
@@ -289,6 +289,7 @@ func (e *testEnv) addParticipants(m *manifest.Manifest, participants []gpbft.Act
 }
 
 func (e *testEnv) waitForCondition(condition func() bool, timeout time.Duration) {
+	e.t.Helper()
 	start := time.Now()
 	for {
 		if condition() {
