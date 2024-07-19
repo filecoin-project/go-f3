@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log/v2"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -25,6 +26,7 @@ const ManifestPubSubTopicName = "/f3/manifests/0.0.1"
 // the manifest to be changed at runtime.
 type DynamicManifestProvider struct {
 	pubsub           *pubsub.PubSub
+	ds               datastore.Datastore
 	manifestServerID peer.ID
 
 	runningCtx context.Context
@@ -59,12 +61,15 @@ func (m *ManifestUpdateMessage) Unmarshal(r io.Reader) error {
 	return nil
 }
 
-func NewDynamicManifestProvider(initialManifest *Manifest, pubsub *pubsub.PubSub, manifestServerID peer.ID) *DynamicManifestProvider {
+func NewDynamicManifestProvider(initialManifest *Manifest, ds datastore.Datastore,
+	pubsub *pubsub.PubSub, manifestServerID peer.ID) *DynamicManifestProvider {
+
 	ctx, cancel := context.WithCancel(context.Background())
 	errgrp, ctx := errgroup.WithContext(ctx)
 
 	return &DynamicManifestProvider{
 		pubsub:           pubsub,
+		ds:               ds,
 		manifestServerID: manifestServerID,
 		runningCtx:       ctx,
 		errgrp:           errgrp,
@@ -74,16 +79,18 @@ func NewDynamicManifestProvider(initialManifest *Manifest, pubsub *pubsub.PubSub
 	}
 }
 
+var latestManifestKey = datastore.NewKey("latestManifest")
+
 func (m *DynamicManifestProvider) ManifestUpdates() <-chan *Manifest {
 	return m.manifestChanges
 }
 
-func (m *DynamicManifestProvider) Stop(ctx context.Context) (_err error) {
+func (m *DynamicManifestProvider) Stop(ctx context.Context) error {
 	m.cancel()
 	return m.errgrp.Wait()
 }
 
-func (m *DynamicManifestProvider) Start(startCtx context.Context) (_err error) {
+func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 	if err := m.registerTopicValidator(); err != nil {
 		return err
 	}
@@ -98,13 +105,27 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) (_err error) {
 		return fmt.Errorf("subscribing to manifest pubsub topic: %w", err)
 	}
 
-	// XXX: load the initial manifest from disk!
-	// And save it!
+	var msgSeqNumber uint64
+	var currentManifest *Manifest
+	if mBytes, err := m.ds.Get(startCtx, latestManifestKey); errors.Is(err, datastore.ErrNotFound) {
+		msgSeqNumber = 0
+		currentManifest = m.initialManifest
+	} else if err != nil {
+		return fmt.Errorf("error while checking saved manifest")
+	} else {
+		var update ManifestUpdateMessage
+		err := update.Unmarshal(bytes.NewReader(mBytes))
+		if err != nil {
+			return fmt.Errorf("decoding saved manifest: %w", err)
+		}
 
-	currentManifest := m.initialManifest
-	m.manifestChanges <- m.initialManifest
+		msgSeqNumber = update.MessageSequence
+		currentManifest = update.Manifest
+	}
 
-	m.errgrp.Go(func() error {
+	m.manifestChanges <- currentManifest
+
+	m.errgrp.Go(func() (_err error) {
 		defer func() {
 			manifestSub.Cancel()
 			err := multierr.Combine(
@@ -121,7 +142,6 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) (_err error) {
 			}
 		}()
 
-		var msgSeqNumber uint64
 		for m.runningCtx.Err() == nil {
 			msg, err := manifestSub.Next(m.runningCtx)
 			if err != nil {
@@ -140,6 +160,11 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) (_err error) {
 				log.Warnf("discarded manifest update %d", update.MessageSequence)
 				continue
 			}
+			err = m.ds.Put(m.runningCtx, latestManifestKey, msg.Data)
+			if err != nil {
+				log.Errorw("saving new manifest", "error", err)
+			}
+
 			log.Infof("received manifest update %d", update.MessageSequence)
 			msgSeqNumber = update.MessageSequence
 

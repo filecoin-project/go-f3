@@ -529,7 +529,7 @@ func (e *testEnv) newF3Instance(id int, manifestServer peer.ID) (*testNode, erro
 	m := e.manifest // copy because we mutate this
 	var mprovider manifest.ManifestProvider
 	if manifestServer != peer.ID("") {
-		mprovider = manifest.NewDynamicManifestProvider(&m, ps, manifestServer)
+		mprovider = manifest.NewDynamicManifestProvider(&m, ds, ps, manifestServer)
 	} else {
 		mprovider = manifest.NewStaticManifestProvider(&m)
 	}
