@@ -46,8 +46,10 @@ func TestDynamicManifest(t *testing.T) {
 		provider = NewDynamicManifestProvider(initialManifest, pubSub, sender.SenderID())
 	}
 
-	mocknet.LinkAll()
-	mocknet.ConnectAllButSelf()
+	err := mocknet.LinkAll()
+	require.NoError(t, err)
+	err = mocknet.ConnectAllButSelf()
+	require.NoError(t, err)
 
 	waitSender := make(chan error, 1)
 	senderCtx, cancelSender := context.WithCancel(ctx)
