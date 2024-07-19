@@ -233,7 +233,7 @@ func (m *F3) Stop(stopCtx context.Context) (_err error) {
 	)
 }
 
-func (m *F3) reconfigure(ctx context.Context, manifest *manifest.Manifest) (_err error) {
+func (m *F3) reconfigure(ctx context.Context, manif *manifest.Manifest) (_err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -242,14 +242,19 @@ func (m *F3) reconfigure(ctx context.Context, manifest *manifest.Manifest) (_err
 		log.Errorw("failed to properly stop F3 while reconfiguring", "error", err)
 	}
 
-	if manifest == nil {
+	// pause if new manifest is nil
+	if manif == nil {
+		return nil
+	}
+	// pause if we are not capable of supporting this version
+	if manif.ProtocolVersion > manifest.VersionCapability {
 		return nil
 	}
 
 	// If we have a new manifest, reconfigure.
-	if m.manifest == nil || m.manifest.NetworkName != manifest.NetworkName {
+	if m.manifest == nil || m.manifest.NetworkName != manif.NetworkName {
 		m.cs = nil
-		m.manifest = manifest
+		m.manifest = manif
 	}
 
 	return m.resumeInternal(m.runningCtx)
