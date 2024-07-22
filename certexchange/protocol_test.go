@@ -9,6 +9,7 @@ import (
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
 
+	cid "github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	ds_sync "github.com/ipfs/go-datastore/sync"
 	mocknetwork "github.com/libp2p/go-libp2p/p2p/net/mock"
@@ -169,5 +170,16 @@ func TestClientServer(t *testing.T) {
 		require.NoError(t, err)
 		require.EqualValues(t, pt, head.PowerTable)
 		require.Empty(t, certs)
+	}
+
+	{
+		ptCid, err := certs.MakePowerTableCID(pt)
+		require.NoError(t, err)
+		ptCid2, err := cid.Cast(ptCid)
+		require.NoError(t, err)
+
+		pt2, err := client.FindInitialPowerTable(ctx, ptCid2)
+		require.NoError(t, err)
+		require.EqualValues(t, pt, pt2)
 	}
 }
