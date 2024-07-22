@@ -159,7 +159,7 @@ func FindInitialPowerTable(ctx context.Context, c Client, powerTableCID cid.Cid,
 			}
 
 			targetProtocol := FetchProtocolName(c.NetworkName)
-			if proto, err := c.Host.Peerstore().FirstSupportedProtocol(p, targetProtocol); err != nil &&
+			if proto, err := c.Host.Peerstore().FirstSupportedProtocol(p, targetProtocol); err != nil ||
 				proto != targetProtocol {
 
 				continue
