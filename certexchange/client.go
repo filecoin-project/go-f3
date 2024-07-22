@@ -2,6 +2,7 @@ package certexchange
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
+
+	cid "github.com/ipfs/go-cid"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -135,4 +138,35 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 		}
 	}()
 	return &resp, ch, nil
+}
+
+func (c *Client) FindInitialPowerTable(ctx context.Context, powerTableCID cid.Cid) (gpbft.PowerEntries, error) {
+	request := Request{
+		FirstInstance:     0,
+		Limit:             0,
+		IncludePowerTable: true,
+	}
+
+	for {
+		for _, p := range c.Host.Network().Peers() {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+
+			rh, _, err := c.Request(ctx, p, &request)
+			if err != nil {
+				log.Infow("requesting initial power table", "error", err, "peer", p)
+				continue
+			}
+			ptCID, err := certs.MakePowerTableCID(rh.PowerTable)
+			if err != nil {
+				log.Infow("computing iniital power table CID", "error", err)
+				continue
+			}
+			if !bytes.Equal(ptCID, powerTableCID.Bytes()) {
+				log.Infow("peer returned missmatching power table", "peer", p)
+			}
+			return rh.PowerTable, nil
+		}
+	}
 }

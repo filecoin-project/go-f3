@@ -256,8 +256,9 @@ func (m *F3) reconfigure(ctx context.Context, manif *manifest.Manifest) (_err er
 	// If we have a new manifest, reconfigure.
 	if m.manifest == nil || m.manifest.NetworkName != manif.NetworkName {
 		m.cs = nil
-		m.manifest = manif
 	}
+	// This allows for some possibly unsafe re-configuration
+	m.manifest = manif
 
 	return m.resumeInternal(m.runningCtx)
 }
@@ -312,7 +313,12 @@ func (m *F3) resumeInternal(ctx context.Context) error {
 
 	// We don't reset these fields if we only pause/resume.
 	if m.cs == nil {
-		cs, err := openCertstore(m.runningCtx, mPowerEc, m.ds, m.manifest)
+		certClient := certexchange.Client{
+			Host:           m.host,
+			NetworkName:    m.manifest.NetworkName,
+			RequestTimeout: m.manifest.ClientRequestTimeout,
+		}
+		cs, err := openCertstore(m.runningCtx, mPowerEc, m.ds, m.manifest, certClient)
 		if err != nil {
 			return fmt.Errorf("failed to open certstore: %w", err)
 		}
