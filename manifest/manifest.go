@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 )
 
@@ -111,6 +112,8 @@ type Manifest struct {
 	ExplicitPower gpbft.PowerEntries
 	// Ignore the power table from EC.
 	IgnoreECPower bool
+	// InitialPowerTable specifies the optional CID of the initial power table
+	InitialPowerTable *cid.Cid
 	// Config parameters for gpbft
 	GpbftConfig
 	// EC-specific parameters
