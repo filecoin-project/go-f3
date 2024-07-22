@@ -141,14 +141,16 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	return &resp, ch, nil
 }
 
-func FindInitialPowerTable(ctx context.Context, c Client, powerTableCID cid.Cid) (gpbft.PowerEntries, error) {
-	clk := clock.GetClock(ctx)
-
+func FindInitialPowerTable(ctx context.Context, c Client, powerTableCID cid.Cid, ecPeriod time.Duration) (gpbft.PowerEntries, error) {
 	request := Request{
 		FirstInstance:     0,
 		Limit:             0,
 		IncludePowerTable: true,
 	}
+
+	clk := clock.GetClock(ctx)
+	ticker := clk.Ticker(ecPeriod / 2)
+	defer ticker.Stop()
 
 	for {
 		for _, p := range c.Host.Network().Peers() {
@@ -184,7 +186,7 @@ func FindInitialPowerTable(ctx context.Context, c Client, powerTableCID cid.Cid)
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-clk.After(1 * time.Second):
+		case <-ticker.C:
 		}
 	}
 }

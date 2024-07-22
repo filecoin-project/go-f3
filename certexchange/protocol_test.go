@@ -3,6 +3,7 @@ package certexchange_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/filecoin-project/go-f3/certexchange"
 	"github.com/filecoin-project/go-f3/certs"
@@ -178,7 +179,7 @@ func TestClientServer(t *testing.T) {
 		ptCid2, err := cid.Cast(ptCid)
 		require.NoError(t, err)
 
-		pt2, err := certexchange.FindInitialPowerTable(ctx, client, ptCid2)
+		pt2, err := certexchange.FindInitialPowerTable(ctx, client, ptCid2, 1*time.Second)
 		require.NoError(t, err)
 		require.EqualValues(t, pt, pt2)
 	}
