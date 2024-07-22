@@ -178,7 +178,7 @@ func TestClientServer(t *testing.T) {
 		ptCid2, err := cid.Cast(ptCid)
 		require.NoError(t, err)
 
-		pt2, err := client.FindInitialPowerTable(ctx, ptCid2)
+		pt2, err := certexchange.FindInitialPowerTable(ctx, client, ptCid2)
 		require.NoError(t, err)
 		require.EqualValues(t, pt, pt2)
 	}

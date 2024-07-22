@@ -11,6 +11,7 @@ import (
 
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/clock"
 
 	cid "github.com/ipfs/go-cid"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -140,7 +141,9 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	return &resp, ch, nil
 }
 
-func (c *Client) FindInitialPowerTable(ctx context.Context, powerTableCID cid.Cid) (gpbft.PowerEntries, error) {
+func FindInitialPowerTable(ctx context.Context, c Client, powerTableCID cid.Cid) (gpbft.PowerEntries, error) {
+	clk := clock.GetClock(ctx)
+
 	request := Request{
 		FirstInstance:     0,
 		Limit:             0,
@@ -151,6 +154,13 @@ func (c *Client) FindInitialPowerTable(ctx context.Context, powerTableCID cid.Ci
 		for _, p := range c.Host.Network().Peers() {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
+			}
+
+			targetProtocol := FetchProtocolName(c.NetworkName)
+			if proto, err := c.Host.Peerstore().FirstSupportedProtocol(p, targetProtocol); err != nil &&
+				proto != targetProtocol {
+
+				continue
 			}
 
 			rh, _, err := c.Request(ctx, p, &request)
@@ -165,8 +175,16 @@ func (c *Client) FindInitialPowerTable(ctx context.Context, powerTableCID cid.Ci
 			}
 			if !bytes.Equal(ptCID, powerTableCID.Bytes()) {
 				log.Infow("peer returned missmatching power table", "peer", p)
+				continue
 			}
 			return rh.PowerTable, nil
+		}
+
+		log.Infof("could not find anyone with initial power table, retrying after sleep")
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-clk.After(1 * time.Second):
 		}
 	}
 }
