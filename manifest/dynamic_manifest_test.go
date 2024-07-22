@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ipfs/go-datastore"
+	ds_sync "github.com/ipfs/go-datastore/sync"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	mocknetwork "github.com/libp2p/go-libp2p/p2p/net/mock"
 	"github.com/stretchr/testify/require"
@@ -18,10 +20,12 @@ func TestDynamicManifest(t *testing.T) {
 
 	mocknet := mocknetwork.New()
 	initialManifest := LocalDevnetManifest()
+	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 
 	var (
-		sender   *ManifestSender
-		provider *DynamicManifestProvider
+		sender       *ManifestSender
+		providerMake func() *DynamicManifestProvider
+		provider     *DynamicManifestProvider
 	)
 
 	{
@@ -43,18 +47,23 @@ func TestDynamicManifest(t *testing.T) {
 		pubSub, err := pubsub.NewGossipSub(ctx, host, pubsub.WithPeerExchange(true))
 		require.NoError(t, err)
 
-		provider = NewDynamicManifestProvider(initialManifest, pubSub, sender.SenderID())
+		providerMake = func() *DynamicManifestProvider {
+			return NewDynamicManifestProvider(initialManifest, ds, pubSub, sender.SenderID())
+		}
+		provider = providerMake()
+		t.Cleanup(func() { require.NoError(t, provider.Stop(context.Background())) })
 	}
 
-	mocknet.LinkAll()
-	mocknet.ConnectAllButSelf()
+	err := mocknet.LinkAll()
+	require.NoError(t, err)
+	err = mocknet.ConnectAllButSelf()
+	require.NoError(t, err)
 
 	waitSender := make(chan error, 1)
 	senderCtx, cancelSender := context.WithCancel(ctx)
 	go func() { waitSender <- sender.Run(senderCtx) }()
 
 	require.NoError(t, provider.Start(ctx))
-	t.Cleanup(func() { require.NoError(t, provider.Stop(context.Background())) })
 
 	// Should receive the initial manifest.
 	require.True(t, initialManifest.Equal(<-provider.ManifestUpdates()))
@@ -87,4 +96,11 @@ func TestDynamicManifest(t *testing.T) {
 
 	cancelSender()
 	require.NoError(t, <-waitSender)
+
+	// restart client with sender offline, it should remember the manifest
+	require.NoError(t, provider.Stop(context.Background()))
+	provider = providerMake()
+	require.NoError(t, provider.Start(ctx))
+
+	require.Equal(t, &newManifest, <-provider.ManifestUpdates())
 }

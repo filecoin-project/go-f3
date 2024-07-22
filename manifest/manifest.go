@@ -13,6 +13,8 @@ import (
 	"github.com/ipfs/go-datastore"
 )
 
+const VersionCapability = 1
+
 var (
 	// Default configuration for the EC Backend
 	DefaultEcConfig = EcConfig{
@@ -96,6 +98,8 @@ func (e *EcConfig) Equal(o *EcConfig) bool {
 
 // Manifest identifies the specific configuration for the F3 instance currently running.
 type Manifest struct {
+	// ProtocolVersion specifies protocol version to be used
+	ProtocolVersion uint64
 	// Initial instance to used for the f3 instance
 	InitialInstance uint64
 	// BootstrapEpoch from which the manifest should be applied
@@ -127,7 +131,8 @@ func (m *Manifest) Equal(o *Manifest) bool {
 		m.ExplicitPower.Equal(o.ExplicitPower) &&
 		m.GpbftConfig == o.GpbftConfig &&
 		m.EcConfig.Equal(&o.EcConfig) &&
-		m.CxConfig == o.CxConfig
+		m.CxConfig == o.CxConfig &&
+		m.ProtocolVersion == o.ProtocolVersion
 
 }
 
@@ -135,11 +140,12 @@ func LocalDevnetManifest() *Manifest {
 	rng := make([]byte, 4)
 	_, _ = rand.Read(rng)
 	m := &Manifest{
-		NetworkName:    gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng)),
-		BootstrapEpoch: 1000,
-		EcConfig:       DefaultEcConfig,
-		GpbftConfig:    DefaultGpbftConfig,
-		CxConfig:       DefaultCxConfig,
+		ProtocolVersion: 1,
+		NetworkName:     gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng)),
+		BootstrapEpoch:  1000,
+		EcConfig:        DefaultEcConfig,
+		GpbftConfig:     DefaultGpbftConfig,
+		CxConfig:        DefaultCxConfig,
 	}
 	return m
 }
