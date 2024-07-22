@@ -3,6 +3,7 @@ package emulator
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/filecoin-project/go-f3/certs"
@@ -33,6 +34,7 @@ func NewInstance(t *testing.T, id uint64, powerEntries gpbft.PowerEntries, propo
 	// instance going here at the price of accepting partial data and implicitly
 	// filling what's missing.
 
+	powerEntries = slices.Clone(powerEntries)
 	for i, entry := range powerEntries {
 		if len(entry.PubKey) == 0 {
 			// Populate missing public key to avoid power table validation errors.
