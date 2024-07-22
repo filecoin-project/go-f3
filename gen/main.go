@@ -29,6 +29,7 @@ func main() {
 
 	err = gen.WriteTupleEncodersToFile("../certs/cbor_gen.go", "certs",
 		certs.PowerTableDelta{},
+		certs.PowerTableDiff{},
 		certs.FinalityCertificate{},
 	)
 	if err != nil {

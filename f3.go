@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/clock"
+	"github.com/filecoin-project/go-f3/internal/powerstore"
 	"github.com/filecoin-project/go-f3/manifest"
 
 	"github.com/ipfs/go-datastore"
@@ -43,6 +44,7 @@ type F3 struct {
 	cs       *certstore.Store
 	manifest *manifest.Manifest
 	runner   *gpbftRunner
+	ps       *powerstore.Store
 	certsub  *certexpoll.Subscriber
 	certserv *certexchange.Server
 }
@@ -276,6 +278,12 @@ func (m *F3) Resume() error {
 
 func (m *F3) stopInternal(ctx context.Context) error {
 	var err error
+	if m.ps != nil {
+		if serr := m.ps.Stop(ctx); serr != nil {
+			err = multierr.Append(err, fmt.Errorf("failed to stop ohshitstore: %w", serr))
+		}
+		m.ps = nil
+	}
 	if m.runner != nil {
 		// Log and ignore shutdown errors.
 		if serr := m.runner.Stop(ctx); serr != nil {
@@ -300,16 +308,27 @@ func (m *F3) stopInternal(ctx context.Context) error {
 }
 
 func (m *F3) resumeInternal(ctx context.Context) error {
-	runnerEc := ec.WithModifiedPower(m.ec, m.manifest.ExplicitPower, m.manifest.IgnoreECPower)
+	mPowerEc := ec.WithModifiedPower(m.ec, m.manifest.ExplicitPower, m.manifest.IgnoreECPower)
 
-	// We don't reset this field if we only pause/resume.
+	// We don't reset these fields if we only pause/resume.
 	if m.cs == nil {
-		cs, err := openCertstore(m.runningCtx, runnerEc, m.ds, m.manifest)
+		cs, err := openCertstore(m.runningCtx, mPowerEc, m.ds, m.manifest)
 		if err != nil {
 			return fmt.Errorf("failed to open certstore: %w", err)
 		}
 
 		m.cs = cs
+	}
+	if m.ps == nil {
+		ps, err := powerstore.New(m.runningCtx, mPowerEc, m.ds, m.cs, m.manifest)
+		if err != nil {
+			return fmt.Errorf("failed to construct the oshitstore: %w", err)
+		}
+		err = ps.Start(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to start the ohshitstore: %w", err)
+		}
+		m.ps = ps
 	}
 
 	m.certserv = &certexchange.Server{
@@ -339,7 +358,7 @@ func (m *F3) resumeInternal(ctx context.Context) error {
 	}
 
 	if runner, err := newRunner(
-		ctx, m.cs, runnerEc, m.pubsub, m.verifier,
+		ctx, m.cs, m.ps, m.pubsub, m.verifier,
 		m.outboundMessages, m.manifest,
 	); err != nil {
 		return err
@@ -374,11 +393,16 @@ func (m *F3) IsRunning() bool {
 func (m *F3) GetPowerTable(ctx context.Context, ts gpbft.TipSetKey) (gpbft.PowerEntries, error) {
 	m.mu.Lock()
 	manifest := m.manifest
+	ps := m.ps
 	m.mu.Unlock()
 
-	if manifest == nil {
-		return nil, fmt.Errorf("no known network manifest")
+	if ps != nil {
+		return ps.GetPowerTable(ctx, ts)
 	}
-	return ec.WithModifiedPower(m.ec, m.manifest.ExplicitPower, m.manifest.IgnoreECPower).
-		GetPowerTable(ctx, ts)
+	if manifest != nil {
+		return ec.WithModifiedPower(m.ec, m.manifest.ExplicitPower, m.manifest.IgnoreECPower).
+			GetPowerTable(ctx, ts)
+	}
+
+	return nil, fmt.Errorf("no known network manifest")
 }

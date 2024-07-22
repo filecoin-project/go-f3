@@ -169,6 +169,75 @@ func (t *PowerTableDelta) UnmarshalCBOR(r io.Reader) (err error) {
 	return nil
 }
 
+func (t *PowerTableDiff) MarshalCBOR(w io.Writer) error {
+	cw := cbg.NewCborWriter(w)
+
+	// (*t) (certs.PowerTableDiff) (slice)
+	if len((*t)) > 8192 {
+		return xerrors.Errorf("Slice value in field (*t) was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajArray, uint64(len((*t)))); err != nil {
+		return err
+	}
+	for _, v := range *t {
+		if err := v.MarshalCBOR(cw); err != nil {
+			return err
+		}
+
+	}
+	return nil
+}
+
+func (t *PowerTableDiff) UnmarshalCBOR(r io.Reader) (err error) {
+	*t = PowerTableDiff{}
+
+	cr := cbg.NewCborReader(r)
+	var maj byte
+	var extra uint64
+	_ = maj
+	_ = extra
+	// (*t) (certs.PowerTableDiff) (slice)
+
+	maj, extra, err = cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+
+	if extra > 8192 {
+		return fmt.Errorf("(*t): array too large (%d)", extra)
+	}
+
+	if maj != cbg.MajArray {
+		return fmt.Errorf("expected cbor array")
+	}
+
+	if extra > 0 {
+		(*t) = make([]PowerTableDelta, extra)
+	}
+
+	for i := 0; i < int(extra); i++ {
+		{
+			var maj byte
+			var extra uint64
+			var err error
+			_ = maj
+			_ = extra
+			_ = err
+
+			{
+
+				if err := (*t)[i].UnmarshalCBOR(cr); err != nil {
+					return xerrors.Errorf("unmarshaling (*t)[i]: %w", err)
+				}
+
+			}
+
+		}
+	}
+	return nil
+}
+
 var lengthBufFinalityCertificate = []byte{134}
 
 func (t *FinalityCertificate) MarshalCBOR(w io.Writer) error {
@@ -227,7 +296,7 @@ func (t *FinalityCertificate) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.PowerTableDelta ([]certs.PowerTableDelta) (slice)
+	// t.PowerTableDelta (certs.PowerTableDiff) (slice)
 	if len(t.PowerTableDelta) > 8192 {
 		return xerrors.Errorf("Slice value in field t.PowerTableDelta was too long")
 	}
@@ -359,7 +428,7 @@ func (t *FinalityCertificate) UnmarshalCBOR(r io.Reader) (err error) {
 		return err
 	}
 
-	// t.PowerTableDelta ([]certs.PowerTableDelta) (slice)
+	// t.PowerTableDelta (certs.PowerTableDiff) (slice)
 
 	maj, extra, err = cr.ReadHeader()
 	if err != nil {

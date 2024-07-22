@@ -309,7 +309,7 @@ func (cs *Store) GetPowerTable(ctx context.Context, instance uint64) (gpbft.Powe
 	}
 
 	// Apply the diffs and return the result.
-	deltas := make([][]certs.PowerTableDelta, len(certificates))
+	deltas := make([]certs.PowerTableDiff, len(certificates))
 	for i := range certificates {
 		deltas[i] = certificates[i].PowerTableDelta
 	}
