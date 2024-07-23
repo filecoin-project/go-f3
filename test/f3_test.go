@@ -60,8 +60,8 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 
 	// Resuming node 1 should continue agreeing on instances.
 	env.resumeNode(1)
-	require.Equal(t, oldInstance, newInstance)
-	resumeInstance := newInstance + 1
+	// make sure we're ahead of node 2, which may be ahead of node 0.
+	resumeInstance := env.nodes[2].currentGpbftInstance() + 1
 	env.waitForInstanceNumber(resumeInstance, 30*time.Second, false)
 
 	// Wait until we're far enough that pure GPBFT catchup should be impossible.
@@ -69,6 +69,7 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 	env.waitForInstanceNumber(targetInstance, 30*time.Second, false)
 
 	pausedInstance := env.nodes[2].currentGpbftInstance()
+
 	require.Less(t, pausedInstance, resumeInstance)
 
 	env.resumeNode(2)
