@@ -71,10 +71,38 @@ type CxConfig struct {
 	MaximumPollInterval time.Duration
 }
 
+func (c *CxConfig) Validate() error {
+	if c.ClientRequestTimeout < 0 {
+		return fmt.Errorf("client request timeout must be non-negative, was %s", c.ClientRequestTimeout)
+	}
+	if c.ServerRequestTimeout < 0 {
+		return fmt.Errorf("server request timeout must be non-negative, was %s", c.ServerRequestTimeout)
+	}
+	if c.MinimumPollInterval < time.Millisecond {
+		return fmt.Errorf("minimum polling interval must be at least 1ms, was %s", c.MinimumPollInterval)
+	}
+
+	if c.MinimumPollInterval > c.MaximumPollInterval {
+		return fmt.Errorf("maximum polling interval (%s) must not be less than the minimum (%s)",
+			c.MaximumPollInterval, c.MinimumPollInterval)
+	}
+	return nil
+}
+
 type GpbftConfig struct {
 	Delta                time.Duration
 	DeltaBackOffExponent float64
 	MaxLookaheadRounds   uint64
+}
+
+func (g *GpbftConfig) Validate() error {
+	if g.Delta <= 0 {
+		return fmt.Errorf("GPBFT delta must be positive, was %s", g.Delta)
+	}
+	if g.DeltaBackOffExponent < 1.0 {
+		return fmt.Errorf("GPBFT backoff exponent must be at least 1.0, was %f", g.DeltaBackOffExponent)
+	}
+	return nil
 }
 
 type EcConfig struct {
@@ -94,6 +122,29 @@ func (e *EcConfig) Equal(o *EcConfig) bool {
 		e.Finality == o.Finality &&
 		e.DelayMultiplier == o.DelayMultiplier &&
 		slices.Equal(e.BaseDecisionBackoffTable, o.BaseDecisionBackoffTable)
+}
+
+func (e *EcConfig) Validate() error {
+	if e.Period <= 0 {
+		return fmt.Errorf("EC period must be positive, was %s", e.Period)
+	}
+	if e.Finality < 0 {
+		return fmt.Errorf("EC finality must be non-negative, was %d", e.Finality)
+	}
+
+	if e.DelayMultiplier <= 0.0 {
+		return fmt.Errorf("EC delay multiplier must positive, was %f", e.DelayMultiplier)
+	}
+
+	if len(e.BaseDecisionBackoffTable) == 0 {
+		return fmt.Errorf("EC backoff table must have at least one element")
+	}
+	for i, b := range e.BaseDecisionBackoffTable {
+		if b < 0.0 {
+			return fmt.Errorf("EC backoff table element %d is negative (%f)", i, b)
+		}
+	}
+	return nil
 }
 
 // Manifest identifies the specific configuration for the F3 instance currently running.
@@ -146,6 +197,54 @@ func (m *Manifest) Equal(o *Manifest) bool {
 		m.CertificateExchange == o.CertificateExchange &&
 		m.ProtocolVersion == o.ProtocolVersion
 
+}
+
+func (m *Manifest) Validate() error {
+	if m == nil {
+		return fmt.Errorf("invalid manifest: manifest is nil!")
+	}
+
+	if m.NetworkName == "" {
+		return fmt.Errorf("invalid manifest: network name must not be empty")
+	}
+
+	if m.BootstrapEpoch < m.EC.Finality {
+		return fmt.Errorf("invalid manifest: bootstrap epoch %d before finality %d",
+			m.BootstrapEpoch, m.EC.Finality)
+	}
+
+	if m.IgnoreECPower && len(m.ExplicitPower) == 0 {
+		return fmt.Errorf("invalid manifest: ignoring ec power with no explicit power")
+	}
+
+	if len(m.ExplicitPower) > 0 {
+		pt := gpbft.NewPowerTable()
+		err := pt.Add(m.ExplicitPower...)
+		if err != nil {
+			return fmt.Errorf("invalid manifest: invalid power entries")
+		}
+		err = pt.Validate()
+		if err != nil {
+			return fmt.Errorf("invalid manifest: %w", err)
+		}
+		if m.IgnoreECPower && pt.Total.Sign() <= 0 {
+			return fmt.Errorf("invalid manifest: no power")
+		}
+	}
+
+	if err := m.Gpbft.Validate(); err != nil {
+		return fmt.Errorf("invalid manifest: invalid gpbft config: %w", err)
+	}
+
+	if err := m.EC.Validate(); err != nil {
+		return fmt.Errorf("invalid manifest: invalid EC config: %w", err)
+	}
+
+	if err := m.CertificateExchange.Validate(); err != nil {
+		return fmt.Errorf("invalid manifest: invalid certificate exchange config: %w", err)
+	}
+
+	return nil
 }
 
 func LocalDevnetManifest() *Manifest {
