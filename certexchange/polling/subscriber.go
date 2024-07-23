@@ -118,7 +118,7 @@ func (s *Subscriber) run(ctx context.Context) error {
 			nextInterval := predictor.update(progress)
 			nextPollTime := pollTime.Add(nextInterval)
 			delay := max(s.clock.Until(nextPollTime), 0)
-			log.Infof("predicted interval is %s (waiting %s)", nextInterval, delay)
+			log.Debugf("predicted interval is %s (waiting %s)", nextInterval, delay)
 			timer.Reset(delay)
 		case <-ctx.Done():
 			return ctx.Err()
