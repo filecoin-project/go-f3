@@ -418,16 +418,12 @@ func (e *testEnv) requireEqualManifests(strict bool) {
 
 func (e *testEnv) waitFor(f func(n *testNode) bool, timeout time.Duration) {
 	e.waitForCondition(func() bool {
-		reached := 0
-		for i := 0; i < len(e.nodes); i++ {
-			if f(e.nodes[i]) {
-				reached++
-			}
-			if reached == len(e.nodes) {
-				return true
+		for _, n := range e.nodes {
+			if !f(n) {
+				return false
 			}
 		}
-		return false
+		return true
 	}, timeout)
 }
 
