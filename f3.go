@@ -127,7 +127,7 @@ func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCerti
 // Returns the time at which the F3 instance specified by the passed manifest should be started, or
 // 0 if the passed manifest is nil.
 func (m *F3) computeBootstrapDelay(manifest *manifest.Manifest) (time.Duration, error) {
-	if manifest == nil {
+	if manifest == nil || manifest.Pause {
 		return 0, nil
 	}
 
@@ -266,6 +266,12 @@ func (m *F3) reconfigure(ctx context.Context, manif *manifest.Manifest) (_err er
 	if m.manifest == nil || m.manifest.NetworkName != manif.NetworkName {
 		m.cs = nil
 	}
+
+	// Pause if explicitly paused.
+	if manif.Pause {
+		return nil
+	}
+
 	// This allows for some possibly unsafe re-configuration
 	m.manifest = manif
 
