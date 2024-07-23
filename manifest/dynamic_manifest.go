@@ -158,7 +158,7 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 			}
 
 			if update.MessageSequence <= msgSeqNumber {
-				log.Warnf("discarded manifest update %d", update.MessageSequence)
+				log.Debugf("discarded manifest update %d", update.MessageSequence)
 				continue
 			}
 			err = m.ds.Put(m.runningCtx, latestManifestKey, msg.Data)
