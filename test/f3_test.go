@@ -225,9 +225,9 @@ func (n *testNode) currentGpbftInstance() uint64 {
 	c, err := n.f3.GetLatestCert(n.e.testCtx)
 	require.NoError(n.e.t, err)
 	if c == nil {
-		return 0
+		return n.e.manifest.InitialInstance
 	}
-	return c.GPBFTInstance
+	return c.GPBFTInstance + 1
 }
 
 type testEnv struct {
