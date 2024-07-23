@@ -225,9 +225,11 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 			log.Errorf("error while getting instance %d from certstore: %+v", instance, err)
 			break
 		}
-		if !cert.ECChain.HasSuffix() {
-			attempts += 1
+		if cert.ECChain.HasSuffix() {
+			break
 		}
+
+		attempts += 1
 		if attempts < len(backoffTable) {
 			backoffMultipler += backoffTable[attempts]
 		} else {
