@@ -49,11 +49,14 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 	env.pauseNode(1)
 	env.pauseNode(2)
 
+	// Wait until node 0 stops receiving new instances
 	env.clock.Add(1 * time.Second)
-	oldInstance := env.nodes[0].currentGpbftInstance()
-	env.clock.Add(1 * time.Second)
-	newInstance := env.nodes[0].currentGpbftInstance()
-	require.Equal(t, oldInstance, newInstance)
+	env.waitForCondition(func() bool {
+		oldInstance := env.nodes[0].currentGpbftInstance()
+		env.clock.Add(10 * env.manifest.EC.Period)
+		newInstance := env.nodes[0].currentGpbftInstance()
+		return oldInstance == newInstance
+	}, 30*time.Second)
 
 	// Resuming node 1 should continue agreeing on instances.
 	env.resumeNode(1)
