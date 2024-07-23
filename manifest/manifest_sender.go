@@ -25,7 +25,6 @@ type ManifestSender struct {
 	lk       sync.Mutex
 	manifest *Manifest
 	msgSeq   uint64
-	paused   bool
 }
 
 func NewManifestSender(ctx context.Context, h host.Host, ps *pubsub.PubSub, firstManifest *Manifest, pubishInterval time.Duration) (*ManifestSender, error) {
@@ -81,11 +80,14 @@ func (m *ManifestSender) publishManifest(ctx context.Context) error {
 	m.lk.Lock()
 	defer m.lk.Unlock()
 
+	// Manifest sender itself is paused.
+	if m.manifest == nil {
+		return nil
+	}
+
 	update := ManifestUpdateMessage{
 		MessageSequence: m.msgSeq,
-	}
-	if !m.paused {
-		update.Manifest = m.manifest
+		Manifest:        *m.manifest,
 	}
 
 	b, err := update.Marshal()
@@ -99,24 +101,5 @@ func (m *ManifestSender) UpdateManifest(manifest *Manifest) {
 	m.lk.Lock()
 	m.manifest = manifest
 	m.msgSeq++
-	m.paused = false
-	m.lk.Unlock()
-}
-
-func (m *ManifestSender) Pause() {
-	m.lk.Lock()
-	if !m.paused {
-		m.paused = true
-		m.msgSeq++
-	}
-	m.lk.Unlock()
-}
-
-func (m *ManifestSender) Resume() {
-	m.lk.Lock()
-	if m.paused {
-		m.paused = false
-		m.msgSeq++
-	}
 	m.lk.Unlock()
 }

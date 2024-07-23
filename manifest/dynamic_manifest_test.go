@@ -68,12 +68,14 @@ func TestDynamicManifest(t *testing.T) {
 	// Should receive the initial manifest.
 	require.True(t, initialManifest.Equal(<-provider.ManifestUpdates()))
 
-	// Pausing should send nil.
-	sender.Pause()
-	require.Nil(t, <-provider.ManifestUpdates())
+	// Pausing should send an update.
+	pausedManifest := *initialManifest
+	pausedManifest.Pause = true
+	sender.UpdateManifest(&pausedManifest)
+	require.True(t, pausedManifest.Equal(<-provider.ManifestUpdates()))
 
 	// Should get the initial manifest again.
-	sender.Resume()
+	sender.UpdateManifest(initialManifest)
 	require.True(t, initialManifest.Equal(<-provider.ManifestUpdates()))
 
 	cancelSender()

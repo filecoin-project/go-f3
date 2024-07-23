@@ -42,7 +42,7 @@ type ManifestUpdateMessage struct {
 	// An increasing sequence number for ordering manifest updates received over the network.
 	MessageSequence uint64
 	// The manifest to apply or nil to pause the network.
-	Manifest *Manifest
+	Manifest Manifest
 }
 
 func (m ManifestUpdateMessage) Marshal() ([]byte, error) {
@@ -124,7 +124,7 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 		}
 
 		msgSeqNumber = update.MessageSequence
-		currentManifest = update.Manifest
+		currentManifest = &update.Manifest
 	}
 
 	m.manifestChanges <- currentManifest
@@ -173,7 +173,8 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 			msgSeqNumber = update.MessageSequence
 
 			oldManifest := currentManifest
-			currentManifest = update.Manifest
+			manifestCopy := update.Manifest
+			currentManifest = &manifestCopy
 
 			// If we're receiving the same manifest multiple times (manifest publisher
 			// could have restarted), don't re-apply it.
@@ -182,7 +183,7 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 			}
 
 			select {
-			case m.manifestChanges <- update.Manifest:
+			case m.manifestChanges <- currentManifest:
 			case <-m.runningCtx.Done():
 				return nil
 			}

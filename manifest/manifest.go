@@ -131,6 +131,7 @@ func (m *Manifest) Equal(o *Manifest) bool {
 	}
 
 	return m.NetworkName == o.NetworkName &&
+		m.Pause == o.Pause &&
 		m.InitialInstance == o.InitialInstance &&
 		m.BootstrapEpoch == o.BootstrapEpoch &&
 		m.IgnoreECPower == o.IgnoreECPower &&
