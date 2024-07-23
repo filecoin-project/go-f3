@@ -205,6 +205,7 @@ func (m *DynamicManifestProvider) registerTopicValidator() error {
 		originID, err := peer.IDFromBytes(msg.From)
 		if err != nil {
 			log.Debugw("decoding msg.From ID", "error", err)
+			return pubsub.ValidationReject
 		}
 
 		// manifest should come from the expected diagnostics server
