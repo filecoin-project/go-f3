@@ -98,6 +98,8 @@ func (e *EcConfig) Equal(o *EcConfig) bool {
 
 // Manifest identifies the specific configuration for the F3 instance currently running.
 type Manifest struct {
+	// Pause stops the participation in F3.
+	Pause bool
 	// ProtocolVersion specifies protocol version to be used
 	ProtocolVersion uint64
 	// Initial instance to used for the f3 instance
