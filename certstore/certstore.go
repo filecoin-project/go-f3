@@ -297,7 +297,7 @@ func (cs *Store) GetPowerTable(ctx context.Context, instance uint64) (gpbft.Powe
 
 	powerTable, err := cs.readPowerTable(ctx, startInstance)
 	if err != nil {
-		return nil, fmt.Errorf("failed fo find expected power table for instance %d: %w", startInstance, err)
+		return nil, fmt.Errorf("failed to find expected power table for instance %d: %w", startInstance, err)
 	}
 	if startInstance == instance {
 		return powerTable, nil
@@ -389,8 +389,9 @@ func (cs *Store) Put(ctx context.Context, cert *certs.FinalityCertificate) error
 		return fmt.Errorf("putting the cert: %w", err)
 	}
 
-	if cert.GPBFTInstance%cs.powerTableFrequency == 0 {
-		if err := cs.putPowerTable(ctx, cert.GPBFTInstance, cs.latestPowerTable); err != nil {
+	// The new power table is the power table to validate the _next_ instance.
+	if (cert.GPBFTInstance+1)%cs.powerTableFrequency == 0 {
+		if err := cs.putPowerTable(ctx, cert.GPBFTInstance+1, newPowerTable); err != nil {
 			return err
 		}
 	}
