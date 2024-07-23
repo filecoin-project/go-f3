@@ -199,7 +199,7 @@ func (m *DynamicManifestProvider) registerTopicValidator() error {
 		var update ManifestUpdateMessage
 		err := update.Unmarshal(bytes.NewReader(msg.Data))
 		if err != nil {
-			log.Debugw("reject unmarshal", "error", err)
+			log.Debugw("failed to unmarshal manifest", "error", err, "from", msg.From)
 			return pubsub.ValidationReject
 		}
 		originID, err := peer.IDFromBytes(msg.From)
