@@ -27,7 +27,7 @@ func openCertstore(ctx context.Context, ec ec.Backend, ds datastore.Datastore,
 		return nil, err
 	}
 
-	ts, err := ec.GetTipsetByEpoch(ctx, m.BootstrapEpoch-m.ECFinality)
+	ts, err := ec.GetTipsetByEpoch(ctx, m.BootstrapEpoch-m.EC.Finality)
 	var initialPowerTable gpbft.PowerEntries
 
 	if err == nil {
@@ -38,7 +38,7 @@ func openCertstore(ctx context.Context, ec ec.Backend, ds datastore.Datastore,
 	} else if m.InitialPowerTable != nil {
 		log.Errorw("could not get initial power table from EC, trying finality exchange", "error", err)
 		initialPowerTable, err = certexchange.FindInitialPowerTable(ctx, certClient,
-			*m.InitialPowerTable, m.ECPeriod)
+			*m.InitialPowerTable, m.EC.Period)
 
 		if err != nil {
 			log.Errorw("could not get initial power table from finality exchange", "error", err)

@@ -65,7 +65,7 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 	env.waitForInstanceNumber(resumeInstance, 30*time.Second, false)
 
 	// Wait until we're far enough that pure GPBFT catchup should be impossible.
-	targetInstance := resumeInstance + env.manifest.CommitteeLookback
+	targetInstance := resumeInstance + env.manifest.EC.CommitteeLookback
 	env.waitForInstanceNumber(targetInstance, 30*time.Second, false)
 
 	pausedInstance := env.nodes[2].currentGpbftInstance()
@@ -200,21 +200,20 @@ var base = manifest.Manifest{
 	BootstrapEpoch:  950,
 	InitialInstance: 0,
 	NetworkName:     gpbft.NetworkName("f3-test/0"),
-	GpbftConfig: manifest.GpbftConfig{
+	Gpbft: manifest.GpbftConfig{
 		Delta:                3 * time.Second,
 		DeltaBackOffExponent: 2.,
 		MaxLookaheadRounds:   5,
 	},
-	// EcConfig:        manifest.DefaultEcConfig,
-	EcConfig: manifest.EcConfig{
-		ECFinality:        10,
+	EC: manifest.EcConfig{
+		Finality:          10,
 		CommitteeLookback: 5,
 		// increased delay and period to accelerate test times.
-		ECPeriod:                 30 * time.Second,
-		ECDelayMultiplier:        1.0,
+		Period:                   30 * time.Second,
+		DelayMultiplier:          1.0,
 		BaseDecisionBackoffTable: []float64{1., 1.2},
 	},
-	CxConfig: manifest.DefaultCxConfig}
+	CertificateExchange: manifest.DefaultCxConfig}
 
 type testNode struct {
 	e         *testEnv
@@ -382,7 +381,7 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) *testEnv {
 		})
 	}
 	env.manifest = m
-	env.ec = ec.NewFakeEC(ctx, 1, m.BootstrapEpoch+m.ECFinality, m.ECPeriod, initialPowerTable, true)
+	env.ec = ec.NewFakeEC(ctx, 1, m.BootstrapEpoch+m.EC.Finality, m.EC.Period, initialPowerTable, true)
 
 	var manifestServer peer.ID
 	if dynamicManifest {

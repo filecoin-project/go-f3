@@ -198,7 +198,7 @@ func (h *gpbftRunner) receiveCertificate(c *certs.FinalityCertificate) error {
 }
 
 func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) time.Time {
-	ecDelay := time.Duration(h.manifest.ECDelayMultiplier * float64(h.manifest.ECPeriod))
+	ecDelay := time.Duration(h.manifest.EC.DelayMultiplier * float64(h.manifest.EC.Period))
 
 	ts, err := h.ec.GetTipset(h.runningCtx, cert.ECChain.Head().Key)
 	if err != nil {
@@ -215,7 +215,7 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 		// if we are at initial instance, there is no history to look at
 		return ts.Timestamp().Add(ecDelay)
 	}
-	backoffTable := h.manifest.BaseDecisionBackoffTable
+	backoffTable := h.manifest.EC.BaseDecisionBackoffTable
 
 	attempts := 0
 	backoffMultipler := 1.0 // to account for the one ECDelay after which we got the base decistion
@@ -412,7 +412,7 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 	var baseTsk gpbft.TipSetKey
 	if instance == h.manifest.InitialInstance {
 		ts, err := h.ec.GetTipsetByEpoch(h.runningCtx,
-			h.manifest.BootstrapEpoch-h.manifest.ECFinality)
+			h.manifest.BootstrapEpoch-h.manifest.EC.Finality)
 		if err != nil {
 			return nil, nil, fmt.Errorf("getting boostrap base: %w", err)
 		}
@@ -433,7 +433,7 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 	if err != nil {
 		return nil, nil, fmt.Errorf("getting head TS: %w", err)
 	}
-	if h.clock.Since(headTs.Timestamp()) < h.manifest.ECPeriod {
+	if h.clock.Since(headTs.Timestamp()) < h.manifest.EC.Period {
 		// less than ECPeriod since production of the head
 		// agreement is unlikely
 		headTs, err = h.ec.GetParent(h.runningCtx, headTs)
@@ -498,14 +498,14 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 	var powerEntries gpbft.PowerEntries
 	var err error
 
-	if instance < h.manifest.InitialInstance+h.manifest.CommitteeLookback {
+	if instance < h.manifest.InitialInstance+h.manifest.EC.CommitteeLookback {
 		//boostrap phase
 		powerEntries, err = h.certStore.GetPowerTable(h.runningCtx, h.manifest.InitialInstance)
 		if err != nil {
 			return nil, nil, fmt.Errorf("getting power table: %w", err)
 		}
 		if h.certStore.Latest() == nil {
-			ts, err := h.ec.GetTipsetByEpoch(h.runningCtx, h.manifest.BootstrapEpoch-h.manifest.ECFinality)
+			ts, err := h.ec.GetTipsetByEpoch(h.runningCtx, h.manifest.BootstrapEpoch-h.manifest.EC.Finality)
 			if err != nil {
 				return nil, nil, fmt.Errorf("getting tipset for boostrap epoch with lookback: %w", err)
 			}
@@ -518,7 +518,7 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable,
 			powerTsk = cert.ECChain.Base().Key
 		}
 	} else {
-		cert, err := h.certStore.Get(h.runningCtx, instance-h.manifest.CommitteeLookback)
+		cert, err := h.certStore.Get(h.runningCtx, instance-h.manifest.EC.CommitteeLookback)
 		if err != nil {
 			return nil, nil, fmt.Errorf("getting finality certificate: %w", err)
 		}

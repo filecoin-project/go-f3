@@ -67,15 +67,15 @@ func TestPowerStore(t *testing.T) {
 	m := manifest.LocalDevnetManifest()
 
 	ec := &forgetfulEC{
-		FakeEC:     ec.NewFakeEC(ctx, 1234, m.BootstrapEpoch, m.ECPeriod, basePowerTable, true),
-		ecFinality: m.ECFinality,
+		FakeEC:     ec.NewFakeEC(ctx, 1234, m.BootstrapEpoch, m.EC.Period, basePowerTable, true),
+		ecFinality: m.EC.Finality,
 	}
 
 	head, err := ec.GetHead(ctx)
 	require.NoError(t, err)
 	require.Equal(t, m.BootstrapEpoch, head.Epoch())
 
-	bsTs, err := ec.GetTipsetByEpoch(ctx, m.BootstrapEpoch-m.ECFinality)
+	bsTs, err := ec.GetTipsetByEpoch(ctx, m.BootstrapEpoch-m.EC.Finality)
 	require.NoError(t, err)
 
 	pt, err := ec.GetPowerTable(ctx, bsTs.Key())
@@ -96,13 +96,13 @@ func TestPowerStore(t *testing.T) {
 	expectedPt, err := ec.GetPowerTable(ctx, oldTs.Key())
 	require.NoError(t, err)
 
-	clk.Add(m.ECPeriod * time.Duration(m.ECFinality/2))
+	clk.Add(m.EC.Period * time.Duration(m.EC.Finality/2))
 	time.Sleep(10 * time.Millisecond)
-	clk.Add(m.ECPeriod * time.Duration(m.ECFinality))
+	clk.Add(m.EC.Period * time.Duration(m.EC.Finality))
 
 	head, err = ec.GetHead(ctx)
 	require.NoError(t, err)
-	require.Equal(t, m.BootstrapEpoch+(3*m.ECFinality)/2, head.Epoch())
+	require.Equal(t, m.BootstrapEpoch+(3*m.EC.Finality)/2, head.Epoch())
 
 	_, err = ec.GetPowerTable(ctx, oldTs.Key())
 	require.Error(t, err)
@@ -148,7 +148,7 @@ func TestPowerStore(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		// Advance a few finalities.
 		for j := 0; j < 3; j++ {
-			clk.Add(m.ECPeriod * time.Duration(m.ECFinality))
+			clk.Add(m.EC.Period * time.Duration(m.EC.Finality))
 			time.Sleep(10 * time.Millisecond)
 		}
 
@@ -159,20 +159,20 @@ func TestPowerStore(t *testing.T) {
 		// finality of head.
 		head, err := ec.GetHead(ctx)
 		require.NoError(t, err)
-		oldEnough, err := ec.GetTipsetByEpoch(ctx, head.Epoch()-m.ECFinality/3)
+		oldEnough, err := ec.GetTipsetByEpoch(ctx, head.Epoch()-m.EC.Finality/3)
 		require.NoError(t, err)
 
 		advanceF3(t, m, ps, cs, oldEnough.Epoch(), epochsPerCert)
-		clk.Add(4 * m.ECPeriod)
+		clk.Add(4 * m.EC.Period)
 
 		// On the first two passes, we should eventually clear the datastore. On the last
 		// pass, base is 990 epochs behind which is more than the max 450 to cleanup. So we
 		// need to advance a bit more with smaller instances. That'll bring the base back
 		// into a reasonable range.
 		if i == 2 {
-			clk.Add(m.ECPeriod * time.Duration(m.ECFinality))
-			advanceF3(t, m, ps, cs, oldEnough.Epoch()+m.ECFinality, 10)
-			clk.Add(4 * m.ECPeriod)
+			clk.Add(m.EC.Period * time.Duration(m.EC.Finality))
+			advanceF3(t, m, ps, cs, oldEnough.Epoch()+m.EC.Finality, 10)
+			clk.Add(4 * m.EC.Period)
 		}
 		require.Eventually(t, func() bool { return isDsEmpty() }, 10*time.Second, 10*time.Millisecond)
 
@@ -184,7 +184,7 @@ func TestPowerStore(t *testing.T) {
 
 func advanceF3(t *testing.T, m *manifest.Manifest, ps *powerstore.Store, cs *certstore.Store, until int64, epochsPerCert int) {
 	instance := uint64(0)
-	base := m.BootstrapEpoch - m.ECFinality
+	base := m.BootstrapEpoch - m.EC.Finality
 	if latest := cs.Latest(); latest != nil {
 		instance = latest.GPBFTInstance + 1
 		base = latest.ECChain.Head().Epoch
@@ -229,8 +229,8 @@ func advanceF3(t *testing.T, m *manifest.Manifest, ps *powerstore.Store, cs *cer
 		newChain := gpbftChain[:count]
 
 		nextPt := basePt
-		if instance >= m.InitialInstance+m.CommitteeLookback {
-			ptCert, err := cs.Get(ctx, instance-m.CommitteeLookback)
+		if instance >= m.InitialInstance+m.EC.CommitteeLookback {
+			ptCert, err := cs.Get(ctx, instance-m.EC.CommitteeLookback)
 			require.NoError(t, err)
 			nextPt, err = ps.GetPowerTable(ctx, ptCert.ECChain.Head().Key)
 			require.NoError(t, err)

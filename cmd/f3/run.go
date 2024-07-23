@@ -113,7 +113,7 @@ var runCmd = cli.Command{
 		id := c.Uint64("id")
 		signingBackend.Allow(int(id))
 
-		ec := ec.NewFakeEC(ctx, 1, m.BootstrapEpoch, m.ECPeriod, initialPowerTable, true)
+		ec := ec.NewFakeEC(ctx, 1, m.BootstrapEpoch, m.EC.Period, initialPowerTable, true)
 
 		module, err := f3.New(ctx, mprovider, ds, h, ps, signingBackend, ec)
 		if err != nil {

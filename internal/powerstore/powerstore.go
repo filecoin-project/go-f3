@@ -121,12 +121,12 @@ func (ps *Store) GetPowerTable(ctx context.Context, tsk gpbft.TipSetKey) (gpbft.
 }
 
 func (ps *Store) f3PowerBase(ctx context.Context) (int64, uint64, error) {
-	baseEpoch := ps.manifest.BootstrapEpoch - ps.manifest.ECFinality
+	baseEpoch := ps.manifest.BootstrapEpoch - ps.manifest.EC.Finality
 	baseInstance := ps.manifest.InitialInstance
 	if lastCert := ps.cs.Latest(); lastCert != nil {
 		baseInstance = lastCert.GPBFTInstance + 1
-		if lastCert.GPBFTInstance > ps.manifest.InitialInstance+ps.manifest.CommitteeLookback {
-			baseCert, err := ps.cs.Get(ctx, lastCert.GPBFTInstance-ps.manifest.CommitteeLookback)
+		if lastCert.GPBFTInstance > ps.manifest.InitialInstance+ps.manifest.EC.CommitteeLookback {
+			baseCert, err := ps.cs.Get(ctx, lastCert.GPBFTInstance-ps.manifest.EC.CommitteeLookback)
 			if err != nil {
 				return 0, 0, err
 			}
@@ -206,11 +206,11 @@ func (ps *Store) deleteAll(ctx context.Context) {
 }
 
 func (ps *Store) run(ctx context.Context) error {
-	ticker := ps.clock.Ticker(2 * ps.manifest.ECPeriod)
+	ticker := ps.clock.Ticker(2 * ps.manifest.EC.Period)
 	defer ticker.Stop()
 
-	startThreshold := max(ps.manifest.ECFinality*3/2, 1)
-	stopThreshold := max(ps.manifest.ECFinality/2, 1)
+	startThreshold := max(ps.manifest.EC.Finality*3/2, 1)
+	stopThreshold := max(ps.manifest.EC.Finality/2, 1)
 
 	var initialized bool
 	for ctx.Err() == nil {
@@ -269,7 +269,7 @@ func (ps *Store) run(ctx context.Context) error {
 }
 
 func (ps *Store) advance(ctx context.Context, head int64) error {
-	targetEpoch := head - ps.manifest.ECFinality
+	targetEpoch := head - ps.manifest.EC.Finality
 	// Only store tipsets before finality.
 	if ps.lastStoredEpoch >= targetEpoch {
 		return nil
