@@ -96,7 +96,10 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 		return err
 	}
 
-	manifestTopic, err := m.pubsub.Join(ManifestPubSubTopicName)
+	// Force the default (sender + seqno) message de-duplication mechanism instead of hashing
+	// the message (as lotus does) as validation depends on the sender, not the contents of the
+	// message.
+	manifestTopic, err := m.pubsub.Join(ManifestPubSubTopicName, pubsub.WithTopicMessageIdFn(pubsub.DefaultMsgIdFn))
 	if err != nil {
 		return fmt.Errorf("could not join manifest pubsub topic: %w", err)
 	}

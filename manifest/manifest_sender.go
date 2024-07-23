@@ -28,13 +28,12 @@ type ManifestSender struct {
 	paused   bool
 }
 
-func NewManifestSender(ctx context.Context, h host.Host, pubsub *pubsub.PubSub, firstManifest *Manifest, pubishInterval time.Duration) (*ManifestSender, error) {
-	topicName := ManifestPubSubTopicName
+func NewManifestSender(ctx context.Context, h host.Host, ps *pubsub.PubSub, firstManifest *Manifest, pubishInterval time.Duration) (*ManifestSender, error) {
 	clk := clock.GetClock(ctx)
 	m := &ManifestSender{
 		manifest: firstManifest,
 		h:        h,
-		pubsub:   pubsub,
+		pubsub:   ps,
 		interval: pubishInterval,
 		// seed the sequence number with nanoseconds so we can restart and don't have to
 		// remember the last sequence number.
@@ -43,9 +42,9 @@ func NewManifestSender(ctx context.Context, h host.Host, pubsub *pubsub.PubSub, 
 	}
 
 	var err error
-	m.manifestTopic, err = m.pubsub.Join(topicName)
+	m.manifestTopic, err = m.pubsub.Join(ManifestPubSubTopicName, pubsub.WithTopicMessageIdFn(pubsub.DefaultMsgIdFn))
 	if err != nil {
-		return nil, fmt.Errorf("could not join on pubsub topic: %s: %w", topicName, err)
+		return nil, fmt.Errorf("could not join on pubsub topic: %s: %w", ManifestPubSubTopicName, err)
 	}
 
 	return m, nil
