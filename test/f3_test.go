@@ -26,7 +26,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const ManifestSenderTimeout = 1 * time.Second
+const ManifestSenderTimeout = 30 * time.Second
 
 func TestF3Simple(t *testing.T) {
 	t.Parallel()
@@ -49,11 +49,14 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 	env.pauseNode(1)
 	env.pauseNode(2)
 
+	// Wait until node 0 stops receiving new instances
 	env.clock.Add(1 * time.Second)
-	oldInstance := env.nodes[0].currentGpbftInstance()
-	env.clock.Add(1 * time.Second)
-	newInstance := env.nodes[0].currentGpbftInstance()
-	require.Equal(t, oldInstance, newInstance)
+	env.waitForCondition(func() bool {
+		oldInstance := env.nodes[0].currentGpbftInstance()
+		env.clock.Add(10 * env.manifest.EC.Period)
+		newInstance := env.nodes[0].currentGpbftInstance()
+		return oldInstance == newInstance
+	}, 30*time.Second)
 
 	// Resuming node 1 should continue agreeing on instances.
 	env.resumeNode(1)
@@ -167,8 +170,7 @@ func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 	env.start()
 
 	prev := env.nodes[0].f3.Manifest()
-	env.waitForInstanceNumber(10, 30*time.Second, false)
-	prevInstance := env.nodes[0].currentGpbftInstance()
+	env.waitForInstanceNumber(10, 30*time.Second, true)
 
 	prevCopy := *prev
 	prevCopy.Pause = true
@@ -188,11 +190,13 @@ func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 	env.waitForManifestChange(prev, 30*time.Second)
 	env.clock.Add(1 * time.Minute)
 
-	// check that it rebootstrapped and the number of instances is below prevInstance
-	require.Less(t, env.nodes[0].currentGpbftInstance(), prevInstance)
-	env.waitForInstanceNumber(3, 30*time.Second, false)
-	require.NotEqual(t, prev, env.nodes[0].f3.Manifest())
-	env.requireEqualManifests(false)
+	env.waitForInstanceNumber(3, 30*time.Second, true)
+	env.requireEqualManifests(true)
+
+	// Now check that we have the correct base for certificate 0.
+	cert0, err := env.nodes[0].f3.GetCert(env.testCtx, 0)
+	require.NoError(t, err)
+	require.Equal(t, env.manifest.BootstrapEpoch-env.manifest.EC.Finality, cert0.ECChain.Base().Epoch)
 }
 
 var base = manifest.Manifest{
@@ -225,9 +229,9 @@ func (n *testNode) currentGpbftInstance() uint64 {
 	c, err := n.f3.GetLatestCert(n.e.testCtx)
 	require.NoError(n.e.t, err)
 	if c == nil {
-		return 0
+		return n.e.manifest.InitialInstance
 	}
-	return c.GPBFTInstance
+	return c.GPBFTInstance + 1
 }
 
 type testEnv struct {
@@ -357,6 +361,8 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) *testEnv {
 
 	// Cleanup on exit.
 	env.t.Cleanup(func() {
+		require.NoError(env.t, env.net.Close())
+
 		cancel()
 		for _, n := range env.nodes {
 			require.NoError(env.t, n.f3.Stop(context.Background()))
@@ -414,16 +420,12 @@ func (e *testEnv) requireEqualManifests(strict bool) {
 
 func (e *testEnv) waitFor(f func(n *testNode) bool, timeout time.Duration) {
 	e.waitForCondition(func() bool {
-		reached := 0
-		for i := 0; i < len(e.nodes); i++ {
-			if f(e.nodes[i]) {
-				reached++
-			}
-			if reached == len(e.nodes) {
-				return true
+		for _, n := range e.nodes {
+			if !f(n) {
+				return false
 			}
 		}
-		return false
+		return true
 	}, timeout)
 }
 
