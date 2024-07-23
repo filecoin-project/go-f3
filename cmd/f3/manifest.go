@@ -229,9 +229,6 @@ func loadManifest(path string) (*manifest.Manifest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening %s to load manifest: %w", path, err)
 	}
-	defer f.Close()
-	var m manifest.Manifest
-
-	err = m.Unmarshal(f)
-	return &m, err
+	defer func() { _ = f.Close() }()
+	return manifest.Unmarshal(f)
 }

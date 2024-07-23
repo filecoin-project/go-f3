@@ -2,7 +2,6 @@ package manifest_test
 
 import (
 	"bytes"
-	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -13,9 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var base manifest.Manifest = manifest.Manifest{
+var base = manifest.Manifest{
 	BootstrapEpoch: 10,
-	NetworkName:    gpbft.NetworkName("test"),
+	NetworkName:    "test",
 	ExplicitPower: gpbft.PowerEntries{
 		{
 			ID:     2,
@@ -49,15 +48,38 @@ var base manifest.Manifest = manifest.Manifest{
 }
 
 func TestManifest_Serialization(t *testing.T) {
-	b, err := base.Marshal()
+	baseMarshalled, err := base.Marshal()
+	require.NoError(t, err)
 	require.NoError(t, err)
 
-	var m2 manifest.Manifest
-	fmt.Println(string(b))
-
-	err = m2.Unmarshal(bytes.NewReader(b))
-	require.NoError(t, err)
-	require.Equal(t, base, m2)
+	for _, test := range []struct {
+		name  string
+		given []byte
+		want  *manifest.Manifest
+	}{
+		{
+			name:  "base",
+			given: baseMarshalled,
+			want:  &base,
+		},
+		{
+			name:  "null",
+			given: []byte("null"),
+			want:  nil,
+		},
+		{
+			name:  "untrimmed null",
+			given: []byte("     null   "),
+			want:  nil,
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			got, err := manifest.Unmarshal(bytes.NewReader(test.given))
+			require.NoError(t, err)
+			require.Equal(t, test.want, got)
+		})
+	}
 }
 
 func TestManifest_NetworkName(t *testing.T) {

@@ -164,12 +164,9 @@ func (m *Manifest) Marshal() ([]byte, error) {
 	return b, nil
 }
 
-func (m *Manifest) Unmarshal(r io.Reader) error {
-	err := json.NewDecoder(r).Decode(&m)
-	if err != nil {
-		return fmt.Errorf("decoding JSON: %w", err)
-	}
-	return nil
+func Unmarshal(r io.Reader) (*Manifest, error) {
+	var m *Manifest
+	return m, json.NewDecoder(r).Decode(&m)
 }
 
 func (m *Manifest) DatastorePrefix() datastore.Key {
