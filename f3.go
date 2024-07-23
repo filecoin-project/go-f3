@@ -142,11 +142,11 @@ func (m *F3) computeBootstrapDelay(manifest *manifest.Manifest) (time.Duration, 
 		return 0, nil
 	}
 	epochDelay := manifest.BootstrapEpoch - currentEpoch
-	start := ts.Timestamp().Add(time.Duration(epochDelay) * manifest.ECPeriod)
+	start := ts.Timestamp().Add(time.Duration(epochDelay) * manifest.EC.Period)
 	delay := m.clock.Until(start)
 	// Add additional delay to skip over null epochs. That way we wait the full 900 epochs.
 	if delay <= 0 {
-		delay = manifest.ECPeriod + delay%manifest.ECPeriod
+		delay = manifest.EC.Period + delay%manifest.EC.Period
 	}
 	return delay, nil
 }
@@ -327,7 +327,7 @@ func (m *F3) resumeInternal(ctx context.Context) error {
 		certClient := certexchange.Client{
 			Host:           m.host,
 			NetworkName:    m.manifest.NetworkName,
-			RequestTimeout: m.manifest.ClientRequestTimeout,
+			RequestTimeout: m.manifest.CertificateExchange.ClientRequestTimeout,
 		}
 		cs, err := openCertstore(m.runningCtx, mPowerEc, m.ds, m.manifest, certClient)
 		if err != nil {
@@ -350,7 +350,7 @@ func (m *F3) resumeInternal(ctx context.Context) error {
 
 	m.certserv = &certexchange.Server{
 		NetworkName:    m.manifest.NetworkName,
-		RequestTimeout: m.manifest.ServerRequestTimeout,
+		RequestTimeout: m.manifest.CertificateExchange.ServerRequestTimeout,
 		Host:           m.host,
 		Store:          m.cs,
 	}
@@ -362,13 +362,13 @@ func (m *F3) resumeInternal(ctx context.Context) error {
 		Client: certexchange.Client{
 			Host:           m.host,
 			NetworkName:    m.manifest.NetworkName,
-			RequestTimeout: m.manifest.ClientRequestTimeout,
+			RequestTimeout: m.manifest.CertificateExchange.ClientRequestTimeout,
 		},
 		Store:               m.cs,
 		SignatureVerifier:   m.verifier,
-		InitialPollInterval: m.manifest.ECPeriod,
-		MaximumPollInterval: m.manifest.MaximumPollInterval,
-		MinimumPollInterval: m.manifest.MinimumPollInterval,
+		InitialPollInterval: m.manifest.EC.Period,
+		MaximumPollInterval: m.manifest.CertificateExchange.MaximumPollInterval,
+		MinimumPollInterval: m.manifest.CertificateExchange.MinimumPollInterval,
 	}
 	if err := m.certsub.Start(ctx); err != nil {
 		return err

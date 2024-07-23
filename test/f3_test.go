@@ -197,24 +197,23 @@ func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 }
 
 var base = manifest.Manifest{
-	BootstrapEpoch:  950,
-	InitialInstance: 0,
-	NetworkName:     gpbft.NetworkName("f3-test/0"),
-	GpbftConfig: manifest.GpbftConfig{
+	BootstrapEpoch:    950,
+	InitialInstance:   0,
+	NetworkName:       gpbft.NetworkName("f3-test/0"),
+	CommitteeLookback: manifest.DefaultCommitteeLookback,
+	Gpbft: manifest.GpbftConfig{
 		Delta:                3 * time.Second,
 		DeltaBackOffExponent: 2.,
 		MaxLookaheadRounds:   5,
 	},
-	// EcConfig:        manifest.DefaultEcConfig,
-	EcConfig: manifest.EcConfig{
-		ECFinality:        10,
-		CommitteeLookback: 5,
+	EC: manifest.EcConfig{
+		Finality: 10,
 		// increased delay and period to accelerate test times.
-		ECPeriod:                 30 * time.Second,
-		ECDelayMultiplier:        1.0,
+		Period:                   30 * time.Second,
+		DelayMultiplier:          1.0,
 		BaseDecisionBackoffTable: []float64{1., 1.2},
 	},
-	CxConfig: manifest.DefaultCxConfig}
+	CertificateExchange: manifest.DefaultCxConfig}
 
 type testNode struct {
 	e         *testEnv
@@ -382,7 +381,7 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) *testEnv {
 		})
 	}
 	env.manifest = m
-	env.ec = ec.NewFakeEC(ctx, 1, m.BootstrapEpoch+m.ECFinality, m.ECPeriod, initialPowerTable, true)
+	env.ec = ec.NewFakeEC(ctx, 1, m.BootstrapEpoch+m.EC.Finality, m.EC.Period, initialPowerTable, true)
 
 	var manifestServer peer.ID
 	if dynamicManifest {

@@ -17,12 +17,13 @@ import (
 const VersionCapability = 1
 
 var (
+	DefaultCommitteeLookback uint64 = 10
+
 	// Default configuration for the EC Backend
 	DefaultEcConfig = EcConfig{
-		ECFinality:        900,
-		CommitteeLookback: 10,
-		ECPeriod:          30 * time.Second,
-		ECDelayMultiplier: 2.,
+		Finality:        900,
+		Period:          30 * time.Second,
+		DelayMultiplier: 2.,
 		// MaxBackoff is 15min given default params
 		BaseDecisionBackoffTable: []float64{1.3, 1.69, 2.2, 2.86, 3.71, 4.83, 6.27, 7.5},
 	}
@@ -42,8 +43,8 @@ var (
 	DefaultCxConfig = CxConfig{
 		ClientRequestTimeout: 10 * time.Second,
 		ServerRequestTimeout: time.Minute,
-		MinimumPollInterval:  DefaultEcConfig.ECPeriod,
-		MaximumPollInterval:  4 * DefaultEcConfig.ECPeriod,
+		MinimumPollInterval:  DefaultEcConfig.Period,
+		MaximumPollInterval:  4 * DefaultEcConfig.Period,
 	}
 )
 
@@ -78,22 +79,20 @@ type GpbftConfig struct {
 
 type EcConfig struct {
 	// The delay between tipsets.
-	ECPeriod time.Duration
+	Period time.Duration
 	// Number of epochs required to reach EC defined finality
-	ECFinality int64
-	// The multiplier on top of the ECPeriod of the time we will wait before starting a new instance,
+	Finality int64
+	// The multiplier on top of the Period of the time we will wait before starting a new instance,
 	// referencing the timestamp of the latest finalized tipset.
-	ECDelayMultiplier float64
-	// Table of incremental multipliers to backoff in units of ECDelay in case of base decisions
+	DelayMultiplier float64
+	// Table of incremental multipliers to backoff in units of Delay in case of base decisions
 	BaseDecisionBackoffTable []float64
-	CommitteeLookback        uint64
 }
 
 func (e *EcConfig) Equal(o *EcConfig) bool {
-	return e.ECPeriod == o.ECPeriod &&
-		e.ECFinality == o.ECFinality &&
-		e.ECDelayMultiplier == o.ECDelayMultiplier &&
-		e.CommitteeLookback == o.CommitteeLookback &&
+	return e.Period == o.Period &&
+		e.Finality == o.Finality &&
+		e.DelayMultiplier == o.DelayMultiplier &&
 		slices.Equal(e.BaseDecisionBackoffTable, o.BaseDecisionBackoffTable)
 }
 
@@ -113,13 +112,15 @@ type Manifest struct {
 	// Ignore the power table from EC.
 	IgnoreECPower bool
 	// InitialPowerTable specifies the optional CID of the initial power table
-	InitialPowerTable *cid.Cid
+	InitialPowerTable cid.Cid // !Defined() if nil
+	// We take the current power table from the head tipset this many instances ago.
+	CommitteeLookback uint64
 	// Config parameters for gpbft
-	GpbftConfig
+	Gpbft GpbftConfig
 	// EC-specific parameters
-	EcConfig
+	EC EcConfig
 	// Certificate Exchange specific parameters
-	CxConfig
+	CertificateExchange CxConfig
 }
 
 func (m *Manifest) Equal(o *Manifest) bool {
@@ -131,10 +132,15 @@ func (m *Manifest) Equal(o *Manifest) bool {
 		m.InitialInstance == o.InitialInstance &&
 		m.BootstrapEpoch == o.BootstrapEpoch &&
 		m.IgnoreECPower == o.IgnoreECPower &&
+		m.CommitteeLookback == o.CommitteeLookback &&
+		// Don't include this in equality checks because it doesn't change the meaning of
+		// the manifest (and we don't want to restart the network when we first publish
+		// this).
+		// m.InitialPowerTable.Equals(o.InitialPowerTable) &&
 		m.ExplicitPower.Equal(o.ExplicitPower) &&
-		m.GpbftConfig == o.GpbftConfig &&
-		m.EcConfig.Equal(&o.EcConfig) &&
-		m.CxConfig == o.CxConfig &&
+		m.Gpbft == o.Gpbft &&
+		m.EC.Equal(&o.EC) &&
+		m.CertificateExchange == o.CertificateExchange &&
 		m.ProtocolVersion == o.ProtocolVersion
 
 }
@@ -143,12 +149,13 @@ func LocalDevnetManifest() *Manifest {
 	rng := make([]byte, 4)
 	_, _ = rand.Read(rng)
 	m := &Manifest{
-		ProtocolVersion: 1,
-		NetworkName:     gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng)),
-		BootstrapEpoch:  1000,
-		EcConfig:        DefaultEcConfig,
-		GpbftConfig:     DefaultGpbftConfig,
-		CxConfig:        DefaultCxConfig,
+		ProtocolVersion:     1,
+		NetworkName:         gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng)),
+		BootstrapEpoch:      1000,
+		CommitteeLookback:   DefaultCommitteeLookback,
+		EC:                  DefaultEcConfig,
+		Gpbft:               DefaultGpbftConfig,
+		CertificateExchange: DefaultCxConfig,
 	}
 	return m
 }
@@ -182,15 +189,15 @@ func PubSubTopicFromNetworkName(nn gpbft.NetworkName) string {
 }
 
 func (m *Manifest) GpbftOptions() []gpbft.Option {
-	if m.GpbftConfig == (GpbftConfig{}) {
+	if m.Gpbft == (GpbftConfig{}) {
 		return DefaultGpbftOptions
 	}
 	var opts []gpbft.Option
-	if m.Delta != 0 {
-		opts = append(opts, gpbft.WithDelta(m.Delta))
+	if m.Gpbft.Delta != 0 {
+		opts = append(opts, gpbft.WithDelta(m.Gpbft.Delta))
 	}
-	opts = append(opts, gpbft.WithDeltaBackOffExponent(m.DeltaBackOffExponent))
-	opts = append(opts, gpbft.WithMaxLookaheadRounds(m.MaxLookaheadRounds))
+	opts = append(opts, gpbft.WithDeltaBackOffExponent(m.Gpbft.DeltaBackOffExponent))
+	opts = append(opts, gpbft.WithMaxLookaheadRounds(m.Gpbft.MaxLookaheadRounds))
 
 	return opts
 }
