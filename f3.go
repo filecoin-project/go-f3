@@ -189,8 +189,8 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 		if m.manifest != nil {
 			maybeNetworkName = m.manifest.NetworkName
 		}
-		log.Infow("F3 is starting", "initialDelay", initialDelay, "hasPendingManifest", pendingManifest != nil,
-			"NetworkName", maybeNetworkName)
+		log.Infow("F3 is starting", "initialDelay", initialDelay,
+			"hasPendingManifest", pendingManifest != nil, "NetworkName", maybeNetworkName)
 	}
 
 	m.errgrp.Go(func() (_err error) {
