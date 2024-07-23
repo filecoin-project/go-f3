@@ -22,6 +22,7 @@ var manifestCmd = cli.Command{
 	Subcommands: []*cli.Command{
 		&manifestGenCmd,
 		&manifestServeCmd,
+		&manifestCheckCmd,
 	},
 }
 var manifestGenCmd = cli.Command{
@@ -56,6 +57,28 @@ var manifestGenCmd = cli.Command{
 			return fmt.Errorf("closing file: %w", err)
 		}
 
+		return nil
+	},
+}
+
+var manifestCheckCmd = cli.Command{
+	Name:  "check",
+	Usage: "validates an f3 manifest",
+	Flags: []cli.Flag{
+		&cli.PathFlag{
+			Name:     "manifest",
+			Usage:    "The path to the manifest file.",
+			Required: true,
+		},
+	},
+
+	Action: func(c *cli.Context) error {
+		path := c.String("manifest")
+		currentManifest, err := loadManifest(path)
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(c.App.Writer, "✅ valid manifest for %s\n", currentManifest.NetworkName)
 		return nil
 	},
 }
