@@ -361,6 +361,8 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) *testEnv {
 
 	// Cleanup on exit.
 	env.t.Cleanup(func() {
+		require.NoError(env.t, env.net.Close())
+
 		cancel()
 		for _, n := range env.nodes {
 			require.NoError(env.t, n.f3.Stop(context.Background()))
