@@ -450,7 +450,7 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 
 	// If we have an explicit head-lookback, trim the chain.
 	if h.manifest.EC.HeadLookback > 0 {
-		collectedChain = collectedChain[:min(len(collectedChain), h.manifest.EC.HeadLookback)]
+		collectedChain = collectedChain[:max(0, len(collectedChain)-h.manifest.EC.HeadLookback)]
 	}
 
 	base := gpbft.TipSet{
