@@ -127,7 +127,11 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 		currentManifest = &update.Manifest
 	}
 
-	m.manifestChanges <- currentManifest
+	if err := currentManifest.Validate(); err != nil {
+		log.Errorw("invalid initial manifest, ignoring", "error", err)
+	} else {
+		m.manifestChanges <- currentManifest
+	}
 
 	m.errgrp.Go(func() (_err error) {
 		defer func() {
@@ -164,6 +168,12 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 				log.Debugw("discarded manifest update", "newSeqNo", update.MessageSequence, "oldSeqNo", msgSeqNumber)
 				continue
 			}
+
+			if err := update.Manifest.Validate(); err != nil {
+				log.Errorw("received invalid manifest, discarded", "error", err)
+				continue
+			}
+
 			err = m.ds.Put(m.runningCtx, latestManifestKey, msg.Data)
 			if err != nil {
 				log.Errorw("saving new manifest", "error", err)

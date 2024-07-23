@@ -13,7 +13,7 @@ import (
 )
 
 var base = manifest.Manifest{
-	BootstrapEpoch: 10,
+	BootstrapEpoch: 900,
 	NetworkName:    "test",
 	ExplicitPower: gpbft.PowerEntries{
 		{
@@ -30,7 +30,7 @@ var base = manifest.Manifest{
 	CommitteeLookback: 10,
 	Gpbft: manifest.GpbftConfig{
 		Delta:                10,
-		DeltaBackOffExponent: 0.2,
+		DeltaBackOffExponent: 1.2,
 		MaxLookaheadRounds:   5,
 	},
 	EC: manifest.EcConfig{
@@ -47,6 +47,19 @@ var base = manifest.Manifest{
 	},
 }
 
+func TestManifest_Validation(t *testing.T) {
+	require.NoError(t, base.Validate())
+	require.NoError(t, manifest.LocalDevnetManifest().Validate())
+
+	cpy := base
+	cpy.BootstrapEpoch = 50
+	require.Error(t, cpy.Validate())
+
+	cpy = base
+	cpy.CertificateExchange.MinimumPollInterval = time.Nanosecond
+	require.Error(t, cpy.Validate())
+}
+
 func TestManifest_Serialization(t *testing.T) {
 	baseMarshalled, err := base.Marshal()
 	require.NoError(t, err)
@@ -61,16 +74,6 @@ func TestManifest_Serialization(t *testing.T) {
 			name:  "base",
 			given: baseMarshalled,
 			want:  &base,
-		},
-		{
-			name:  "null",
-			given: []byte("null"),
-			want:  nil,
-		},
-		{
-			name:  "untrimmed null",
-			given: []byte("     null   "),
-			want:  nil,
 		},
 	} {
 		test := test
