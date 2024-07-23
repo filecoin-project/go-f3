@@ -195,22 +195,21 @@ func (m *DynamicManifestProvider) registerTopicValidator() error {
 	// to be homogeneous.
 	var validator pubsub.ValidatorEx = func(ctx context.Context, pID peer.ID,
 		msg *pubsub.Message) pubsub.ValidationResult {
-
-		var update ManifestUpdateMessage
-		err := update.Unmarshal(bytes.NewReader(msg.Data))
-		if err != nil {
-			log.Debugw("failed to unmarshal manifest", "error", err, "from", msg.From)
-			return pubsub.ValidationReject
-		}
+		// manifest should come from the expected diagnostics server
 		originID, err := peer.IDFromBytes(msg.From)
 		if err != nil {
 			log.Debugw("decoding msg.From ID", "error", err)
 			return pubsub.ValidationReject
 		}
-
-		// manifest should come from the expected diagnostics server
 		if originID != m.manifestServerID {
 			log.Debugw("rejected manifest from unknown peer", "msg.From", msg.From, "manifestServerID", m.manifestServerID)
+			return pubsub.ValidationReject
+		}
+
+		var update ManifestUpdateMessage
+		err = update.Unmarshal(bytes.NewReader(msg.Data))
+		if err != nil {
+			log.Debugw("failed to unmarshal manifest", "from", msg.From, "error", err)
 			return pubsub.ValidationReject
 		}
 
