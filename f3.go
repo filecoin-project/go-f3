@@ -244,7 +244,7 @@ func (m *F3) Stop(stopCtx context.Context) (_err error) {
 }
 
 func (m *F3) reconfigure(ctx context.Context, manif *manifest.Manifest) (_err error) {
-	log.Infow("starting f3 reconfiguration")
+	log.Info("starting f3 reconfiguration")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -287,7 +287,7 @@ func (m *F3) Resume() error {
 }
 
 func (m *F3) stopInternal(ctx context.Context) error {
-	log.Infow("stopping F3 internals")
+	log.Info("stopping F3 internals")
 	var err error
 	if m.ps != nil {
 		if serr := m.ps.Stop(ctx); serr != nil {
@@ -319,7 +319,7 @@ func (m *F3) stopInternal(ctx context.Context) error {
 }
 
 func (m *F3) resumeInternal(ctx context.Context) error {
-	log.Infow("resuming F3 internals")
+	log.Info("resuming F3 internals")
 	mPowerEc := ec.WithModifiedPower(m.ec, m.manifest.ExplicitPower, m.manifest.IgnoreECPower)
 
 	// We don't reset these fields if we only pause/resume.
