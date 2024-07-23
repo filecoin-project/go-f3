@@ -166,38 +166,38 @@ var manifestServeCmd = cli.Command{
 
 		defer func() { _ = host.Close() }()
 
-		// Connect to all bootstrap addresses once. This should be sufficient to build
-		// the pubsub mesh, if not then we need to periodically re-connect and/or pull in
-		// the Lotus bootstrapping, which includes DHT connectivity.
-		//
-		// For now, simply connect to bootstrappers and test if it suffices before doing
-		// extra work.
-		bootstrappers := c.StringSlice("bootstrapAddr")
-		if c.IsSet("bootstrapAddrsFile") {
-			bootstrapersFile, err := os.Open(c.Path("bootstrapAddrsFile"))
-			if err != nil {
-				return fmt.Errorf("opening bootstrapAddrsFile: %w", err)
+		connectToBootstrappers := func() {
+			bootstrappers := c.StringSlice("bootstrapAddr")
+			if c.IsSet("bootstrapAddrsFile") {
+				bootstrapersFile, err := os.Open(c.Path("bootstrapAddrsFile"))
+				if err != nil {
+					_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed to open bootstrapAddrsFile: %v\n", err)
+					return
+				}
+				defer func() {
+					_ = bootstrapersFile.Close()
+				}()
+				scanner := bufio.NewScanner(bootstrapersFile)
+				for scanner.Scan() {
+					bootstrappers = append(bootstrappers, scanner.Text())
+				}
+				if err := scanner.Err(); err != nil {
+					_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed to read bootstrapAddrsFile: %v\n", err)
+					return
+				}
 			}
-			defer func() {
-				_ = bootstrapersFile.Close()
-			}()
-			scanner := bufio.NewScanner(bootstrapersFile)
-			for scanner.Scan() {
-				bootstrappers = append(bootstrappers, scanner.Text())
-			}
-			if err := scanner.Err(); err != nil {
-				return fmt.Errorf("reading bootstrapAddrsFile: %w", err)
-			}
-		}
-		for _, bootstrapper := range bootstrappers {
-			addr, err := peer.AddrInfoFromString(bootstrapper)
-			if err != nil {
-				return fmt.Errorf("parsing bootstrap address %s: %w", bootstrapper, err)
-			}
-			if err := host.Connect(c.Context, *addr); err != nil {
-				_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed to connect to bootstrap address: %v\n", err)
+			for _, bootstrapper := range bootstrappers {
+				addr, err := peer.AddrInfoFromString(bootstrapper)
+				if err != nil {
+					_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed to parse to bootstrap address: %s %v\n", bootstrapper, err)
+				} else if err := host.Connect(c.Context, *addr); err != nil {
+					_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed to connect to bootstrap address: %v\n", err)
+				}
 			}
 		}
+
+		// Connect to bootstrappers once as soon as we start.
+		connectToBootstrappers()
 
 		manifestPath := c.String("manifest")
 		currentManifest, err := loadManifest(manifestPath)
@@ -229,6 +229,7 @@ var manifestServeCmd = cli.Command{
 				case <-ctx.Done():
 					return nil
 				case <-checkTicker.C:
+					// Reload manifest and if changed republish.
 					if nextManifest, err := loadManifest(manifestPath); err != nil {
 						_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed reload manifest: %v\n", err)
 					} else if !nextManifest.Equal(currentManifest) {
@@ -236,6 +237,11 @@ var manifestServeCmd = cli.Command{
 						sender.UpdateManifest(nextManifest)
 						currentManifest = nextManifest
 					}
+
+					// Periodically reconnect to bootstrappers; this would reload any changes to
+					// bootrsrappers file and increases the chances of having a better connected mesh
+					// for gossipsub to propagate.
+					connectToBootstrappers()
 				}
 			}
 
