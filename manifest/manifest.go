@@ -26,6 +26,7 @@ var (
 		DelayMultiplier: 2.,
 		// MaxBackoff is 15min given default params
 		BaseDecisionBackoffTable: []float64{1.3, 1.69, 2.2, 2.86, 3.71, 4.83, 6.27, 7.5},
+		HeadLookback:             0,
 	}
 
 	DefaultGpbftConfig = GpbftConfig{
@@ -113,17 +114,22 @@ type EcConfig struct {
 	DelayMultiplier float64
 	// Table of incremental multipliers to backoff in units of Delay in case of base decisions
 	BaseDecisionBackoffTable []float64
+	// HeadLookback number of unfinalized tipsets to remove from the head
+	HeadLookback int
 }
 
 func (e *EcConfig) Equal(o *EcConfig) bool {
 	return e.Period == o.Period &&
 		e.Finality == o.Finality &&
 		e.DelayMultiplier == o.DelayMultiplier &&
+		e.HeadLookback == o.HeadLookback &&
 		slices.Equal(e.BaseDecisionBackoffTable, o.BaseDecisionBackoffTable)
 }
 
 func (e *EcConfig) Validate() error {
 	switch {
+	case e.HeadLookback < 0:
+		return fmt.Errorf("EC head lookback must be non-negative, was %d", e.HeadLookback)
 	case e.Period <= 0:
 		return fmt.Errorf("EC period must be positive, was %s", e.Period)
 	case e.Finality < 0:
