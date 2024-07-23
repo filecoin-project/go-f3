@@ -392,17 +392,6 @@ func (m *F3) resumeInternal(ctx context.Context) error {
 	return m.runner.Start(ctx)
 }
 
-type Logger interface {
-	Debug(args ...interface{})
-	Debugf(format string, args ...interface{})
-	Error(args ...interface{})
-	Errorf(format string, args ...interface{})
-	Info(args ...interface{})
-	Infof(format string, args ...interface{})
-	Warn(args ...interface{})
-	Warnf(format string, args ...interface{})
-}
-
 // IsRunning returns true if gpbft is running
 // Used mainly for testing purposes
 func (m *F3) IsRunning() bool {
