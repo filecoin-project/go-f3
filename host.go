@@ -283,7 +283,7 @@ func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, pID peer.ID,
 		return pubsub.ValidationIgnore
 	}
 	if errors.Is(err, gpbft.ErrValidationNoCommittee) {
-		log.Infof("commitee error during validation: %+v", err)
+		log.Debugf("commitee error during validation: %+v", err)
 		return pubsub.ValidationIgnore
 	}
 	if err != nil {
