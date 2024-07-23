@@ -91,7 +91,7 @@ func (m *DynamicManifestProvider) Stop(ctx context.Context) error {
 }
 
 func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
-	log.Info("starting a dynamic manifest provider", "manifestServerID", m.manifestServerID)
+	log.Infow("starting a dynamic manifest provider", "manifestServerID", m.manifestServerID)
 	if err := m.registerTopicValidator(); err != nil {
 		return err
 	}
@@ -202,7 +202,7 @@ func (m *DynamicManifestProvider) registerTopicValidator() error {
 			return pubsub.ValidationReject
 		}
 		if originID != m.manifestServerID {
-			log.Debugw("rejected manifest from unknown peer", "msg.From", msg.From, "manifestServerID", m.manifestServerID)
+			log.Debugw("rejected manifest from unknown peer", "from", msg.From, "manifestServerID", m.manifestServerID)
 			return pubsub.ValidationReject
 		}
 
