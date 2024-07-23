@@ -210,7 +210,7 @@ func (m *DynamicManifestProvider) registerTopicValidator() error {
 
 		// manifest should come from the expected diagnostics server
 		if originID != m.manifestServerID {
-			log.Debugw("reject peerID", "msg.From", msg.From, "manifestServerID", m.manifestServerID)
+			log.Debugw("rejected manifest from unknown peer", "msg.From", msg.From, "manifestServerID", m.manifestServerID)
 			return pubsub.ValidationReject
 		}
 
