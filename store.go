@@ -35,10 +35,10 @@ func openCertstore(ctx context.Context, ec ec.Backend, ds datastore.Datastore,
 		if err != nil {
 			return nil, fmt.Errorf("getting initial power table: %w", err)
 		}
-	} else if m.InitialPowerTable != nil {
+	} else if m.InitialPowerTable.Defined() {
 		log.Errorw("could not get initial power table from EC, trying finality exchange", "error", err)
 		initialPowerTable, err = certexchange.FindInitialPowerTable(ctx, certClient,
-			*m.InitialPowerTable, m.EC.Period)
+			m.InitialPowerTable, m.EC.Period)
 
 		if err != nil {
 			log.Errorw("could not get initial power table from finality exchange", "error", err)

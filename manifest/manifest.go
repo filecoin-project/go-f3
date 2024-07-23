@@ -112,7 +112,7 @@ type Manifest struct {
 	// Ignore the power table from EC.
 	IgnoreECPower bool
 	// InitialPowerTable specifies the optional CID of the initial power table
-	InitialPowerTable *cid.Cid
+	InitialPowerTable cid.Cid // !Defined() if nil
 	// We take the current power table from the head tipset this many instances ago.
 	CommitteeLookback uint64
 	// Config parameters for gpbft
@@ -133,6 +133,10 @@ func (m *Manifest) Equal(o *Manifest) bool {
 		m.BootstrapEpoch == o.BootstrapEpoch &&
 		m.IgnoreECPower == o.IgnoreECPower &&
 		m.CommitteeLookback == o.CommitteeLookback &&
+		// Don't include this in equality checks because it doesn't change the meaning of
+		// the manifest (and we don't want to restart the network when we first publish
+		// this).
+		// m.InitialPowerTable.Equals(o.InitialPowerTable) &&
 		m.ExplicitPower.Equal(o.ExplicitPower) &&
 		m.Gpbft == o.Gpbft &&
 		m.EC.Equal(&o.EC) &&
