@@ -191,7 +191,7 @@ func (h *gpbftRunner) receiveCertificate(c *certs.FinalityCertificate) error {
 		return nil
 	}
 
-	log.Warnf("skipping from instance %d to instance %d", currentInstance, nextInstance)
+	log.Infof("skipping forwards based on cert", "from", currentInstance, "to", nextInstance)
 
 	nextInstanceStart := h.computeNextInstanceStart(c)
 	return h.participant.StartInstanceAt(nextInstance, nextInstanceStart)
@@ -276,8 +276,16 @@ func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, pID peer.ID,
 		log.Debugf("validation error during validation: %+v", err)
 		return pubsub.ValidationReject
 	}
+	if errors.Is(err, gpbft.ErrValidationTooOld) {
+		// we got the message too late
+		return pubsub.ValidationIgnore
+	}
+	if errors.Is(err, gpbft.ErrValidationNoCommittee) {
+		log.Infof("commitee error during validation: %+v", err)
+		return pubsub.ValidationIgnore
+	}
 	if err != nil {
-		log.Warnf("unknown error during validation: %+v", err)
+		log.Infof("unknown error during validation: %+v", err)
 		return pubsub.ValidationIgnore
 	}
 	msg.ValidatorData = validatedMessage
@@ -587,8 +595,8 @@ func (h *gpbftHost) SetAlarm(at time.Time) {
 // based on the decision received (which may be in the past).
 // E.g. this might be: finalised tipset timestamp + epoch duration + stabilisation delay.
 func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) (time.Time, error) {
-	log.Infof("got decision at instance %d, finalized head at epoch: %d",
-		decision.Vote.Instance, decision.Vote.Value.Head().Epoch)
+	log.Infow("reached a decision", "instance", decision.Vote.Instance,
+		"ecHeadEpoch", decision.Vote.Value.Head().Epoch)
 	cert, err := h.saveDecision(decision)
 	if err != nil {
 		err := fmt.Errorf("error while saving decision: %+v", err)
