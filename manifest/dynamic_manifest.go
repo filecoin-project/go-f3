@@ -16,7 +16,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var log = logging.Logger("f3-dynamic-manifest")
+var log = logging.Logger("f3/dynamic-manifest")
 
 var _ ManifestProvider = (*DynamicManifestProvider)(nil)
 
@@ -91,6 +91,7 @@ func (m *DynamicManifestProvider) Stop(ctx context.Context) error {
 }
 
 func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
+	log.Info("starting a dynamic manifest provider")
 	if err := m.registerTopicValidator(); err != nil {
 		return err
 	}
@@ -194,14 +195,21 @@ func (m *DynamicManifestProvider) registerTopicValidator() error {
 	// to be homogeneous.
 	var validator pubsub.ValidatorEx = func(ctx context.Context, pID peer.ID,
 		msg *pubsub.Message) pubsub.ValidationResult {
+
 		var update ManifestUpdateMessage
 		err := update.Unmarshal(bytes.NewReader(msg.Data))
 		if err != nil {
+			log.Debugw("reject unmarshal", "error", err)
 			return pubsub.ValidationReject
+		}
+		originID, err := peer.IDFromBytes(msg.From)
+		if err != nil {
+			log.Debugw("decoding msg.From ID", "error", err)
 		}
 
 		// manifest should come from the expected diagnostics server
-		if pID != m.manifestServerID {
+		if originID != m.manifestServerID {
+			log.Debugw("reject peerID", "msg.From", msg.From, "manifestServerID", m.manifestServerID)
 			return pubsub.ValidationReject
 		}
 

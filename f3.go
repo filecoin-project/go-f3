@@ -177,10 +177,20 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 	// Try to start immediately if we have a manifest available and don't have to wait to
 	// bootstrap. That way, we'll be fully started when we return from Start.
 	if initialDelay == 0 {
+		// FIXME: this failing will kill whole F3 and prevent it from starting
+		// dont do that
 		if err := m.reconfigure(startCtx, pendingManifest); err != nil {
 			return fmt.Errorf("failed to start GPBFT: %w", err)
 		}
 		pendingManifest = nil
+	}
+	{
+		var maybeNetworkName gpbft.NetworkName
+		if m.manifest != nil {
+			maybeNetworkName = m.manifest.NetworkName
+		}
+		log.Infow("F3 is starting", "initialDelay", initialDelay, "hasPendingManifest", pendingManifest != nil,
+			"NetworkName", maybeNetworkName)
 	}
 
 	m.errgrp.Go(func() (_err error) {
