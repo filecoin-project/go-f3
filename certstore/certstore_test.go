@@ -487,6 +487,8 @@ func testPowerInner(t *testing.T, firstInstance uint64) {
 		}
 		err := cs.Put(ctx, cert)
 		require.NoError(t, err)
+		_, err = cs.GetPowerTable(ctx, i+1)
+		require.NoError(t, err)
 	}
 
 	{
@@ -497,6 +499,8 @@ func testPowerInner(t *testing.T, firstInstance uint64) {
 		}
 		err = cs.Put(ctx, cert)
 		require.NoError(t, err)
+		_, err = cs.GetPowerTable(ctx, cert.GPBFTInstance+1)
+		require.NoError(t, err)
 	}
 
 	for i := uint64(9); i < 13; i++ {
@@ -505,6 +509,8 @@ func testPowerInner(t *testing.T, firstInstance uint64) {
 			SupplementalData: gpbft.SupplementalData{PowerTable: newPtCid},
 		}
 		err := cs.Put(ctx, cert)
+		require.NoError(t, err)
+		_, err = cs.GetPowerTable(ctx, i+1)
 		require.NoError(t, err)
 	}
 
