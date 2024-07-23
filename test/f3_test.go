@@ -26,10 +26,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const (
-	ManifestSenderTimeout = 1 * time.Second
-	logLevel              = "info"
-)
+const ManifestSenderTimeout = 1 * time.Second
 
 func TestF3Simple(t *testing.T) {
 	t.Parallel()
@@ -180,7 +177,7 @@ func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 	env.waitForManifestChange(prev, 30*time.Second)
 
 	// check that it paused
-	env.waitForNodesStoppped(10 * time.Second)
+	env.waitForNodesStopped(10 * time.Second)
 
 	// New manifest with sequence 2 to start again F3
 	prev = env.nodes[0].f3.Manifest()
@@ -267,7 +264,7 @@ func (e *testEnv) addParticipants(m *manifest.Manifest, participants []gpbft.Act
 		// If the ID matches an existing one, it adds to the existing power.
 		// NOTE: We do not respect the original ID when adding a new nodes, we use the subsequent one.
 		if n >= gpbft.ActorID(nodeLen) {
-			e.initNode(int(nodeLen), e.manifestSender.SenderID())
+			e.initNode(nodeLen, e.manifestSender.SenderID())
 			newNode = true
 		}
 		pubkey, _ := e.signingBackend.GenerateKey()
@@ -437,7 +434,7 @@ func (e *testEnv) waitForNodesInitialization() {
 	e.waitFor(f, 5*time.Second)
 }
 
-func (e *testEnv) waitForNodesStoppped(timeout time.Duration) {
+func (e *testEnv) waitForNodesStopped(timeout time.Duration) {
 	f := func(n *testNode) bool {
 		return !n.f3.IsRunning()
 	}
@@ -531,13 +528,13 @@ func (e *testEnv) newF3Instance(id int, manifestServer peer.ID) (*testNode, erro
 
 	m := e.manifest // copy because we mutate this
 	var mprovider manifest.ManifestProvider
-	if manifestServer != peer.ID("") {
+	if manifestServer != "" {
 		mprovider = manifest.NewDynamicManifestProvider(&m, ds, ps, manifestServer)
 	} else {
 		mprovider = manifest.NewStaticManifestProvider(&m)
 	}
 
-	e.signingBackend.Allow(int(id))
+	e.signingBackend.Allow(id)
 
 	n.f3, err = f3.New(e.testCtx, mprovider, ds, h, ps, e.signingBackend, e.ec)
 	if err != nil {
