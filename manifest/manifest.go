@@ -113,6 +113,8 @@ type EcConfig struct {
 	DelayMultiplier float64
 	// Table of incremental multipliers to backoff in units of Delay in case of base decisions
 	BaseDecisionBackoffTable []float64
+	// HeadLookback number of unfinalized tipsets to remove from the head
+	HeadLookback uint64
 }
 
 func (e *EcConfig) Equal(o *EcConfig) bool {
