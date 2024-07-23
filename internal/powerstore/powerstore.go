@@ -200,7 +200,7 @@ func (ps *Store) deleteAll(ctx context.Context) {
 
 		if err := ps.ds.Delete(ctx, datastore.NewKey(r.Key)); err != nil {
 			log.Errorw("failed to delete power-table diffs to delete", "error", err)
-			return
+			continue
 		}
 	}
 }
