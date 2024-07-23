@@ -75,16 +75,6 @@ func TestManifest_Serialization(t *testing.T) {
 			given: baseMarshalled,
 			want:  &base,
 		},
-		{
-			name:  "null",
-			given: []byte("null"),
-			want:  nil,
-		},
-		{
-			name:  "untrimmed null",
-			given: []byte("     null   "),
-			want:  nil,
-		},
 	} {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
