@@ -158,7 +158,7 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 			}
 
 			if update.MessageSequence <= msgSeqNumber {
-				log.Debugf("discarded manifest update %d", update.MessageSequence)
+				log.Debugw("discarded manifest update", "newSeqNo", update.MessageSequence, "oldSeqNo", msgSeqNumber)
 				continue
 			}
 			err = m.ds.Put(m.runningCtx, latestManifestKey, msg.Data)
@@ -166,7 +166,7 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 				log.Errorw("saving new manifest", "error", err)
 			}
 
-			log.Infof("received manifest update %d", update.MessageSequence)
+			log.Infow("received manifest update", "seqNo", update.MessageSequence)
 			msgSeqNumber = update.MessageSequence
 
 			oldManifest := currentManifest
