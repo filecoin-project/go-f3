@@ -39,6 +39,10 @@ var manifestGenCmd = cli.Command{
 		path := c.String("manifest")
 		m := manifest.LocalDevnetManifest()
 
+		if err := m.Validate(); err != nil {
+			return fmt.Errorf("generated invalid manifest: %w", err)
+		}
+
 		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0666)
 		if err != nil {
 			return fmt.Errorf("opening manifest file for writing: %w", err)

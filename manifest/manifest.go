@@ -263,7 +263,10 @@ func (m *Manifest) Marshal() ([]byte, error) {
 
 func Unmarshal(r io.Reader) (*Manifest, error) {
 	var m *Manifest
-	return m, json.NewDecoder(r).Decode(&m)
+	if err := json.NewDecoder(r).Decode(&m); err != nil {
+		return nil, err
+	}
+	return m, m.Validate()
 }
 
 func (m *Manifest) DatastorePrefix() datastore.Key {
