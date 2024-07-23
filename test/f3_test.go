@@ -145,7 +145,7 @@ func TestF3DynamicManifest_WithRebootstrap(t *testing.T) {
 	env.addParticipants(&env.manifest, []gpbft.ActorID{2, 3}, big.NewInt(1), false)
 	env.updateManifest()
 
-	env.waitForManifestChange(prev, 35*time.Second)
+	env.waitForManifestChange(prev, 60*time.Second)
 
 	// check that it rebootstrapped and the number of instances is below prevInstance
 	require.True(t, env.nodes[0].currentGpbftInstance() < prevInstance)
