@@ -26,6 +26,7 @@ var (
 		DelayMultiplier: 2.,
 		// MaxBackoff is 15min given default params
 		BaseDecisionBackoffTable: []float64{1.3, 1.69, 2.2, 2.86, 3.71, 4.83, 6.27, 7.5},
+		HeadLookback:             0,
 	}
 
 	DefaultGpbftConfig = GpbftConfig{
@@ -121,6 +122,7 @@ func (e *EcConfig) Equal(o *EcConfig) bool {
 	return e.Period == o.Period &&
 		e.Finality == o.Finality &&
 		e.DelayMultiplier == o.DelayMultiplier &&
+		e.HeadLookback == o.HeadLookback &&
 		slices.Equal(e.BaseDecisionBackoffTable, o.BaseDecisionBackoffTable)
 }
 
