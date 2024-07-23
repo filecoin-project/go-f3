@@ -120,7 +120,7 @@ func (ps *Store) GetPowerTable(ctx context.Context, tsk gpbft.TipSetKey) (gpbft.
 	return certs.ApplyPowerTableDiffs(basePt, diffs...)
 }
 
-func (ps *Store) basePowerTable(ctx context.Context) (int64, gpbft.PowerEntries, error) {
+func (ps *Store) f3PowerBase(ctx context.Context) (int64, uint64, error) {
 	baseEpoch := ps.manifest.BootstrapEpoch - ps.manifest.ECFinality
 	baseInstance := ps.manifest.InitialInstance
 	if lastCert := ps.cs.Latest(); lastCert != nil {
@@ -128,10 +128,18 @@ func (ps *Store) basePowerTable(ctx context.Context) (int64, gpbft.PowerEntries,
 		if lastCert.GPBFTInstance > ps.manifest.InitialInstance+ps.manifest.CommitteeLookback {
 			baseCert, err := ps.cs.Get(ctx, lastCert.GPBFTInstance-ps.manifest.CommitteeLookback)
 			if err != nil {
-				return 0, nil, err
+				return 0, 0, err
 			}
 			baseEpoch = baseCert.ECChain.Head().Epoch
 		}
+	}
+	return baseEpoch, baseInstance, nil
+}
+
+func (ps *Store) basePowerTable(ctx context.Context) (int64, gpbft.PowerEntries, error) {
+	baseEpoch, baseInstance, err := ps.f3PowerBase(ctx)
+	if err != nil {
+		return 0, nil, err
 	}
 
 	basePt, err := ps.cs.GetPowerTable(ctx, baseInstance)
@@ -177,14 +185,6 @@ func (ps *Store) put(ctx context.Context, epoch int64, diff certs.PowerTableDiff
 	return nil
 }
 
-func (ps *Store) f3HeadEpoch() int64 {
-	latestCert := ps.cs.Latest()
-	if latestCert == nil {
-		return ps.manifest.BootstrapEpoch - ps.manifest.ECFinality
-	}
-	return latestCert.ECChain.Head().Epoch
-}
-
 func (ps *Store) deleteAll(ctx context.Context) {
 	res, err := ps.ds.Query(ctx, query.Query{Prefix: diffPrefix})
 	if err != nil {
@@ -220,7 +220,10 @@ func (ps *Store) run(ctx context.Context) error {
 			return nil
 		}
 
-		f3Head := ps.f3HeadEpoch()
+		f3Base, _, err := ps.f3PowerBase(ctx)
+		if err != nil {
+			log.Errorw("failed to determine f3 base epoch", "error", err)
+		}
 		ecHeadTs, err := ps.GetHead(ctx)
 		if err != nil {
 			log.Errorw("failed to get EC head", "error", err)
@@ -228,9 +231,9 @@ func (ps *Store) run(ctx context.Context) error {
 		}
 		ecHead := ecHeadTs.Epoch()
 
-		log := log.With(zap.Int64("ecHead", ecHead), zap.Int64("f3Head", f3Head))
+		log := log.With(zap.Int64("ecHead", ecHead), zap.Int64("f3Base", f3Base))
 
-		if !initialized && f3Head > ecHead-stopThreshold {
+		if !initialized && f3Base > ecHead-stopThreshold {
 			initialized = true
 			log.Debugw("Clearing the OhShitStore on initialization because we're caught-up.")
 			ps.deleteAll(ctx)
@@ -241,7 +244,7 @@ func (ps *Store) run(ctx context.Context) error {
 		initialized = true
 
 		if ps.lastStoredPt == nil {
-			if f3Head > ecHead-startThreshold {
+			if f3Base > ecHead-startThreshold {
 				log.Debugw("skipping catch-up because we're within the start threshold")
 				continue
 			}
@@ -251,7 +254,7 @@ func (ps *Store) run(ctx context.Context) error {
 				log.Errorw("failed to lookup most recent power table", "error", err)
 				continue
 			}
-		} else if f3Head > ecHead-stopThreshold {
+		} else if f3Base > ecHead-stopThreshold {
 			log.Infow("Stopping the OhShitStore™ because we're caught-up")
 			ps.deleteAll(ctx)
 			ps.lastStoredEpoch = -1
