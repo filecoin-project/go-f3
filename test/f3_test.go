@@ -95,7 +95,7 @@ func TestF3FailRecover(t *testing.T) {
 			switch op {
 			case "put", "batch-put":
 				failDsWrite.Store(false)
-				return fmt.Errorf("FAILURE!")
+				return fmt.Errorf("Intentional error for testing, please ignore!")
 			}
 		}
 		return nil
