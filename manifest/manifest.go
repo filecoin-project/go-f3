@@ -17,12 +17,13 @@ import (
 const VersionCapability = 1
 
 var (
+	DefaultCommitteeLookback uint64 = 10
+
 	// Default configuration for the EC Backend
 	DefaultEcConfig = EcConfig{
-		Finality:          900,
-		CommitteeLookback: 10,
-		Period:            30 * time.Second,
-		DelayMultiplier:   2.,
+		Finality:        900,
+		Period:          30 * time.Second,
+		DelayMultiplier: 2.,
 		// MaxBackoff is 15min given default params
 		BaseDecisionBackoffTable: []float64{1.3, 1.69, 2.2, 2.86, 3.71, 4.83, 6.27, 7.5},
 	}
@@ -86,14 +87,12 @@ type EcConfig struct {
 	DelayMultiplier float64
 	// Table of incremental multipliers to backoff in units of Delay in case of base decisions
 	BaseDecisionBackoffTable []float64
-	CommitteeLookback        uint64
 }
 
 func (e *EcConfig) Equal(o *EcConfig) bool {
 	return e.Period == o.Period &&
 		e.Finality == o.Finality &&
 		e.DelayMultiplier == o.DelayMultiplier &&
-		e.CommitteeLookback == o.CommitteeLookback &&
 		slices.Equal(e.BaseDecisionBackoffTable, o.BaseDecisionBackoffTable)
 }
 
@@ -114,6 +113,8 @@ type Manifest struct {
 	IgnoreECPower bool
 	// InitialPowerTable specifies the optional CID of the initial power table
 	InitialPowerTable *cid.Cid
+	// We take the current power table from the head tipset this many instances ago.
+	CommitteeLookback uint64
 	// Config parameters for gpbft
 	Gpbft GpbftConfig
 	// EC-specific parameters
@@ -131,6 +132,7 @@ func (m *Manifest) Equal(o *Manifest) bool {
 		m.InitialInstance == o.InitialInstance &&
 		m.BootstrapEpoch == o.BootstrapEpoch &&
 		m.IgnoreECPower == o.IgnoreECPower &&
+		m.CommitteeLookback == o.CommitteeLookback &&
 		m.ExplicitPower.Equal(o.ExplicitPower) &&
 		m.Gpbft == o.Gpbft &&
 		m.EC.Equal(&o.EC) &&
@@ -146,6 +148,7 @@ func LocalDevnetManifest() *Manifest {
 		ProtocolVersion:     1,
 		NetworkName:         gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng)),
 		BootstrapEpoch:      1000,
+		CommitteeLookback:   DefaultCommitteeLookback,
 		EC:                  DefaultEcConfig,
 		Gpbft:               DefaultGpbftConfig,
 		CertificateExchange: DefaultCxConfig,

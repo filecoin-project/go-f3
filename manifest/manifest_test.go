@@ -27,14 +27,14 @@ var base = manifest.Manifest{
 			PubKey: gpbft.PubKey{1},
 		},
 	},
+	CommitteeLookback: 10,
 	Gpbft: manifest.GpbftConfig{
 		Delta:                10,
 		DeltaBackOffExponent: 0.2,
-		MaxLookaheadRounds:   10,
+		MaxLookaheadRounds:   5,
 	},
 	EC: manifest.EcConfig{
 		Finality:                 900,
-		CommitteeLookback:        5,
 		DelayMultiplier:          2.0,
 		Period:                   30 * time.Second,
 		BaseDecisionBackoffTable: []float64{1.3, 1.69, 2.2, 2.86, 3.71, 4.83, 6.27, 8.16, 10.6, 13.79, 15.},

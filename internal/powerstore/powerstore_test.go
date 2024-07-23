@@ -229,8 +229,8 @@ func advanceF3(t *testing.T, m *manifest.Manifest, ps *powerstore.Store, cs *cer
 		newChain := gpbftChain[:count]
 
 		nextPt := basePt
-		if instance >= m.InitialInstance+m.EC.CommitteeLookback {
-			ptCert, err := cs.Get(ctx, instance-m.EC.CommitteeLookback)
+		if instance >= m.InitialInstance+m.CommitteeLookback {
+			ptCert, err := cs.Get(ctx, instance-m.CommitteeLookback)
 			require.NoError(t, err)
 			nextPt, err = ps.GetPowerTable(ctx, ptCert.ECChain.Head().Key)
 			require.NoError(t, err)
