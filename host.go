@@ -449,7 +449,7 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 	}
 
 	// less than ECPeriod since production of the head agreement is unlikely, trim the chain.
-	if len(collectedChain) > 0 && h.clock.Since(headTs.Timestamp()) < h.manifest.EC.Period {
+	if len(collectedChain) > 0 && h.clock.Since(collectedChain[len(collectedChain)-1].Timestamp()) < h.manifest.EC.Period {
 		collectedChain = collectedChain[:len(collectedChain)-1]
 	}
 
