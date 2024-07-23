@@ -72,17 +72,15 @@ type CxConfig struct {
 }
 
 func (c *CxConfig) Validate() error {
-	if c.ClientRequestTimeout < 0 {
+	switch {
+	case c.ClientRequestTimeout < 0:
 		return fmt.Errorf("client request timeout must be non-negative, was %s", c.ClientRequestTimeout)
-	}
-	if c.ServerRequestTimeout < 0 {
+	case c.ServerRequestTimeout < 0:
 		return fmt.Errorf("server request timeout must be non-negative, was %s", c.ServerRequestTimeout)
-	}
-	if c.MinimumPollInterval < time.Millisecond {
+	case c.MinimumPollInterval < time.Millisecond:
 		return fmt.Errorf("minimum polling interval must be at least 1ms, was %s", c.MinimumPollInterval)
-	}
 
-	if c.MinimumPollInterval > c.MaximumPollInterval {
+	case c.MinimumPollInterval > c.MaximumPollInterval:
 		return fmt.Errorf("maximum polling interval (%s) must not be less than the minimum (%s)",
 			c.MaximumPollInterval, c.MinimumPollInterval)
 	}
@@ -125,20 +123,17 @@ func (e *EcConfig) Equal(o *EcConfig) bool {
 }
 
 func (e *EcConfig) Validate() error {
-	if e.Period <= 0 {
+	switch {
+	case e.Period <= 0:
 		return fmt.Errorf("EC period must be positive, was %s", e.Period)
-	}
-	if e.Finality < 0 {
+	case e.Finality < 0:
 		return fmt.Errorf("EC finality must be non-negative, was %d", e.Finality)
-	}
-
-	if e.DelayMultiplier <= 0.0 {
+	case e.DelayMultiplier <= 0.0:
 		return fmt.Errorf("EC delay multiplier must positive, was %f", e.DelayMultiplier)
-	}
-
-	if len(e.BaseDecisionBackoffTable) == 0 {
+	case len(e.BaseDecisionBackoffTable) == 0:
 		return fmt.Errorf("EC backoff table must have at least one element")
 	}
+
 	for i, b := range e.BaseDecisionBackoffTable {
 		if b < 0.0 {
 			return fmt.Errorf("EC backoff table element %d is negative (%f)", i, b)
@@ -200,33 +195,28 @@ func (m *Manifest) Equal(o *Manifest) bool {
 }
 
 func (m *Manifest) Validate() error {
-	if m == nil {
+	switch {
+	case m == nil:
 		return fmt.Errorf("invalid manifest: manifest is nil!")
-	}
-
-	if m.NetworkName == "" {
+	case m.NetworkName == "":
 		return fmt.Errorf("invalid manifest: network name must not be empty")
-	}
-
-	if m.BootstrapEpoch < m.EC.Finality {
+	case m.BootstrapEpoch < m.EC.Finality:
 		return fmt.Errorf("invalid manifest: bootstrap epoch %d before finality %d",
 			m.BootstrapEpoch, m.EC.Finality)
-	}
-
-	if m.IgnoreECPower && len(m.ExplicitPower) == 0 {
+	case m.IgnoreECPower && len(m.ExplicitPower) == 0:
 		return fmt.Errorf("invalid manifest: ignoring ec power with no explicit power")
 	}
 
 	if len(m.ExplicitPower) > 0 {
 		pt := gpbft.NewPowerTable()
-		err := pt.Add(m.ExplicitPower...)
-		if err != nil {
+		if err := pt.Add(m.ExplicitPower...); err != nil {
 			return fmt.Errorf("invalid manifest: invalid power entries")
 		}
-		err = pt.Validate()
-		if err != nil {
+
+		if err := pt.Validate(); err != nil {
 			return fmt.Errorf("invalid manifest: %w", err)
 		}
+
 		if m.IgnoreECPower && pt.Total.Sign() <= 0 {
 			return fmt.Errorf("invalid manifest: no power")
 		}
@@ -235,11 +225,9 @@ func (m *Manifest) Validate() error {
 	if err := m.Gpbft.Validate(); err != nil {
 		return fmt.Errorf("invalid manifest: invalid gpbft config: %w", err)
 	}
-
 	if err := m.EC.Validate(); err != nil {
 		return fmt.Errorf("invalid manifest: invalid EC config: %w", err)
 	}
-
 	if err := m.CertificateExchange.Validate(); err != nil {
 		return fmt.Errorf("invalid manifest: invalid certificate exchange config: %w", err)
 	}
