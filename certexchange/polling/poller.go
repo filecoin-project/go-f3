@@ -95,6 +95,11 @@ func (p *Poller) CatchUp(ctx context.Context) (uint64, error) {
 // 2. An error if something went wrong internally (e.g., the certificate store returned an error).
 func (p *Poller) Poll(ctx context.Context, peer peer.ID) (*PollResult, error) {
 	res := new(PollResult)
+
+	// Cancel this context on exit in case we exit early before the request finishes.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	for {
 		// Requests take time, so always try to catch-up between requests in case there has
 		// been some "local" action from the GPBFT instance.
