@@ -91,7 +91,7 @@ func (m *DynamicManifestProvider) Stop(ctx context.Context) error {
 }
 
 func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
-	log.Info("starting a dynamic manifest provider")
+	log.Info("starting a dynamic manifest provider", "manifestServerID", m.manifestServerID)
 	if err := m.registerTopicValidator(); err != nil {
 		return err
 	}
