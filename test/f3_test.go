@@ -173,7 +173,9 @@ func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 	env.waitForInstanceNumber(10, 30*time.Second, false)
 	prevInstance := env.nodes[0].currentGpbftInstance()
 
-	env.manifestSender.Pause()
+	prevCopy := *prev
+	prevCopy.Pause = true
+	env.manifestSender.UpdateManifest(&prevCopy)
 
 	env.waitForManifestChange(prev, 30*time.Second)
 
