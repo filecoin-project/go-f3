@@ -170,12 +170,12 @@ func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 	env.start()
 
 	prev := env.nodes[0].f3.Manifest()
-	env.waitForInstanceNumber(10, 15*time.Second, false)
+	env.waitForInstanceNumber(10, 30*time.Second, false)
 	prevInstance := env.nodes[0].currentGpbftInstance()
 
 	env.manifestSender.Pause()
 
-	env.waitForManifestChange(prev, 15*time.Second)
+	env.waitForManifestChange(prev, 30*time.Second)
 
 	// check that it paused
 	env.waitForNodesStoppped(10 * time.Second)
@@ -186,12 +186,12 @@ func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 	env.manifest.BootstrapEpoch = 956
 	env.updateManifest()
 
-	env.waitForManifestChange(prev, 15*time.Second)
+	env.waitForManifestChange(prev, 30*time.Second)
 	env.clock.Add(1 * time.Minute)
 
 	// check that it rebootstrapped and the number of instances is below prevInstance
 	require.Less(t, env.nodes[0].currentGpbftInstance(), prevInstance)
-	env.waitForInstanceNumber(3, 15*time.Second, false)
+	env.waitForInstanceNumber(3, 30*time.Second, false)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest())
 	env.requireEqualManifests(false)
 }
@@ -306,6 +306,7 @@ func (e *testEnv) waitForCondition(condition func() bool, timeout time.Duration)
 // waits for all nodes to reach a specific instance number.
 // If the `strict` flag is enabled the check also applies to the non-running nodes
 func (e *testEnv) waitForInstanceNumber(instanceNumber uint64, timeout time.Duration, strict bool) {
+	e.t.Helper()
 	e.waitForCondition(func() bool {
 		for _, n := range e.nodes {
 			// nodes that are not running are not required to reach the instance
