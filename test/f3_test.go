@@ -170,7 +170,7 @@ func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 	env.start()
 
 	prev := env.nodes[0].f3.Manifest()
-	env.waitForInstanceNumber(10, 30*time.Second, false)
+	env.waitForInstanceNumber(10, 30*time.Second, true)
 
 	prevCopy := *prev
 	prevCopy.Pause = true
@@ -190,8 +190,8 @@ func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 	env.waitForManifestChange(prev, 30*time.Second)
 	env.clock.Add(1 * time.Minute)
 
-	env.waitForInstanceNumber(3, 30*time.Second, false)
-	env.requireEqualManifests(false)
+	env.waitForInstanceNumber(3, 30*time.Second, true)
+	env.requireEqualManifests(true)
 
 	// Now check that we have the correct base for certificate 0.
 	cert0, err := env.nodes[0].f3.GetCert(env.testCtx, 0)
