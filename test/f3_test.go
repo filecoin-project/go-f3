@@ -171,7 +171,6 @@ func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 
 	prev := env.nodes[0].f3.Manifest()
 	env.waitForInstanceNumber(10, 30*time.Second, false)
-	prevInstance := env.nodes[0].currentGpbftInstance()
 
 	prevCopy := *prev
 	prevCopy.Pause = true
@@ -191,11 +190,13 @@ func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 	env.waitForManifestChange(prev, 30*time.Second)
 	env.clock.Add(1 * time.Minute)
 
-	// check that it rebootstrapped and the number of instances is below prevInstance
-	require.Less(t, env.nodes[0].currentGpbftInstance(), prevInstance)
 	env.waitForInstanceNumber(3, 30*time.Second, false)
-	require.NotEqual(t, prev, env.nodes[0].f3.Manifest())
 	env.requireEqualManifests(false)
+
+	// Now check that we have the correct base for certificate 0.
+	cert0, err := env.nodes[0].f3.GetCert(env.testCtx, 0)
+	require.NoError(t, err)
+	require.Equal(t, env.manifest.BootstrapEpoch-env.manifest.EC.Finality, cert0.ECChain.Base().Epoch)
 }
 
 var base = manifest.Manifest{
