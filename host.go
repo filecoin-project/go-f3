@@ -443,14 +443,14 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 		return nil, nil, fmt.Errorf("collecting chain: %w", err)
 	}
 
-	// less than ECPeriod since production of the head agreement is unlikely, trim the chain.
-	if len(collectedChain) > 0 && h.clock.Since(headTs.Timestamp()) < h.manifest.EC.Period {
-		collectedChain = collectedChain[:len(collectedChain)-1]
-	}
-
 	// If we have an explicit head-lookback, trim the chain.
 	if h.manifest.EC.HeadLookback > 0 {
 		collectedChain = collectedChain[:max(0, len(collectedChain)-h.manifest.EC.HeadLookback)]
+	}
+
+	// less than ECPeriod since production of the head agreement is unlikely, trim the chain.
+	if len(collectedChain) > 0 && h.clock.Since(headTs.Timestamp()) < h.manifest.EC.Period {
+		collectedChain = collectedChain[:len(collectedChain)-1]
 	}
 
 	base := gpbft.TipSet{
