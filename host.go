@@ -14,6 +14,7 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/manifest"
+
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	peer "github.com/libp2p/go-libp2p/core/peer"
 	"go.uber.org/multierr"
@@ -436,18 +437,20 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 	if err != nil {
 		return nil, nil, fmt.Errorf("getting head TS: %w", err)
 	}
-	if h.clock.Since(headTs.Timestamp()) < h.manifest.EC.Period {
-		// less than ECPeriod since production of the head
-		// agreement is unlikely
-		headTs, err = h.ec.GetParent(h.runningCtx, headTs)
-		if err != nil {
-			return nil, nil, fmt.Errorf("getting the parent of head TS: %w", err)
-		}
-	}
 
 	collectedChain, err := h.collectChain(baseTs, headTs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("collecting chain: %w", err)
+	}
+
+	// less than ECPeriod since production of the head agreement is unlikely, trim the chain.
+	if len(collectedChain) > 0 && h.clock.Since(headTs.Timestamp()) < h.manifest.EC.Period {
+		collectedChain = collectedChain[:len(collectedChain)-1]
+	}
+
+	// If we have an explicit head-lookback, trim the chain.
+	if h.manifest.EC.HeadLookback > 0 {
+		collectedChain = collectedChain[:min(len(collectedChain), h.manifest.EC.HeadLookback)]
 	}
 
 	base := gpbft.TipSet{

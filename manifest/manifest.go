@@ -114,7 +114,7 @@ type EcConfig struct {
 	// Table of incremental multipliers to backoff in units of Delay in case of base decisions
 	BaseDecisionBackoffTable []float64
 	// HeadLookback number of unfinalized tipsets to remove from the head
-	HeadLookback uint64
+	HeadLookback int
 }
 
 func (e *EcConfig) Equal(o *EcConfig) bool {
@@ -126,6 +126,8 @@ func (e *EcConfig) Equal(o *EcConfig) bool {
 
 func (e *EcConfig) Validate() error {
 	switch {
+	case e.HeadLookback < 0:
+		return fmt.Errorf("EC head lookback must be non-negative, was %d", e.HeadLookback)
 	case e.Period <= 0:
 		return fmt.Errorf("EC period must be positive, was %s", e.Period)
 	case e.Finality < 0:
