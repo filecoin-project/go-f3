@@ -178,9 +178,17 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 	// bootstrap. That way, we'll be fully started when we return from Start.
 	if initialDelay == 0 {
 		if err := m.reconfigure(startCtx, pendingManifest); err != nil {
-			return fmt.Errorf("failed to start GPBFT: %w", err)
+			log.Warnw("failed to reconfigure GPBFT", "error", err)
 		}
 		pendingManifest = nil
+	}
+	{
+		var maybeNetworkName gpbft.NetworkName
+		if m.manifest != nil {
+			maybeNetworkName = m.manifest.NetworkName
+		}
+		log.Infow("F3 is starting", "initialDelay", initialDelay,
+			"hasPendingManifest", pendingManifest != nil, "NetworkName", maybeNetworkName)
 	}
 
 	m.errgrp.Go(func() (_err error) {
@@ -236,6 +244,7 @@ func (m *F3) Stop(stopCtx context.Context) (_err error) {
 }
 
 func (m *F3) reconfigure(ctx context.Context, manif *manifest.Manifest) (_err error) {
+	log.Info("starting f3 reconfiguration")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -278,6 +287,7 @@ func (m *F3) Resume() error {
 }
 
 func (m *F3) stopInternal(ctx context.Context) error {
+	log.Info("stopping F3 internals")
 	var err error
 	if m.ps != nil {
 		if serr := m.ps.Stop(ctx); serr != nil {
@@ -309,6 +319,7 @@ func (m *F3) stopInternal(ctx context.Context) error {
 }
 
 func (m *F3) resumeInternal(ctx context.Context) error {
+	log.Info("resuming F3 internals")
 	mPowerEc := ec.WithModifiedPower(m.ec, m.manifest.ExplicitPower, m.manifest.IgnoreECPower)
 
 	// We don't reset these fields if we only pause/resume.

@@ -16,7 +16,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var log = logging.Logger("f3-dynamic-manifest")
+var log = logging.Logger("f3/dynamic-manifest")
 
 var _ ManifestProvider = (*DynamicManifestProvider)(nil)
 
@@ -91,6 +91,7 @@ func (m *DynamicManifestProvider) Stop(ctx context.Context) error {
 }
 
 func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
+	log.Infow("starting a dynamic manifest provider", "manifestServerID", m.manifestServerID)
 	if err := m.registerTopicValidator(); err != nil {
 		return err
 	}
@@ -157,7 +158,7 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 			}
 
 			if update.MessageSequence <= msgSeqNumber {
-				log.Warnf("discarded manifest update %d", update.MessageSequence)
+				log.Debugw("discarded manifest update", "newSeqNo", update.MessageSequence, "oldSeqNo", msgSeqNumber)
 				continue
 			}
 			err = m.ds.Put(m.runningCtx, latestManifestKey, msg.Data)
@@ -165,7 +166,7 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 				log.Errorw("saving new manifest", "error", err)
 			}
 
-			log.Infof("received manifest update %d", update.MessageSequence)
+			log.Infow("received manifest update", "seqNo", update.MessageSequence)
 			msgSeqNumber = update.MessageSequence
 
 			oldManifest := currentManifest
@@ -194,14 +195,21 @@ func (m *DynamicManifestProvider) registerTopicValidator() error {
 	// to be homogeneous.
 	var validator pubsub.ValidatorEx = func(ctx context.Context, pID peer.ID,
 		msg *pubsub.Message) pubsub.ValidationResult {
-		var update ManifestUpdateMessage
-		err := update.Unmarshal(bytes.NewReader(msg.Data))
+		// manifest should come from the expected diagnostics server
+		originID, err := peer.IDFromBytes(msg.From)
 		if err != nil {
+			log.Debugw("decoding msg.From ID", "error", err)
+			return pubsub.ValidationReject
+		}
+		if originID != m.manifestServerID {
+			log.Debugw("rejected manifest from unknown peer", "from", msg.From, "manifestServerID", m.manifestServerID)
 			return pubsub.ValidationReject
 		}
 
-		// manifest should come from the expected diagnostics server
-		if pID != m.manifestServerID {
+		var update ManifestUpdateMessage
+		err = update.Unmarshal(bytes.NewReader(msg.Data))
+		if err != nil {
+			log.Debugw("failed to unmarshal manifest", "from", msg.From, "error", err)
 			return pubsub.ValidationReject
 		}
 
