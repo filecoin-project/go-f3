@@ -9,7 +9,7 @@ var meter = otel.Meter("f3")
 var metrics = struct {
 	headDiverged metric.Int64Counter
 }{
-	headDiverged: must(meter.Int64Counter("head_diverged", metric.WithDescription("Number of times we encountered the head has diverged from base scenario."))),
+	headDiverged: must(meter.Int64Counter("f3_head_diverged", metric.WithDescription("Number of times we encountered the head has diverged from base scenario."))),
 }
 
 func must[V any](v V, err error) V {

@@ -35,15 +35,15 @@ var (
 )
 
 func init() {
-	metrics.phaseCounter = must(meter.Int64Counter("phase_counter", metric.WithDescription("Number of times phases change")))
-	metrics.roundHistogram = must(meter.Int64Histogram("round_histogram",
+	metrics.phaseCounter = must(meter.Int64Counter("f3_gpbft_phase_counter", metric.WithDescription("Number of times phases change")))
+	metrics.roundHistogram = must(meter.Int64Histogram("f3_gpbft_round_histogram",
 		metric.WithDescription("Histogram of rounds per instance"),
 		metric.WithExplicitBucketBoundaries(0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 20.0, 50.0, 100.0, 1000.0),
 	))
-	metrics.broadcastCounter = must(meter.Int64Counter("broadcast_counter", metric.WithDescription("Number of broadcasted messages")))
-	metrics.reBroadcastCounter = must(meter.Int64Counter("rebroadcast_counter", metric.WithDescription("Number of rebroadcasted messages")))
-	metrics.reBroadcastAttemptCounter = must(meter.Int64Counter("rebroadcast_attempt_counter", metric.WithDescription("Number of rebroadcast attempts")))
-	metrics.errorCounter = must(meter.Int64Counter("error_counter", metric.WithDescription("Number of errors")))
+	metrics.broadcastCounter = must(meter.Int64Counter("f3_gpbft_broadcast_counter", metric.WithDescription("Number of broadcasted messages")))
+	metrics.reBroadcastCounter = must(meter.Int64Counter("f3_gpbft_rebroadcast_counter", metric.WithDescription("Number of rebroadcasted messages")))
+	metrics.reBroadcastAttemptCounter = must(meter.Int64Counter("f3_gpbft_rebroadcast_attempt_counter", metric.WithDescription("Number of rebroadcast attempts")))
+	metrics.errorCounter = must(meter.Int64Counter("f3_gpbft_error_counter", metric.WithDescription("Number of errors")))
 }
 
 func metricAttributeFromError(err error) attribute.KeyValue {
