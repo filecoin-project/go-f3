@@ -197,7 +197,7 @@ func (m *Manifest) Equal(o *Manifest) bool {
 func (m *Manifest) Validate() error {
 	switch {
 	case m == nil:
-		return fmt.Errorf("invalid manifest: manifest is nil!")
+		return fmt.Errorf("invalid manifest: manifest is nil")
 	case m.NetworkName == "":
 		return fmt.Errorf("invalid manifest: network name must not be empty")
 	case m.BootstrapEpoch < m.EC.Finality:
