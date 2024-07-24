@@ -36,6 +36,51 @@ func TestF3Simple(t *testing.T) {
 	env.waitForInstanceNumber(5, 10*time.Second, false)
 }
 
+func TestF3WithLookback(t *testing.T) {
+	t.Parallel()
+	env := newTestEnvironment(t, 2, true)
+	env.manifest.EC.HeadLookback = 20
+	env.updateManifest()
+
+	env.connectAll()
+	env.start()
+	env.waitForInstanceNumber(5, 10*time.Second, false)
+
+	// Wait a second to let everything settle.
+	time.Sleep(10 * time.Millisecond)
+
+	h, err := env.ec.GetHead(env.testCtx)
+	require.NoError(t, err)
+
+	cert, err := env.nodes[0].f3.GetLatestCert(env.testCtx)
+	require.NoError(t, err)
+	require.NotNil(t, cert)
+
+	// just in case we race, I'm using 15 not 20 here.
+	require.LessOrEqual(t, cert.ECChain.Head().Epoch, h.Epoch()-15)
+
+	// Advance less than an ec period. We expect F3 to make no progress unless it's racing for
+	// some reason (e.g., has the wrong delay).
+	for i := 0; i < 100; i++ {
+		env.clock.Add(env.manifest.EC.Period / 200)
+		time.Sleep(time.Millisecond)
+	}
+
+	cert, err = env.nodes[0].f3.GetLatestCert(env.testCtx)
+	require.NoError(t, err)
+	require.NotNil(t, cert)
+	require.Less(t, cert.GPBFTInstance, uint64(5))
+
+	// If we add an EC period, we should make progress again.
+	env.clock.Add(env.manifest.EC.Period)
+
+	require.Eventually(t, func() bool {
+		cert, err := env.nodes[0].f3.GetLatestCert(env.testCtx)
+		require.NoError(t, err)
+		return cert.GPBFTInstance >= 5
+	}, 10*time.Second, 10*time.Millisecond)
+}
+
 func TestF3PauseResumeCatchup(t *testing.T) {
 	t.Parallel()
 	env := newTestEnvironment(t, 3, false)
