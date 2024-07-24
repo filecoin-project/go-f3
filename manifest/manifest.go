@@ -245,7 +245,7 @@ func LocalDevnetManifest() *Manifest {
 	rng := make([]byte, 4)
 	_, _ = rand.Read(rng)
 	m := &Manifest{
-		ProtocolVersion:     1,
+		ProtocolVersion:     VersionCapability,
 		NetworkName:         gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng)),
 		BootstrapEpoch:      1000,
 		CommitteeLookback:   DefaultCommitteeLookback,
