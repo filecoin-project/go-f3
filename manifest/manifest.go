@@ -14,7 +14,7 @@ import (
 	"github.com/ipfs/go-datastore"
 )
 
-const VersionCapability = 1
+const VersionCapability = 2
 
 var (
 	DefaultCommitteeLookback uint64 = 10
@@ -245,7 +245,7 @@ func LocalDevnetManifest() *Manifest {
 	rng := make([]byte, 4)
 	_, _ = rand.Read(rng)
 	m := &Manifest{
-		ProtocolVersion:     1,
+		ProtocolVersion:     VersionCapability,
 		NetworkName:         gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng)),
 		BootstrapEpoch:      1000,
 		CommitteeLookback:   DefaultCommitteeLookback,
