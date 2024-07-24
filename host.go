@@ -208,13 +208,15 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 		return h.clock.Now().Add(ecDelay)
 	}
 
+	lookbackDelay := h.manifest.EC.Period * time.Duration(h.manifest.EC.HeadLookback)
+
 	if cert.ECChain.HasSuffix() {
 		// we decided on something new, the tipset that got finalized can at minimum be 30-60s old.
-		return ts.Timestamp().Add(ecDelay)
+		return ts.Timestamp().Add(ecDelay).Add(lookbackDelay)
 	}
 	if cert.GPBFTInstance == h.manifest.InitialInstance {
 		// if we are at initial instance, there is no history to look at
-		return ts.Timestamp().Add(ecDelay)
+		return ts.Timestamp().Add(ecDelay).Add(lookbackDelay)
 	}
 	backoffTable := h.manifest.EC.BaseDecisionBackoffTable
 
@@ -242,7 +244,7 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 	backoff := time.Duration(float64(ecDelay) * backoffMultipler)
 	log.Infof("backing off for: %v", backoff)
 
-	return ts.Timestamp().Add(backoff)
+	return ts.Timestamp().Add(backoff).Add(lookbackDelay)
 }
 
 // Sends a message to all other participants.
