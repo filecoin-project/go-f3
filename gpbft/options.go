@@ -113,12 +113,12 @@ func WithRebroadcastBackoff(exponent float64, base, max time.Duration) Option {
 	}
 }
 
-func exponentialBackoffer(exponent float64, base, max time.Duration) func(attempt int) time.Duration {
+func exponentialBackoffer(exponent float64, base, maxBackoff time.Duration) func(attempt int) time.Duration {
 	return func(attempt int) time.Duration {
-		nextBackoff := time.Duration(float64(base) * math.Pow(exponent, float64(attempt)))
-		if nextBackoff > max {
-			return max
+		nextBackoff := float64(base) * math.Pow(exponent, float64(attempt))
+		if nextBackoff > float64(maxBackoff) {
+			return maxBackoff
 		}
-		return nextBackoff
+		return maxBackoff
 	}
 }
