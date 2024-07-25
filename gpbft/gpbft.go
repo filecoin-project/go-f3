@@ -979,7 +979,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, createTick
 		i.log("failed to request broadcast: %v", err)
 	}
 	i.broadcasted.record(mb)
-	metrics.broadcastCounter.Add(context.TODO(), 1)
+	metrics.broadcastCounter.Add(context.TODO(), 1, metric.WithAttributes(attrPhase[p.Step]))
 }
 
 // tryRebroadcast checks whether re-broadcast timeout has elapsed, and if so
