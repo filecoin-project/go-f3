@@ -2,7 +2,6 @@ package gpbft
 
 import "github.com/filecoin-project/go-f3/big"
 
-
 type ActorID uint64
 
 type StoragePower = big.Int
