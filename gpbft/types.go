@@ -1,6 +1,6 @@
 package gpbft
 
-import "github.com/filecoin-project/go-f3/big"
+import "github.com/filecoin-project/go-state-types/big"
 
 type ActorID uint64
 

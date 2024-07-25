@@ -3,7 +3,7 @@ package gpbft
 import (
 	"testing"
 
-	"github.com/filecoin-project/go-f3/big"
+	"github.com/filecoin-project/go-state-types/big"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

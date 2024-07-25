@@ -8,7 +8,7 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/filecoin-project/go-f3/big"
+	"github.com/filecoin-project/go-state-types/big"
 )
 
 var _ sort.Interface = (*PowerTable)(nil)

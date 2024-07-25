@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/filecoin-project/go-f3/big"
+	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim/signing"
 )
