@@ -1,6 +1,7 @@
 package certs_test
 
 import (
+	"bytes"
 	"fmt"
 	"math/rand"
 	"slices"
@@ -54,6 +55,9 @@ func TestPowerTableDiff(t *testing.T) {
 		}
 		require.Equal(t, expDeltaRemove, certs.MakePowerTableDiff(powerTable, nil))
 		require.Equal(t, expDeltaAdd, certs.MakePowerTableDiff(nil, powerTable))
+
+		testRoundTrip(t, expDeltaRemove)
+		testRoundTrip(t, expDeltaAdd)
 
 		addAll, err := certs.ApplyPowerTableDiffs(nil, expDeltaAdd)
 		require.NoError(t, err)
@@ -186,6 +190,16 @@ func TestPowerTableDiff(t *testing.T) {
 		require.ErrorContains(t, err, "resulted in negative power")
 	}
 
+}
+
+func testRoundTrip(t *testing.T, diff certs.PowerTableDiff) {
+	var b bytes.Buffer
+	require.NoError(t, diff.MarshalCBOR(&b))
+
+	var out certs.PowerTableDiff
+	require.NoError(t, out.UnmarshalCBOR(&b))
+
+	require.EqualValues(t, diff, out)
 }
 
 func TestFinalityCertificates(t *testing.T) {
