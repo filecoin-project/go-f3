@@ -1,3 +1,10 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 5%
+        only_pulls: true
 ignore:
   - "gen"
   - "test"
