@@ -68,7 +68,7 @@ func TestPowerStore(t *testing.T) {
 	m := manifest.LocalDevnetManifest()
 
 	ec := &forgetfulEC{
-		FakeEC:     ec.NewFakeEC(ctx, 1234, m.BootstrapEpoch, m.EC.Period, basePowerTable, true),
+		FakeEC:     ec.NewFakeEC(ctx, 1234, m.BootstrapEpoch, m.EC.Period, basePowerTable),
 		ecFinality: m.EC.Finality,
 	}
 
