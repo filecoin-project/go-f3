@@ -1,4 +1,4 @@
-package test
+package f3_test
 
 import (
 	"context"
