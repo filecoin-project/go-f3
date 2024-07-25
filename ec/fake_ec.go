@@ -26,9 +26,13 @@ type FakeEC struct {
 	ecPeriod time.Duration
 	ecStart  time.Time
 
+	lk sync.RWMutex
+
 	// without time
-	lk          sync.RWMutex
 	currentHead int64
+
+	// with time
+	pausedAt *time.Time
 }
 
 type Tipset struct {
@@ -116,6 +120,15 @@ func (ec *FakeEC) genTipset(epoch int64) *Tipset {
 }
 
 func (ec *FakeEC) currentEpoch() int64 {
+	if !ec.useTime {
+		panic("only call this when use-time is true")
+	}
+	ec.lk.RLock()
+	defer ec.lk.RUnlock()
+	if ec.pausedAt != nil {
+		return int64(ec.pausedAt.Sub(ec.ecStart) / ec.ecPeriod)
+	}
+
 	return int64(ec.clock.Since(ec.ecStart) / ec.ecPeriod)
 }
 
@@ -149,15 +162,44 @@ func (ec *FakeEC) GetParent(ctx context.Context, ts TipSet) (TipSet, error) {
 // SetCurrentHead sets the current head epoch.
 // This is only supported by FakeEC if `useTime=false`
 func (ec *FakeEC) SetCurrentHead(head int64) {
+	if ec.useTime {
+		panic("setting head only makes sense with manual EC, not use time is set to true")
+	}
 	ec.lk.Lock()
 	ec.currentHead = head
 	ec.lk.Unlock()
 }
 
 func (ec *FakeEC) GetCurrentHead() int64 {
+	if ec.useTime {
+		return ec.currentEpoch()
+	}
 	ec.lk.RLock()
 	defer ec.lk.RUnlock()
 	return ec.currentHead
+}
+
+// Pause pauses EC when `useTime=true`. Panics if `useTime=false`.
+func (ec *FakeEC) Pause() {
+	if !ec.useTime {
+		panic("pausing only makes sense with time-based EC")
+	}
+	ec.lk.Lock()
+	defer ec.lk.Unlock()
+
+	t := ec.clock.Now()
+	ec.pausedAt = &t
+}
+
+// Resume resumes EC when `useTime=true`. Panics if `useTime=false`.
+func (ec *FakeEC) Resume() {
+	if !ec.useTime {
+		panic("pausing only makes sense with time-based EC")
+	}
+	ec.lk.Lock()
+	defer ec.lk.Unlock()
+
+	ec.pausedAt = nil
 }
 
 func (ec *FakeEC) GetHead(ctx context.Context) (TipSet, error) {
