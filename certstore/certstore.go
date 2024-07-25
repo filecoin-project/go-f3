@@ -62,6 +62,7 @@ func open(ctx context.Context, ds datastore.Datastore) (*Store, error) {
 		return nil, fmt.Errorf("loading latest cert: %w", err)
 	}
 
+	metrics.latestInstance.Record(ctx, int64(latestCert.GPBFTInstance))
 	cs.busCerts.Publish(latestCert)
 
 	return cs, nil
@@ -402,6 +403,7 @@ func (cs *Store) Put(ctx context.Context, cert *certs.FinalityCertificate) error
 	}
 
 	cs.latestPowerTable = newPowerTable
+	metrics.latestInstance.Record(ctx, int64(cert.GPBFTInstance))
 	cs.busCerts.Publish(cert)
 
 	return nil
