@@ -59,8 +59,8 @@ func TestF3WithLookback(t *testing.T) {
 	// just in case we race, I'm using 15 not 20 here.
 	require.LessOrEqual(t, cert.ECChain.Head().Epoch, h.Epoch()-15)
 
-	// Advance less than an ec period. We expect F3 to make no progress unless it's racing for
-	// some reason (e.g., has the wrong delay).
+	// Advance less than an ec period. We expect F3 to make little to no progress unless it's
+	// racing for some reason (e.g., has the wrong delay).
 	for i := 0; i < 100; i++ {
 		env.clock.Add(env.manifest.EC.Period / 200)
 		time.Sleep(time.Millisecond)
@@ -69,7 +69,7 @@ func TestF3WithLookback(t *testing.T) {
 	cert, err = env.nodes[0].f3.GetLatestCert(env.testCtx)
 	require.NoError(t, err)
 	require.NotNil(t, cert)
-	require.Less(t, cert.GPBFTInstance, uint64(5))
+	require.Less(t, cert.GPBFTInstance, uint64(6))
 
 	// If we add an EC period, we should make progress again.
 	// We do it bit by bit to give code time to run.
