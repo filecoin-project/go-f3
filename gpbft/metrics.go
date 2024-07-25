@@ -23,6 +23,15 @@ var (
 	attrCommitPhase     = attribute.String(attrKeyPhase, COMMIT_PHASE.String())
 	attrDecidePhase     = attribute.String(attrKeyPhase, DECIDE_PHASE.String())
 	attrTerminatedPhase = attribute.String(attrKeyPhase, TERMINATED_PHASE.String())
+	attrPhase           = map[Phase]attribute.KeyValue{
+		INITIAL_PHASE:    attrInitialPhase,
+		QUALITY_PHASE:    attrQualityPhase,
+		CONVERGE_PHASE:   attrConvergePhase,
+		PREPARE_PHASE:    attrPreparePhase,
+		COMMIT_PHASE:     attrCommitPhase,
+		DECIDE_PHASE:     attrDecidePhase,
+		TERMINATED_PHASE: attrTerminatedPhase,
+	}
 
 	metrics struct {
 		phaseCounter              metric.Int64Counter
