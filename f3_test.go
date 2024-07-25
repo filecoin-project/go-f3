@@ -36,6 +36,58 @@ func TestF3Simple(t *testing.T) {
 	env.waitForInstanceNumber(5, 10*time.Second, false)
 }
 
+func TestF3WithLookback(t *testing.T) {
+	t.Parallel()
+	env := newTestEnvironment(t, 2, true)
+	env.manifest.EC.HeadLookback = 20
+	env.updateManifest()
+
+	env.connectAll()
+	env.start()
+	env.waitForInstanceNumber(5, 10*time.Second, false)
+
+	// Wait a second to let everything settle.
+	time.Sleep(10 * time.Millisecond)
+
+	headEpoch := env.ec.GetCurrentHead()
+
+	cert, err := env.nodes[0].f3.GetLatestCert(env.testCtx)
+	require.NoError(t, err)
+	require.NotNil(t, cert)
+
+	// just in case we race, I'm using 15 not 20 here.
+	require.LessOrEqual(t, cert.ECChain.Head().Epoch, headEpoch-15)
+
+	env.ec.Pause()
+
+	// Advance by 100 periods.
+	for i := 0; i < 200; i++ {
+		env.clock.Add(env.manifest.EC.Period / 2)
+		time.Sleep(time.Millisecond)
+	}
+
+	// Now make sure we've advanced by significantly less than 100 instances.
+	// We want to make sure we're not racing.
+	cert, err = env.nodes[0].f3.GetLatestCert(env.testCtx)
+	require.NoError(t, err)
+	require.NotNil(t, cert)
+	require.Less(t, cert.GPBFTInstance, uint64(80))
+
+	// If we add another EC period, we should make progress again.
+	// We do it bit by bit to give code time to run.
+	env.ec.Resume()
+	for i := 0; i < 10; i++ {
+		env.clock.Add(env.manifest.EC.Period / 10)
+		time.Sleep(time.Millisecond)
+	}
+
+	require.Eventually(t, func() bool {
+		cert, err := env.nodes[0].f3.GetLatestCert(env.testCtx)
+		require.NoError(t, err)
+		return cert.GPBFTInstance >= 5
+	}, 10*time.Second, 10*time.Millisecond)
+}
+
 func TestF3PauseResumeCatchup(t *testing.T) {
 	t.Parallel()
 	env := newTestEnvironment(t, 3, false)
@@ -199,23 +251,14 @@ func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 }
 
 var base = manifest.Manifest{
-	BootstrapEpoch:    950,
-	InitialInstance:   0,
-	NetworkName:       gpbft.NetworkName("f3-test/0"),
-	CommitteeLookback: manifest.DefaultCommitteeLookback,
-	Gpbft: manifest.GpbftConfig{
-		Delta:                3 * time.Second,
-		DeltaBackOffExponent: 2.,
-		MaxLookaheadRounds:   5,
-	},
-	EC: manifest.EcConfig{
-		Finality: 10,
-		// increased delay and period to accelerate test times.
-		Period:                   30 * time.Second,
-		DelayMultiplier:          1.0,
-		BaseDecisionBackoffTable: []float64{1., 1.2},
-	},
-	CertificateExchange: manifest.DefaultCxConfig}
+	BootstrapEpoch:      950,
+	InitialInstance:     0,
+	NetworkName:         gpbft.NetworkName("f3-test/0"),
+	CommitteeLookback:   manifest.DefaultCommitteeLookback,
+	Gpbft:               manifest.DefaultGpbftConfig,
+	EC:                  manifest.DefaultEcConfig,
+	CertificateExchange: manifest.DefaultCxConfig,
+}
 
 type testNode struct {
 	e         *testEnv
