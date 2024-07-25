@@ -42,7 +42,7 @@ func NewDrop(id gpbft.ActorID, host Host, seed int64, dropProbability float64, d
 	}
 }
 
-func NewDropGenerator(power *gpbft.StoragePower, seed int64, dropProbability float64, dropDuration time.Duration, targets ...gpbft.ActorID) Generator {
+func NewDropGenerator(power gpbft.StoragePower, seed int64, dropProbability float64, dropDuration time.Duration, targets ...gpbft.ActorID) Generator {
 	return func(id gpbft.ActorID, host Host) *Adversary {
 		return &Adversary{
 			Receiver: NewDrop(id, host, seed, dropProbability, dropDuration, targets...),

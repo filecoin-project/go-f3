@@ -3,7 +3,6 @@ package test
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -143,7 +142,7 @@ func TestF3DynamicManifest_WithRebootstrap(t *testing.T) {
 	prevInstance := env.nodes[0].currentGpbftInstance()
 
 	env.manifest.BootstrapEpoch = 1253
-	env.addParticipants(&env.manifest, []gpbft.ActorID{2, 3}, big.NewInt(1), false)
+	env.addParticipants(&env.manifest, []gpbft.ActorID{2, 3}, gpbft.NewStoragePower(1), false)
 	env.updateManifest()
 
 	env.waitForManifestChange(prev, 60*time.Second)
@@ -258,7 +257,7 @@ func (e *testEnv) updateManifest() {
 	e.manifestSender.UpdateManifest(&m)
 }
 
-func (e *testEnv) addParticipants(m *manifest.Manifest, participants []gpbft.ActorID, power *big.Int, runNodes bool) {
+func (e *testEnv) addParticipants(m *manifest.Manifest, participants []gpbft.ActorID, power gpbft.StoragePower, runNodes bool) {
 	for _, n := range participants {
 		nodeLen := len(e.nodes)
 		newNode := false
@@ -382,7 +381,7 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) *testEnv {
 		initialPowerTable = append(initialPowerTable, gpbft.PowerEntry{
 			ID:     gpbft.ActorID(i),
 			PubKey: pubkey,
-			Power:  big.NewInt(1000),
+			Power:  gpbft.NewStoragePower(1000),
 		})
 	}
 	env.manifest = m

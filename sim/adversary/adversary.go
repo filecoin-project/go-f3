@@ -22,5 +22,5 @@ type Generator func(gpbft.ActorID, Host) *Adversary
 
 type Adversary struct {
 	Receiver
-	Power *gpbft.StoragePower
+	Power gpbft.StoragePower
 }

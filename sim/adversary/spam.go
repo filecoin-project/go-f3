@@ -30,7 +30,7 @@ func NewSpam(id gpbft.ActorID, host Host, roundsAhead uint64) *Spam {
 	}
 }
 
-func NewSpamGenerator(power *gpbft.StoragePower, roundsAhead uint64) Generator {
+func NewSpamGenerator(power gpbft.StoragePower, roundsAhead uint64) Generator {
 	return func(id gpbft.ActorID, host Host) *Adversary {
 		return &Adversary{
 			Receiver: NewSpam(id, host, roundsAhead),

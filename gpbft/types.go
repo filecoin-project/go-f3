@@ -1,8 +1,6 @@
 package gpbft
 
-import (
-	"math/big"
-)
+import "github.com/filecoin-project/go-state-types/big"
 
 type ActorID uint64
 
@@ -15,6 +13,6 @@ type PubKey []byte
 type NetworkName string
 
 // Creates a new StoragePower struct with a specific value and returns the result
-func NewStoragePower(value int64) *StoragePower {
-	return new(big.Int).SetInt64(value)
+func NewStoragePower(value int64) StoragePower {
+	return big.NewInt(value)
 }

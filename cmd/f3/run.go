@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"os"
 
 	"github.com/filecoin-project/go-f3"
@@ -90,7 +89,7 @@ var runCmd = cli.Command{
 			initialPowerTable = append(initialPowerTable, gpbft.PowerEntry{
 				ID:     gpbft.ActorID(i),
 				PubKey: pubkey,
-				Power:  big.NewInt(1000),
+				Power:  gpbft.NewStoragePower(1000),
 			})
 		}
 

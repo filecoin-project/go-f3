@@ -31,7 +31,7 @@ func NewWitholdCommit(id gpbft.ActorID, host Host) *WithholdCommit {
 	}
 }
 
-func NewWitholdCommitGenerator(power *gpbft.StoragePower, victims []gpbft.ActorID, victimValue gpbft.ECChain) Generator {
+func NewWitholdCommitGenerator(power gpbft.StoragePower, victims []gpbft.ActorID, victimValue gpbft.ECChain) Generator {
 	return func(id gpbft.ActorID, host Host) *Adversary {
 		wc := NewWitholdCommit(id, host)
 		wc.SetVictim(victims, victimValue)

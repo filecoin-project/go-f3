@@ -8,6 +8,7 @@ require (
 	github.com/drand/kyber-bls12381 v0.3.1
 	github.com/filecoin-project/go-bitfield v0.2.4
 	github.com/filecoin-project/go-clock v0.1.0
+	github.com/filecoin-project/go-state-types v0.14.0
 	github.com/ipfs/go-cid v0.4.1
 	github.com/ipfs/go-datastore v0.6.0
 	github.com/ipfs/go-ds-leveldb v0.5.0
