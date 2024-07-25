@@ -8,11 +8,11 @@ import (
 	"math"
 	"sort"
 
+	big "github.com/filecoin-project/go-f3/big"
 	gpbft "github.com/filecoin-project/go-f3/gpbft"
 	cid "github.com/ipfs/go-cid"
 	cbg "github.com/whyrusleeping/cbor-gen"
 	xerrors "golang.org/x/xerrors"
-	big "math/big"
 )
 
 var _ = xerrors.Errorf
@@ -41,21 +41,8 @@ func (t *PowerTableDelta) MarshalCBOR(w io.Writer) error {
 	}
 
 	// t.PowerDelta (big.Int) (struct)
-	{
-		if err := cw.CborWriteHeader(cbg.MajTag, 2); err != nil {
-			return err
-		}
-		var b []byte
-		if t.PowerDelta != nil {
-			b = t.PowerDelta.Bytes()
-		}
-
-		if err := cw.CborWriteHeader(cbg.MajByteString, uint64(len(b))); err != nil {
-			return err
-		}
-		if _, err := cw.Write(b); err != nil {
-			return err
-		}
+	if err := t.PowerDelta.MarshalCBOR(cw); err != nil {
+		return err
 	}
 
 	// t.SigningKey (gpbft.PubKey) (slice)
@@ -113,36 +100,22 @@ func (t *PowerTableDelta) UnmarshalCBOR(r io.Reader) (err error) {
 	}
 	// t.PowerDelta (big.Int) (struct)
 
-	maj, extra, err = cr.ReadHeader()
-	if err != nil {
-		return err
-	}
+	{
 
-	if maj != cbg.MajTag || extra != 2 {
-		return fmt.Errorf("big ints should be cbor bignums")
-	}
-
-	maj, extra, err = cr.ReadHeader()
-	if err != nil {
-		return err
-	}
-
-	if maj != cbg.MajByteString {
-		return fmt.Errorf("big ints should be tagged cbor byte strings")
-	}
-
-	if extra > 256 {
-		return fmt.Errorf("t.PowerDelta: cbor bignum was too large")
-	}
-
-	if extra > 0 {
-		buf := make([]byte, extra)
-		if _, err := io.ReadFull(cr, buf); err != nil {
+		b, err := cr.ReadByte()
+		if err != nil {
 			return err
 		}
-		t.PowerDelta = big.NewInt(0).SetBytes(buf)
-	} else {
-		t.PowerDelta = big.NewInt(0)
+		if b != cbg.CborNull[0] {
+			if err := cr.UnreadByte(); err != nil {
+				return err
+			}
+			t.PowerDelta = new(big.Int)
+			if err := t.PowerDelta.UnmarshalCBOR(cr); err != nil {
+				return xerrors.Errorf("unmarshaling t.PowerDelta pointer: %w", err)
+			}
+		}
+
 	}
 	// t.SigningKey (gpbft.PubKey) (slice)
 

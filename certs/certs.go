@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/filecoin-project/go-bitfield"
+	"github.com/filecoin-project/go-f3/big"
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
@@ -212,7 +213,7 @@ func MakePowerTableDiff(oldPowerTable, newPowerTable gpbft.PowerEntries) PowerTa
 		delta := PowerTableDelta{ParticipantID: newEntry.ID}
 		if oldEntry, ok := oldPowerMap[newEntry.ID]; ok {
 			delete(oldPowerMap, newEntry.ID)
-			delta.PowerDelta = new(gpbft.StoragePower).Sub(newEntry.Power, oldEntry.Power)
+			delta.PowerDelta = big.Sub(newEntry.Power, oldEntry.Power)
 			if !bytes.Equal(newEntry.PubKey, oldEntry.PubKey) {
 				delta.SigningKey = newEntry.PubKey
 			}
@@ -228,7 +229,7 @@ func MakePowerTableDiff(oldPowerTable, newPowerTable gpbft.PowerEntries) PowerTa
 	for _, e := range oldPowerMap {
 		diff = append(diff, PowerTableDelta{
 			ParticipantID: e.ID,
-			PowerDelta:    new(gpbft.StoragePower).Neg(e.Power),
+			PowerDelta:    e.Power.Neg(),
 		})
 	}
 	slices.SortFunc(diff, func(a, b PowerTableDelta) int {
@@ -268,7 +269,7 @@ func ApplyPowerTableDiffs(prevPowerTable gpbft.PowerEntries, diffs ...PowerTable
 					return nil, fmt.Errorf("diff %d delta for participant %d includes an unchanged key", j, pe.ID)
 				}
 				if d.PowerDelta.Sign() != 0 {
-					pe.Power = new(gpbft.StoragePower).Add(d.PowerDelta, pe.Power)
+					pe.Power = big.Add(d.PowerDelta, pe.Power)
 				}
 				if len(d.SigningKey) > 0 {
 					// If we end up with no power, we shouldn't have replaced the key.

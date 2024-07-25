@@ -3,12 +3,12 @@ package test
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/filecoin-project/go-f3"
+	"github.com/filecoin-project/go-f3/big"
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/clock"

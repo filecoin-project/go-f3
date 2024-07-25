@@ -33,7 +33,7 @@ type PowerTable struct {
 }
 
 func (p *PowerEntry) Equal(o *PowerEntry) bool {
-	return p.ID == o.ID && p.Power.Cmp(o.Power) == 0 && bytes.Equal(p.PubKey, o.PubKey)
+	return p.ID == o.ID && p.Power.Equals(o.Power) && bytes.Equal(p.PubKey, o.PubKey)
 }
 
 func (p PowerEntries) Equal(o PowerEntries) bool {
@@ -82,7 +82,7 @@ func (p PowerEntries) Scaled() (scaled []uint16, total uint16, err error) {
 		if pwr.Sign() <= 0 {
 			return nil, 0, fmt.Errorf("invalid non-positive power %s for participant %d", pwr, p[i].ID)
 		}
-		totalUnscaled = totalUnscaled.Add(totalUnscaled, pwr)
+		totalUnscaled.AddAssign(pwr)
 	}
 	scaled = make([]uint16, len(p))
 	for i := range p {
@@ -122,7 +122,7 @@ func (p *PowerTable) Add(entries ...PowerEntry) error {
 		case entry.Power.Sign() <= 0:
 			return fmt.Errorf("zero power for actor ID: %d", entry.ID)
 		default:
-			p.Total.Add(p.Total, entry.Power)
+			p.Total.AddAssign(entry.Power)
 			p.Entries = append(p.Entries, entry)
 			p.ScaledPower = append(p.ScaledPower, 0)
 			p.Lookup[entry.ID] = len(p.Entries) - 1
@@ -169,7 +169,7 @@ func (p *PowerTable) Copy() *PowerTable {
 	replica.ScaledPower = slices.Clone(p.ScaledPower)
 	replica.Lookup = maps.Clone(p.Lookup)
 	replica.ScaledTotal = p.ScaledTotal
-	replica.Total.Add(replica.Total, p.Total)
+	replica.Total.AddAssign(p.Total)
 	return replica
 }
 
@@ -236,11 +236,11 @@ func (p *PowerTable) Validate() error {
 			return fmt.Errorf("incorrect scaled power at index: %d", index)
 		}
 
-		total.Add(total, entry.Power)
+		total.AddAssign(entry.Power)
 		totalScaled += int(scaledPower)
 		previous = &entry
 	}
-	if total.Cmp(p.Total) != 0 {
+	if !total.Equals(p.Total) {
 		return errors.New("total power does not match entries")
 	}
 	if int(p.ScaledTotal) != totalScaled {
@@ -251,7 +251,7 @@ func (p *PowerTable) Validate() error {
 
 func scalePower(power, total *StoragePower) (uint16, error) {
 	const maxPower = 0xffff
-	if power.Cmp(total) > 0 {
+	if total.LessThan(power) {
 		return 0, fmt.Errorf("total power %d is less than the power of a single participant %d", total, power)
 	}
 	scaled := big.NewInt(maxPower)

@@ -2,11 +2,11 @@ package manifest_test
 
 import (
 	"bytes"
-	"math/big"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/filecoin-project/go-f3/big"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/stretchr/testify/require"
