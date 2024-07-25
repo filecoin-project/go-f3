@@ -8,8 +8,8 @@ import (
 	"sort"
 
 	"github.com/filecoin-project/go-bitfield"
-	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-state-types/big"
 )
 
 // PowerTableDelta represents a single power table change between GPBFT instances. If the resulting

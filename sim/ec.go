@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim/signing"
+	"github.com/filecoin-project/go-state-types/big"
 )
 
 // simEC captures the complete simulated EC state for all instances performed in

@@ -5,8 +5,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-state-types/big"
 	"github.com/stretchr/testify/require"
 )
 

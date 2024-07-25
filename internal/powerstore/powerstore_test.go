@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/ec"
@@ -15,6 +14,7 @@ import (
 	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/internal/powerstore"
 	"github.com/filecoin-project/go-f3/manifest"
+	"github.com/filecoin-project/go-state-types/big"
 
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/query"
