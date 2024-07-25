@@ -46,7 +46,7 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 	defer func() {
 		if perr := recover(); perr != nil {
 			_err = fmt.Errorf("panicked in server response: %v", perr)
-			log.Errorf("%s\n%s", string(debug.Stack()))
+			log.Errorf("%s\n%s", _err, string(debug.Stack()))
 		}
 	}()
 
@@ -61,7 +61,7 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 	// Request has no variable-length fields, so we don't need a limited reader.
 	var req Request
 	if err := req.UnmarshalCBOR(br); err != nil {
-		log.Debugf("failed to read request from stream: %w", err)
+		log.Debugf("failed to read request from stream: %v", err)
 		return err
 	}
 
@@ -77,14 +77,14 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 	if resp.PendingInstance >= req.FirstInstance && req.IncludePowerTable {
 		pt, err := s.Store.GetPowerTable(ctx, req.FirstInstance)
 		if err != nil {
-			log.Errorf("failed to load power table: %w", err)
+			log.Errorf("failed to load power table: %v", err)
 			return err
 		}
 		resp.PowerTable = pt
 	}
 
 	if err := resp.MarshalCBOR(bw); err != nil {
-		log.Debugf("failed to write header to stream: %w", err)
+		log.Debugf("failed to write header to stream: %v", err)
 		return err
 	}
 
@@ -101,12 +101,12 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 		if err == nil || errors.Is(err, certstore.ErrCertNotFound) {
 			for i := range certs {
 				if err := certs[i].MarshalCBOR(bw); err != nil {
-					log.Debugf("failed to write certificate to stream: %w", err)
+					log.Debugf("failed to write certificate to stream: %v", err)
 					return err
 				}
 			}
 		} else {
-			log.Errorf("failed to load finality certificates: %w", err)
+			log.Errorf("failed to load finality certificates: %v", err)
 		}
 	}
 	return bw.Flush()

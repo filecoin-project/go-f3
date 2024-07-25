@@ -75,7 +75,7 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	bw := bufio.NewWriter(stream)
 
 	if err := req.MarshalCBOR(bw); err != nil {
-		log.Debugf("failed to marshal certificate exchange request to peer %s: %w", p, err)
+		log.Debugw("failed to marshal certificate exchange request to peer", "peer", p, "error", err)
 		return nil, nil, err
 	}
 	if err := bw.Flush(); err != nil {
@@ -91,7 +91,7 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	}
 	err = resp.UnmarshalCBOR(br)
 	if err != nil {
-		log.Debugf("failed to unmarshal certificate exchange response header from peer %s: %w", p, err)
+		log.Debugw("failed to unmarshal certificate exchange response header from peer", "peer", p, "error", err)
 		return nil, nil, err
 	}
 
@@ -143,12 +143,12 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 			case io.EOF:
 				return
 			default:
-				log.Debugf("failed to unmarshal certificate from peer %s: %w", p, err)
+				log.Debugw("failed to unmarshal certificate from peer", "peer", p, "error", err)
 				return
 			}
 			// One quick sanity check. The rest will be validated by the caller.
 			if cert.GPBFTInstance != request.FirstInstance+i {
-				log.Warnf("received out-of-order certificate from peer %s", p)
+				log.Warnw("received out-of-order certificate from peer", "peer", p)
 				return
 			}
 
