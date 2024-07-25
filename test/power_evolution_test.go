@@ -45,7 +45,7 @@ func storagePowerIncreaseMidSimulationTest(t *testing.T, seed int, instanceCount
 	rng := rand.New(rand.NewSource(int64(seed)))
 
 	groupOneStoragePowerer := sim.UniformStoragePower(gpbft.NewStoragePower(groupOneStoragePower))
-	groupTwoStoragePowerer := func(instance uint64, id gpbft.ActorID) *gpbft.StoragePower {
+	groupTwoStoragePowerer := func(instance uint64, id gpbft.ActorID) gpbft.StoragePower {
 		switch {
 		case instance < powerIncreaseAfterInstance:
 			return gpbft.NewStoragePower(groupTwoStoragePowerBeforeIncrease)
@@ -142,7 +142,7 @@ func storagePowerDecreaseRevertsToBaseTest(t *testing.T, seed int, instanceCount
 			sim.AddHonestParticipants(
 				10,
 				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 5),
-				func(instance uint64, id gpbft.ActorID) *gpbft.StoragePower {
+				func(instance uint64, id gpbft.ActorID) gpbft.StoragePower {
 					// Decrease storage power of each participant by 1 per instance.
 					// The plus one is there to avoid zero powered actors as it is an error.
 					return gpbft.NewStoragePower(int64(instanceCount - instance + 1))

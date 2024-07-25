@@ -5,6 +5,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/filecoin-project/go-f3/big"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/stretchr/testify/require"
 )
@@ -110,7 +111,7 @@ func TestPowerTable(t *testing.T) {
 				subject: func() *gpbft.PowerTable {
 					subject := gpbft.NewPowerTable()
 					require.NoError(t, subject.Add(oneValidEntry, anotherValidEntry))
-					subject.Total.Sub(subject.Total, gpbft.NewStoragePower(1))
+					subject.Total = big.Sub(subject.Total, gpbft.NewStoragePower(1))
 					return subject
 				},
 				wantErr: "total power does not match",
@@ -133,7 +134,7 @@ func TestPowerTable(t *testing.T) {
 					subject.Entries = append(subject.Entries, noPubKeyEntry)
 					subject.ScaledPower = append(subject.ScaledPower, 0)
 					subject.Lookup[noPubKeyEntry.ID] = 0
-					subject.Total.Add(subject.Total, noPubKeyEntry.Power)
+					subject.Total = big.Add(subject.Total, noPubKeyEntry.Power)
 					return subject
 				},
 				wantErr: "unspecified public key",

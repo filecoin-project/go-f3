@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/filecoin-project/go-f3/big"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim/signing"
 )
@@ -128,7 +129,7 @@ func (eci *ECInstance) validateDecision(decision *gpbft.Justification) error {
 		if int(bit) >= len(powerTable.Entries) {
 			return fmt.Errorf("invalid signer index: %d", bit)
 		}
-		justificationPower.Add(justificationPower, powerTable.Entries[bit].Power)
+		justificationPower = big.Add(justificationPower, powerTable.Entries[bit].Power)
 		signers = append(signers, powerTable.Entries[bit].PubKey)
 		return nil
 	}); err != nil {
@@ -136,9 +137,9 @@ func (eci *ECInstance) validateDecision(decision *gpbft.Justification) error {
 	}
 	// Check signers have strong quorum
 	strongQuorum := gpbft.NewStoragePower(0)
-	strongQuorum = strongQuorum.Mul(strongQuorum, gpbft.NewStoragePower(2))
-	strongQuorum = strongQuorum.Div(strongQuorum, gpbft.NewStoragePower(3))
-	if justificationPower.Cmp(strongQuorum) < 0 {
+	strongQuorum = big.Mul(strongQuorum, gpbft.NewStoragePower(2))
+	strongQuorum = big.Div(strongQuorum, gpbft.NewStoragePower(3))
+	if justificationPower.LessThan(strongQuorum) {
 		return fmt.Errorf("decision lacks strong quorum: %v", decision)
 	}
 	// Verify aggregate signature

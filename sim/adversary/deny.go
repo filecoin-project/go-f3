@@ -35,7 +35,7 @@ func NewDeny(id gpbft.ActorID, host Host, denialDuration time.Duration, targets 
 	}
 }
 
-func NewDenyGenerator(power *gpbft.StoragePower, denialDuration time.Duration, targets ...gpbft.ActorID) Generator {
+func NewDenyGenerator(power gpbft.StoragePower, denialDuration time.Duration, targets ...gpbft.ActorID) Generator {
 	return func(id gpbft.ActorID, host Host) *Adversary {
 		return &Adversary{
 			Receiver: NewDeny(id, host, denialDuration, targets...),

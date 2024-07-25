@@ -7,6 +7,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/filecoin-project/go-f3/big"
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim"
@@ -47,7 +48,7 @@ func TestPowerTableDiff(t *testing.T) {
 
 			expDeltaRemove[i] = certs.PowerTableDelta{
 				ParticipantID: e.ID,
-				PowerDelta:    new(gpbft.StoragePower).Neg(e.Power),
+				PowerDelta:    e.Power.Neg(),
 			}
 
 		}
@@ -102,7 +103,7 @@ func TestPowerTableDiff(t *testing.T) {
 		}})
 		require.NoError(t, err)
 		require.Equal(t,
-			new(gpbft.StoragePower).Sub(newPowerTable[0].Power, powerTable[0].Power),
+			big.Sub(newPowerTable[0].Power, powerTable[0].Power),
 			gpbft.NewStoragePower(1),
 		)
 
@@ -114,7 +115,7 @@ func TestPowerTableDiff(t *testing.T) {
 		}})
 		require.NoError(t, err)
 		require.Equal(t,
-			new(gpbft.StoragePower).Sub(newPowerTable[0].Power, powerTable[0].Power),
+			big.Sub(newPowerTable[0].Power, powerTable[0].Power),
 			gpbft.NewStoragePower(1),
 		)
 		require.Equal(t, newPowerTable[0].PubKey, powerTable[1].PubKey)
@@ -149,7 +150,7 @@ func TestPowerTableDiff(t *testing.T) {
 		// Remove all power and change key.
 		_, err = certs.ApplyPowerTableDiffs(powerTable, certs.PowerTableDiff{{
 			ParticipantID: powerTable[0].ID,
-			PowerDelta:    new(gpbft.StoragePower).Neg(powerTable[0].Power),
+			PowerDelta:    powerTable[0].Power.Neg(),
 			SigningKey:    powerTable[1].PubKey,
 		}})
 		require.ErrorContains(t, err, "removes all power for participant 1 while specifying a new key")
@@ -180,7 +181,7 @@ func TestPowerTableDiff(t *testing.T) {
 		// Remove more power than we have.
 		_, err = certs.ApplyPowerTableDiffs(powerTable, certs.PowerTableDiff{{
 			ParticipantID: powerTable[0].ID,
-			PowerDelta:    new(gpbft.StoragePower).Sub(gpbft.NewStoragePower(-1), powerTable[0].Power),
+			PowerDelta:    big.Sub(gpbft.NewStoragePower(-1), powerTable[0].Power),
 		}})
 		require.ErrorContains(t, err, "resulted in negative power")
 	}
@@ -319,7 +320,7 @@ func TestBadFinalityCertificates(t *testing.T) {
 		require.NoError(t, err)
 		powerTableCpy := slices.Clone(powerTable)
 		// increase so we definitely have enough power
-		powerTableCpy[firstSigner].Power = new(gpbft.StoragePower).Add(powerTableCpy[firstSigner].Power, gpbft.NewStoragePower(1))
+		powerTableCpy[firstSigner].Power = big.Add(powerTableCpy[firstSigner].Power, gpbft.NewStoragePower(1))
 		nextInstance, chain, _, err := certs.ValidateFinalityCertificates(backend, networkName, powerTableCpy, 1, nil, *certificate)
 		require.ErrorContains(t, err, "incorrect power diff")
 		require.EqualValues(t, 1, nextInstance)

@@ -5,9 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math/big"
 	"slices"
 	"sort"
+
+	"github.com/filecoin-project/go-f3/big"
 )
 
 var _ sort.Interface = (*PowerTable)(nil)
@@ -16,7 +17,7 @@ var _ sort.Interface = (PowerEntries)(nil)
 // PowerEntry represents a single entry in the PowerTable, including ActorID and its StoragePower and PubKey.
 type PowerEntry struct {
 	ID     ActorID
-	Power  *StoragePower
+	Power  StoragePower
 	PubKey PubKey
 }
 
@@ -28,12 +29,12 @@ type PowerTable struct {
 	Entries     PowerEntries // Slice to maintain the order. Meant to be maintained in order in order by (Power descending, ID ascending)
 	ScaledPower []uint16
 	Lookup      map[ActorID]int // Maps ActorID to the index of the associated entry in Entries
-	Total       *StoragePower
+	Total       StoragePower
 	ScaledTotal uint16
 }
 
 func (p *PowerEntry) Equal(o *PowerEntry) bool {
-	return p.ID == o.ID && p.Power.Cmp(o.Power) == 0 && bytes.Equal(p.PubKey, o.PubKey)
+	return p.ID == o.ID && p.Power.Equals(o.Power) && bytes.Equal(p.PubKey, o.PubKey)
 }
 
 func (p PowerEntries) Equal(o PowerEntries) bool {
@@ -59,7 +60,7 @@ func (p PowerEntries) Len() int {
 // This ordering is guaranteed to be stable, since a valid PowerTable cannot contain entries with duplicate IDs; see Validate.
 func (p PowerEntries) Less(i, j int) bool {
 	one, other := p[i], p[j]
-	switch cmp := one.Power.Cmp(other.Power); {
+	switch cmp := big.Cmp(one.Power, other.Power); {
 	case cmp > 0:
 		return true
 	case cmp == 0:
@@ -76,13 +77,13 @@ func (p PowerEntries) Swap(i, j int) {
 }
 
 func (p PowerEntries) Scaled() (scaled []uint16, total uint16, err error) {
-	totalUnscaled := new(StoragePower)
+	totalUnscaled := big.Zero()
 	for i := range p {
 		pwr := p[i].Power
 		if pwr.Sign() <= 0 {
 			return nil, 0, fmt.Errorf("invalid non-positive power %s for participant %d", pwr, p[i].ID)
 		}
-		totalUnscaled = totalUnscaled.Add(totalUnscaled, pwr)
+		totalUnscaled = big.Add(totalUnscaled, pwr)
 	}
 	scaled = make([]uint16, len(p))
 	for i := range p {
@@ -122,7 +123,7 @@ func (p *PowerTable) Add(entries ...PowerEntry) error {
 		case entry.Power.Sign() <= 0:
 			return fmt.Errorf("zero power for actor ID: %d", entry.ID)
 		default:
-			p.Total.Add(p.Total, entry.Power)
+			p.Total = big.Add(p.Total, entry.Power)
 			p.Entries = append(p.Entries, entry)
 			p.ScaledPower = append(p.ScaledPower, 0)
 			p.Lookup[entry.ID] = len(p.Entries) - 1
@@ -169,7 +170,7 @@ func (p *PowerTable) Copy() *PowerTable {
 	replica.ScaledPower = slices.Clone(p.ScaledPower)
 	replica.Lookup = maps.Clone(p.Lookup)
 	replica.ScaledTotal = p.ScaledTotal
-	replica.Total.Add(replica.Total, p.Total)
+	replica.Total = big.Add(replica.Total, p.Total)
 	return replica
 }
 
@@ -236,11 +237,11 @@ func (p *PowerTable) Validate() error {
 			return fmt.Errorf("incorrect scaled power at index: %d", index)
 		}
 
-		total.Add(total, entry.Power)
+		total = big.Add(total, entry.Power)
 		totalScaled += int(scaledPower)
 		previous = &entry
 	}
-	if total.Cmp(p.Total) != 0 {
+	if !total.Equals(p.Total) {
 		return errors.New("total power does not match entries")
 	}
 	if int(p.ScaledTotal) != totalScaled {
@@ -249,13 +250,13 @@ func (p *PowerTable) Validate() error {
 	return nil
 }
 
-func scalePower(power, total *StoragePower) (uint16, error) {
+func scalePower(power, total StoragePower) (uint16, error) {
 	const maxPower = 0xffff
-	if power.Cmp(total) > 0 {
+	if total.LessThan(power) {
 		return 0, fmt.Errorf("total power %d is less than the power of a single participant %d", total, power)
 	}
 	scaled := big.NewInt(maxPower)
-	scaled = scaled.Mul(scaled, (*big.Int)(power))
-	scaled = scaled.Div(scaled, (*big.Int)(total))
+	scaled = big.Mul(scaled, power)
+	scaled = big.Div(scaled, total)
 	return uint16(scaled.Uint64()), nil
 }

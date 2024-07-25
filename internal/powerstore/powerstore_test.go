@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/filecoin-project/go-f3/big"
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/ec"
@@ -48,7 +49,7 @@ func (f *forgetfulEC) GetPowerTable(ctx context.Context, tsk gpbft.TipSetKey) (g
 	// make sure power changes over time by adding the current epoch to the first entry.
 	pt = slices.Clone(pt)
 	newPower := gpbft.NewStoragePower(ts.Epoch())
-	pt[0].Power = newPower.Add(newPower, pt[0].Power)
+	pt[0].Power = big.Add(newPower, pt[0].Power)
 
 	return pt, nil
 }

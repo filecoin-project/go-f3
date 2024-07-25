@@ -2,7 +2,6 @@ package manifest_test
 
 import (
 	"bytes"
-	"math/big"
 	"strings"
 	"testing"
 	"time"
@@ -18,12 +17,12 @@ var base = manifest.Manifest{
 	ExplicitPower: gpbft.PowerEntries{
 		{
 			ID:     2,
-			Power:  big.NewInt(1),
+			Power:  gpbft.NewStoragePower(1),
 			PubKey: gpbft.PubKey{0},
 		},
 		{
 			ID:     3,
-			Power:  big.NewInt(1),
+			Power:  gpbft.NewStoragePower(1),
 			PubKey: gpbft.PubKey{1},
 		},
 	},

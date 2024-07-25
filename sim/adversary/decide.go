@@ -55,7 +55,7 @@ func NewImmediateDecide(id gpbft.ActorID, host Host, value gpbft.ECChain, opts .
 	return i
 }
 
-func NewImmediateDecideGenerator(value gpbft.ECChain, power *gpbft.StoragePower, opts ...ImmediateDecideOption) Generator {
+func NewImmediateDecideGenerator(value gpbft.ECChain, power gpbft.StoragePower, opts ...ImmediateDecideOption) Generator {
 	return func(id gpbft.ActorID, host Host) *Adversary {
 		return &Adversary{
 			Receiver: NewImmediateDecide(id, host, value, opts...),

@@ -62,7 +62,7 @@ func NewRepeat(id gpbft.ActorID, host Host, sampler RepetitionSampler) *Repeat {
 	}
 }
 
-func NewRepeatGenerator(power *gpbft.StoragePower, sampler RepetitionSampler) Generator {
+func NewRepeatGenerator(power gpbft.StoragePower, sampler RepetitionSampler) Generator {
 	return func(id gpbft.ActorID, host Host) *Adversary {
 		return &Adversary{
 			Receiver: NewRepeat(id, host, sampler),

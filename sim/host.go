@@ -106,7 +106,7 @@ func (v *simHost) ReceiveDecision(decision *gpbft.Justification) (time.Time, err
 	return v.Time().Add(v.sim.ecEpochDuration).Add(v.sim.ecStabilisationDelay), nil
 }
 
-func (v *simHost) StoragePower(instance uint64) *gpbft.StoragePower {
+func (v *simHost) StoragePower(instance uint64) gpbft.StoragePower {
 	return v.spg(instance, v.id)
 }
 
