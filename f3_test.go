@@ -428,7 +428,7 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) *testEnv {
 		})
 	}
 	env.manifest = m
-	env.ec = ec.NewFakeEC(ctx, 1, m.BootstrapEpoch+m.EC.Finality, m.EC.Period, initialPowerTable, true)
+	env.ec = ec.NewFakeEC(ctx, 1, m.BootstrapEpoch+m.EC.Finality, m.EC.Period, initialPowerTable)
 
 	var manifestServer peer.ID
 	if dynamicManifest {

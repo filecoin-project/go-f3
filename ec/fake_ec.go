@@ -18,20 +18,13 @@ var _ Backend = (*FakeEC)(nil)
 
 type FakeEC struct {
 	clock             clock.Clock
-	useTime           bool
 	seed              []byte
 	initialPowerTable gpbft.PowerEntries
 
-	// with time
 	ecPeriod time.Duration
 	ecStart  time.Time
 
-	lk sync.RWMutex
-
-	// without time
-	currentHead int64
-
-	// with time
+	lk       sync.RWMutex
 	pausedAt *time.Time
 }
 
@@ -70,11 +63,10 @@ func (ts *Tipset) String() string {
 	return res
 }
 
-func NewFakeEC(ctx context.Context, seed uint64, bootstrapEpoch int64, ecPeriod time.Duration, initialPowerTable gpbft.PowerEntries, useTime bool) *FakeEC {
+func NewFakeEC(ctx context.Context, seed uint64, bootstrapEpoch int64, ecPeriod time.Duration, initialPowerTable gpbft.PowerEntries) *FakeEC {
 	clk := clock.GetClock(ctx)
 	return &FakeEC{
 		clock:             clk,
-		useTime:           useTime,
 		seed:              binary.BigEndian.AppendUint64(nil, seed),
 		initialPowerTable: initialPowerTable,
 
@@ -119,22 +111,9 @@ func (ec *FakeEC) genTipset(epoch int64) *Tipset {
 	}
 }
 
-func (ec *FakeEC) currentEpoch() int64 {
-	if !ec.useTime {
-		panic("only call this when use-time is true")
-	}
-	ec.lk.RLock()
-	defer ec.lk.RUnlock()
-	if ec.pausedAt != nil {
-		return int64(ec.pausedAt.Sub(ec.ecStart) / ec.ecPeriod)
-	}
-
-	return int64(ec.clock.Since(ec.ecStart) / ec.ecPeriod)
-}
-
 // GetTipsetByHeight should return a tipset or nil/empty byte array if it does not exists
 func (ec *FakeEC) GetTipsetByEpoch(ctx context.Context, epoch int64) (TipSet, error) {
-	if ec.useTime && ec.currentEpoch() < epoch {
+	if ec.GetCurrentHead() < epoch {
 		return nil, fmt.Errorf("does not yet exist")
 	}
 	ts := ec.genTipset(epoch)
@@ -159,31 +138,18 @@ func (ec *FakeEC) GetParent(ctx context.Context, ts TipSet) (TipSet, error) {
 	return nil, fmt.Errorf("parent not found")
 }
 
-// SetCurrentHead sets the current head epoch.
-// This is only supported by FakeEC if `useTime=false`
-func (ec *FakeEC) SetCurrentHead(head int64) {
-	if ec.useTime {
-		panic("setting head only makes sense with manual EC, not use time is set to true")
-	}
-	ec.lk.Lock()
-	ec.currentHead = head
-	ec.lk.Unlock()
-}
-
 func (ec *FakeEC) GetCurrentHead() int64 {
-	if ec.useTime {
-		return ec.currentEpoch()
-	}
 	ec.lk.RLock()
 	defer ec.lk.RUnlock()
-	return ec.currentHead
+	if ec.pausedAt != nil {
+		return int64(ec.pausedAt.Sub(ec.ecStart) / ec.ecPeriod)
+	}
+
+	return int64(ec.clock.Since(ec.ecStart) / ec.ecPeriod)
 }
 
-// Pause pauses EC when `useTime=true`. Panics if `useTime=false`.
+// Pause pauses EC.
 func (ec *FakeEC) Pause() {
-	if !ec.useTime {
-		panic("pausing only makes sense with time-based EC")
-	}
 	ec.lk.Lock()
 	defer ec.lk.Unlock()
 
@@ -191,11 +157,8 @@ func (ec *FakeEC) Pause() {
 	ec.pausedAt = &t
 }
 
-// Resume resumes EC when `useTime=true`. Panics if `useTime=false`.
+// Resume resumes EC.
 func (ec *FakeEC) Resume() {
-	if !ec.useTime {
-		panic("pausing only makes sense with time-based EC")
-	}
 	ec.lk.Lock()
 	defer ec.lk.Unlock()
 
@@ -203,10 +166,6 @@ func (ec *FakeEC) Resume() {
 }
 
 func (ec *FakeEC) GetHead(ctx context.Context) (TipSet, error) {
-	if ec.useTime {
-		return ec.GetTipsetByEpoch(ctx, ec.currentEpoch())
-	}
-
 	return ec.GetTipsetByEpoch(ctx, ec.GetCurrentHead())
 }
 
