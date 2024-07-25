@@ -72,7 +72,11 @@ func TestF3WithLookback(t *testing.T) {
 	require.Less(t, cert.GPBFTInstance, uint64(5))
 
 	// If we add an EC period, we should make progress again.
-	env.clock.Add(env.manifest.EC.Period)
+	// We do it bit by bit to give code time to run.
+	for i := 0; i < 10; i++ {
+		env.clock.Add(env.manifest.EC.Period / 10)
+		time.Sleep(time.Millisecond)
+	}
 
 	require.Eventually(t, func() bool {
 		cert, err := env.nodes[0].f3.GetLatestCert(env.testCtx)
