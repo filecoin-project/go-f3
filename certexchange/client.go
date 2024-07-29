@@ -16,6 +16,8 @@ import (
 	cid "github.com/ipfs/go-cid"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // We've estimated the max power table size to be less than 1MiB:
@@ -23,6 +25,26 @@ import (
 // 1. For 10k participants.
 // 2. <100 bytes per entry (key + id + power)
 const maxPowerTableSize = 1024 * 1024
+
+var clientMeter = otel.Meter("f3/certexchange/client")
+var clientMetrics = struct {
+	requests        metric.Int64Counter
+	dialFailures    metric.Int64Counter
+	requestFailures metric.Int64Counter
+}{
+	requests: must(clientMeter.Int64Counter(
+		"f3_certexchange_client_requests",
+		metric.WithDescription("The total number of requests made."),
+	)),
+	dialFailures: must(clientMeter.Int64Counter(
+		"f3_certexchange_client_failed_dials",
+		metric.WithDescription("The number of failed certexchange dials."),
+	)),
+	requestFailures: must(clientMeter.Int64Counter(
+		"f3_certexchange_client_failed_requests",
+		metric.WithDescription("The number of failed certexchange requests (total)."),
+	)),
+}
 
 // Client is a libp2p certificate exchange client for requesting finality certificates from specific
 // peers.
@@ -56,11 +78,20 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 		}
 	}()
 
+	clientMetrics.requests.Add(ctx, 1)
+	defer func() {
+		if _err != nil {
+			clientMetrics.requestFailures.Add(ctx, 1)
+		}
+	}()
+
 	proto := FetchProtocolName(c.NetworkName)
 	stream, err := c.Host.NewStream(ctx, p, proto)
 	if err != nil {
+		clientMetrics.dialFailures.Add(ctx, 1)
 		return nil, nil, err
 	}
+
 	// Reset the stream if the parent context is canceled. We never call the returned stop
 	// function because we call the cancel function returned by `withDeadline` (which cancels
 	// the entire context tree).
@@ -144,11 +175,13 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 				return
 			default:
 				log.Debugw("failed to unmarshal certificate from peer", "peer", p, "error", err)
+				clientMetrics.requestFailures.Add(ctx, 1)
 				return
 			}
 			// One quick sanity check. The rest will be validated by the caller.
 			if cert.GPBFTInstance != request.FirstInstance+i {
 				log.Warnw("received out-of-order certificate from peer", "peer", p)
+				clientMetrics.requestFailures.Add(ctx, 1)
 				return
 			}
 

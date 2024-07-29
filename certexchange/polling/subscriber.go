@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/filecoin-project/go-f3/certexchange"
 	"github.com/filecoin-project/go-f3/certstore"
@@ -15,6 +17,58 @@ import (
 )
 
 const maxRequestLength = 256
+
+var meter = otel.Meter("f3/certexchange")
+var metrics = struct {
+	activePeers                metric.Int64Gauge
+	backoffPeers               metric.Int64Gauge
+	predictedPollingIntervalMS metric.Int64Gauge
+	pollRTTMS                  metric.Int64Histogram
+	pollTotalMS                metric.Int64Histogram
+	peersSelectedPerPoll       metric.Int64Histogram
+	peersRequiredPerPoll       metric.Int64Histogram
+	pollEfficiency             metric.Float64Histogram
+}{
+	activePeers: must(meter.Int64Gauge(
+		"f3_certexchange_active_peers",
+		metric.WithDescription("The number of active certificate exchange peers."),
+	)),
+	backoffPeers: must(meter.Int64Gauge(
+		"f3_certexchange_backoff_peers",
+		metric.WithDescription("The number of active certificate exchange peers on backoff."),
+	)),
+	predictedPollingIntervalMS: must(meter.Int64Gauge(
+		"f3_certexchange_predicted_polling_interval_ms",
+		metric.WithDescription("The predicted certificate exchange polling interval (milliseconds)."),
+	)),
+	pollRTTMS: must(meter.Int64Histogram(
+		"f3_certexchange_poll_rtt_ms",
+		metric.WithDescription("The certificate exchange per-peer polling round-trip time (milliseconds)."),
+	)),
+	pollTotalMS: must(meter.Int64Histogram(
+		"f3_certexchange_poll_total_ms",
+		metric.WithDescription("The certificate exchange total poll duration (milliseconds)."),
+	)),
+	peersSelectedPerPoll: must(meter.Int64Histogram(
+		"f3_certexchange_peers_selected_per_poll",
+		metric.WithDescription("The number of peers selected per certificate exchange poll."),
+	)),
+	peersRequiredPerPoll: must(meter.Int64Histogram(
+		"f3_certexchange_peers_required_per_poll",
+		metric.WithDescription("The number of peers we should be selecting per poll (optimally)."),
+	)),
+	pollEfficiency: must(meter.Float64Histogram(
+		"f3_certexchange_poll_efficiency",
+		metric.WithDescription("The fraction of requests necessary to make progress."),
+	)),
+}
+
+func must[V any](v V, err error) V {
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
 
 // A polling Subscriber will continuously poll the network for new finality certificates.
 type Subscriber struct {
@@ -109,10 +163,12 @@ func (s *Subscriber) run(ctx context.Context) error {
 			}
 			// Otherwise, poll the network.
 			if progress == 0 {
+				start := s.clock.Now()
 				progress, err = s.poll(ctx)
 				if err != nil {
 					return err
 				}
+				metrics.pollTotalMS.Record(ctx, s.clock.Since(start).Milliseconds())
 			}
 
 			nextInterval := predictor.update(progress)
@@ -120,6 +176,8 @@ func (s *Subscriber) run(ctx context.Context) error {
 			delay := max(s.clock.Until(nextPollTime), 0)
 			log.Debugf("predicted interval is %s (waiting %s)", nextInterval, delay)
 			timer.Reset(delay)
+
+			metrics.predictedPollingIntervalMS.Record(ctx, delay.Milliseconds())
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -133,9 +191,11 @@ func (s *Subscriber) poll(ctx context.Context) (uint64, error) {
 		hits   []peer.ID
 	)
 
-	peers := s.peerTracker.suggestPeers()
+	peers := s.peerTracker.suggestPeers(ctx)
 	start := s.poller.NextInstance
+
 	log.Debugf("polling %d peers for instance %d", len(peers), s.poller.NextInstance)
+	pollsSinceLastProgress := 0
 	for _, peer := range peers {
 		oldInstance := s.poller.NextInstance
 		res, err := s.poller.Poll(ctx, peer)
@@ -153,9 +213,11 @@ func (s *Subscriber) poll(ctx context.Context) (uint64, error) {
 		case PollMiss:
 			misses = append(misses, peer)
 			s.peerTracker.updateLatency(peer, res.Latency)
+			metrics.pollRTTMS.Record(ctx, res.Latency.Milliseconds())
 		case PollHit:
 			hits = append(hits, peer)
 			s.peerTracker.updateLatency(peer, res.Latency)
+			metrics.pollRTTMS.Record(ctx, res.Latency.Milliseconds())
 		case PollFailed:
 			s.peerTracker.recordFailure(peer)
 		case PollIllegal:
@@ -163,6 +225,25 @@ func (s *Subscriber) poll(ctx context.Context) (uint64, error) {
 		default:
 			panic(fmt.Sprintf("unexpected polling.PollResult: %#v", res))
 		}
+
+		if res.Progress == 0 {
+			pollsSinceLastProgress++
+		} else {
+			pollsSinceLastProgress = 0
+		}
+	}
+
+	// Record our metrics. Both:
+	// 1. How many peers we polled.
+	// 2. How many peers we needed to poll.
+	// 3. The faction of peers we should have polled (i.e., how "optimally" we're polling).
+
+	metrics.peersSelectedPerPoll.Record(ctx, int64(len(peers)))
+	if len(peers) > 0 && pollsSinceLastProgress < len(peers) {
+		required := len(peers) - pollsSinceLastProgress
+		metrics.peersRequiredPerPoll.Record(ctx, int64(required))
+		efficiency := float64(required) / float64(len(peers))
+		metrics.pollEfficiency.Record(ctx, efficiency)
 	}
 
 	// If we've made progress, record hits/misses. Otherwise, we just have to assume that we

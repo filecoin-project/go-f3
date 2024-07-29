@@ -1,6 +1,7 @@
 package polling
 
 import (
+	"context"
 	"testing"
 
 	"github.com/filecoin-project/go-f3/internal/clock"
@@ -120,20 +121,20 @@ func TestPeerTracker(t *testing.T) {
 	for _, n := range []int{0, 1, defaultRequests / 2, defaultRequests/2 - 1} {
 		discoverPeers(n)
 		pt.lastHitRound = pt.currentRound
-		suggested := pt.suggestPeers()
+		suggested := pt.suggestPeers(context.Background())
 		require.ElementsMatch(t, peers, suggested)
 	}
 
 	// Too many peers
 	discoverPeers(1)
 	pt.lastHitRound = pt.currentRound
-	require.Less(t, len(pt.suggestPeers()), len(peers))
+	require.Less(t, len(pt.suggestPeers(context.Background())), len(peers))
 
 	// fail a peer and we should pick the other peers now.
 	pt.recordMiss(peers[0])
 	pt.lastHitRound = pt.currentRound
 
-	require.ElementsMatch(t, peers[1:], pt.suggestPeers())
+	require.ElementsMatch(t, peers[1:], pt.suggestPeers(context.Background()))
 
 	// Now ensure we select that peer. It should be first because it's the best.
 	pt.recordHit(peers[0])
@@ -142,19 +143,19 @@ func TestPeerTracker(t *testing.T) {
 	pt.recordHit(peers[1])
 	pt.recordMiss(peers[1]) // needs to be worse than peer 1
 
-	require.Equal(t, pt.suggestPeers()[0], peers[0])
+	require.Equal(t, pt.suggestPeers(context.Background())[0], peers[0])
 
 	// Now check to make sure we backoff that peer.
 	{
 		pt.recordFailure(peers[0])
 		pt.recordMiss(peers[1])
-		suggested := pt.suggestPeers()
+		suggested := pt.suggestPeers(context.Background())
 		require.Equal(t, 1, pt.backoff.Len())
 		require.NotContains(t, suggested, peers[0])
 		require.Equal(t, suggested[0], peers[1])
 
 		// Peer 0 should be back on-top after one round absent.
-		suggested = pt.suggestPeers()
+		suggested = pt.suggestPeers(context.Background())
 		require.Empty(t, pt.backoff)
 		require.Equal(t, suggested[0], peers[0])
 	}
@@ -165,17 +166,17 @@ func TestPeerTracker(t *testing.T) {
 		pt.recordFailure(peers[0])
 		pt.recordFailure(peers[1])
 
-		suggested := pt.suggestPeers()
+		suggested := pt.suggestPeers(context.Background())
 		require.Equal(t, 2, pt.backoff.Len())
 		require.NotContains(t, suggested, peers[0])
 		require.NotContains(t, suggested, peers[1])
 
-		suggested = pt.suggestPeers()
+		suggested = pt.suggestPeers(context.Background())
 		require.Equal(t, 1, pt.backoff.Len())
 		require.Contains(t, suggested, peers[1])
 		require.NotContains(t, suggested, peers[0])
 
-		suggested = pt.suggestPeers()
+		suggested = pt.suggestPeers(context.Background())
 		require.Len(t, pt.backoff, 0)
 		require.Contains(t, pt.active, peers[0])
 		require.Contains(t, suggested, peers[0])
@@ -184,11 +185,11 @@ func TestPeerTracker(t *testing.T) {
 
 	// Then four rounds.
 	pt.recordFailure(peers[0])
-	require.NotContains(t, pt.suggestPeers(), peers[0])
-	require.NotContains(t, pt.suggestPeers(), peers[0])
-	require.NotContains(t, pt.suggestPeers(), peers[0])
-	require.NotContains(t, pt.suggestPeers(), peers[0])
-	require.Contains(t, pt.suggestPeers(), peers[0])
+	require.NotContains(t, pt.suggestPeers(context.Background()), peers[0])
+	require.NotContains(t, pt.suggestPeers(context.Background()), peers[0])
+	require.NotContains(t, pt.suggestPeers(context.Background()), peers[0])
+	require.NotContains(t, pt.suggestPeers(context.Background()), peers[0])
+	require.Contains(t, pt.suggestPeers(context.Background()), peers[0])
 
 	// Now, give that peer a perfect success rate
 	for i := 0; i < 100; i++ {
@@ -197,7 +198,7 @@ func TestPeerTracker(t *testing.T) {
 
 	// We always pick at least 4 peers, even if we have high confidence in one.
 	{
-		suggested := pt.suggestPeers()
+		suggested := pt.suggestPeers(context.Background())
 		require.Len(t, suggested, minRequests)
 		require.Equal(t, peers[0], suggested[0])
 	}
@@ -205,7 +206,7 @@ func TestPeerTracker(t *testing.T) {
 	// Now mark that peer as evil, we should never pick it again.
 	pt.recordInvalid(peers[0])
 	for i := 0; i < 5; i++ {
-		require.NotContains(t, pt.suggestPeers(), peers[0])
+		require.NotContains(t, pt.suggestPeers(context.Background()), peers[0])
 
 		// No matter what we do.
 		pt.recordHit(peers[0])
@@ -213,7 +214,7 @@ func TestPeerTracker(t *testing.T) {
 	}
 
 	pt.recordHit(peers[1])
-	require.Contains(t, pt.suggestPeers(), peers[1])
+	require.Contains(t, pt.suggestPeers(context.Background()), peers[1])
 	pt.lastHitRound = pt.currentRound
 
 	// Discover a whole bunch of peers.
@@ -224,7 +225,7 @@ func TestPeerTracker(t *testing.T) {
 
 	{
 		// The new peers shouldn't affect out discovered peers.
-		require.Contains(t, pt.suggestPeers(), peers[1])
+		require.Contains(t, pt.suggestPeers(context.Background()), peers[1])
 	}
 
 	// We should never suggest more than 32 peers at a time.
@@ -235,7 +236,7 @@ func TestPeerTracker(t *testing.T) {
 			}
 		}
 
-		require.Len(t, pt.suggestPeers(), maxRequests)
+		require.Len(t, pt.suggestPeers(context.Background()), maxRequests)
 	}
 
 }

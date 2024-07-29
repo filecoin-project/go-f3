@@ -11,6 +11,8 @@ import (
 
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -18,6 +20,41 @@ import (
 )
 
 var log = logging.Logger("f3/certexchange")
+
+var serverMeter = otel.Meter("f3/certexchange/server")
+var serverMetrics = struct {
+	requests                      metric.Int64Counter
+	requestsFailed                metric.Int64Counter
+	certificatesServed            metric.Int64Counter
+	powerTablesServed             metric.Int64Counter
+	certificatesServedPerResponse metric.Int64Histogram
+	responseTimeMS                metric.Int64Histogram
+}{
+	requests: must(serverMeter.Int64Counter(
+		"f3_certexchange_server_requests",
+		metric.WithDescription("The total number of requests received."),
+	)),
+	requestsFailed: must(serverMeter.Int64Counter(
+		"f3_certexchange_server_requests_failed",
+		metric.WithDescription("The total number of requests failed."),
+	)),
+	powerTablesServed: must(serverMeter.Int64Counter(
+		"f3_certexchange_server_power_tables_served",
+		metric.WithDescription("The number of power tables served."),
+	)),
+	certificatesServed: must(serverMeter.Int64Counter(
+		"f3_certexchange_server_certificates_served",
+		metric.WithDescription("The number of certificates served."),
+	)),
+	certificatesServedPerResponse: must(serverMeter.Int64Histogram(
+		"f3_certexchange_server_certificates_served_per_response",
+		metric.WithDescription("The number of certificates served per response."),
+	)),
+	responseTimeMS: must(serverMeter.Int64Histogram(
+		"f3_certexchange_server_response_time_ms",
+		metric.WithDescription("The time it takes to respond to requests, excluding failures (milliseconds)."),
+	)),
+}
 
 const maxResponseLen = 256
 
@@ -43,10 +80,16 @@ func (s *Server) withDeadline(ctx context.Context) (context.Context, context.Can
 }
 
 func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err error) {
+	serverMetrics.requests.Add(ctx, 1)
+	start := time.Now()
 	defer func() {
 		if perr := recover(); perr != nil {
 			_err = fmt.Errorf("panicked in server response: %v", perr)
 			log.Errorf("%s\n%s", _err, string(debug.Stack()))
+		}
+		if _err != nil {
+			serverMetrics.requestsFailed.Add(ctx, 1)
+			serverMetrics.responseTimeMS.Record(ctx, time.Since(start).Milliseconds())
 		}
 	}()
 
@@ -75,6 +118,7 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 	}
 
 	if resp.PendingInstance >= req.FirstInstance && req.IncludePowerTable {
+		serverMetrics.powerTablesServed.Add(ctx, 1)
 		pt, err := s.Store.GetPowerTable(ctx, req.FirstInstance)
 		if err != nil {
 			log.Errorf("failed to load power table: %v", err)
@@ -99,6 +143,8 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 
 		certs, err := s.Store.GetRange(ctx, req.FirstInstance, end)
 		if err == nil || errors.Is(err, certstore.ErrCertNotFound) {
+			serverMetrics.certificatesServed.Add(ctx, int64(len(certs)))
+			serverMetrics.certificatesServedPerResponse.Record(ctx, int64(len(certs)))
 			for i := range certs {
 				if err := certs[i].MarshalCBOR(bw); err != nil {
 					log.Debugf("failed to write certificate to stream: %v", err)
@@ -108,6 +154,8 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 		} else {
 			log.Errorf("failed to load finality certificates: %v", err)
 		}
+	} else {
+		serverMetrics.certificatesServedPerResponse.Record(ctx, 0)
 	}
 	return bw.Flush()
 }
