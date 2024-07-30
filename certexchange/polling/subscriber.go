@@ -18,7 +18,7 @@ import (
 
 const maxRequestLength = 256
 
-var meter = otel.Meter("f3/certexchange")
+var meter = otel.Meter("f3/certexchange/polling")
 var metrics = struct {
 	activePeers                metric.Int64Gauge
 	backoffPeers               metric.Int64Gauge
