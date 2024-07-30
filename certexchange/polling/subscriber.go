@@ -110,17 +110,26 @@ func (s *Subscriber) run(ctx context.Context) error {
 				return err
 			}
 			// Otherwise, poll the network.
+			var offset time.Duration
 			if progress == 0 {
-				progress, err = s.poll(ctx)
-
+				var newCert bool
+				progress, newCert, err = s.poll(ctx)
 				if err != nil {
 					return err
+				}
+				// If we made progress locally but didn't receive any new certs over
+				// the network, we're predicting the correct interval but need to
+				// offset it by a bit. So we add the time it took to poll our peers.
+				requestTime := s.clock.Since(pollTime)
+				if progress > 0 && !newCert {
+					offset = requestTime
 				}
 			}
 
 			nextInterval := predictor.update(progress)
 			nextPollTime := pollTime.Add(nextInterval)
 			delay := max(s.clock.Until(nextPollTime), 0)
+			delay += max(offset, delay/2) // Offset the delay by at most half the predicted interval.
 			log.Debugf("predicted interval is %s (waiting %s)", nextInterval, delay)
 			timer.Reset(delay)
 
@@ -132,7 +141,12 @@ func (s *Subscriber) run(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (s *Subscriber) poll(ctx context.Context) (_progress uint64, _err error) {
+// Polls peers for new certificates, returning:
+//
+//  1. The total progress made (including certificates not received from polled peers).
+//  2. A flag indicating if we managed to receive a _new_ certificate from a peer. That is, polling
+//     helped us make progress.
+func (s *Subscriber) poll(ctx context.Context) (_progress uint64, _new bool, _err error) {
 	var (
 		misses []peer.ID
 		hits   []peer.ID
@@ -152,19 +166,23 @@ func (s *Subscriber) poll(ctx context.Context) (_progress uint64, _err error) {
 	}()
 
 	peers := s.peerTracker.suggestPeers(ctx)
-	start := s.poller.NextInstance
 
 	log.Debugf("polling %d peers for instance %d", len(peers), s.poller.NextInstance)
 	pollsSinceLastProgress := 0
+	start := s.poller.NextInstance
+	var (
+		certificatesReceived    uint64
+		newCertificatesReceived uint64
+	)
 	for _, peer := range peers {
-		oldInstance := s.poller.NextInstance
 		res, err := s.poller.Poll(ctx, peer)
 		if err != nil {
-			return s.poller.NextInstance - start, err
+			return start - s.poller.NextInstance, newCertificatesReceived > 0, err
 		}
+
 		log.Debugf("polled %s for instance %d, got %+v", peer, s.poller.NextInstance, res)
-		// If we manage to advance, all old "hits" are actually misses.
-		if oldInstance < s.poller.NextInstance {
+		// If we manage to advance (because of this peer), consider old "hits" to be misses.
+		if res.ReceivedCertificates > 0 {
 			misses = append(misses, hits...)
 			hits = hits[:0]
 		}
@@ -184,17 +202,21 @@ func (s *Subscriber) poll(ctx context.Context) (_progress uint64, _err error) {
 			panic(fmt.Sprintf("unexpected polling.PollResult: %#v", res))
 		}
 
-		if res.Progress == 0 {
+		if res.ReceivedCertificates == 0 {
 			pollsSinceLastProgress++
 		} else {
 			pollsSinceLastProgress = 0
 		}
+
+		newCertificatesReceived += res.NewCertificates
+		certificatesReceived += res.ReceivedCertificates
 	}
 
-	// If we've made progress, record hits/misses. Otherwise, we just have to assume that we
-	// asked too soon.
-	progress := s.poller.NextInstance - start
-	if progress > 0 {
+	// If we received any certificates, record which peers had them and which peers didn't. This
+	// is slightly racy as the instance may have completed while we were polling, but there's
+	// not much we can do about that (other than to try to poll peers a bit after we expect the
+	// instance to finish.
+	if certificatesReceived > 0 {
 		for _, p := range misses {
 			s.peerTracker.recordMiss(p)
 		}
@@ -205,7 +227,7 @@ func (s *Subscriber) poll(ctx context.Context) (_progress uint64, _err error) {
 
 	// Record our metrics.
 	metrics.peersPolled.Record(ctx, int64(len(peers)),
-		metric.WithAttributes(attrMadeProgress.Bool(progress > 0)),
+		metric.WithAttributes(attrMadeProgress.Bool(certificatesReceived > 0)),
 	)
 	if len(peers) > 0 && pollsSinceLastProgress < len(peers) {
 		required := len(peers) - pollsSinceLastProgress
@@ -214,5 +236,5 @@ func (s *Subscriber) poll(ctx context.Context) (_progress uint64, _err error) {
 		metrics.pollEfficiency.Record(ctx, efficiency)
 	}
 
-	return progress, nil
+	return start - s.poller.NextInstance, newCertificatesReceived > 0, nil
 }
