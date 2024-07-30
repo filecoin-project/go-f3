@@ -16,17 +16,17 @@ var metrics = struct {
 	certificatesServed metric.Int64Histogram
 }{
 	requestLatency: must(meter.Float64Histogram(
-		"f3_certexchange_request_latency_s",
+		"f3_certexchange_request_latency",
 		metric.WithDescription("The outbound request latency."),
 		metric.WithUnit("s"),
 	)),
 	totalResponseTime: must(meter.Float64Histogram(
-		"f3_certexchange_total_response_time_s",
+		"f3_certexchange_total_response_time",
 		metric.WithDescription("The total time for outbound requests."),
 		metric.WithUnit("s"),
 	)),
 	serveTime: must(meter.Float64Histogram(
-		"f3_certexchange_serve_time_s",
+		"f3_certexchange_serve_time",
 		metric.WithDescription("The time spent serving requests."),
 		metric.WithUnit("s"),
 	)),
