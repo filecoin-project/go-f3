@@ -31,7 +31,7 @@ var (
 		Value: attribute.StringValue("error-internal"),
 	}
 
-	AttrStatusDialFailed = attribute.Key("dial-failed")
+	AttrDialSucceeded = attribute.Key("dial-succeded")
 )
 
 func Status(ctx context.Context, err error) attribute.KeyValue {
