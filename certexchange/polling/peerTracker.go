@@ -3,6 +3,7 @@ package polling
 import (
 	"cmp"
 	"container/heap"
+	"context"
 	"math/rand"
 	"slices"
 	"time"
@@ -375,12 +376,20 @@ trimLoop:
 	t.active = t.active[:activePeers]
 }
 
-// Suggest a number of peers from which to request new certificates based on their historical
-// record.
-func (t *peerTracker) suggestPeers() []peer.ID {
-	t.advanceRound()
+// Process all changes to peers (rank, possibly GC, drop bad peers, etc.).
+func (t *peerTracker) processPeerChanges(ctx context.Context) {
 	t.maybeGc()
 	t.rank()
+
+	metrics.activePeers.Record(ctx, int64(len(t.active)))
+	metrics.backoffPeers.Record(ctx, int64(len(t.backoff)))
+}
+
+// Suggest a number of peers from which to request new certificates based on their historical
+// record.
+func (t *peerTracker) suggestPeers(ctx context.Context) []peer.ID {
+	t.advanceRound()
+	t.processPeerChanges(ctx)
 
 	// Adjust the minimum peer count and probability threshold based on the current distance to
 	// the last successful round (capped at 8 rounds).

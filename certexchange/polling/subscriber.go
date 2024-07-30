@@ -7,11 +7,13 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/filecoin-project/go-f3/certexchange"
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/clock"
+	"github.com/filecoin-project/go-f3/internal/mhelper"
 )
 
 const maxRequestLength = 256
@@ -110,6 +112,7 @@ func (s *Subscriber) run(ctx context.Context) error {
 			// Otherwise, poll the network.
 			if progress == 0 {
 				progress, err = s.poll(ctx)
+
 				if err != nil {
 					return err
 				}
@@ -120,6 +123,9 @@ func (s *Subscriber) run(ctx context.Context) error {
 			delay := max(s.clock.Until(nextPollTime), 0)
 			log.Debugf("predicted interval is %s (waiting %s)", nextInterval, delay)
 			timer.Reset(delay)
+
+			d := float64(delay) / float64(time.Second)
+			metrics.predictedPollingInterval.Record(ctx, d)
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -127,15 +133,31 @@ func (s *Subscriber) run(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (s *Subscriber) poll(ctx context.Context) (uint64, error) {
+func (s *Subscriber) poll(ctx context.Context) (_progress uint64, _err error) {
 	var (
 		misses []peer.ID
 		hits   []peer.ID
 	)
 
-	peers := s.peerTracker.suggestPeers()
+	startTime := time.Now()
+	defer func() {
+		d := float64(time.Since(startTime)) / float64(time.Second)
+		status := mhelper.AttrStatusSuccess
+		if _err != nil {
+			// All errors here are internal.
+			status = mhelper.AttrStatusInternalError
+		}
+		metrics.pollDuration.Record(ctx, d, metric.WithAttributes(
+			status,
+			attrMadeProgress.Bool(_progress > 0),
+		))
+	}()
+
+	peers := s.peerTracker.suggestPeers(ctx)
 	start := s.poller.NextInstance
+
 	log.Debugf("polling %d peers for instance %d", len(peers), s.poller.NextInstance)
+	pollsSinceLastProgress := 0
 	for _, peer := range peers {
 		oldInstance := s.poller.NextInstance
 		res, err := s.poller.Poll(ctx, peer)
@@ -163,6 +185,12 @@ func (s *Subscriber) poll(ctx context.Context) (uint64, error) {
 		default:
 			panic(fmt.Sprintf("unexpected polling.PollResult: %#v", res))
 		}
+
+		if res.Progress == 0 {
+			pollsSinceLastProgress++
+		} else {
+			pollsSinceLastProgress = 0
+		}
 	}
 
 	// If we've made progress, record hits/misses. Otherwise, we just have to assume that we
@@ -175,6 +203,17 @@ func (s *Subscriber) poll(ctx context.Context) (uint64, error) {
 		for _, p := range hits {
 			s.peerTracker.recordHit(p)
 		}
+	}
+
+	// Record our metrics.
+	metrics.peersPolled.Record(ctx, int64(len(peers)),
+		metric.WithAttributes(attrMadeProgress.Bool(progress > 0)),
+	)
+	if len(peers) > 0 && pollsSinceLastProgress < len(peers) {
+		required := len(peers) - pollsSinceLastProgress
+		metrics.peersRequiredPerPoll.Record(ctx, int64(required))
+		efficiency := float64(required) / float64(len(peers))
+		metrics.pollEfficiency.Record(ctx, efficiency)
 	}
 
 	return progress, nil

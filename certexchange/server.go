@@ -11,6 +11,8 @@ import (
 
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/mhelper"
+	"go.opentelemetry.io/otel/metric"
 
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -43,10 +45,24 @@ func (s *Server) withDeadline(ctx context.Context) (context.Context, context.Can
 }
 
 func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err error) {
+	start := time.Now()
+	servedPowerTable := false
+	internalError := false
 	defer func() {
 		if perr := recover(); perr != nil {
 			_err = fmt.Errorf("panicked in server response: %v", perr)
 			log.Errorf("%s\n%s", _err, string(debug.Stack()))
+		}
+		d := float64(time.Since(start)) / float64(time.Second)
+		if internalError {
+			metrics.serveTime.Record(ctx, d, metric.WithAttributes(
+				mhelper.AttrStatusInternalError,
+			))
+		} else {
+			metrics.serveTime.Record(ctx, d, metric.WithAttributes(
+				mhelper.Status(ctx, _err),
+				attrWithPowerTable.Bool(servedPowerTable),
+			))
 		}
 	}()
 
@@ -75,6 +91,7 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 	}
 
 	if resp.PendingInstance >= req.FirstInstance && req.IncludePowerTable {
+		servedPowerTable = true
 		pt, err := s.Store.GetPowerTable(ctx, req.FirstInstance)
 		if err != nil {
 			log.Errorf("failed to load power table: %v", err)
@@ -87,6 +104,16 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 		log.Debugf("failed to write header to stream: %v", err)
 		return err
 	}
+
+	certsServed := 0
+	defer func() {
+		metrics.certificatesServed.Record(ctx, int64(certsServed),
+			metric.WithAttributes(
+				mhelper.Status(ctx, _err),
+				attrWithPowerTable.Bool(servedPowerTable),
+			),
+		)
+	}()
 
 	if resp.PendingInstance > req.FirstInstance {
 		// Only try to return up-to but not including the pending instance we just told the
@@ -104,11 +131,14 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 					log.Debugf("failed to write certificate to stream: %v", err)
 					return err
 				}
+				certsServed++
 			}
-		} else {
+		} else if ctx.Err() == nil {
 			log.Errorf("failed to load finality certificates: %v", err)
+			internalError = true
 		}
 	}
+
 	return bw.Flush()
 }
 

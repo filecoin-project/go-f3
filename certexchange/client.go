@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"runtime/debug"
@@ -12,10 +13,12 @@ import (
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/clock"
+	"github.com/filecoin-project/go-f3/internal/mhelper"
 
 	cid "github.com/ipfs/go-cid"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // We've estimated the max power table size to be less than 1MiB:
@@ -56,11 +59,23 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 		}
 	}()
 
+	requestStart := time.Now()
+	var dialSuceeded bool
+	defer func() {
+		d := float64(time.Since(requestStart)) / float64(time.Second)
+		metrics.requestLatency.Record(ctx, d, metric.WithAttributes(
+			mhelper.Status(ctx, _err),
+			mhelper.AttrDialSucceeded.Bool(dialSuceeded),
+		))
+	}()
+
 	proto := FetchProtocolName(c.NetworkName)
 	stream, err := c.Host.NewStream(ctx, p, proto)
 	if err != nil {
 		return nil, nil, err
 	}
+	dialSuceeded = true
+
 	// Reset the stream if the parent context is canceled. We never call the returned stop
 	// function because we call the cancel function returned by `withDeadline` (which cancels
 	// the entire context tree).
@@ -84,6 +99,16 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	if err := stream.CloseWrite(); err != nil {
 		return nil, nil, err
 	}
+
+	responseStart := time.Now()
+	defer func() {
+		if cancel != nil {
+			d := float64(time.Since(responseStart)) / float64(time.Second)
+			metrics.totalResponseTime.Record(ctx, d, metric.WithAttributes(
+				mhelper.Status(ctx, _err),
+			))
+		}
+	}()
 
 	var resp ResponseHeader
 	if req.IncludePowerTable {
@@ -116,11 +141,17 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	// Copy/replace the cancel func so exiting the request doesn't cancel it.
 	cancelReq := cancel
 	cancel = nil
-	go func() {
+	go func() (_err error) {
 		defer func() {
 			if perr := recover(); perr != nil {
-				log.Errorf("panicked while receiving certificates from peer %s: %v\n%s", p, perr, string(debug.Stack()))
+				_err = fmt.Errorf("panicked while receiving certificates from peer %s: %v\n%s", p, perr, string(debug.Stack()))
+				log.Error(err)
 			}
+
+			d := float64(time.Since(responseStart)) / float64(time.Second)
+			metrics.totalResponseTime.Record(ctx, d, metric.WithAttributes(
+				mhelper.Status(ctx, _err),
+			))
 
 			// Reset immediately instead of waiting for it to get run async (better cleanup
 			// behavior). Also, because I don't fully trust AfterFunc.
@@ -141,23 +172,24 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 			switch err {
 			case nil:
 			case io.EOF:
-				return
+				return nil
 			default:
 				log.Debugw("failed to unmarshal certificate from peer", "peer", p, "error", err)
-				return
+				return err
 			}
 			// One quick sanity check. The rest will be validated by the caller.
 			if cert.GPBFTInstance != request.FirstInstance+i {
 				log.Warnw("received out-of-order certificate from peer", "peer", p)
-				return
+				return errors.New("out of order certificates received")
 			}
 
 			select {
 			case <-ctx.Done():
-				return
+				return ctx.Err()
 			case ch <- cert:
 			}
 		}
+		return nil
 	}()
 	return &resp, ch, nil
 }
