@@ -17,37 +17,37 @@ var metrics = struct {
 	pollEfficiency           metric.Float64Histogram
 }{
 	activePeers: must(meter.Int64Gauge(
-		"f3_certexchange_active_peers",
+		"f3_certexchange_polling_active_peers",
 		metric.WithDescription("The number of active certificate exchange peers."),
 		metric.WithUnit("{peer}"),
 	)),
 	backoffPeers: must(meter.Int64Gauge(
-		"f3_certexchange_backoff_peers",
+		"f3_certexchange_polling_backoff_peers",
 		metric.WithDescription("The number of active certificate exchange peers on backoff."),
 		metric.WithUnit("{peer}"),
 	)),
 	predictedPollingInterval: must(meter.Float64Gauge(
-		"f3_certexchange_predicted_polling_interval",
+		"f3_certexchange_polling_predicted_interval",
 		metric.WithDescription("The predicted certificate exchange polling interval."),
 		metric.WithUnit("s"),
 	)),
 	pollDuration: must(meter.Float64Histogram(
-		"f3_certexchange_poll_duration",
+		"f3_certexchange_polling_poll_duration",
 		metric.WithDescription("The certificate exchange total poll duration."),
 		metric.WithUnit("s"),
 	)),
 	peersPolled: must(meter.Int64Histogram(
-		"f3_certexchange_peers_polld",
+		"f3_certexchange_polling_peers_polld",
 		metric.WithDescription("The number of peers polled per certificate exchange poll."),
 		metric.WithUnit("{peer}"),
 	)),
 	peersRequiredPerPoll: must(meter.Int64Histogram(
-		"f3_certexchange_peers_required_per_poll",
+		"f3_certexchange_polling_peers_required_per_poll",
 		metric.WithDescription("The number of peers we should be selecting per poll (optimally)."),
 		metric.WithUnit("{peer}"),
 	)),
 	pollEfficiency: must(meter.Float64Histogram(
-		"f3_certexchange_poll_efficiency",
+		"f3_certexchange_polling_poll_efficiency",
 		metric.WithDescription("The fraction of requests necessary to make progress."),
 	)),
 }
