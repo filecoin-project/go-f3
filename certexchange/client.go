@@ -16,8 +16,6 @@ import (
 	cid "github.com/ipfs/go-cid"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/metric"
 )
 
 // We've estimated the max power table size to be less than 1MiB:
@@ -25,26 +23,6 @@ import (
 // 1. For 10k participants.
 // 2. <100 bytes per entry (key + id + power)
 const maxPowerTableSize = 1024 * 1024
-
-var clientMeter = otel.Meter("f3/certexchange/client")
-var clientMetrics = struct {
-	requests        metric.Int64Counter
-	dialFailures    metric.Int64Counter
-	requestFailures metric.Int64Counter
-}{
-	requests: must(clientMeter.Int64Counter(
-		"f3_certexchange_client_requests",
-		metric.WithDescription("The total number of requests made."),
-	)),
-	dialFailures: must(clientMeter.Int64Counter(
-		"f3_certexchange_client_failed_dials",
-		metric.WithDescription("The number of failed certexchange dials."),
-	)),
-	requestFailures: must(clientMeter.Int64Counter(
-		"f3_certexchange_client_failed_requests",
-		metric.WithDescription("The number of failed certexchange requests (total)."),
-	)),
-}
 
 // Client is a libp2p certificate exchange client for requesting finality certificates from specific
 // peers.

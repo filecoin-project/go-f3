@@ -11,8 +11,6 @@ import (
 
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/metric"
 
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -20,41 +18,6 @@ import (
 )
 
 var log = logging.Logger("f3/certexchange")
-
-var serverMeter = otel.Meter("f3/certexchange/server")
-var serverMetrics = struct {
-	requests                      metric.Int64Counter
-	requestsFailed                metric.Int64Counter
-	certificatesServed            metric.Int64Counter
-	powerTablesServed             metric.Int64Counter
-	certificatesServedPerResponse metric.Int64Histogram
-	responseTimeMS                metric.Int64Histogram
-}{
-	requests: must(serverMeter.Int64Counter(
-		"f3_certexchange_server_requests",
-		metric.WithDescription("The total number of requests received."),
-	)),
-	requestsFailed: must(serverMeter.Int64Counter(
-		"f3_certexchange_server_requests_failed",
-		metric.WithDescription("The total number of requests failed."),
-	)),
-	powerTablesServed: must(serverMeter.Int64Counter(
-		"f3_certexchange_server_power_tables_served",
-		metric.WithDescription("The number of power tables served."),
-	)),
-	certificatesServed: must(serverMeter.Int64Counter(
-		"f3_certexchange_server_certificates_served",
-		metric.WithDescription("The number of certificates served."),
-	)),
-	certificatesServedPerResponse: must(serverMeter.Int64Histogram(
-		"f3_certexchange_server_certificates_served_per_response",
-		metric.WithDescription("The number of certificates served per response."),
-	)),
-	responseTimeMS: must(serverMeter.Int64Histogram(
-		"f3_certexchange_server_response_time_ms",
-		metric.WithDescription("The time it takes to respond to requests, excluding failures (milliseconds)."),
-	)),
-}
 
 const maxResponseLen = 256
 
