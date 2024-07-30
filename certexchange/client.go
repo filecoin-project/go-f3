@@ -16,6 +16,7 @@ import (
 	cid "github.com/ipfs/go-cid"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // We've estimated the max power table size to be less than 1MiB:
@@ -56,17 +57,20 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 		}
 	}()
 
-	clientMetrics.requests.Add(ctx, 1)
+	requestStart := time.Now()
+	var dialFailed bool
 	defer func() {
-		if _err != nil {
-			clientMetrics.requestFailures.Add(ctx, 1)
-		}
+		d := float64(time.Since(requestStart)) / float64(time.Second)
+		metrics.requestLatency.Record(ctx, d, metric.WithAttributes(
+			status(ctx, _err),
+			attrDialFailed.Bool(dialFailed),
+		))
 	}()
 
 	proto := FetchProtocolName(c.NetworkName)
 	stream, err := c.Host.NewStream(ctx, p, proto)
 	if err != nil {
-		clientMetrics.dialFailures.Add(ctx, 1)
+		dialFailed = true
 		return nil, nil, err
 	}
 
@@ -93,6 +97,16 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	if err := stream.CloseWrite(); err != nil {
 		return nil, nil, err
 	}
+
+	responseStart := time.Now()
+	defer func() {
+		if cancel != nil {
+			d := float64(time.Since(responseStart)) / float64(time.Second)
+			metrics.totalResponseTime.Record(ctx, d, metric.WithAttributes(
+				attrStatus.Bool(_err != nil),
+			))
+		}
+	}()
 
 	var resp ResponseHeader
 	if req.IncludePowerTable {
@@ -125,7 +139,7 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	// Copy/replace the cancel func so exiting the request doesn't cancel it.
 	cancelReq := cancel
 	cancel = nil
-	go func() {
+	go func() (success bool) {
 		defer func() {
 			if perr := recover(); perr != nil {
 				log.Errorf("panicked while receiving certificates from peer %s: %v\n%s", p, perr, string(debug.Stack()))
@@ -139,6 +153,11 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 
 			cancelReq()
 			close(ch)
+
+			d := float64(time.Since(responseStart)) / float64(time.Second)
+			metrics.totalResponseTime.Record(ctx, d, metric.WithAttributes(
+				attrStatus.Bool(!success),
+			))
 		}()
 		for i := uint64(0); i < request.Limit; i++ {
 			cert := new(certs.FinalityCertificate)
@@ -150,25 +169,24 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 			switch err {
 			case nil:
 			case io.EOF:
-				return
+				return true
 			default:
 				log.Debugw("failed to unmarshal certificate from peer", "peer", p, "error", err)
-				clientMetrics.requestFailures.Add(ctx, 1)
-				return
+				return false
 			}
 			// One quick sanity check. The rest will be validated by the caller.
 			if cert.GPBFTInstance != request.FirstInstance+i {
 				log.Warnw("received out-of-order certificate from peer", "peer", p)
-				clientMetrics.requestFailures.Add(ctx, 1)
-				return
+				return false
 			}
 
 			select {
 			case <-ctx.Done():
-				return
+				return true
 			case ch <- cert:
 			}
 		}
+		return true
 	}()
 	return &resp, ch, nil
 }

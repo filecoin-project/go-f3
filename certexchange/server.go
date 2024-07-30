@@ -11,6 +11,7 @@ import (
 
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"go.opentelemetry.io/otel/metric"
 
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -43,16 +44,22 @@ func (s *Server) withDeadline(ctx context.Context) (context.Context, context.Can
 }
 
 func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err error) {
-	serverMetrics.requests.Add(ctx, 1)
 	start := time.Now()
+	servedPowerTable := false
+	internalError := false
 	defer func() {
 		if perr := recover(); perr != nil {
 			_err = fmt.Errorf("panicked in server response: %v", perr)
 			log.Errorf("%s\n%s", _err, string(debug.Stack()))
 		}
-		if _err != nil {
-			serverMetrics.requestsFailed.Add(ctx, 1)
-			serverMetrics.responseTimeMS.Record(ctx, time.Since(start).Milliseconds())
+		d := float64(time.Since(start)) / float64(time.Second)
+		if internalError {
+			metrics.serveTime.Record(ctx, d, metric.WithAttributes(attrStatusInternalError))
+		} else {
+			metrics.serveTime.Record(ctx, d, metric.WithAttributes(
+				status(ctx, _err),
+				attrWithPowerTable.Bool(servedPowerTable),
+			))
 		}
 	}()
 
@@ -81,7 +88,7 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 	}
 
 	if resp.PendingInstance >= req.FirstInstance && req.IncludePowerTable {
-		serverMetrics.powerTablesServed.Add(ctx, 1)
+		servedPowerTable = true
 		pt, err := s.Store.GetPowerTable(ctx, req.FirstInstance)
 		if err != nil {
 			log.Errorf("failed to load power table: %v", err)
@@ -95,6 +102,16 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 		return err
 	}
 
+	certsServed := 0
+	defer func() {
+		metrics.certificatesServed.Record(ctx, int64(certsServed),
+			metric.WithAttributes(
+				status(ctx, _err),
+				attrWithPowerTable.Bool(servedPowerTable),
+			),
+		)
+	}()
+
 	if resp.PendingInstance > req.FirstInstance {
 		// Only try to return up-to but not including the pending instance we just told the
 		// client about. Otherwise we could return instances _beyond_ that which is
@@ -106,20 +123,19 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 
 		certs, err := s.Store.GetRange(ctx, req.FirstInstance, end)
 		if err == nil || errors.Is(err, certstore.ErrCertNotFound) {
-			serverMetrics.certificatesServed.Add(ctx, int64(len(certs)))
-			serverMetrics.certificatesServedPerResponse.Record(ctx, int64(len(certs)))
 			for i := range certs {
 				if err := certs[i].MarshalCBOR(bw); err != nil {
 					log.Debugf("failed to write certificate to stream: %v", err)
 					return err
 				}
+				certsServed++
 			}
-		} else {
+		} else if ctx.Err() == nil {
 			log.Errorf("failed to load finality certificates: %v", err)
+			internalError = true
 		}
-	} else {
-		serverMetrics.certificatesServedPerResponse.Record(ctx, 0)
 	}
+
 	return bw.Flush()
 }
 
