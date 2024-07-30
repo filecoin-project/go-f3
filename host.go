@@ -268,33 +268,34 @@ func (h *gpbftRunner) BroadcastMessage(msg *gpbft.GMessage) error {
 
 var _ pubsub.ValidatorEx = (*gpbftRunner)(nil).validatePubsubMessage
 
-func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, pID peer.ID,
-	msg *pubsub.Message) pubsub.ValidationResult {
+func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, _ peer.ID, msg *pubsub.Message) (_result pubsub.ValidationResult) {
+	start := time.Now()
+	defer func() {
+		recordValidationTime(ctx, start, _result)
+	}()
+
 	var gmsg gpbft.GMessage
-	err := gmsg.UnmarshalCBOR(bytes.NewReader(msg.Data))
-	if err != nil {
+	if err := gmsg.UnmarshalCBOR(bytes.NewReader(msg.Data)); err != nil {
 		return pubsub.ValidationReject
 	}
 
-	validatedMessage, err := h.participant.ValidateMessage(&gmsg)
-	if errors.Is(err, gpbft.ErrValidationInvalid) {
+	switch validatedMessage, err := h.participant.ValidateMessage(&gmsg); {
+	case errors.Is(err, gpbft.ErrValidationInvalid):
 		log.Debugf("validation error during validation: %+v", err)
 		return pubsub.ValidationReject
-	}
-	if errors.Is(err, gpbft.ErrValidationTooOld) {
+	case errors.Is(err, gpbft.ErrValidationTooOld):
 		// we got the message too late
 		return pubsub.ValidationIgnore
-	}
-	if errors.Is(err, gpbft.ErrValidationNoCommittee) {
+	case errors.Is(err, gpbft.ErrValidationNoCommittee):
 		log.Debugf("commitee error during validation: %+v", err)
 		return pubsub.ValidationIgnore
-	}
-	if err != nil {
+	case err != nil:
 		log.Infof("unknown error during validation: %+v", err)
 		return pubsub.ValidationIgnore
+	default:
+		msg.ValidatorData = validatedMessage
+		return pubsub.ValidationAccept
 	}
-	msg.ValidatorData = validatedMessage
-	return pubsub.ValidationAccept
 }
 
 func (h *gpbftRunner) setupPubsub() error {

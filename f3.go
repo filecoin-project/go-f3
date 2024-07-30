@@ -209,7 +209,7 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 		for m.runningCtx.Err() == nil {
 			select {
 			case update := <-m.manifestProvider.ManifestUpdates():
-				metrics.manifests_received.Add(m.runningCtx, 1)
+				metrics.manifestsReceived.Add(m.runningCtx, 1)
 				if pendingManifest != nil && !manifestChangeTimer.Stop() {
 					<-manifestChangeTimer.C
 				}
@@ -249,7 +249,7 @@ func (m *F3) reconfigure(ctx context.Context, manif *manifest.Manifest) (_err er
 	log.Info("starting f3 reconfiguration")
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	metrics.manifests_received.Add(m.runningCtx, 1)
+	metrics.manifestsReceived.Add(m.runningCtx, 1)
 
 	if err := m.stopInternal(ctx); err != nil {
 		// Log but don't abort.
