@@ -124,8 +124,7 @@ func (s *Subscriber) run(ctx context.Context) error {
 			log.Debugf("predicted interval is %s (waiting %s)", nextInterval, delay)
 			timer.Reset(delay)
 
-			d := float64(delay) / float64(time.Second)
-			metrics.predictedPollingInterval.Record(ctx, d)
+			metrics.predictedPollingInterval.Record(ctx, delay.Seconds())
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -141,13 +140,12 @@ func (s *Subscriber) poll(ctx context.Context) (_progress uint64, _err error) {
 
 	startTime := time.Now()
 	defer func() {
-		d := float64(time.Since(startTime)) / float64(time.Second)
 		status := mhelper.AttrStatusSuccess
 		if _err != nil {
 			// All errors here are internal.
 			status = mhelper.AttrStatusInternalError
 		}
-		metrics.pollDuration.Record(ctx, d, metric.WithAttributes(
+		metrics.pollDuration.Record(ctx, time.Since(startTime).Seconds(), metric.WithAttributes(
 			status,
 			attrMadeProgress.Bool(_progress > 0),
 		))

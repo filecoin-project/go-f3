@@ -62,8 +62,7 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	requestStart := time.Now()
 	var dialSuceeded bool
 	defer func() {
-		d := float64(time.Since(requestStart)) / float64(time.Second)
-		metrics.requestLatency.Record(ctx, d, metric.WithAttributes(
+		metrics.requestLatency.Record(ctx, time.Since(requestStart).Seconds(), metric.WithAttributes(
 			mhelper.Status(ctx, _err),
 			mhelper.AttrDialSucceeded.Bool(dialSuceeded),
 		))
@@ -103,8 +102,7 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	responseStart := time.Now()
 	defer func() {
 		if cancel != nil {
-			d := float64(time.Since(responseStart)) / float64(time.Second)
-			metrics.totalResponseTime.Record(ctx, d, metric.WithAttributes(
+			metrics.totalResponseTime.Record(ctx, time.Since(responseStart).Seconds(), metric.WithAttributes(
 				mhelper.Status(ctx, _err),
 			))
 		}
@@ -148,8 +146,7 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 				log.Error(err)
 			}
 
-			d := float64(time.Since(responseStart)) / float64(time.Second)
-			metrics.totalResponseTime.Record(ctx, d, metric.WithAttributes(
+			metrics.totalResponseTime.Record(ctx, time.Since(responseStart).Seconds(), metric.WithAttributes(
 				mhelper.Status(ctx, _err),
 			))
 
@@ -223,11 +220,11 @@ func FindInitialPowerTable(ctx context.Context, c Client, powerTableCID cid.Cid,
 		}
 		ptCID, err := certs.MakePowerTableCID(rh.PowerTable)
 		if err != nil {
-			log.Infow("computing iniital power table CID", "error", err)
+			log.Infow("computing initial power table CID", "error", err)
 			return nil, false
 		}
 		if !bytes.Equal(ptCID, powerTableCID.Bytes()) {
-			log.Infow("peer returned missmatching power table", "peer", p)
+			log.Infow("peer returned mismatching power table", "peer", p)
 			return nil, false
 		}
 		return rh.PowerTable, true
