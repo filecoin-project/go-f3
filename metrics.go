@@ -41,7 +41,7 @@ func recordValidationTime(ctx context.Context, start time.Time, result pubsub.Va
 	}
 	metrics.validationTime.Record(
 		ctx,
-		float64(time.Since(start))/float64(time.Second),
+		time.Since(start).Seconds(),
 		metric.WithAttributes(attribute.KeyValue{Key: "result", Value: attribute.StringValue(v)}))
 }
 
