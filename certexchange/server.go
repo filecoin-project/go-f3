@@ -53,7 +53,7 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 			_err = fmt.Errorf("panicked in server response: %v", perr)
 			log.Errorf("%s\n%s", _err, string(debug.Stack()))
 		}
-		d := float64(time.Since(start)) / float64(time.Second)
+		d := time.Since(start).Seconds()
 		if internalError {
 			metrics.serveTime.Record(ctx, d, metric.WithAttributes(
 				mhelper.AttrStatusInternalError,
