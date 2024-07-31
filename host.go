@@ -14,6 +14,7 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/manifest"
+	"go.opentelemetry.io/otel/metric"
 
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	peer "github.com/libp2p/go-libp2p/core/peer"
@@ -269,10 +270,9 @@ func (h *gpbftRunner) BroadcastMessage(msg *gpbft.GMessage) error {
 var _ pubsub.ValidatorEx = (*gpbftRunner)(nil).validatePubsubMessage
 
 func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, _ peer.ID, msg *pubsub.Message) (_result pubsub.ValidationResult) {
-	start := time.Now()
-	defer func() {
+	defer func(start time.Time) {
 		recordValidationTime(ctx, start, _result)
-	}()
+	}(time.Now())
 
 	var gmsg gpbft.GMessage
 	if err := gmsg.UnmarshalCBOR(bytes.NewReader(msg.Data)); err != nil {
@@ -415,7 +415,11 @@ func (h *gpbftRunner) Stop(_ctx context.Context) error {
 // These will be used as input to a subsequent instance of the protocol.
 // The chain should be a suffix of the last chain notified to the host via
 // ReceiveDecision (or known to be final via some other channel).
-func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.SupplementalData, gpbft.ECChain, error) {
+func (h *gpbftHost) GetProposalForInstance(instance uint64) (_ *gpbft.SupplementalData, _ gpbft.ECChain, _err error) {
+	defer func(start time.Time) {
+		metrics.proposalFetchTime.Record(context.TODO(), time.Since(start).Seconds(), metric.WithAttributes(attrStatusFromErr(_err)))
+	}(time.Now())
+
 	var baseTsk gpbft.TipSetKey
 	if instance == h.manifest.InitialInstance {
 		ts, err := h.ec.GetTipsetByEpoch(h.runningCtx,
@@ -502,7 +506,11 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (*gpbft.Supplemental
 	return &supplData, chain, nil
 }
 
-func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (*gpbft.PowerTable, []byte, error) {
+func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (_ *gpbft.PowerTable, _ []byte, _err error) {
+	defer func(start time.Time) {
+		metrics.committeeFetchTime.Record(context.TODO(), time.Since(start).Seconds(), metric.WithAttributes(attrStatusFromErr(_err)))
+	}(time.Now())
+
 	var powerTsk gpbft.TipSetKey
 	var powerEntries gpbft.PowerEntries
 	var err error
