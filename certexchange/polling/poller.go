@@ -45,10 +45,15 @@ func NewPoller(ctx context.Context, client *certexchange.Client, store *certstor
 }
 
 type PollResult struct {
-	Status   PollStatus
-	Progress uint64
-	Latency  time.Duration
-	Error    error
+	Status  PollStatus
+	Latency time.Duration
+	Error   error
+
+	// NewCertificates certificates we didn't yet have. Excludes certificates we received through some other
+	// channel while polling.
+	NewCertificates uint64
+	// Total certificates received.
+	ReceivedCertificates uint64
 }
 
 type PollStatus int
@@ -126,7 +131,6 @@ func (p *Poller) Poll(ctx context.Context, peer peer.ID) (*PollResult, error) {
 			res.Status = PollHit
 		}
 
-		received := 0
 		for cert := range ch {
 			// TODO: consider batching verification, it's slightly faster.
 			next, _, pt, err := certs.ValidateFinalityCertificates(
@@ -138,20 +142,27 @@ func (p *Poller) Poll(ctx context.Context, peer peer.ID) (*PollResult, error) {
 				res.Error = err
 				return res, nil
 			}
-			if err := p.Store.Put(ctx, cert); err != nil {
-				return nil, err
+			res.ReceivedCertificates++
+
+			// We check if we've already received this certificate not as an
+			// optimization but to determine whether or not this request was actually
+			// useful. This check is inherently racy; even if we made the check/put
+			// atomic, we'd still race with GPBFT finishing the current instance.
+			if l := p.Store.Latest(); l == nil || cert.GPBFTInstance > l.GPBFTInstance {
+				if err := p.Store.Put(ctx, cert); err != nil {
+					return nil, err
+				}
+				res.NewCertificates++
 			}
 			p.NextInstance = next
 			p.PowerTable = pt
-			received++
 		}
-		res.Progress += uint64(received)
 
 		// Try again if they're claiming to have more instances (and gave me at
 		// least one).
 		if resp.PendingInstance <= p.NextInstance {
 			return res, nil
-		} else if received == 0 {
+		} else if res.ReceivedCertificates == 0 {
 			res.Status = PollFailed
 			// If they give me no certificates but claim to have more, treat this as a
 			// failure (could be a connection failure, etc).
