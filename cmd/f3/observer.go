@@ -62,13 +62,13 @@ var observerCmd = cli.Command{
 	},
 
 	Action: func(c *cli.Context) error {
-		logging.SetLogLevel("f3/cli", "debug")
+		_ = logging.SetLogLevel("f3/cli", "debug")
 
 		ds, err := leveldb.NewDatastore("./observer/db", nil)
-		defer ds.Close()
 		if err != nil {
 			return fmt.Errorf("opening datastore: %w", err)
 		}
+		defer ds.Close()
 
 		var id crypto.PrivKey
 
