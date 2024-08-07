@@ -170,6 +170,7 @@ var observerCmd = cli.Command{
 
 		go func() {
 			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
 			for c.Context.Err() == nil {
 				select {
 				case <-ticker.C:
