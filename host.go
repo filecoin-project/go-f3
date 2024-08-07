@@ -293,6 +293,7 @@ func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, _ peer.ID, msg 
 		log.Infof("unknown error during validation: %+v", err)
 		return pubsub.ValidationIgnore
 	default:
+		recordValidationDuplicates(ctx, validatedMessage)
 		msg.ValidatorData = validatedMessage
 		return pubsub.ValidationAccept
 	}
