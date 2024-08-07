@@ -168,6 +168,21 @@ var observerCmd = cli.Command{
 			return fmt.Errorf("starting manifest provider: %w", err)
 		}
 
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			for c.Context.Err() == nil {
+				select {
+				case <-ticker.C:
+					n := len(host.Network().Peers())
+					log.Infow("peer information", "NPeers", n)
+					if n < 5 {
+						connectToBootstrappers()
+					}
+				case <-c.Context.Done():
+				}
+			}
+		}()
+
 		var closer func()
 		for c.Context.Err() == nil {
 			select {
