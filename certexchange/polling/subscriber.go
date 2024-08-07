@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/filecoin-project/go-f3/internal/measurements"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"go.opentelemetry.io/otel/metric"
 
@@ -13,7 +14,6 @@ import (
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/clock"
-	"github.com/filecoin-project/go-f3/internal/mhelper"
 )
 
 const maxRequestLength = 256
@@ -152,18 +152,17 @@ func (s *Subscriber) poll(ctx context.Context) (_progress uint64, _new bool, _er
 		hits   []peer.ID
 	)
 
-	startTime := time.Now()
-	defer func() {
-		status := mhelper.AttrStatusSuccess
+	defer func(startTime time.Time) {
+		status := measurements.AttrStatusSuccess
 		if _err != nil {
 			// All errors here are internal.
-			status = mhelper.AttrStatusInternalError
+			status = measurements.AttrStatusInternalError
 		}
 		metrics.pollDuration.Record(ctx, time.Since(startTime).Seconds(), metric.WithAttributes(
 			status,
 			attrMadeProgress.Bool(_progress > 0),
 		))
-	}()
+	}(time.Now())
 
 	peers := s.peerTracker.suggestPeers(ctx)
 

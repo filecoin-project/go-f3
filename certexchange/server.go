@@ -11,7 +11,7 @@ import (
 
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/internal/mhelper"
+	"github.com/filecoin-project/go-f3/internal/measurements"
 	"go.opentelemetry.io/otel/metric"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -56,11 +56,11 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 		d := time.Since(start).Seconds()
 		if internalError {
 			metrics.serveTime.Record(ctx, d, metric.WithAttributes(
-				mhelper.AttrStatusInternalError,
+				measurements.AttrStatusInternalError,
 			))
 		} else {
 			metrics.serveTime.Record(ctx, d, metric.WithAttributes(
-				mhelper.Status(ctx, _err),
+				measurements.Status(ctx, _err),
 				attrWithPowerTable.Bool(servedPowerTable),
 			))
 		}
@@ -109,7 +109,7 @@ func (s *Server) handleRequest(ctx context.Context, stream network.Stream) (_err
 	defer func() {
 		metrics.certificatesServed.Record(ctx, int64(certsServed),
 			metric.WithAttributes(
-				mhelper.Status(ctx, _err),
+				measurements.Status(ctx, _err),
 				attrWithPowerTable.Bool(servedPowerTable),
 			),
 		)

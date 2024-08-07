@@ -13,8 +13,7 @@ import (
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/clock"
-	"github.com/filecoin-project/go-f3/internal/mhelper"
-
+	"github.com/filecoin-project/go-f3/internal/measurements"
 	cid "github.com/ipfs/go-cid"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -59,21 +58,20 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 		}
 	}()
 
-	requestStart := time.Now()
-	var dialSuceeded bool
-	defer func() {
+	var dialSucceeded bool
+	defer func(requestStart time.Time) {
 		metrics.requestLatency.Record(ctx, time.Since(requestStart).Seconds(), metric.WithAttributes(
-			mhelper.Status(ctx, _err),
-			mhelper.AttrDialSucceeded.Bool(dialSuceeded),
+			measurements.Status(ctx, _err),
+			measurements.AttrDialSucceeded.Bool(dialSucceeded),
 		))
-	}()
+	}(time.Now())
 
 	proto := FetchProtocolName(c.NetworkName)
 	stream, err := c.Host.NewStream(ctx, p, proto)
 	if err != nil {
 		return nil, nil, err
 	}
-	dialSuceeded = true
+	dialSucceeded = true
 
 	// Reset the stream if the parent context is canceled. We never call the returned stop
 	// function because we call the cancel function returned by `withDeadline` (which cancels
@@ -103,7 +101,7 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 	defer func() {
 		if cancel != nil {
 			metrics.totalResponseTime.Record(ctx, time.Since(responseStart).Seconds(), metric.WithAttributes(
-				mhelper.Status(ctx, _err),
+				measurements.Status(ctx, _err),
 			))
 		}
 	}()
@@ -147,7 +145,7 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 			}
 
 			metrics.totalResponseTime.Record(ctx, time.Since(responseStart).Seconds(), metric.WithAttributes(
-				mhelper.Status(ctx, _err),
+				measurements.Status(ctx, _err),
 			))
 
 			// Reset immediately instead of waiting for it to get run async (better cleanup

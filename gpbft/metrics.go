@@ -3,6 +3,7 @@ package gpbft
 import (
 	"errors"
 
+	"github.com/filecoin-project/go-f3/internal/measurements"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -41,15 +42,15 @@ var (
 		reBroadcastAttemptCounter metric.Int64Counter
 		errorCounter              metric.Int64Counter
 	}{
-		phaseCounter: must(meter.Int64Counter("f3_gpbft_phase_counter", metric.WithDescription("Number of times phases change"))),
-		roundHistogram: must(meter.Int64Histogram("f3_gpbft_round_histogram",
+		phaseCounter: measurements.Must(meter.Int64Counter("f3_gpbft_phase_counter", metric.WithDescription("Number of times phases change"))),
+		roundHistogram: measurements.Must(meter.Int64Histogram("f3_gpbft_round_histogram",
 			metric.WithDescription("Histogram of rounds per instance"),
 			metric.WithExplicitBucketBoundaries(0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 20.0, 50.0, 100.0, 1000.0),
 		)),
-		broadcastCounter:          must(meter.Int64Counter("f3_gpbft_broadcast_counter", metric.WithDescription("Number of broadcasted messages"))),
-		reBroadcastCounter:        must(meter.Int64Counter("f3_gpbft_rebroadcast_counter", metric.WithDescription("Number of rebroadcasted messages"))),
-		reBroadcastAttemptCounter: must(meter.Int64Counter("f3_gpbft_rebroadcast_attempt_counter", metric.WithDescription("Number of rebroadcast attempts"))),
-		errorCounter:              must(meter.Int64Counter("f3_gpbft_error_counter", metric.WithDescription("Number of errors"))),
+		broadcastCounter:          measurements.Must(meter.Int64Counter("f3_gpbft_broadcast_counter", metric.WithDescription("Number of broadcasted messages"))),
+		reBroadcastCounter:        measurements.Must(meter.Int64Counter("f3_gpbft_rebroadcast_counter", metric.WithDescription("Number of rebroadcasted messages"))),
+		reBroadcastAttemptCounter: measurements.Must(meter.Int64Counter("f3_gpbft_rebroadcast_attempt_counter", metric.WithDescription("Number of rebroadcast attempts"))),
+		errorCounter:              measurements.Must(meter.Int64Counter("f3_gpbft_error_counter", metric.WithDescription("Number of errors"))),
 	}
 )
 
@@ -81,11 +82,4 @@ func metricAttributeFromError(err error) attribute.KeyValue {
 		v = "unknown"
 	}
 	return attribute.KeyValue{Key: attrKeyErr, Value: attribute.StringValue(v)}
-}
-
-func must[V any](v V, err error) V {
-	if err != nil {
-		panic(err)
-	}
-	return v
 }
