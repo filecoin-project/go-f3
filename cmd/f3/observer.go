@@ -5,11 +5,15 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"strings"
+	"time"
 
+	"github.com/filecoin-project/go-f3/cmd/f3/msgdump"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/manifest"
 	leveldb "github.com/ipfs/go-ds-leveldb"
@@ -188,13 +192,19 @@ var observerCmd = cli.Command{
 }
 
 func observeManifest(ctx context.Context, manif *manifest.Manifest, pubSub *pubsub.PubSub) error {
-	err := pubSub.RegisterTopicValidator(manif.PubSubTopic(), func(_ context.Context, _ peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
+	logFileName := fmt.Sprintf("./observer/msgs-%s.ndjson", strings.ReplaceAll(string(manif.NetworkName), "/", "-"))
+	msgLogFile, err := os.OpenFile(logFileName, os.O_WRONLY|os.O_CREATE|os.O_CREATE, 0660)
+	if err != nil {
+		return fmt.Errorf("creating msg log file: %w", err)
+	}
+	jsonWriter := json.NewEncoder(msgLogFile)
+
+	err = pubSub.RegisterTopicValidator(manif.PubSubTopic(), func(_ context.Context, _ peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
 		var gmsg gpbft.GMessage
 		if err := gmsg.UnmarshalCBOR(bytes.NewReader(msg.Data)); err != nil {
-			log.Errorf("rejecting due to: %v", err)
 			return pubsub.ValidationReject
 		}
-		//msg.ValidatorData = gmsg
+		msg.ValidatorData = gmsg
 
 		return pubsub.ValidationAccept
 	})
@@ -207,26 +217,37 @@ func observeManifest(ctx context.Context, manif *manifest.Manifest, pubSub *pubs
 		return fmt.Errorf("joining topic")
 	}
 
-	log.Info("pre subscribe")
 	sub, err := topic.Subscribe()
-	log.Info("post subscribe")
 	if err != nil {
 		return fmt.Errorf("subscribing to topic")
 	}
 
 	go func() {
+		defer msgLogFile.Close()
 		for ctx.Err() == nil {
-			log.Infof("sub.Next")
 			msg, err := sub.Next(ctx)
-			log.Infof("sub.Next post")
 			if err != nil {
 				if ctx.Err() != nil {
-					log.Errorf("existing due to context")
 					return
 				}
-				log.Errorf("getting a message from pubsub: %v", err)
+				log.Errorf("got error from sub.Next(): %v", err)
 			}
-			log.Infof("got a msg from %d", msg.ID)
+			// use CBOR as JSON will be large and slow but for the sake of completion, we are using JSON
+			//evelope := msgdump.GMessageEnvelopeDeffered{
+			//UnixMicroTime: uint64(time.Now().UnixNano()) / 1000,
+			//NetworkName:   manif.NetworkName,
+			//Message:       cbg.Deferred{Raw: msg.Data},
+			//}
+
+			envelope := msgdump.GMessageEnvelope{
+				UnixMicroTime: uint64(time.Now().UnixNano()) / 1000,
+				NetworkName:   string(manif.NetworkName),
+				Message:       msg.ValidatorData.(gpbft.GMessage),
+			}
+			err = jsonWriter.Encode(envelope)
+			if err != nil {
+				log.Errorf("writing to logfile: %v", err)
+			}
 		}
 	}()
 	return nil
