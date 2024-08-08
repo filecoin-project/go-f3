@@ -37,14 +37,13 @@ var samples = struct {
 }
 
 var metrics = struct {
-	headDiverged                      metric.Int64Counter
-	reconfigured                      metric.Int64Counter
-	manifestsReceived                 metric.Int64Counter
-	validationTime                    metric.Float64Histogram
-	proposalFetchTime                 metric.Float64Histogram
-	committeeFetchTime                metric.Float64Histogram
-	validationDuplicateMessages       metric.Int64Counter
-	validationDuplicateJustifications metric.Int64Counter
+	headDiverged       metric.Int64Counter
+	reconfigured       metric.Int64Counter
+	manifestsReceived  metric.Int64Counter
+	validationTime     metric.Float64Histogram
+	proposalFetchTime  metric.Float64Histogram
+	committeeFetchTime metric.Float64Histogram
+	validatedMessages  metric.Int64Counter
 }{
 	headDiverged:      measurements.Must(meter.Int64Counter("f3_head_diverged", metric.WithDescription("Number of times we encountered the head has diverged from base scenario."))),
 	reconfigured:      measurements.Must(meter.Int64Counter("f3_reconfigured", metric.WithDescription("Number of times we reconfigured due to new manifest being delivered."))),
@@ -64,23 +63,29 @@ var metrics = struct {
 		metric.WithExplicitBucketBoundaries(0.001, 0.003, 0.005, 0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0),
 		metric.WithUnit("s"),
 	)),
-	validationDuplicateMessages:       measurements.Must(meter.Int64Counter("f3_validation_duplicate_messages", metric.WithDescription("Number of duplicate GPBFT messages validated."))),
-	validationDuplicateJustifications: measurements.Must(meter.Int64Counter("f3_validation_duplicate_justifications", metric.WithDescription("Number of duplicate GPBFT justifications validated."))),
+	validatedMessages: measurements.Must(meter.Int64Counter("f3_validated_messages",
+		metric.WithDescription("Number of validated GPBFT messages."))),
 }
 
-func recordValidationDuplicates(ctx context.Context, msg gpbft.ValidatedMessage) {
+func recordValidatedMessage(ctx context.Context, msg gpbft.ValidatedMessage) {
 	// The given msg and its validated value should never be nil; but defensively
 	// check anyway.
 	if msg == nil || msg.Message() == nil {
 		return
 	}
+
 	vmsg := msg.Message()
+	attrs := make([]attribute.KeyValue, 0, 3)
 	if samples.messages.Contains(vmsg.Signature) {
-		metrics.validationDuplicateMessages.Add(ctx, 1)
+		attrs = append(attrs, attribute.Bool("duplicate_message", true))
 	}
-	if vmsg.Justification != nil && samples.justifications.Contains(vmsg.Justification.Signature) {
-		metrics.validationDuplicateJustifications.Add(ctx, 1)
+	if vmsg.Justification != nil {
+		attrs = append(attrs, attribute.Bool("justified", true))
+		if samples.justifications.Contains(vmsg.Justification.Signature) {
+			attrs = append(attrs, attribute.Bool("duplicate_justification", true))
+		}
 	}
+	metrics.validatedMessages.Add(ctx, 1, metric.WithAttributes(attrs...))
 }
 
 func recordValidationTime(ctx context.Context, start time.Time, result pubsub.ValidationResult) {
