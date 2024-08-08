@@ -11,6 +11,7 @@ import (
 var (
 	AttrStatusSuccess       = attribute.String("status", "success")
 	AttrStatusError         = attribute.String("status", "error-other")
+	AttrStatusPanic         = attribute.String("status", "error-panic")
 	AttrStatusCanceled      = attribute.String("status", "error-canceled")
 	AttrStatusTimeout       = attribute.String("status", "error-timeout")
 	AttrStatusInternalError = attribute.String("status", "error-internal")
