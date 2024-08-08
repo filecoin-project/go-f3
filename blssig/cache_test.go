@@ -11,7 +11,7 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
-const maxCacheMemory uint64 = 10 * 1023 * 1024 // 10MiB
+const maxCacheMemory uint64 = 10 << 20 // 10MiB
 
 func TestCacheMemory(t *testing.T) {
 	suite := bls12381.NewBLS12381Suite()
