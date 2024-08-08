@@ -10,6 +10,8 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // ManifestSender is responsible for periodically broadcasting
@@ -27,13 +29,13 @@ type ManifestSender struct {
 	msgSeq   uint64
 }
 
-func NewManifestSender(ctx context.Context, h host.Host, ps *pubsub.PubSub, firstManifest *Manifest, pubishInterval time.Duration) (*ManifestSender, error) {
+func NewManifestSender(ctx context.Context, h host.Host, ps *pubsub.PubSub, firstManifest *Manifest, publishInterval time.Duration) (*ManifestSender, error) {
 	clk := clock.GetClock(ctx)
 	m := &ManifestSender{
 		manifest: firstManifest,
 		h:        h,
 		pubsub:   ps,
-		interval: pubishInterval,
+		interval: publishInterval,
 		// seed the sequence number with nanoseconds so we can restart and don't have to
 		// remember the last sequence number.
 		msgSeq: uint64(clk.Now().UnixNano()),
@@ -45,6 +47,13 @@ func NewManifestSender(ctx context.Context, h host.Host, ps *pubsub.PubSub, firs
 	if err != nil {
 		return nil, fmt.Errorf("could not join on pubsub topic: %s: %w", ManifestPubSubTopicName, err)
 	}
+
+	// Record one-off attributes about the sender for easier runtime debugging.
+	metrics.senderInfo.Record(ctx, 1, metric.WithAttributes(
+		attribute.String("id", m.SenderID().String()),
+		attribute.String("topic", ManifestPubSubTopicName),
+		attribute.String("publish_interval", publishInterval.String()),
+	))
 
 	return m, nil
 }
@@ -76,9 +85,12 @@ func (m *ManifestSender) Run(ctx context.Context) error {
 	return nil
 }
 
-func (m *ManifestSender) publishManifest(ctx context.Context) error {
+func (m *ManifestSender) publishManifest(ctx context.Context) (_err error) {
 	m.lk.Lock()
-	defer m.lk.Unlock()
+	defer func() {
+		m.lk.Unlock()
+		recordSenderPublishManifest(ctx, _err)
+	}()
 
 	// Manifest sender itself is paused.
 	if m.manifest == nil {
@@ -98,8 +110,12 @@ func (m *ManifestSender) publishManifest(ctx context.Context) error {
 }
 
 func (m *ManifestSender) UpdateManifest(manifest *Manifest) {
+	var seq uint64
 	m.lk.Lock()
 	m.manifest = manifest
 	m.msgSeq++
+	seq = m.msgSeq
 	m.lk.Unlock()
+	recordSenderManifestInfo(context.TODO(), seq, manifest)
+	metrics.senderManifestUpdated.Add(context.TODO(), 1)
 }
