@@ -9,7 +9,10 @@ import (
 	"github.com/drand/kyber/sign"
 )
 
-func (v Verifier) Aggregate(pubkeys []gpbft.PubKey, signatures [][]byte) ([]byte, error) {
+// Max size of the point cache.
+const maxPointCacheSize = 10_000
+
+func (v *Verifier) Aggregate(pubkeys []gpbft.PubKey, signatures [][]byte) ([]byte, error) {
 	if len(pubkeys) != len(signatures) {
 		return nil, fmt.Errorf("lengths of pubkeys and sigs does not match %d != %d",
 			len(pubkeys), len(signatures))
@@ -32,7 +35,7 @@ func (v Verifier) Aggregate(pubkeys []gpbft.PubKey, signatures [][]byte) ([]byte
 	return aggSig, nil
 }
 
-func (v Verifier) VerifyAggregate(msg []byte, signature []byte, pubkeys []gpbft.PubKey) error {
+func (v *Verifier) VerifyAggregate(msg []byte, signature []byte, pubkeys []gpbft.PubKey) error {
 	mask, err := v.pubkeysToMask(pubkeys)
 	if err != nil {
 		return fmt.Errorf("converting public keys to mask: %w", err)
@@ -46,19 +49,14 @@ func (v Verifier) VerifyAggregate(msg []byte, signature []byte, pubkeys []gpbft.
 	return v.scheme.Verify(aggPubKey, msg, signature)
 }
 
-func (v Verifier) pubkeysToMask(pubkeys []gpbft.PubKey) (*sign.Mask, error) {
+func (v *Verifier) pubkeysToMask(pubkeys []gpbft.PubKey) (*sign.Mask, error) {
 	kPubkeys := make([]kyber.Point, 0, len(pubkeys))
 	for i, p := range pubkeys {
-		point := v.keyGroup.Point()
-		err := point.UnmarshalBinary(p)
+		point, err := v.pubkeyToPoint(p)
 		if err != nil {
-			return nil, fmt.Errorf("unarshalling pubkey at index %d: %w", i, err)
+			return nil, fmt.Errorf("pubkey %d: %w", i, err)
 		}
-		if point.Equal(v.keyGroup.Point().Null()) {
-			return nil, fmt.Errorf("the public key at %d is a null point", i)
-		}
-
-		kPubkeys = append(kPubkeys, point)
+		kPubkeys = append(kPubkeys, point.Clone())
 	}
 
 	mask, err := sign.NewMask(v.suite, kPubkeys, nil)
