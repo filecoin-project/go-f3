@@ -23,6 +23,7 @@ func TestCacheMemory(t *testing.T) {
 		_, pub := scheme.NewKeyPair(rand)
 		pubKeyB, err := pub.MarshalBinary()
 		require.NoError(t, err)
+		require.Len(t, pubKeyB, 48)
 		keys[i] = pubKeyB
 	}
 

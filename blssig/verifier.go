@@ -30,7 +30,7 @@ func VerifierWithKeyOnG1() *Verifier {
 }
 
 func (v *Verifier) pubkeyToPoint(p gpbft.PubKey) (kyber.Point, error) {
-	if len(p) > 96 {
+	if len(p) != 48 {
 		return nil, fmt.Errorf("public key is too large: %d > 96", len(p))
 	}
 
