@@ -34,6 +34,6 @@ var metrics = struct {
 	)),
 	aggregate: measurements.Must(meter.Int64Histogram(
 		"f3_blssig_aggregate",
-		metric.WithDescription("Signatures aggregated."),
+		metric.WithDescription("Number of signatures aggregated."),
 	)),
 }
