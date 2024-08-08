@@ -223,7 +223,7 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 				return err
 			} else if delay > 0 {
 				manifestChangeTimer.Reset(delay)
-				log.Infow("waiting for boostrap epoch", "duration", delay.String())
+				log.Infow("waiting for bootstrap epoch", "duration", delay.String())
 			} else {
 				if err := m.reconfigure(m.runningCtx, pendingManifest); err != nil {
 					return fmt.Errorf("failed to reconfigure F3: %w", err)
