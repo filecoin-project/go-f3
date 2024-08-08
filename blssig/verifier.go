@@ -40,11 +40,16 @@ func (v *Verifier) pubkeyToPoint(p gpbft.PubKey) (kyber.Point, error) {
 		return nil, fmt.Errorf("public key is too large: %d > 96", len(p))
 	}
 
+	var point kyber.Point
+	cached := true
+	defer func() {
+		metrics.decompressPoint.Add(context.TODO(), 1, metric.WithAttributes(attrCached.Bool(cached)))
+	}()
+
 	v.mu.RLock()
-	point, ok := v.pointCache[string(p)]
+	point, cached = v.pointCache[string(p)]
 	v.mu.RUnlock()
-	if ok {
-		metrics.decompressPoint.Add(context.TODO(), 1, metric.WithAttributes(attrCached.Bool(true)))
+	if cached {
 		return point.Clone(), nil
 	}
 
@@ -66,10 +71,11 @@ func (v *Verifier) pubkeyToPoint(p gpbft.PubKey) (kyber.Point, error) {
 		v.pointCache = make(map[string]kyber.Point)
 	}
 
-	v.pointCache[string(p)] = point
+	_, cached = v.pointCache[string(p)] // for accurate metrics
+	if !cached {
+		v.pointCache[string(p)] = point
+	}
 	v.mu.Unlock()
-
-	metrics.decompressPoint.Add(context.TODO(), 1, metric.WithAttributes(attrCached.Bool(false)))
 
 	return point.Clone(), nil
 }
