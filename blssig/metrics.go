@@ -30,7 +30,7 @@ var metrics = struct {
 	)),
 	verifyAggregate: measurements.Must(meter.Int64Histogram(
 		"f3_blssig_verify_aggregate",
-		metric.WithDescription("Aggregate signatures verified."),
+		metric.WithDescription("Number of aggregate signatures verified."),
 	)),
 	aggregate: measurements.Must(meter.Int64Histogram(
 		"f3_blssig_aggregate",
