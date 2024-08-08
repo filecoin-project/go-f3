@@ -33,6 +33,8 @@ var (
 		DECIDE_PHASE:     attrDecidePhase,
 		TERMINATED_PHASE: attrTerminatedPhase,
 	}
+	attrSkipToRound  = attribute.String("to", "round")
+	attrSkipToDecide = attribute.String("to", "decide")
 
 	metrics = struct {
 		phaseCounter              metric.Int64Counter
@@ -41,6 +43,11 @@ var (
 		reBroadcastCounter        metric.Int64Counter
 		reBroadcastAttemptCounter metric.Int64Counter
 		errorCounter              metric.Int64Counter
+		currentInstance           metric.Int64Gauge
+		currentRound              metric.Int64Gauge
+		currentPhase              metric.Int64Gauge
+		skipCounter               metric.Int64Counter
+		epochsPerInstance         metric.Int64Gauge
 	}{
 		phaseCounter: measurements.Must(meter.Int64Counter("f3_gpbft_phase_counter", metric.WithDescription("Number of times phases change"))),
 		roundHistogram: measurements.Must(meter.Int64Histogram("f3_gpbft_round_histogram",
@@ -51,6 +58,15 @@ var (
 		reBroadcastCounter:        measurements.Must(meter.Int64Counter("f3_gpbft_rebroadcast_counter", metric.WithDescription("Number of rebroadcasted messages"))),
 		reBroadcastAttemptCounter: measurements.Must(meter.Int64Counter("f3_gpbft_rebroadcast_attempt_counter", metric.WithDescription("Number of rebroadcast attempts"))),
 		errorCounter:              measurements.Must(meter.Int64Counter("f3_gpbft_error_counter", metric.WithDescription("Number of errors"))),
+		currentInstance:           measurements.Must(meter.Int64Gauge("f3_gpbft_current_instance", metric.WithDescription("The ID of the current instance"))),
+		currentRound:              measurements.Must(meter.Int64Gauge("f3_gpbft_current_round", metric.WithDescription("The current round number"))),
+		currentPhase: measurements.Must(meter.Int64Gauge("f3_gpbft_current_phase",
+			metric.WithDescription("The current phase represented as numeric value of gpbft.Phase: "+
+				"0=INITIAL, 1=QUALITY, 2=CONVERGE, 3=PREPARE, 4=COMMIT, 5=DECIDE, and 6=TERMINATED"))),
+		skipCounter: measurements.Must(meter.Int64Counter("f3_gpbft_skip_counter",
+			metric.WithDescription("The number of times GPBFT skip either round or phase"))),
+		epochsPerInstance: measurements.Must(meter.Int64Gauge("f3_gpbft_epochs_per_instance",
+			metric.WithDescription("The number of epochs per finalized instance."))),
 	}
 )
 
