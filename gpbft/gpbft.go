@@ -224,6 +224,10 @@ func newInstance(
 		return nil, fmt.Errorf("input is empty")
 	}
 	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrInitialPhase))
+	metrics.currentInstance.Record(context.TODO(), int64(instanceID))
+	metrics.currentPhase.Record(context.TODO(), int64(INITIAL_PHASE))
+	metrics.currentRound.Record(context.TODO(), 0)
+
 	return &instance{
 		participant:      participant,
 		instanceID:       instanceID,
@@ -626,6 +630,7 @@ func (i *instance) beginQuality() error {
 	i.resetRebroadcastParams()
 	i.broadcast(i.round, QUALITY_PHASE, i.proposal, false, nil)
 	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrQualityPhase))
+	metrics.currentPhase.Record(context.TODO(), int64(QUALITY_PHASE))
 	return nil
 }
 
@@ -679,6 +684,7 @@ func (i *instance) beginConverge(justification *Justification) {
 
 	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, true, justification)
 	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrConvergePhase))
+	metrics.currentPhase.Record(context.TODO(), int64(CONVERGE_PHASE))
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
@@ -733,6 +739,7 @@ func (i *instance) beginPrepare(justification *Justification) {
 
 	i.broadcast(i.round, PREPARE_PHASE, i.value, false, justification)
 	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrPreparePhase))
+	metrics.currentPhase.Record(context.TODO(), int64(PREPARE_PHASE))
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -785,6 +792,7 @@ func (i *instance) beginCommit() {
 
 	i.broadcast(i.round, COMMIT_PHASE, i.value, false, justification)
 	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrCommitPhase))
+	metrics.currentPhase.Record(context.TODO(), int64(COMMIT_PHASE))
 }
 
 func (i *instance) tryCommit(round uint64) error {
@@ -853,6 +861,7 @@ func (i *instance) beginDecide(round uint64) {
 	// in order to be aggregated.
 	i.broadcast(0, DECIDE_PHASE, i.value, false, justification)
 	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrDecidePhase))
+	metrics.currentPhase.Record(context.TODO(), int64(DECIDE_PHASE))
 }
 
 // Skips immediately to the DECIDE phase and sends a DECIDE message
@@ -864,6 +873,9 @@ func (i *instance) skipToDecide(value ECChain, justification *Justification) {
 	i.value = i.proposal
 	i.resetRebroadcastParams()
 	i.broadcast(0, DECIDE_PHASE, i.value, false, justification)
+	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrDecidePhase))
+	metrics.currentPhase.Record(context.TODO(), int64(DECIDE_PHASE))
+	metrics.skipCounter.Add(context.TODO(), 1, metric.WithAttributes(attrSkipToDecide))
 }
 
 func (i *instance) tryDecide() error {
@@ -896,6 +908,7 @@ func (i *instance) getRound(r uint64) *roundState {
 func (i *instance) beginNextRound() {
 	i.round += 1
 	i.log("moving to round %d with %s", i.round, i.proposal.String())
+	metrics.currentRound.Record(context.TODO(), int64(i.round))
 
 	prevRound := i.getRound(i.round - 1)
 	// Proposal was updated at the end of COMMIT phase to be some value for which
@@ -922,6 +935,8 @@ func (i *instance) beginNextRound() {
 func (i *instance) skipToRound(round uint64, chain ECChain, justification *Justification) {
 	i.log("skipping from round %d to round %d with %s", i.round, round, i.proposal.String())
 	i.round = round
+	metrics.currentRound.Record(context.TODO(), int64(i.round))
+	metrics.skipCounter.Add(context.TODO(), 1, metric.WithAttributes(attrSkipToRound))
 
 	if justification.Vote.Step == PREPARE_PHASE {
 		i.log("⚠️ swaying from %s to %s by skip to round %d", &i.proposal, chain, i.round)
@@ -950,6 +965,9 @@ func (i *instance) terminate(decision *Justification) {
 	i.resetRebroadcastParams()
 	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrTerminatedPhase))
 	metrics.roundHistogram.Record(context.TODO(), int64(i.round))
+	metrics.currentPhase.Record(context.TODO(), int64(TERMINATED_PHASE))
+	base, head := decision.Vote.Value.Base(), decision.Vote.Value.Head()
+	metrics.epochsPerInstance.Record(context.TODO(), head.Epoch-base.Epoch)
 }
 
 func (i *instance) terminated() bool {
