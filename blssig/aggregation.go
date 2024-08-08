@@ -74,7 +74,7 @@ func (v *Verifier) pubkeyToPoint(p gpbft.PubKey) (kyber.Point, error) {
 	// Initialize the cache, or re-initialize it if we've grown too big. We don't expect the
 	// latter to happen in practice (would need over 10k participants), but better be safe than
 	// sorry. We could, alternatively, use an LRU but... that's not worth the overhead for
-	// somethign that shouldn't happen.
+	// something that shouldn't happen.
 	if v.pointCache == nil || len(v.pointCache) >= maxPointCacheSize {
 		v.pointCache = make(map[string]kyber.Point)
 	}
