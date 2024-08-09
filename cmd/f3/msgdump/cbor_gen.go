@@ -32,10 +32,15 @@ func (t *GMessageEnvelope) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.UnixMicroTime (uint64) (uint64)
-
-	if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.UnixMicroTime)); err != nil {
-		return err
+	// t.UnixMicroTime (int64) (int64)
+	if t.UnixMicroTime >= 0 {
+		if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.UnixMicroTime)); err != nil {
+			return err
+		}
+	} else {
+		if err := cw.WriteMajorTypeHeader(cbg.MajNegativeInt, uint64(-t.UnixMicroTime-1)); err != nil {
+			return err
+		}
 	}
 
 	// t.NetworkName (string) (string)
@@ -80,19 +85,30 @@ func (t *GMessageEnvelope) UnmarshalCBOR(r io.Reader) (err error) {
 		return fmt.Errorf("cbor input had wrong number of fields")
 	}
 
-	// t.UnixMicroTime (uint64) (uint64)
-
+	// t.UnixMicroTime (int64) (int64)
 	{
-
-		maj, extra, err = cr.ReadHeader()
+		maj, extra, err := cr.ReadHeader()
 		if err != nil {
 			return err
 		}
-		if maj != cbg.MajUnsignedInt {
-			return fmt.Errorf("wrong type for uint64 field")
+		var extraI int64
+		switch maj {
+		case cbg.MajUnsignedInt:
+			extraI = int64(extra)
+			if extraI < 0 {
+				return fmt.Errorf("int64 positive overflow")
+			}
+		case cbg.MajNegativeInt:
+			extraI = int64(extra)
+			if extraI < 0 {
+				return fmt.Errorf("int64 negative overflow")
+			}
+			extraI = -1 - extraI
+		default:
+			return fmt.Errorf("wrong type for int64 field: %d", maj)
 		}
-		t.UnixMicroTime = uint64(extra)
 
+		t.UnixMicroTime = int64(extraI)
 	}
 	// t.NetworkName (string) (string)
 
@@ -130,10 +146,15 @@ func (t *GMessageEnvelopeDeffered) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.UnixMicroTime (uint64) (uint64)
-
-	if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.UnixMicroTime)); err != nil {
-		return err
+	// t.UnixMicroTime (int64) (int64)
+	if t.UnixMicroTime >= 0 {
+		if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.UnixMicroTime)); err != nil {
+			return err
+		}
+	} else {
+		if err := cw.WriteMajorTypeHeader(cbg.MajNegativeInt, uint64(-t.UnixMicroTime-1)); err != nil {
+			return err
+		}
 	}
 
 	// t.NetworkName (string) (string)
@@ -178,19 +199,30 @@ func (t *GMessageEnvelopeDeffered) UnmarshalCBOR(r io.Reader) (err error) {
 		return fmt.Errorf("cbor input had wrong number of fields")
 	}
 
-	// t.UnixMicroTime (uint64) (uint64)
-
+	// t.UnixMicroTime (int64) (int64)
 	{
-
-		maj, extra, err = cr.ReadHeader()
+		maj, extra, err := cr.ReadHeader()
 		if err != nil {
 			return err
 		}
-		if maj != cbg.MajUnsignedInt {
-			return fmt.Errorf("wrong type for uint64 field")
+		var extraI int64
+		switch maj {
+		case cbg.MajUnsignedInt:
+			extraI = int64(extra)
+			if extraI < 0 {
+				return fmt.Errorf("int64 positive overflow")
+			}
+		case cbg.MajNegativeInt:
+			extraI = int64(extra)
+			if extraI < 0 {
+				return fmt.Errorf("int64 negative overflow")
+			}
+			extraI = -1 - extraI
+		default:
+			return fmt.Errorf("wrong type for int64 field: %d", maj)
 		}
-		t.UnixMicroTime = uint64(extra)
 
+		t.UnixMicroTime = int64(extraI)
 	}
 	// t.NetworkName (string) (string)
 

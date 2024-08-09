@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"strings"
+	"os/signal"
+	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/filecoin-project/go-f3/cmd/f3/msgdump"
@@ -175,8 +177,8 @@ var observerCmd = cli.Command{
 				select {
 				case <-ticker.C:
 					n := len(host.Network().Peers())
-					log.Infow("peer information", "NPeers", n)
 					if n < 5 {
+						log.Infow("low peers, bootstrapping again", "NPeers", n)
 						connectToBootstrappers()
 					}
 				case <-c.Context.Done():
@@ -185,10 +187,14 @@ var observerCmd = cli.Command{
 		}()
 
 		var closer func()
+		var runningNetwork gpbft.NetworkName
 		for c.Context.Err() == nil {
 			select {
 			case manif := <-manifestProvider.ManifestUpdates():
 				log.Infof("Got manifest for network %s\n", manif.NetworkName)
+				if runningNetwork == manif.NetworkName {
+					log.Infof("same network, continuing")
+				}
 				if closer != nil {
 					closer()
 				}
@@ -208,12 +214,17 @@ var observerCmd = cli.Command{
 }
 
 func observeManifest(ctx context.Context, manif *manifest.Manifest, pubSub *pubsub.PubSub) error {
-	logFileName := fmt.Sprintf("./observer/msgs-%s.ndjson", strings.ReplaceAll(string(manif.NetworkName), "/", "-"))
+	dir := msgdump.DirForNetwork("./observer", manif.NetworkName)
+	logFileName := filepath.Join(dir, "msgs.ndjson")
 	msgLogFile, err := os.OpenFile(logFileName, os.O_WRONLY|os.O_CREATE|os.O_CREATE, 0660)
 	if err != nil {
 		return fmt.Errorf("creating msg log file: %w", err)
 	}
 	jsonWriter := json.NewEncoder(msgLogFile)
+	parquetWriter, err := msgdump.NewParquetWriter(dir)
+	if err != nil {
+		return fmt.Errorf("creating parquet file: %w", err)
+	}
 
 	err = pubSub.RegisterTopicValidator(manif.PubSubTopic(), func(_ context.Context, _ peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
 		var gmsg gpbft.GMessage
@@ -238,8 +249,47 @@ func observeManifest(ctx context.Context, manif *manifest.Manifest, pubSub *pubs
 		return fmt.Errorf("subscribing to topic")
 	}
 
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGUSR1)
+
+	messageCh := make(chan msgdump.GMessageEnvelope, 50)
+
+	// log writing goroutine
 	go func() {
 		defer msgLogFile.Close()
+		defer parquetWriter.Close()
+		defer signal.Stop(sigCh)
+
+		for ctx.Err() == nil {
+			select {
+			case <-ctx.Done():
+				return
+			case <-sigCh:
+				// rotate parquet
+				err := parquetWriter.Rotate()
+				if err != nil {
+					log.Errorf("rotating parquet file: %v", err)
+				}
+			case msg := <-messageCh:
+				err = jsonWriter.Encode(msg)
+				if err != nil {
+					log.Errorf("writing to logfile: %v", err)
+					continue
+				}
+				parquetEnvelope, err := msgdump.ToParquet(msg)
+				if err != nil {
+					log.Errorf("converting envelope to parquet: %v", err)
+				}
+				_, err = parquetWriter.Write(parquetEnvelope)
+				if err != nil {
+					log.Errorf("writing to parquet: %v", err)
+				}
+			}
+		}
+	}()
+
+	// gossip goroutine
+	go func() {
 		for ctx.Err() == nil {
 			msg, err := sub.Next(ctx)
 			if err != nil {
@@ -248,22 +298,13 @@ func observeManifest(ctx context.Context, manif *manifest.Manifest, pubSub *pubs
 				}
 				log.Errorf("got error from sub.Next(): %v", err)
 			}
-			// use CBOR as JSON will be large and slow but for the sake of completion, we are using JSON
-			//evelope := msgdump.GMessageEnvelopeDeffered{
-			//UnixMicroTime: uint64(time.Now().UnixNano()) / 1000,
-			//NetworkName:   manif.NetworkName,
-			//Message:       cbg.Deferred{Raw: msg.Data},
-			//}
 
 			envelope := msgdump.GMessageEnvelope{
-				UnixMicroTime: uint64(time.Now().UnixNano()) / 1000,
+				UnixMicroTime: time.Now().UnixNano() / 1000,
 				NetworkName:   string(manif.NetworkName),
 				Message:       msg.ValidatorData.(gpbft.GMessage),
 			}
-			err = jsonWriter.Encode(envelope)
-			if err != nil {
-				log.Errorf("writing to logfile: %v", err)
-			}
+			messageCh <- envelope
 		}
 	}()
 	return nil
