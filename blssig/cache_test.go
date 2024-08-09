@@ -28,6 +28,7 @@ func TestCacheMemory(t *testing.T) {
 	}
 
 	runtime.GC()
+	runtime.GC()
 	var beforeMemStats, afterMemStats runtime.MemStats
 	runtime.ReadMemStats(&beforeMemStats)
 	v := VerifierWithKeyOnG1()
@@ -35,8 +36,12 @@ func TestCacheMemory(t *testing.T) {
 		_, err := v.pubkeyToPoint(k)
 		require.NoError(t, err)
 	}
+	runtime.GC()
+	runtime.GC()
 	runtime.ReadMemStats(&afterMemStats)
-	require.Less(t, afterMemStats.HeapAlloc-beforeMemStats.HeapAlloc, maxCacheMemory)
+	memUse := afterMemStats.HeapAlloc - beforeMemStats.HeapAlloc
+	t.Log(memUse)
+	require.Less(t, memUse, maxCacheMemory)
 
 	require.Len(t, v.pointCache, maxPointCacheSize)
 
