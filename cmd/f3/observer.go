@@ -267,6 +267,7 @@ func observeManifest(ctx context.Context, manif *manifest.Manifest, pubSub *pubs
 			case <-sigCh:
 				// rotate parquet
 				err := parquetWriter.Rotate()
+				log.Infof("rotating parquet file")
 				if err != nil {
 					log.Errorf("rotating parquet file: %v", err)
 				}
