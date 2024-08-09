@@ -215,16 +215,16 @@ var observerCmd = cli.Command{
 
 func observeManifest(ctx context.Context, manif *manifest.Manifest, pubSub *pubsub.PubSub) error {
 	dir := msgdump.DirForNetwork("./observer", manif.NetworkName)
+	parquetWriter, err := msgdump.NewParquetWriter(dir)
+	if err != nil {
+		return fmt.Errorf("creating parquet file: %w", err)
+	}
 	logFileName := filepath.Join(dir, "msgs.ndjson")
 	msgLogFile, err := os.OpenFile(logFileName, os.O_WRONLY|os.O_CREATE|os.O_CREATE, 0660)
 	if err != nil {
 		return fmt.Errorf("creating msg log file: %w", err)
 	}
 	jsonWriter := json.NewEncoder(msgLogFile)
-	parquetWriter, err := msgdump.NewParquetWriter(dir)
-	if err != nil {
-		return fmt.Errorf("creating parquet file: %w", err)
-	}
 
 	err = pubSub.RegisterTopicValidator(manif.PubSubTopic(), func(_ context.Context, _ peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
 		var gmsg gpbft.GMessage
