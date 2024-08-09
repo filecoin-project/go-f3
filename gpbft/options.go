@@ -8,8 +8,10 @@ import (
 )
 
 var (
-	defaultDelta                = 3 * time.Second
-	defaultDeltaBackOffExponent = 2.0
+	defaultDelta                        = 3 * time.Second
+	defaultDeltaBackOffExponent         = 2.0
+	defaultMaxCachedInstances           = 10
+	defaultMaxCachedMessagesPerInstance = 15_000
 )
 
 // Option represents a configurable parameter.
@@ -22,15 +24,20 @@ type options struct {
 	maxLookaheadRounds uint64
 	rebroadcastAfter   func(int) time.Duration
 
+	maxCachedInstances           int
+	maxCachedMessagesPerInstance int
+
 	// tracer traces logic logs for debugging and simulation purposes.
 	tracer Tracer
 }
 
 func newOptions(o ...Option) (*options, error) {
 	opts := &options{
-		delta:                defaultDelta,
-		deltaBackOffExponent: defaultDeltaBackOffExponent,
-		rebroadcastAfter:     defaultRebroadcastAfter,
+		delta:                        defaultDelta,
+		deltaBackOffExponent:         defaultDeltaBackOffExponent,
+		rebroadcastAfter:             defaultRebroadcastAfter,
+		maxCachedInstances:           defaultMaxCachedInstances,
+		maxCachedMessagesPerInstance: defaultMaxCachedMessagesPerInstance,
 	}
 	for _, apply := range o {
 		if err := apply(opts); err != nil {
@@ -88,6 +95,24 @@ func WithTracer(t Tracer) Option {
 func WithMaxLookaheadRounds(r uint64) Option {
 	return func(o *options) error {
 		o.maxLookaheadRounds = r
+		return nil
+	}
+}
+
+// WithMaxCachedInstances sets the maximum number of instances for which
+// validated messages are cached. Defaults to 10 if unset.
+func WithMaxCachedInstances(v int) Option {
+	return func(o *options) error {
+		o.maxCachedInstances = v
+		return nil
+	}
+}
+
+// WithMaxCachedMessagesPerInstance sets the maximum number of validated messages
+// that are cached per instance. Defaults to 15K if unset.
+func WithMaxCachedMessagesPerInstance(v int) Option {
+	return func(o *options) error {
+		o.maxCachedMessagesPerInstance = v
 		return nil
 	}
 }
