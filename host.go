@@ -211,31 +211,23 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 
 	base := ts.Timestamp()
 
-	defer func() {
-		now := h.clock.Now()
-		round0Duration := 4 * h.manifest.Gpbft.Delta
+	// Try to align instances while catching up, if configured.
+	if h.manifest.CatchUpAlignment > 0 {
+		defer func() {
+			now := h.clock.Now()
 
-		// If we were supposed to start this instance more than one GPBFT round ago, assume
-		// we're behind and align our start time to the next multiple of GPBFT round. This
-		// helps keep nodes in-sync when bootstrapping and catching up.
-		if _nextStart.Before(now.Add(-round0Duration)) {
-			// Given that we're catching up, we can assume that everyone is largely in
-			// agreement and we should decide everything in round 0. Therefore, we
-			// to finish in ~4x the maximum time it takes a message to propagate across
-			// the network.
-			//
-			// Aligning on this boundary means we can complete instances as fast as
-			// possible while still staying roughly in-sync.
-			//
-			// TODO: we should consider adding a buffer (e.g., a 2x multiplier?).
-
-			delay := now.Sub(base)
-			if offset := delay % round0Duration; offset > 0 {
-				delay += round0Duration - offset
+			// If we were supposed to start this instance more than one GPBFT round ago, assume
+			// we're behind and try to align our start times. This helps keep nodes
+			// in-sync when bootstrapping and catching up.
+			if _nextStart.Before(now.Add(-h.manifest.CatchUpAlignment)) {
+				delay := now.Sub(base)
+				if offset := delay % h.manifest.CatchUpAlignment; offset > 0 {
+					delay += h.manifest.CatchUpAlignment - offset
+				}
+				_nextStart = base.Add(delay)
 			}
-			_nextStart = base.Add(delay)
-		}
-	}()
+		}()
+	}
 
 	lookbackDelay := h.manifest.EC.Period * time.Duration(h.manifest.EC.HeadLookback)
 

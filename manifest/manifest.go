@@ -47,6 +47,12 @@ var (
 		MinimumPollInterval:  DefaultEcConfig.Period,
 		MaximumPollInterval:  4 * DefaultEcConfig.Period,
 	}
+
+	// Default instance alignment when catching up. Set to zero for now to avoid breaking
+	// things, we should probably bump the version compatibility when we set this to a non-zero
+	// value (although that's not required).
+	//DefaultCatchUpAlignment = 4 * DefaultGpbftConfig.Delta
+	DefaultCatchUpAlignment time.Duration = 0
 )
 
 type OnManifestChange func(ctx context.Context, prevManifest Manifest) error
@@ -169,6 +175,12 @@ type Manifest struct {
 	InitialPowerTable cid.Cid // !Defined() if nil
 	// We take the current power table from the head tipset this many instances ago.
 	CommitteeLookback uint64
+	// The alignment of instances while catching up. This should be slightly larger than the
+	// expected time to complete an instance.
+	//
+	// A good default is `4 * Manifest.Gpbft.Delta` (the expected time for a single-round
+	// instance).
+	CatchUpAlignment time.Duration
 	// Config parameters for gpbft
 	Gpbft GpbftConfig
 	// EC-specific parameters
@@ -252,6 +264,7 @@ func LocalDevnetManifest() *Manifest {
 		EC:                  DefaultEcConfig,
 		Gpbft:               DefaultGpbftConfig,
 		CertificateExchange: DefaultCxConfig,
+		CatchUpAlignment:    DefaultCatchUpAlignment,
 	}
 	return m
 }
