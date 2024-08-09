@@ -199,7 +199,7 @@ func (h *gpbftRunner) receiveCertificate(c *certs.FinalityCertificate) error {
 	return h.participant.StartInstanceAt(nextInstance, nextInstanceStart)
 }
 
-func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) time.Time {
+func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) (_nextStart time.Time) {
 	ecDelay := time.Duration(h.manifest.EC.DelayMultiplier * float64(h.manifest.EC.Period))
 
 	ts, err := h.ec.GetTipset(h.runningCtx, cert.ECChain.Head().Key)
@@ -209,15 +209,43 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 		return h.clock.Now().Add(ecDelay)
 	}
 
+	base := ts.Timestamp()
+
+	defer func() {
+		now := h.clock.Now()
+		round0Duration := 4 * h.manifest.Gpbft.Delta
+
+		// If we were supposed to start this instance more than one GPBFT round ago, assume
+		// we're behind and align our start time to the next multiple of GPBFT round. This
+		// helps keep nodes in-sync when bootstrapping and catching up.
+		if _nextStart.Before(now.Add(-round0Duration)) {
+			// Given that we're catching up, we can assume that everyone is largely in
+			// agreement and we should decide everything in round 0. Therefore, we
+			// to finish in ~4x the maximum time it takes a message to propagate across
+			// the network.
+			//
+			// Aligning on this boundary means we can complete instances as fast as
+			// possible while still staying roughly in-sync.
+			//
+			// TODO: we should consider adding a buffer (e.g., a 2x multiplier?).
+
+			delay := now.Sub(base)
+			if offset := delay % round0Duration; offset > 0 {
+				delay += round0Duration - offset
+			}
+			_nextStart = base.Add(delay)
+		}
+	}()
+
 	lookbackDelay := h.manifest.EC.Period * time.Duration(h.manifest.EC.HeadLookback)
 
 	if cert.ECChain.HasSuffix() {
 		// we decided on something new, the tipset that got finalized can at minimum be 30-60s old.
-		return ts.Timestamp().Add(ecDelay).Add(lookbackDelay)
+		return base.Add(ecDelay).Add(lookbackDelay)
 	}
 	if cert.GPBFTInstance == h.manifest.InitialInstance {
 		// if we are at initial instance, there is no history to look at
-		return ts.Timestamp().Add(ecDelay).Add(lookbackDelay)
+		return base.Add(ecDelay).Add(lookbackDelay)
 	}
 	backoffTable := h.manifest.EC.BaseDecisionBackoffTable
 
@@ -245,7 +273,7 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 	backoff := time.Duration(float64(ecDelay) * backoffMultipler)
 	log.Infof("backing off for: %v", backoff)
 
-	return ts.Timestamp().Add(backoff).Add(lookbackDelay)
+	return base.Add(backoff).Add(lookbackDelay)
 }
 
 // Sends a message to all other participants.
