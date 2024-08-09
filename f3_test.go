@@ -258,6 +258,7 @@ var base = manifest.Manifest{
 	Gpbft:               manifest.DefaultGpbftConfig,
 	EC:                  manifest.DefaultEcConfig,
 	CertificateExchange: manifest.DefaultCxConfig,
+	CatchUpAlignment:    manifest.DefaultCatchUpAlignment,
 }
 
 type testNode struct {

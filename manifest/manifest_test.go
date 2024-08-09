@@ -45,6 +45,7 @@ var base = manifest.Manifest{
 		MinimumPollInterval:  30 * time.Second,
 		MaximumPollInterval:  2 * time.Minute,
 	},
+	CatchUpAlignment: 0,
 }
 
 func TestManifest_Validation(t *testing.T) {
