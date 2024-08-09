@@ -185,7 +185,7 @@ func (c *Client) Request(ctx context.Context, p peer.ID, req *Request) (_rh *Res
 			}
 		}
 		return nil
-	}()
+	}() //nolint:errcheck
 	return &resp, ch, nil
 }
 
