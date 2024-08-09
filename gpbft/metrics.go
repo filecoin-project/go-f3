@@ -35,6 +35,8 @@ var (
 	}
 	attrSkipToRound  = attribute.String("to", "round")
 	attrSkipToDecide = attribute.String("to", "decide")
+	attrCacheHit     = attribute.String("status", "hit")
+	attrCacheMiss    = attribute.String("status", "miss")
 
 	metrics = struct {
 		phaseCounter              metric.Int64Counter
@@ -48,6 +50,7 @@ var (
 		currentPhase              metric.Int64Gauge
 		skipCounter               metric.Int64Counter
 		epochsPerInstance         metric.Int64Gauge
+		validationCache           metric.Int64Counter
 	}{
 		phaseCounter: measurements.Must(meter.Int64Counter("f3_gpbft_phase_counter", metric.WithDescription("Number of times phases change"))),
 		roundHistogram: measurements.Must(meter.Int64Histogram("f3_gpbft_round_histogram",
@@ -67,6 +70,8 @@ var (
 			metric.WithDescription("The number of times GPBFT skip either round or phase"))),
 		epochsPerInstance: measurements.Must(meter.Int64Gauge("f3_gpbft_epochs_per_instance",
 			metric.WithDescription("The number of epochs per finalized instance."))),
+		validationCache: measurements.Must(meter.Int64Counter("f3_gpbft_validation_cache",
+			metric.WithDescription("The number of times GPBFT validation cache resulted in hit or miss."))),
 	}
 )
 
