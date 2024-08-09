@@ -87,7 +87,7 @@ func NewParticipant(host Host, o ...Option) (*Participant, error) {
 		host:                     host,
 		committees:               make(map[uint64]*committee),
 		mqueue:                   newMessageQueue(opts.maxLookaheadRounds),
-		alreadyValidatedMessages: caching.NewGroupedSet(10, 15_000),
+		alreadyValidatedMessages: caching.NewGroupedSet(opts.maxCachedInstances, opts.maxCachedMessagesPerInstance),
 	}, nil
 }
 
