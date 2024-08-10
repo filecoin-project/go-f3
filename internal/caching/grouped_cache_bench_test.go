@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/filecoin-project/go-f3/internal/caching"
+	"github.com/stretchr/testify/require"
 )
 
 func BenchmarkGroupedSet(b *testing.B) {
@@ -25,9 +26,9 @@ func benchmarkGroupedSetBySize(b *testing.B, maxGroups, maxSetSize, valueLen int
 				subject := caching.NewGroupedSet(maxGroups, maxSetSize)
 				for group, values := range groupedValues {
 					for _, value := range values {
-						if !subject.Add(uint64(group), value) {
-							b.Fail()
-						}
+						added, err := subject.Add(uint64(group), nil, value)
+						require.NoError(b, err)
+						require.True(b, added)
 					}
 				}
 			}
@@ -40,9 +41,9 @@ func benchmarkGroupedSetBySize(b *testing.B, maxGroups, maxSetSize, valueLen int
 		groupedValues, size := generateGroupedValues(b, maxGroups, maxElementsBeforeEviction, valueLen)
 		for group, values := range groupedValues {
 			for _, value := range values {
-				if !subject.Add(uint64(group), value) {
-					b.Fail()
-				}
+				added, err := subject.Add(uint64(group), nil, value)
+				require.NoError(b, err)
+				require.True(b, added)
 			}
 		}
 
@@ -53,9 +54,9 @@ func benchmarkGroupedSetBySize(b *testing.B, maxGroups, maxSetSize, valueLen int
 			for pb.Next() {
 				for group, values := range groupedValues {
 					for _, value := range values {
-						if !subject.Contains(uint64(group), value) {
-							b.Fail()
-						}
+						contains, err := subject.Contains(uint64(group), nil, value)
+						require.NoError(b, err)
+						require.True(b, contains)
 					}
 				}
 			}

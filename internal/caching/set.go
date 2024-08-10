@@ -29,34 +29,44 @@ func NewSet(maxSize int) *Set {
 	}
 }
 
-// Contains checks if the given sample v is contained within sample set.
-func (ss *Set) Contains(v []byte) bool {
-	key := blake2b.Sum256(v)
+// Contains checks if the given sample v is contained within sample set. A
+// namespace may optionally be specified for the value. Namespace must be between
+// 0 to 64 bytes long.
+func (ss *Set) Contains(namespace, v []byte) (bool, error) {
+	key, err := ss.newKey(namespace, v)
+	if err != nil {
+		return false, err
+	}
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
 	if _, exists := ss.flip[key]; exists {
-		return true
+		return true, nil
 	}
 	if _, exists := ss.flop[key]; exists {
-		return true
+		return true, nil
 	}
-	return false
+	return false, nil
 }
 
 // ContainsOrAdd checks if the given sample v is contained within sample set, and
-// if not adds it.
-func (ss *Set) ContainsOrAdd(v []byte) bool {
-	key := blake2b.Sum256(v)
+// if not adds it. The namespace may be optionally supplied; it must be between
+// zero to 64 bytes.
+func (ss *Set) ContainsOrAdd(namespace, v []byte) (bool, error) {
+	key, err := ss.newKey(namespace, v)
+	if err != nil {
+		return false, err
+	}
+
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
 	// Check if the sample exists in either sets and if not insert it.
 	if _, exists := ss.flip[key]; exists {
-		return true
+		return true, nil
 	}
 	if _, exists := ss.flop[key]; exists {
-		return true
+		return true, nil
 	}
 	ss.flip[key] = struct{}{}
 
@@ -66,7 +76,24 @@ func (ss *Set) ContainsOrAdd(v []byte) bool {
 		ss.flop, ss.flip = ss.flip, ss.flop
 		log.Debugw("Cleared flop and swapped subsets as max size is reached", "maxSize", ss.maxSize)
 	}
-	return false
+	return false, nil
+}
+
+func (ss *Set) newKey(namespace, v []byte) ([32]byte, error) {
+	hasher, err := blake2b.New(blake2b.Size256, namespace)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	_, err = hasher.Write(v)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	var key [32]byte
+	keyB := hasher.Sum(key[:0])
+	copy(key[:], keyB)
+	// TODO: using blake's built-in keys means we lose the nice [32]byte return types
+	//       from Sum256. Consider pooling byte slices.
+	return key, nil
 }
 
 // Clear removes all elements in the set.

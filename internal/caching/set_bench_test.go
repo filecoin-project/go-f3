@@ -26,9 +26,9 @@ func benchmarkSetBySize(b *testing.B, maxSetSize, valueLen int) {
 			for pb.Next() {
 				subject := caching.NewSet(maxSetSize)
 				for _, value := range values {
-					if subject.ContainsOrAdd(value) {
-						b.Fail()
-					}
+					contained, err := subject.ContainsOrAdd(nil, value)
+					require.NoError(b, err)
+					require.False(b, contained)
 				}
 			}
 		})
@@ -39,9 +39,9 @@ func benchmarkSetBySize(b *testing.B, maxSetSize, valueLen int) {
 		maxElementsBeforeEviction := (maxSetSize * 2) - 1
 		values, size := generateValues(b, maxElementsBeforeEviction, valueLen)
 		for _, value := range values {
-			if subject.ContainsOrAdd(value) {
-				b.Fail()
-			}
+			contained, err := subject.ContainsOrAdd(nil, value)
+			require.NoError(b, err)
+			require.False(b, contained)
 		}
 
 		b.SetBytes(size)
@@ -50,9 +50,9 @@ func benchmarkSetBySize(b *testing.B, maxSetSize, valueLen int) {
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
 				for _, value := range values {
-					if !subject.ContainsOrAdd(value) {
-						b.Fail()
-					}
+					contained, err := subject.ContainsOrAdd(nil, value)
+					require.NoError(b, err)
+					require.True(b, contained)
 				}
 			}
 		})
