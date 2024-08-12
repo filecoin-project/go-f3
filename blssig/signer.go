@@ -1,7 +1,6 @@
 package blssig
 
 import (
-	"bytes"
 	"context"
 	"errors"
 
@@ -28,7 +27,7 @@ func SignerWithKeyOnG1(pub gpbft.PubKey, privKey kyber.Scalar) *Signer {
 }
 
 func (s *Signer) Sign(_ context.Context, sender gpbft.PubKey, msg []byte) ([]byte, error) {
-	if !bytes.Equal(sender, s.pubKey) {
+	if sender != s.pubKey {
 		return nil, errors.New("cannot sign: unknown sender")
 	}
 	return s.scheme.Sign(s.privKey, msg)

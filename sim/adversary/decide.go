@@ -102,7 +102,8 @@ func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) erro
 	)
 
 	if err := signers.ForEach(func(j uint64) error {
-		pubkey := gpbft.PubKey("fake pubkeyaaaaa")
+		var pubkey gpbft.PubKey
+		copy(pubkey[:], "fake pubkeyaaaaa")
 		sig := []byte("fake sig")
 		if j < uint64(len(powertable.Entries)) {
 			pubkey = powertable.Entries[j].PubKey

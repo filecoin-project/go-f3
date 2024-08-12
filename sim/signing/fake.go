@@ -18,19 +18,20 @@ type FakeBackend struct {
 	// mu Guards both i and allowed map access.
 	mu      sync.RWMutex
 	i       int
-	allowed map[string]struct{}
+	allowed map[gpbft.PubKey]struct{}
 }
 
 func NewFakeBackend() *FakeBackend {
-	return &FakeBackend{allowed: make(map[string]struct{})}
+	return &FakeBackend{allowed: make(map[gpbft.PubKey]struct{})}
 }
 
 func (s *FakeBackend) GenerateKey() (gpbft.PubKey, any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	pubKey := gpbft.PubKey(fmt.Sprintf("pubkey::%08x", s.i))
+	var pubKey gpbft.PubKey
+	copy(pubKey[:], fmt.Sprintf("pubkey::%08x", s.i))
 	privKey := fmt.Sprintf("privkey:%08x", s.i)
-	s.allowed[string(pubKey)] = struct{}{}
+	s.allowed[pubKey] = struct{}{}
 	s.i++
 	return pubKey, privKey
 }
@@ -38,28 +39,29 @@ func (s *FakeBackend) GenerateKey() (gpbft.PubKey, any) {
 func (s *FakeBackend) Allow(i int) gpbft.PubKey {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	pubKey := gpbft.PubKey(fmt.Sprintf("pubkey::%08x", i))
-	s.allowed[string(pubKey)] = struct{}{}
+	var pubKey gpbft.PubKey
+	copy(pubKey[:], fmt.Sprintf("pubkey::%08x", i))
+	s.allowed[pubKey] = struct{}{}
 	return pubKey
 }
 
 func (s *FakeBackend) Sign(_ context.Context, signer gpbft.PubKey, msg []byte) ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if _, ok := s.allowed[string(signer)]; !ok {
+	if _, ok := s.allowed[signer]; !ok {
 		return nil, fmt.Errorf("cannot sign: unknown sender")
 	}
 	return s.generateSignature(signer, msg)
 }
 
 func (s *FakeBackend) generateSignature(signer gpbft.PubKey, msg []byte) ([]byte, error) {
-	if len(signer) != 16 {
-		return nil, fmt.Errorf("wrong signer pubkey length: %d != 16", len(signer))
+	if signer.IsZero() {
+		return nil, errors.New("public key cannot be zero valued")
 	}
 	priv := "privkey" + string(signer[7:])
 
 	hasher := sha256.New()
-	hasher.Write(signer)
+	hasher.Write(signer[:])
 	hasher.Write([]byte(priv))
 	hasher.Write(msg)
 	return hasher.Sum(nil), nil
@@ -82,10 +84,10 @@ func (*FakeBackend) Aggregate(signers []gpbft.PubKey, sigs [][]byte) ([]byte, er
 	}
 	hasher := sha256.New()
 	for i, signer := range signers {
-		if len(signer) != 16 {
-			return nil, fmt.Errorf("wrong signer pubkey length: %d != 16", len(signer))
+		if signer.IsZero() {
+			return nil, errors.New("public key cannot be zero valued")
 		}
-		hasher.Write(signer)
+		hasher.Write(signer[:])
 		hasher.Write(sigs[i])
 	}
 	return hasher.Sum(nil), nil
@@ -98,7 +100,7 @@ func (s *FakeBackend) VerifyAggregate(payload, aggSig []byte, signers []gpbft.Pu
 		if err != nil {
 			return err
 		}
-		hasher.Write(signer)
+		hasher.Write(signer[:])
 		hasher.Write(sig)
 	}
 	if !bytes.Equal(aggSig, hasher.Sum(nil)) {

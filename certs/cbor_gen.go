@@ -44,7 +44,7 @@ func (t *PowerTableDelta) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.SigningKey (gpbft.PubKey) (slice)
+	// t.SigningKey (gpbft.PubKey) (array)
 	if len(t.SigningKey) > 2097152 {
 		return xerrors.Errorf("Byte array in field t.SigningKey was too long")
 	}
@@ -53,10 +53,9 @@ func (t *PowerTableDelta) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	if _, err := cw.Write(t.SigningKey); err != nil {
+	if _, err := cw.Write(t.SigningKey[:]); err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -106,7 +105,7 @@ func (t *PowerTableDelta) UnmarshalCBOR(r io.Reader) (err error) {
 		}
 
 	}
-	// t.SigningKey (gpbft.PubKey) (slice)
+	// t.SigningKey (gpbft.PubKey) (array)
 
 	maj, extra, err = cr.ReadHeader()
 	if err != nil {
@@ -119,15 +118,14 @@ func (t *PowerTableDelta) UnmarshalCBOR(r io.Reader) (err error) {
 	if maj != cbg.MajByteString {
 		return fmt.Errorf("expected byte array")
 	}
-
-	if extra > 0 {
-		t.SigningKey = make([]uint8, extra)
+	if extra != 48 {
+		return fmt.Errorf("expected array to have 48 elements")
 	}
 
-	if _, err := io.ReadFull(cr, t.SigningKey); err != nil {
+	t.SigningKey = [48]uint8{}
+	if _, err := io.ReadFull(cr, t.SigningKey[:]); err != nil {
 		return err
 	}
-
 	return nil
 }
 

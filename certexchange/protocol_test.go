@@ -24,10 +24,10 @@ func testPowerTable(entries int64) (gpbft.PowerEntries, gpbft.CID) {
 
 	for i := range powerTable {
 		powerTable[i] = gpbft.PowerEntry{
-			ID:     gpbft.ActorID(i + 1),
-			Power:  gpbft.NewStoragePower(int64(len(powerTable)*2 - i/2)),
-			PubKey: []byte("fake key"),
+			ID:    gpbft.ActorID(i + 1),
+			Power: gpbft.NewStoragePower(int64(len(powerTable)*2 - i/2)),
 		}
+		copy(powerTable[i].PubKey[:], "fake key")
 	}
 	k, err := certs.MakePowerTableCID(powerTable)
 	if err != nil {

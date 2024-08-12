@@ -780,7 +780,7 @@ func (t *PowerEntry) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.PubKey (gpbft.PubKey) (slice)
+	// t.PubKey (gpbft.PubKey) (array)
 	if len(t.PubKey) > 2097152 {
 		return xerrors.Errorf("Byte array in field t.PubKey was too long")
 	}
@@ -789,10 +789,9 @@ func (t *PowerEntry) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	if _, err := cw.Write(t.PubKey); err != nil {
+	if _, err := cw.Write(t.PubKey[:]); err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -842,7 +841,7 @@ func (t *PowerEntry) UnmarshalCBOR(r io.Reader) (err error) {
 		}
 
 	}
-	// t.PubKey (gpbft.PubKey) (slice)
+	// t.PubKey (gpbft.PubKey) (array)
 
 	maj, extra, err = cr.ReadHeader()
 	if err != nil {
@@ -855,15 +854,14 @@ func (t *PowerEntry) UnmarshalCBOR(r io.Reader) (err error) {
 	if maj != cbg.MajByteString {
 		return fmt.Errorf("expected byte array")
 	}
-
-	if extra > 0 {
-		t.PubKey = make([]uint8, extra)
+	if extra != 48 {
+		return fmt.Errorf("expected array to have 48 elements")
 	}
 
-	if _, err := io.ReadFull(cr, t.PubKey); err != nil {
+	t.PubKey = [48]uint8{}
+	if _, err := io.ReadFull(cr, t.PubKey[:]); err != nil {
 		return err
 	}
-
 	return nil
 }
 

@@ -21,12 +21,12 @@ type BLSBackend struct {
 
 	// signersMutex guards access to signersByPubKey.
 	signersMutex    sync.RWMutex
-	signersByPubKey map[string]*blssig.Signer
+	signersByPubKey map[gpbft.PubKey]*blssig.Signer
 }
 
 func (b *BLSBackend) Sign(ctx context.Context, sender gpbft.PubKey, msg []byte) ([]byte, error) {
 	b.signersMutex.RLock()
-	signer, known := b.signersByPubKey[string(sender)]
+	signer, known := b.signersByPubKey[sender]
 	b.signersMutex.RUnlock()
 
 	if !known {
@@ -39,7 +39,7 @@ func NewBLSBackend() *BLSBackend {
 	suite := bls12381.NewBLS12381Suite()
 	return &BLSBackend{
 		Verifier:        blssig.VerifierWithKeyOnG1(),
-		signersByPubKey: make(map[string]*blssig.Signer),
+		signersByPubKey: make(map[gpbft.PubKey]*blssig.Signer),
 		suite:           suite,
 		scheme:          bdn.NewSchemeOnG2(suite),
 	}
@@ -52,11 +52,12 @@ func (b *BLSBackend) GenerateKey() (gpbft.PubKey, any) {
 	if err != nil {
 		panic(err)
 	}
-
+	var pubKey gpbft.PubKey
+	copy(pubKey[:], pubKeyB)
 	b.signersMutex.Lock()
 	defer b.signersMutex.Unlock()
-	b.signersByPubKey[string(pubKeyB)] = blssig.SignerWithKeyOnG1(pubKeyB, priv)
-	return pubKeyB, priv
+	b.signersByPubKey[pubKey] = blssig.SignerWithKeyOnG1(pubKey, priv)
+	return pubKey, priv
 }
 
 func (b *BLSBackend) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Payload) []byte {

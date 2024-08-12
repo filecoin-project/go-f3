@@ -13,10 +13,10 @@ import (
 func TestPowerTable(t *testing.T) {
 
 	var (
-		oneValidEntry        = gpbft.PowerEntry{ID: 1413, Power: gpbft.NewStoragePower(1414000), PubKey: []byte("fish")}
-		anotherValidEntry    = gpbft.PowerEntry{ID: 1513, Power: gpbft.NewStoragePower(1514000), PubKey: []byte("lobster")}
-		yetAnotherValidEntry = gpbft.PowerEntry{ID: 1490, Power: gpbft.NewStoragePower(1491000), PubKey: []byte("lobster")}
-		zeroPowerEntry       = gpbft.PowerEntry{ID: 1613, Power: gpbft.NewStoragePower(0), PubKey: []byte("fish")}
+		oneValidEntry        = gpbft.PowerEntry{ID: 1413, Power: gpbft.NewStoragePower(1414000), PubKey: pubKeyFrom("fish")}
+		anotherValidEntry    = gpbft.PowerEntry{ID: 1513, Power: gpbft.NewStoragePower(1514000), PubKey: pubKeyFrom("lobster")}
+		yetAnotherValidEntry = gpbft.PowerEntry{ID: 1490, Power: gpbft.NewStoragePower(1491000), PubKey: pubKeyFrom("lobster")}
+		zeroPowerEntry       = gpbft.PowerEntry{ID: 1613, Power: gpbft.NewStoragePower(0), PubKey: pubKeyFrom("fish")}
 		noPubKeyEntry        = gpbft.PowerEntry{ID: 1613, Power: gpbft.NewStoragePower(1614000)}
 	)
 
@@ -29,7 +29,7 @@ func TestPowerTable(t *testing.T) {
 			subject := gpbft.NewPowerTable()
 			gotPower, gotKey := subject.Get(1413)
 			require.Zero(t, gotPower)
-			require.Nil(t, gotKey)
+			require.True(t, gotKey.IsZero())
 		})
 	})
 	t.Run("on Add", func(t *testing.T) {
@@ -71,7 +71,7 @@ func TestPowerTable(t *testing.T) {
 			samePowerEntryWithSmallerID := gpbft.PowerEntry{
 				ID:     oneValidEntry.ID - 1,
 				Power:  oneValidEntry.Power,
-				PubKey: []byte("barreleye"),
+				PubKey: pubKeyFrom("barreleye"),
 			}
 			require.NoError(t, subject.Add(oneValidEntry, samePowerEntryWithSmallerID))
 			requireAddedToPowerTable(t, subject, oneValidEntry)

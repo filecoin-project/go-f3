@@ -38,3 +38,7 @@ build: f3
 f3:
 	go build ./cmd/f3
 .PHONY: f3
+
+gen:
+	go generate ./...
+.PHONY: gen

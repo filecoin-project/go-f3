@@ -18,12 +18,12 @@ var base = manifest.Manifest{
 		{
 			ID:     2,
 			Power:  gpbft.NewStoragePower(1),
-			PubKey: gpbft.PubKey{0},
+			PubKey: gpbft.PubKey{01},
 		},
 		{
 			ID:     3,
 			Power:  gpbft.NewStoragePower(1),
-			PubKey: gpbft.PubKey{1},
+			PubKey: gpbft.PubKey{02},
 		},
 	},
 	CommitteeLookback: 10,

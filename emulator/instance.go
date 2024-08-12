@@ -36,9 +36,9 @@ func NewInstance(t *testing.T, id uint64, powerEntries gpbft.PowerEntries, propo
 
 	powerEntries = slices.Clone(powerEntries)
 	for i, entry := range powerEntries {
-		if len(entry.PubKey) == 0 {
+		if entry.PubKey.IsZero() {
 			// Populate missing public key to avoid power table validation errors.
-			powerEntries[i].PubKey = []byte(fmt.Sprintf("🪪%d", entry.ID))
+			copy(powerEntries[i].PubKey[:], fmt.Sprintf("🪪%d", entry.ID))
 		}
 	}
 	ptCid, err := certs.MakePowerTableCID(powerEntries)

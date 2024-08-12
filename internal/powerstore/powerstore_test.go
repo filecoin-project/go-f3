@@ -57,9 +57,15 @@ func (f *forgetfulEC) GetPowerTable(ctx context.Context, tsk gpbft.TipSetKey) (g
 var _ ec.Backend = (*forgetfulEC)(nil)
 
 var basePowerTable = gpbft.PowerEntries{
-	{ID: 1, Power: gpbft.NewStoragePower(50), PubKey: gpbft.PubKey("1")},
-	{ID: 3, Power: gpbft.NewStoragePower(10), PubKey: gpbft.PubKey("2")},
-	{ID: 4, Power: gpbft.NewStoragePower(4), PubKey: gpbft.PubKey("3")},
+	{ID: 1, Power: gpbft.NewStoragePower(50), PubKey: pubKeyFromString("1")},
+	{ID: 3, Power: gpbft.NewStoragePower(10), PubKey: pubKeyFromString("2")},
+	{ID: 4, Power: gpbft.NewStoragePower(4), PubKey: pubKeyFromString("3")},
+}
+
+func pubKeyFromString(v string) gpbft.PubKey {
+	var pubKey gpbft.PubKey
+	copy(pubKey[:], v)
+	return pubKey
 }
 
 func TestPowerStore(t *testing.T) {

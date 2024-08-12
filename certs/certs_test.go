@@ -409,7 +409,7 @@ func TestBadFinalityCertificates(t *testing.T) {
 		certCpy.PowerTableDelta = slices.Clone(certCpy.PowerTableDelta)
 		// empty diff is invalid.
 		certCpy.PowerTableDelta[0].PowerDelta = gpbft.NewStoragePower(0)
-		certCpy.PowerTableDelta[0].SigningKey = nil
+		certCpy.PowerTableDelta[0].SigningKey = *new(gpbft.PubKey)
 
 		nextInstance, chain, newPowerTable, err := certs.ValidateFinalityCertificates(backend, networkName, powerTable, 1, nil, certCpy)
 		require.ErrorContains(t, err, "failed to apply power table delta")

@@ -17,7 +17,7 @@ import (
 var somePowerEntry = gpbft.PowerEntry{
 	ID:     1513,
 	Power:  gpbft.NewStoragePower(1514),
-	PubKey: gpbft.PubKey("ghoti"),
+	PubKey: pubKeyFrom("ghoti"),
 }
 
 type participantTestSubject struct {
@@ -55,7 +55,7 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 		t:              t,
 		rng:            rng,
 		id:             gpbft.ActorID(rng.Uint64()),
-		pubKey:         generateRandomBytes(rng),
+		pubKey:         pubKeyFrom(generateRandomBytes(rng)),
 		delta:          delta,
 		instance:       instance,
 		networkName:    "fish",
@@ -471,7 +471,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 		zeroPowerEntry = gpbft.PowerEntry{
 			ID:     1613,
 			Power:  gpbft.NewStoragePower(0),
-			PubKey: gpbft.PubKey("fishmonger"),
+			PubKey: pubKeyFrom("fishmonger"),
 		}
 		signature = []byte("barreleye")
 	)

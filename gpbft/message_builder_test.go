@@ -21,12 +21,12 @@ func TestMessageBuilder(t *testing.T) {
 	err := pt.Add([]PowerEntry{
 		{
 			ID:     0,
-			PubKey: PubKey{0},
+			PubKey: PubKey{01},
 			Power:  big.NewInt(1),
 		},
 		{
 			ID:     1,
-			PubKey: PubKey{1},
+			PubKey: PubKey{02},
 			Power:  big.NewInt(1),
 		},
 	}...)
@@ -52,7 +52,7 @@ func TestMessageBuilder(t *testing.T) {
 
 	require.Equal(t, st.Payload, payload)
 	require.Equal(t, st.ParticipantID, ActorID(0))
-	require.Equal(t, st.PubKey, PubKey{0})
+	require.Equal(t, st.PubKey, PubKey{01})
 	require.NotNil(t, st.PayloadToSign)
 	require.Nil(t, st.VRFToSign)
 
@@ -61,7 +61,7 @@ func TestMessageBuilder(t *testing.T) {
 
 	require.Equal(t, st.Payload, payload)
 	require.Equal(t, st.ParticipantID, ActorID(1))
-	require.Equal(t, st.PubKey, PubKey{1})
+	require.Equal(t, st.PubKey, PubKey{02})
 	require.NotNil(t, st.PayloadToSign)
 	require.Nil(t, st.VRFToSign)
 }
@@ -71,12 +71,12 @@ func TestMessageBuilderWithVRF(t *testing.T) {
 	err := pt.Add([]PowerEntry{
 		{
 			ID:     0,
-			PubKey: PubKey{0},
+			PubKey: PubKey{01},
 			Power:  big.NewInt(1),
 		},
 		{
 			ID:     1,
-			PubKey: PubKey{1},
+			PubKey: PubKey{02},
 			Power:  big.NewInt(1),
 		},
 	}...)
@@ -100,7 +100,7 @@ func TestMessageBuilderWithVRF(t *testing.T) {
 
 	require.Equal(t, st.Payload, payload)
 	require.Equal(t, st.ParticipantID, ActorID(0))
-	require.Equal(t, st.PubKey, PubKey{0})
+	require.Equal(t, st.PubKey, PubKey{01})
 	require.NotNil(t, st.PayloadToSign)
 	require.NotNil(t, st.VRFToSign)
 
@@ -109,7 +109,7 @@ func TestMessageBuilderWithVRF(t *testing.T) {
 
 	require.Equal(t, st.Payload, payload)
 	require.Equal(t, st.ParticipantID, ActorID(1))
-	require.Equal(t, st.PubKey, PubKey{1})
+	require.Equal(t, st.PubKey, PubKey{02})
 	require.NotNil(t, st.PayloadToSign)
 	require.NotNil(t, st.VRFToSign)
 }

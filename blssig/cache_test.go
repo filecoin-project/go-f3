@@ -24,7 +24,7 @@ func TestCacheMemory(t *testing.T) {
 		pubKeyB, err := pub.MarshalBinary()
 		require.NoError(t, err)
 		require.Len(t, pubKeyB, 48)
-		keys[i] = pubKeyB
+		copy(keys[i][:], pubKeyB)
 	}
 
 	runtime.GC()

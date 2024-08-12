@@ -1,7 +1,6 @@
 package gpbft
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"maps"
@@ -34,7 +33,7 @@ type PowerTable struct {
 }
 
 func (p *PowerEntry) Equal(o *PowerEntry) bool {
-	return p.ID == o.ID && p.Power.Equals(o.Power) && bytes.Equal(p.PubKey, o.PubKey)
+	return p.ID == o.ID && p.Power.Equals(o.Power) && p.PubKey == o.PubKey
 }
 
 func (p PowerEntries) Equal(o PowerEntries) bool {
@@ -116,7 +115,7 @@ func NewPowerTable() *PowerTable {
 func (p *PowerTable) Add(entries ...PowerEntry) error {
 	for _, entry := range entries {
 		switch {
-		case len(entry.PubKey) == 0:
+		case entry.PubKey.IsZero():
 			return fmt.Errorf("unspecified public key for actor ID: %d", entry.ID)
 		case p.Has(entry.ID):
 			return fmt.Errorf("power entry already exists for actor ID: %d", entry.ID)
@@ -146,15 +145,16 @@ func (p *PowerTable) rescale() error {
 	return nil
 }
 
-// Get retrieves the scaled power, unscaled StoragePower and PubKey for the given id, if present in
-// the table. Otherwise, returns 0/nil.
+// Get retrieves the scaled power, unscaled StoragePower and PubKey for the given
+// id, if present in the table. Otherwise, returns 0 with a zero-valued PubKey.
+// See PubKey.IsZero.
 func (p *PowerTable) Get(id ActorID) (uint16, PubKey) {
 	if index, ok := p.Lookup[id]; ok {
 		key := p.Entries[index].PubKey
 		scaledPower := p.ScaledPower[index]
 		return scaledPower, key
 	}
-	return 0, nil
+	return 0, zeroPubKey
 }
 
 // Has check whether this PowerTable contains an entry for the given id.
@@ -219,7 +219,7 @@ func (p *PowerTable) Validate() error {
 		if lookupIndex, found := p.Lookup[entry.ID]; !found || index != lookupIndex {
 			return fmt.Errorf("lookup index does not match entries for actor ID: %d", entry.ID)
 		}
-		if len(entry.PubKey) == 0 {
+		if entry.PubKey.IsZero() {
 			return fmt.Errorf("unspecified public key for actor ID: %d", entry.ID)
 		}
 		if entry.Power.Sign() <= 0 {

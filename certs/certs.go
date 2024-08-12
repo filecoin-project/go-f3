@@ -24,7 +24,7 @@ type PowerTableDelta struct {
 }
 
 func (d *PowerTableDelta) IsZero() bool {
-	return d.PowerDelta.Sign() == 0 && len(d.SigningKey) == 0
+	return d.PowerDelta.Sign() == 0 && d.SigningKey.IsZero()
 }
 
 type PowerTableDiff []PowerTableDelta
@@ -214,7 +214,7 @@ func MakePowerTableDiff(oldPowerTable, newPowerTable gpbft.PowerEntries) PowerTa
 		if oldEntry, ok := oldPowerMap[newEntry.ID]; ok {
 			delete(oldPowerMap, newEntry.ID)
 			delta.PowerDelta = big.Sub(newEntry.Power, oldEntry.Power)
-			if !bytes.Equal(newEntry.PubKey, oldEntry.PubKey) {
+			if newEntry.PubKey != oldEntry.PubKey {
 				delta.SigningKey = newEntry.PubKey
 			}
 			if delta.IsZero() {
@@ -265,13 +265,13 @@ func ApplyPowerTableDiffs(prevPowerTable gpbft.PowerEntries, diffs ...PowerTable
 			pe, ok := powerTableMap[d.ParticipantID]
 			if ok {
 				// Power deltas can't replace a key with the same key.
-				if bytes.Equal(d.SigningKey, pe.PubKey) {
+				if d.SigningKey == pe.PubKey {
 					return nil, fmt.Errorf("diff %d delta for participant %d includes an unchanged key", j, pe.ID)
 				}
 				if d.PowerDelta.Sign() != 0 {
 					pe.Power = big.Add(d.PowerDelta, pe.Power)
 				}
-				if len(d.SigningKey) > 0 {
+				if !d.SigningKey.IsZero() {
 					// If we end up with no power, we shouldn't have replaced the key.
 					if pe.Power.Sign() == 0 {
 						return nil, fmt.Errorf("diff %d removes all power for participant %d while specifying a new key", j, pe.ID)
@@ -283,7 +283,7 @@ func ApplyPowerTableDiffs(prevPowerTable gpbft.PowerEntries, diffs ...PowerTable
 				if d.PowerDelta.Sign() <= 0 {
 					return nil, fmt.Errorf("diff %d includes a new entry with a non-positive power delta for participant %d", j, pe.ID)
 				}
-				if len(d.SigningKey) == 0 {
+				if d.SigningKey.IsZero() {
 					return nil, fmt.Errorf("diff %d includes a new power delta for participant %d with an empty signing key", j, pe.ID)
 				}
 				pe = gpbft.PowerEntry{

@@ -26,7 +26,7 @@ type adhocSigning struct{}
 
 func (s adhocSigning) Sign(_ context.Context, sender gpbft.PubKey, msg []byte) ([]byte, error) {
 	hasher := crc32.NewIEEE()
-	if _, err := hasher.Write(sender); err != nil {
+	if _, err := hasher.Write(sender[:]); err != nil {
 		return nil, err
 	}
 	if _, err := hasher.Write(msg); err != nil {
@@ -52,7 +52,7 @@ func (s adhocSigning) Aggregate(signers []gpbft.PubKey, sigs [][]byte) ([]byte, 
 	}
 	hasher := crc32.NewIEEE()
 	for i, signer := range signers {
-		if _, err := hasher.Write(signer); err != nil {
+		if _, err := hasher.Write(signer[:]); err != nil {
 			return nil, err
 		}
 		if _, err := hasher.Write(sigs[i]); err != nil {

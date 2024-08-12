@@ -19,10 +19,10 @@ func testPowerTable(entries int64) (gpbft.PowerEntries, gpbft.CID) {
 
 	for i := range powerTable {
 		powerTable[i] = gpbft.PowerEntry{
-			ID:     gpbft.ActorID(i + 1),
-			Power:  gpbft.NewStoragePower(int64(len(powerTable)*2 - i/2)),
-			PubKey: []byte("fake key"),
+			ID:    gpbft.ActorID(i + 1),
+			Power: gpbft.NewStoragePower(int64(len(powerTable)*2 - i/2)),
 		}
+		copy(powerTable[i].PubKey[:], "fake key")
 	}
 	k, err := certs.MakePowerTableCID(powerTable)
 	if err != nil {
@@ -98,6 +98,9 @@ func TestPutWrongPowerDelta(t *testing.T) {
 	cs, err := CreateStore(ctx, ds, 0, pt)
 	require.NoError(t, err)
 
+	var key gpbft.PubKey
+	copy(key[:], "testkey")
+
 	// Make sure we sanity check the produced power table.
 	cert := &certs.FinalityCertificate{
 		GPBFTInstance:    0,
@@ -105,7 +108,7 @@ func TestPutWrongPowerDelta(t *testing.T) {
 		PowerTableDelta: certs.PowerTableDiff{{
 			ParticipantID: 0,
 			PowerDelta:    gpbft.NewStoragePower(10),
-			SigningKey:    []byte("testkey"),
+			SigningKey:    key,
 		}}}
 
 	err = cs.Put(ctx, cert)
@@ -368,7 +371,7 @@ func TestCreateOpen(t *testing.T) {
 
 	pt, _ := testPowerTable(20)
 	newPt := slices.Clone(pt)
-	newPt[0].PubKey = []byte("other key")
+	copy(newPt[0].PubKey[:], "other key")
 
 	// Cannot open if it doesn't exist.
 	_, err := OpenStore(ctx, ds)
@@ -461,7 +464,7 @@ func testPowerInner(t *testing.T, firstInstance uint64) {
 
 	pt, ptCid := testPowerTable(20)
 	newPt := slices.Clone(pt)
-	newPt[0].PubKey = []byte("other key")
+	copy(newPt[0].PubKey[:], "other key")
 	newPtCid, err := certs.MakePowerTableCID(newPt)
 	require.NoError(t, err)
 

@@ -23,7 +23,7 @@ type Verifier struct {
 	keyGroup kyber.Group
 
 	mu         sync.RWMutex
-	pointCache map[string]kyber.Point
+	pointCache map[gpbft.PubKey]kyber.Point
 }
 
 func VerifierWithKeyOnG1() *Verifier {
@@ -36,10 +36,6 @@ func VerifierWithKeyOnG1() *Verifier {
 }
 
 func (v *Verifier) pubkeyToPoint(p gpbft.PubKey) (kyber.Point, error) {
-	if len(p) != 48 {
-		return nil, fmt.Errorf("public key is too large: %d > 96", len(p))
-	}
-
 	var point kyber.Point
 	cached := true
 	defer func() {
@@ -47,14 +43,14 @@ func (v *Verifier) pubkeyToPoint(p gpbft.PubKey) (kyber.Point, error) {
 	}()
 
 	v.mu.RLock()
-	point, cached = v.pointCache[string(p)]
+	point, cached = v.pointCache[p]
 	v.mu.RUnlock()
 	if cached {
 		return point.Clone(), nil
 	}
 
 	point = v.keyGroup.Point()
-	err := point.UnmarshalBinary(p)
+	err := point.UnmarshalBinary(p[:])
 	if err != nil {
 		return nil, fmt.Errorf("unarshalling pubkey: %w", err)
 	}
@@ -68,12 +64,12 @@ func (v *Verifier) pubkeyToPoint(p gpbft.PubKey) (kyber.Point, error) {
 	// sorry. We could, alternatively, use an LRU but... that's not worth the overhead for
 	// something that shouldn't happen.
 	if v.pointCache == nil || len(v.pointCache) >= maxPointCacheSize {
-		v.pointCache = make(map[string]kyber.Point)
+		v.pointCache = make(map[gpbft.PubKey]kyber.Point)
 	}
 
-	_, cached = v.pointCache[string(p)] // for accurate metrics
+	_, cached = v.pointCache[p] // for accurate metrics
 	if !cached {
-		v.pointCache[string(p)] = point
+		v.pointCache[p] = point
 	}
 	v.mu.Unlock()
 
@@ -89,7 +85,7 @@ func (v *Verifier) Verify(pubKey gpbft.PubKey, msg, sig []byte) (_err error) {
 		if perr := recover(); perr != nil {
 			msgStr := base64.StdEncoding.EncodeToString(msg)
 			sigStr := base64.StdEncoding.EncodeToString(sig)
-			pubKeyStr := base64.StdEncoding.EncodeToString(pubKey)
+			pubKeyStr := base64.StdEncoding.EncodeToString(pubKey[:])
 			_err = fmt.Errorf("panicked validating signature %q for message %q from %q: %v\n%s",
 				sigStr, msgStr, pubKeyStr, perr, string(debug.Stack()))
 			log.Error(_err)

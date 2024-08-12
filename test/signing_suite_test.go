@@ -33,7 +33,9 @@ func TestBLSSigning(t *testing.T) {
 		privKey, pubKey := blsSchema.NewKeyPair(blsSuit.RandomStream())
 		pubKeyB, err := pubKey.MarshalBinary()
 		require.NoError(t, err)
-		return pubKeyB, blssig.SignerWithKeyOnG1(pubKeyB, privKey)
+		var pubK gpbft.PubKey
+		copy(pubK[:], pubKeyB)
+		return pubK, blssig.SignerWithKeyOnG1(pubK, privKey)
 	}, blssig.VerifierWithKeyOnG1()))
 }
 
@@ -118,12 +120,11 @@ func (s *SigningTestSuite) TestAggregateAndVerify() {
 	require.Error(t, err)
 
 	_, err = s.verifier.Aggregate(pubKeys, [][]byte{sigs[0]})
-	require.Error(t, err, "Missmatched pubkeys and sigs lengths should fail")
+	require.Error(t, err, "Mismatched pubkeys and sigs lengths should fail")
 
 	{
 		pubKeys2 := slices.Clone(pubKeys)
-		pubKeys2[0] = slices.Clone(pubKeys2[0])
-		pubKeys2[0] = pubKeys2[0][1:len(pubKeys2)]
+		pubKeys2[0] = *new(gpbft.PubKey)
 		_, err = s.verifier.Aggregate(pubKeys2, sigs)
 		require.Error(t, err, "damaged pubkey should error")
 

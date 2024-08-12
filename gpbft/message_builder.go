@@ -57,7 +57,7 @@ type SignatureBuilder struct {
 
 func (mb *MessageBuilder) PrepareSigningInputs(id ActorID) (*SignatureBuilder, error) {
 	effectivePower, pubKey := mb.PowerTable.Get(id)
-	if pubKey == nil || effectivePower == 0 {
+	if pubKey.IsZero() || effectivePower == 0 {
 		return nil, fmt.Errorf("could not find pubkey for actor %d: %w", id, ErrNoPower)
 	}
 	sb := SignatureBuilder{
@@ -65,8 +65,7 @@ func (mb *MessageBuilder) PrepareSigningInputs(id ActorID) (*SignatureBuilder, e
 		NetworkName:   mb.NetworkName,
 		Payload:       mb.Payload,
 		Justification: mb.Justification,
-
-		PubKey: pubKey,
+		PubKey:        pubKey,
 	}
 
 	sb.PayloadToSign = mb.SigningMarshaler.MarshalPayloadForSigning(mb.NetworkName, &mb.Payload)
