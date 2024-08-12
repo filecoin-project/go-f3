@@ -1,6 +1,7 @@
 package gpbft
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -9,8 +10,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/filecoin-project/go-f3/internal/caching"
+	logging "github.com/ipfs/go-log/v2"
 	"go.opentelemetry.io/otel/metric"
 )
+
+var log = logging.Logger("f3/gpbft")
 
 // An F3 participant runs repeated instances of Granite to finalise longer chains.
 type Participant struct {
@@ -40,6 +45,10 @@ type Participant struct {
 	// protocol round for which a strong quorum of COMMIT messages was observed,
 	// which may not be known to the participant.
 	terminatedDuringRound uint64
+
+	// alreadyValidatedMessages is a bounded cache of messages that have already been
+	// validated by the participant, grouped by instance.
+	alreadyValidatedMessages *caching.GroupedSet
 }
 
 type validatedMessage struct {
@@ -74,10 +83,11 @@ func NewParticipant(host Host, o ...Option) (*Participant, error) {
 		return nil, err
 	}
 	return &Participant{
-		options:    opts,
-		host:       host,
-		committees: make(map[uint64]*committee),
-		mqueue:     newMessageQueue(opts.maxLookaheadRounds),
+		options:                  opts,
+		host:                     host,
+		committees:               make(map[uint64]*committee),
+		mqueue:                   newMessageQueue(opts.maxLookaheadRounds),
+		alreadyValidatedMessages: caching.NewGroupedSet(opts.maxCachedInstances, opts.maxCachedMessagesPerInstance),
 	}, nil
 }
 
@@ -145,10 +155,30 @@ func (p *Participant) ValidateMessage(msg *GMessage) (valid ValidatedMessage, er
 		return nil, err
 	}
 
+	var buf bytes.Buffer
+	var marshalled bool
+	err = msg.MarshalCBOR(&buf)
+	if err != nil {
+		log.Warnw("failed to marshal message for cache check", "err", err)
+	} else {
+		marshalled = true
+		if p.alreadyValidatedMessages.Contains(msg.Vote.Instance, buf.Bytes()) {
+			metrics.validationCache.Add(context.TODO(), 1, metric.WithAttributes(attrCacheHit))
+			return &validatedMessage{msg: msg}, nil
+		} else {
+			metrics.validationCache.Add(context.TODO(), 1, metric.WithAttributes(attrCacheMiss))
+		}
+	}
+
 	// Validate the message.
 	if err = ValidateMessage(comt.power, comt.beacon, p.host, msg); err != nil {
 		return nil, fmt.Errorf("%v: %w", err, ErrValidationInvalid)
 	}
+
+	if marshalled {
+		p.alreadyValidatedMessages.Add(msg.Vote.Instance, buf.Bytes())
+	}
+
 	return &validatedMessage{msg: msg}, nil
 }
 
@@ -297,6 +327,7 @@ func (p *Participant) finishCurrentInstance() *Justification {
 	if p.gpbft != nil {
 		decision = p.gpbft.terminationValue
 		p.terminatedDuringRound = p.gpbft.round
+		p.alreadyValidatedMessages.RemoveGroup(p.gpbft.instanceID)
 	}
 	p.gpbft = nil
 	return decision
