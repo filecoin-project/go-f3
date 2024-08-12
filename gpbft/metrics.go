@@ -35,8 +35,11 @@ var (
 	}
 	attrSkipToRound  = attribute.String("to", "round")
 	attrSkipToDecide = attribute.String("to", "decide")
-	attrCacheHit     = attribute.String("status", "hit")
-	attrCacheMiss    = attribute.String("status", "miss")
+
+	attrCacheHit               = attribute.String("cache", "hit")
+	attrCacheMiss              = attribute.String("cache", "miss")
+	attrCacheKindMessage       = attribute.String("kind", "message")
+	attrCacheKindJustification = attribute.String("kind", "justification")
 
 	metrics = struct {
 		phaseCounter              metric.Int64Counter

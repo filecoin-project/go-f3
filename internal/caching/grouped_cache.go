@@ -45,19 +45,19 @@ func NewGroupedSet(maxGroups, maxSetSize int) *GroupedSet {
 
 // Contains checks if the given value at given group is present, and if so
 // updates its recency. Otherwise, returns false.
-func (gs *GroupedSet) Contains(g uint64, v []byte) bool {
+func (gs *GroupedSet) Contains(g uint64, namespace, v []byte) (bool, error) {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
 
 	if set, exists := gs.groups[g]; exists {
 		gs.recency.MoveToFront(set.order)
-		return set.Contains(v)
+		return set.Contains(namespace, v)
 	}
-	return false
+	return false, nil
 }
 
 // Add attempts to add the given value for the given group if not already present.
-func (gs *GroupedSet) Add(g uint64, v []byte) bool {
+func (gs *GroupedSet) Add(g uint64, namespace, v []byte) (bool, error) {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
 
@@ -72,7 +72,11 @@ func (gs *GroupedSet) Add(g uint64, v []byte) bool {
 		set.order = gs.recency.PushFront(g)
 		gs.groups[g] = set
 	}
-	return !set.ContainsOrAdd(v)
+	contained, err := set.ContainsOrAdd(namespace, v)
+	if err != nil {
+		return false, err
+	}
+	return !contained, nil
 }
 
 func (gs *GroupedSet) RemoveGroup(group uint64) bool {

@@ -11,7 +11,7 @@ var (
 	defaultDelta                        = 3 * time.Second
 	defaultDeltaBackOffExponent         = 2.0
 	defaultMaxCachedInstances           = 10
-	defaultMaxCachedMessagesPerInstance = 15_000
+	defaultMaxCachedMessagesPerInstance = 25_000
 )
 
 // Option represents a configurable parameter.
@@ -109,7 +109,7 @@ func WithMaxCachedInstances(v int) Option {
 }
 
 // WithMaxCachedMessagesPerInstance sets the maximum number of validated messages
-// that are cached per instance. Defaults to 15K if unset.
+// that are cached per instance. Defaults to 25K if unset.
 func WithMaxCachedMessagesPerInstance(v int) Option {
 	return func(o *options) error {
 		o.maxCachedMessagesPerInstance = v

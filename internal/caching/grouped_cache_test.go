@@ -11,48 +11,92 @@ func TestGroupedSet(t *testing.T) {
 
 	subject := caching.NewGroupedSet(3, 2)
 
-	g1v1 := func() (uint64, []byte) { return 1, []byte("fish") }
-	g1v2 := func() (uint64, []byte) { return 1, []byte("lobster") }
-	g1v3 := func() (uint64, []byte) { return 1, []byte("lobstermuncher") }
-	g1v4 := func() (uint64, []byte) { return 1, []byte("barreleye") }
-	g2v1 := func() (uint64, []byte) { return 2, []byte("fish") }
-	g3v1 := func() (uint64, []byte) { return 3, []byte("fish") }
-	g4v1 := func() (uint64, []byte) { return 4, []byte("fish") }
+	g1v1 := func() (uint64, []byte, []byte) { return 1, []byte("undadasea"), []byte("fish") }
+	g1v2 := func() (uint64, []byte, []byte) { return 1, []byte("undadasea"), []byte("lobster") }
+	g1v3 := func() (uint64, []byte, []byte) { return 1, []byte("undadasea"), []byte("lobstermuncher") }
+	g1v4 := func() (uint64, []byte, []byte) { return 1, []byte("undadasea"), []byte("barreleye") }
+	g2v1 := func() (uint64, []byte, []byte) { return 2, []byte("undadasea"), []byte("fish") }
+	g3v1 := func() (uint64, []byte, []byte) { return 3, []byte("undadasea"), []byte("fish") }
+	g4v1 := func() (uint64, []byte, []byte) { return 4, []byte("undadasea"), []byte("fish") }
 
 	t.Run("does not contain unseen values", func(t *testing.T) {
-		require.False(t, subject.Contains(g1v1()))
-		require.False(t, subject.Contains(g1v2()))
+		contains, err := subject.Contains(g1v1())
+		require.NoError(t, err)
+		require.False(t, contains)
+
+		contains, err = subject.Contains(g1v2())
+		require.NoError(t, err)
+		require.False(t, contains)
 	})
 	t.Run("contains seen values", func(t *testing.T) {
-		require.True(t, subject.Add(g1v1()))
-		require.True(t, subject.Contains(g1v1()))
-		require.True(t, subject.Add(g1v2()))
-		require.True(t, subject.Contains(g1v2()))
+		added, err := subject.Add(g1v1())
+		require.NoError(t, err)
+		require.True(t, added)
+
+		contains, err := subject.Contains(g1v1())
+		require.NoError(t, err)
+		require.True(t, contains)
+
+		added, err = subject.Add(g1v2())
+		require.NoError(t, err)
+		require.True(t, added)
+
+		contains, err = subject.Contains(g1v2())
+		require.NoError(t, err)
+		require.True(t, contains)
 	})
 	t.Run("evicts least recent group", func(t *testing.T) {
 
 		// Add 3 distinct groups to cause an eviction
-		require.True(t, subject.Add(g2v1()))
-		require.True(t, subject.Add(g3v1()))
-		require.True(t, subject.Add(g4v1()))
+		added, err := subject.Add(g2v1())
+		require.NoError(t, err)
+		require.True(t, added)
+
+		added, err = subject.Add(g3v1())
+		require.NoError(t, err)
+		require.True(t, added)
+
+		added, err = subject.Add(g4v1())
+		require.NoError(t, err)
+		require.True(t, added)
 
 		// Assert group1 is evicted
-		require.False(t, subject.Contains(g1v1()))
-		require.False(t, subject.Contains(g1v2()))
+		contains, err := subject.Contains(g1v1())
+		require.NoError(t, err)
+		require.False(t, contains)
+
+		contains, err = subject.Contains(g1v2())
+		require.NoError(t, err)
+		require.False(t, contains)
 	})
 
 	t.Run("evicts first half of set on 2X max", func(t *testing.T) {
 		// Assert group1 has 2 entries.
-		require.True(t, subject.Add(g1v1()))
-		require.True(t, subject.Add(g1v2()))
+		added, err := subject.Add(g1v1())
+		require.NoError(t, err)
+		require.True(t, added)
+
+		added, err = subject.Add(g1v2())
+		require.NoError(t, err)
+		require.True(t, added)
 
 		// Add enough values to group 1 to cause eviction
-		require.True(t, subject.Add(g1v3()))
-		require.True(t, subject.Add(g1v4()))
+		added, err = subject.Add(g1v3())
+		require.NoError(t, err)
+		require.True(t, added)
+
+		added, err = subject.Add(g1v4())
+		require.NoError(t, err)
+		require.True(t, added)
 
 		// assert first half of entries in group 1 are evicted
-		require.False(t, subject.Contains(g1v1()))
-		require.False(t, subject.Contains(g1v2()))
+		contains, err := subject.Contains(g1v1())
+		require.NoError(t, err)
+		require.False(t, contains)
+
+		contains, err = subject.Contains(g1v2())
+		require.NoError(t, err)
+		require.False(t, contains)
 	})
 
 	t.Run("explicit group removal is removed", func(t *testing.T) {
@@ -61,9 +105,22 @@ func TestGroupedSet(t *testing.T) {
 
 		// Assert group 1 is already removed
 		require.False(t, subject.RemoveGroup(1))
-		require.False(t, subject.Contains(g1v1()))
-		require.False(t, subject.Contains(g1v2()))
-		require.False(t, subject.Contains(g1v3()))
-		require.False(t, subject.Contains(g1v4()))
+
+		contains, err := subject.Contains(g1v1())
+		require.NoError(t, err)
+		require.False(t, contains)
+
+		contains, err = subject.Contains(g1v2())
+		require.NoError(t, err)
+		require.False(t, contains)
+
+		contains, err = subject.Contains(g1v3())
+		require.NoError(t, err)
+		require.False(t, contains)
+
+		contains, err = subject.Contains(g1v4())
+		require.NoError(t, err)
+		require.False(t, contains)
+
 	})
 }
