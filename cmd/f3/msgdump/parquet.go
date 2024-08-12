@@ -12,8 +12,7 @@ import (
 )
 
 type ParquetWriter[T any] struct {
-	schema *parquet.Schema
-	path   string
+	path string
 
 	f *os.File
 	w *parquet.GenericWriter[T]
