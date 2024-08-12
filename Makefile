@@ -1,5 +1,6 @@
 SHELL := /usr/bin/env bash
 
+GOLANGCILINT = go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.59.1
 
 all: generate test fuzz lint
 
@@ -25,7 +26,7 @@ fuzz: # List all fuzz tests across the repo, and run them one at a time with the
 
 lint:
 	go mod tidy
-	golangci-lint run ./...
+	$(GOLANGCILINT) run ./...
 .PHONY: lint
 
 generate:
