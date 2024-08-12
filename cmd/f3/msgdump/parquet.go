@@ -11,17 +11,16 @@ import (
 	"github.com/parquet-go/parquet-go/compress/zstd"
 )
 
-type RowType = ParquetEnvelope
-type ParquetWriter struct {
+type ParquetWriter[T any] struct {
 	schema *parquet.Schema
 	path   string
 
 	f *os.File
-	w *parquet.GenericWriter[RowType]
+	w *parquet.GenericWriter[T]
 }
 
-func NewParquetWriter(path string) (*ParquetWriter, error) {
-	pw := ParquetWriter{
+func NewParquetWriter[T any](path string) (*ParquetWriter[T], error) {
+	pw := ParquetWriter[T]{
 		path: path,
 	}
 
@@ -37,24 +36,24 @@ func NewParquetWriter(path string) (*ParquetWriter, error) {
 var parquetExt = ".parquet"
 var partialExt = ".partial"
 
-func (pw *ParquetWriter) openNewFile() (*os.File, *parquet.GenericWriter[RowType], error) {
+func (pw *ParquetWriter[T]) openNewFile() (*os.File, *parquet.GenericWriter[T], error) {
 	filename := "gen0-" + time.Now().Format(time.RFC3339) + parquetExt + partialExt
 	f, err := os.OpenFile(filepath.Join(pw.path, filename), os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0666)
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating a parquet file: %w", err)
 	}
-	w := parquet.NewGenericWriter[RowType](f, parquet.Compression(&zstd.Codec{Level: zstd.SpeedFastest}))
+	w := parquet.NewGenericWriter[T](f, parquet.Compression(&zstd.Codec{Level: zstd.SpeedFastest}))
 	return f, w, nil
 }
 
-func (pw *ParquetWriter) WriteRows(rows []RowType) (int, error) {
+func (pw *ParquetWriter[T]) WriteRows(rows []T) (int, error) {
 	return pw.w.Write(rows)
 }
-func (pw *ParquetWriter) Write(row RowType) (int, error) {
-	return pw.w.Write([]RowType{row})
+func (pw *ParquetWriter[T]) Write(row T) (int, error) {
+	return pw.w.Write([]T{row})
 }
 
-func (pw *ParquetWriter) Rotate() error {
+func (pw *ParquetWriter[T]) Rotate() error {
 	f, w, err := pw.openNewFile()
 	if err != nil {
 		return fmt.Errorf("while opening new file: %w", err)
@@ -69,11 +68,11 @@ func (pw *ParquetWriter) Rotate() error {
 	return nil
 }
 
-func (pw *ParquetWriter) Close() error {
+func (pw *ParquetWriter[T]) Close() error {
 	return pw.finalize()
 }
 
-func (pw *ParquetWriter) finalize() error {
+func (pw *ParquetWriter[T]) finalize() error {
 	err := pw.w.Close()
 	if err != nil {
 		return fmt.Errorf("closing ParquetWriter: %w", err)

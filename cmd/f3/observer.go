@@ -216,7 +216,7 @@ var observerCmd = cli.Command{
 
 func observeManifest(ctx context.Context, manif *manifest.Manifest, pubSub *pubsub.PubSub) error {
 	dir := msgdump.DirForNetwork("./observer", manif.NetworkName)
-	parquetWriter, err := msgdump.NewParquetWriter(dir)
+	parquetWriter, err := msgdump.NewParquetWriter[msgdump.ParquetEnvelope](dir)
 	if err != nil {
 		return fmt.Errorf("creating parquet file: %w", err)
 	}
