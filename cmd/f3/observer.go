@@ -237,17 +237,17 @@ func observeManifest(ctx context.Context, manif *manifest.Manifest, pubSub *pubs
 		return pubsub.ValidationAccept
 	})
 	if err != nil {
-		return fmt.Errorf("registering topic validator: %v", err)
+		return fmt.Errorf("registering topic validator: %w", err)
 	}
 
 	topic, err := pubSub.Join(manif.PubSubTopic(), pubsub.WithTopicMessageIdFn(pubsub.DefaultMsgIdFn))
 	if err != nil {
-		return fmt.Errorf("joining topic")
+		return fmt.Errorf("joining topic: %w", err)
 	}
 
 	sub, err := topic.Subscribe()
 	if err != nil {
-		return fmt.Errorf("subscribing to topic")
+		return fmt.Errorf("subscribing to topic: %w", err)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -281,10 +281,12 @@ func observeManifest(ctx context.Context, manif *manifest.Manifest, pubSub *pubs
 				parquetEnvelope, err := msgdump.ToParquet(msg)
 				if err != nil {
 					log.Errorf("converting envelope to parquet: %v", err)
+					continue
 				}
 				_, err = parquetWriter.Write(parquetEnvelope)
 				if err != nil {
 					log.Errorf("writing to parquet: %v", err)
+					continue
 				}
 			}
 		}
@@ -299,6 +301,7 @@ func observeManifest(ctx context.Context, manif *manifest.Manifest, pubSub *pubs
 					return
 				}
 				log.Errorf("got error from sub.Next(): %v", err)
+				return
 			}
 
 			envelope := msgdump.GMessageEnvelope{
@@ -306,7 +309,11 @@ func observeManifest(ctx context.Context, manif *manifest.Manifest, pubSub *pubs
 				NetworkName:   string(manif.NetworkName),
 				Message:       msg.ValidatorData.(gpbft.GMessage),
 			}
-			messageCh <- envelope
+			select {
+			case messageCh <- envelope:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 	return nil
