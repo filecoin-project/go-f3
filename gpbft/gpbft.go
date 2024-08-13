@@ -754,8 +754,8 @@ func (i *instance) getRound(r uint64) *roundState {
 }
 
 func (i *instance) beginNextRound() {
+	i.log("moving to round %d with %s", i.round+1, i.proposal.String())
 	i.round += 1
-	i.log("moving to round %d with %s", i.round, i.proposal.String())
 	metrics.currentRound.Record(context.TODO(), int64(i.round))
 
 	prevRound := i.getRound(i.round - 1)
