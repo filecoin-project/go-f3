@@ -30,15 +30,12 @@ var (
 	}
 
 	DefaultGpbftConfig = GpbftConfig{
-		Delta:                3 * time.Second,
-		DeltaBackOffExponent: 2.0,
-		MaxLookaheadRounds:   5,
-	}
-
-	DefaultGpbftOptions = []gpbft.Option{
-		gpbft.WithMaxLookaheadRounds(DefaultGpbftConfig.MaxLookaheadRounds),
-		gpbft.WithDelta(DefaultGpbftConfig.Delta),
-		gpbft.WithDeltaBackOffExponent(DefaultGpbftConfig.DeltaBackOffExponent),
+		Delta:                      3 * time.Second,
+		DeltaBackOffExponent:       2.0,
+		MaxLookaheadRounds:         5,
+		RebroadcastBackoffBase:     3 * time.Second,
+		RebroadcastBackoffExponent: 1.3,
+		RebroadcastBackoffMax:      30 * time.Second,
 	}
 
 	DefaultCxConfig = CxConfig{
@@ -98,6 +95,10 @@ type GpbftConfig struct {
 	Delta                time.Duration
 	DeltaBackOffExponent float64
 	MaxLookaheadRounds   uint64
+
+	RebroadcastBackoffBase     time.Duration
+	RebroadcastBackoffExponent float64
+	RebroadcastBackoffMax      time.Duration
 }
 
 func (g *GpbftConfig) Validate() error {
@@ -107,7 +108,33 @@ func (g *GpbftConfig) Validate() error {
 	if g.DeltaBackOffExponent < 1.0 {
 		return fmt.Errorf("GPBFT backoff exponent must be at least 1.0, was %f", g.DeltaBackOffExponent)
 	}
+
+	if g.RebroadcastBackoffBase <= 0 {
+		return fmt.Errorf("GPBFT rebroadcast backoff base must be greater than 0, was %s",
+			g.RebroadcastBackoffBase)
+	}
+	if g.RebroadcastBackoffExponent < 1.0 {
+		return fmt.Errorf("GPBFT rebroadcast backoff exponent must be at least 1.0, was %f",
+			g.RebroadcastBackoffExponent)
+	}
+	if g.RebroadcastBackoffMax < g.RebroadcastBackoffBase {
+		return fmt.Errorf("GPBFT rebroadcast backoff max (%s) must be at least the backoff base (%s)",
+			g.RebroadcastBackoffMax, g.RebroadcastBackoffBase)
+	}
 	return nil
+}
+
+func (g *GpbftConfig) ToOptions() []gpbft.Option {
+	return []gpbft.Option{
+		gpbft.WithDelta(g.Delta),
+		gpbft.WithDeltaBackOffExponent(g.DeltaBackOffExponent),
+		gpbft.WithMaxLookaheadRounds(g.MaxLookaheadRounds),
+		gpbft.WithRebroadcastBackoff(
+			DefaultGpbftConfig.RebroadcastBackoffExponent,
+			DefaultGpbftConfig.RebroadcastBackoffBase,
+			DefaultGpbftConfig.RebroadcastBackoffMax,
+		),
+	}
 }
 
 type EcConfig struct {
@@ -301,15 +328,5 @@ func PubSubTopicFromNetworkName(nn gpbft.NetworkName) string {
 }
 
 func (m *Manifest) GpbftOptions() []gpbft.Option {
-	if m.Gpbft == (GpbftConfig{}) {
-		return DefaultGpbftOptions
-	}
-	var opts []gpbft.Option
-	if m.Gpbft.Delta != 0 {
-		opts = append(opts, gpbft.WithDelta(m.Gpbft.Delta))
-	}
-	opts = append(opts, gpbft.WithDeltaBackOffExponent(m.Gpbft.DeltaBackOffExponent))
-	opts = append(opts, gpbft.WithMaxLookaheadRounds(m.Gpbft.MaxLookaheadRounds))
-
-	return opts
+	return m.Gpbft.ToOptions()
 }
