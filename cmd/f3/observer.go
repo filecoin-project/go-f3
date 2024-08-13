@@ -196,12 +196,13 @@ var observerCmd = cli.Command{
 					log.Infof("same network, continuing")
 					continue
 				}
+				runningNetwork = manif.NetworkName
+
 				if closer != nil {
 					closer()
 				}
 
 				networkCtx, c := context.WithCancel(c.Context)
-				_ = networkCtx
 				closer = c
 				err := observeManifest(networkCtx, manif, pubSub)
 				if err != nil {
