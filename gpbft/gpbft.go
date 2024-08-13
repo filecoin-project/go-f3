@@ -869,6 +869,7 @@ func (i *instance) tryRebroadcast() error {
 		}
 		i.rebroadcastTimeout = rebroadcastTimeoutOffset.Add(i.participant.rebroadcastAfter(0))
 		i.participant.host.SetAlarm(i.rebroadcastTimeout)
+		i.log("scheduled initial rebroadcast at %v", i.rebroadcastTimeout)
 		return nil
 	}
 
@@ -886,10 +887,11 @@ func (i *instance) tryRebroadcast() error {
 		// at which the alarm is triggered.
 		i.rebroadcastTimeout = i.participant.host.Time().Add(i.participant.rebroadcastAfter(i.rebroadcastAttempts))
 		i.participant.host.SetAlarm(i.rebroadcastTimeout)
+		i.log("scheduled next rebroadcast at %v", i.rebroadcastTimeout)
 		return err
 	}
 
-	// Rebroadcast timout is set but has not elapsed yet; nothing to do.
+	// Rebroadcast timeout is set but has not elapsed yet; nothing to do.
 	return nil
 }
 
@@ -926,6 +928,7 @@ func (i *instance) rebroadcast() error {
 			if err := i.participant.host.RequestBroadcast(mb); err != nil {
 				return err
 			}
+			i.log("rebroadcasting %s at round %d for value %s", mb.Payload.Step.String(), mb.Payload.Round, mb.Payload.Value)
 			metrics.reBroadcastCounter.Add(context.TODO(), 1)
 		}
 	}
