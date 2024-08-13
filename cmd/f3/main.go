@@ -24,6 +24,7 @@ func main() {
 		Commands: []*cli.Command{
 			&runCmd,
 			&manifestCmd,
+			&observerCmd,
 		},
 	}
 
