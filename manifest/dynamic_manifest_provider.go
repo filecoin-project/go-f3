@@ -22,7 +22,7 @@ var log = logging.Logger("f3/dynamic-manifest")
 
 var _ ManifestProvider = (*DynamicManifestProvider)(nil)
 
-const ManifestPubSubTopicName = "/f3/manifests/0.0.1"
+const ManifestPubSubTopicName = "/f3/manifests/0.0.2"
 
 // DynamicManifestProvider is a manifest provider that allows
 // the manifest to be changed at runtime.

@@ -324,7 +324,7 @@ func (m *Manifest) PubSubTopic() string {
 }
 
 func PubSubTopicFromNetworkName(nn gpbft.NetworkName) string {
-	return "/f3/granite/0.0.1/" + string(nn)
+	return "/f3/granite/0.0.2/" + string(nn)
 }
 
 func (m *Manifest) GpbftOptions() []gpbft.Option {
