@@ -336,7 +336,7 @@ func (h *gpbftRunner) setupPubsub() error {
 	}
 
 	if err := topic.SetScoreParams(psutil.PubsubTopicScoreParams); err != nil {
-		log.Error("failed to set topic score params", "error", err)
+		log.Errorw("failed to set topic score params", "error", err)
 	}
 
 	h.topic = topic

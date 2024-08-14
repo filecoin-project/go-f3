@@ -107,7 +107,7 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 	}
 
 	if err := manifestTopic.SetScoreParams(psutil.PubsubTopicScoreParams); err != nil {
-		log.Error("failed to set topic score params", "error", err)
+		log.Errorw("failed to set topic score params", "error", err)
 	}
 
 	manifestSub, err := manifestTopic.Subscribe()
