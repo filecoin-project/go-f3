@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3/internal/clock"
+	"github.com/filecoin-project/go-f3/internal/psutil"
+
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -43,9 +45,12 @@ func NewManifestSender(ctx context.Context, h host.Host, ps *pubsub.PubSub, firs
 	}
 
 	var err error
-	m.manifestTopic, err = m.pubsub.Join(ManifestPubSubTopicName, pubsub.WithTopicMessageIdFn(pubsub.DefaultMsgIdFn))
+	m.manifestTopic, err = m.pubsub.Join(ManifestPubSubTopicName, pubsub.WithTopicMessageIdFn(psutil.ManifestMessageIdFn))
 	if err != nil {
 		return nil, fmt.Errorf("could not join on pubsub topic: %s: %w", ManifestPubSubTopicName, err)
+	}
+	if err := m.manifestTopic.SetScoreParams(psutil.PubsubTopicScoreParams); err != nil {
+		log.Infow("could not set topic score params", "error", err)
 	}
 
 	// Record one-off attributes about the sender for easier runtime debugging.

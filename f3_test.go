@@ -11,6 +11,7 @@ import (
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/clock"
+	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/filecoin-project/go-f3/sim/signing"
 
@@ -25,7 +26,13 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const ManifestSenderTimeout = 30 * time.Second
+func init() {
+	// Hash-based deduplication breaks fast rebroadcast, even if we set the time window to be
+	// really short because gossipsub has a minimum 1m cache scan interval.
+	psutil.GPBFTMessageIdFn = pubsub.DefaultMsgIdFn
+}
+
+var ManifestSenderTimeout = 30 * time.Second
 
 func TestF3Simple(t *testing.T) {
 	t.Parallel()

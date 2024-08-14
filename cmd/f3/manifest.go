@@ -125,7 +125,7 @@ var manifestServeCmd = cli.Command{
 		&cli.DurationFlag{
 			Name:  "publishInterval",
 			Usage: "The interval at which manifest is published on pubsub.",
-			Value: 20 * time.Second,
+			Value: 2 * pubsub.TimeCacheDuration,
 		},
 	},
 
@@ -205,7 +205,11 @@ var manifestServeCmd = cli.Command{
 			return fmt.Errorf("loading initial manifest: %w", err)
 		}
 
-		pubSub, err := pubsub.NewGossipSub(c.Context, host, pubsub.WithPeerExchange(true))
+		pubSub, err := pubsub.NewGossipSub(c.Context, host,
+			pubsub.WithPeerExchange(true),
+			pubsub.WithFloodPublish(true),
+			pubsub.WithPeerScore(PubsubPeerScoreParams, PubsubPeerScoreThresholds),
+		)
 		if err != nil {
 			return fmt.Errorf("initialzing pubsub: %w", err)
 		}
