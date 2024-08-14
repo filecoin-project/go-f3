@@ -10,8 +10,11 @@ import (
 	pubsub_pb "github.com/libp2p/go-libp2p-pubsub/pb"
 )
 
+var ManifestMessageIdFn = pubsubMsgIdHashDataAndSender
+var GPBFTMessageIdFn = pubsubMsgIdHashData
+
 // Generate a pubsub ID from the message topic + data.
-func PubsubMsgIdHashData(m *pubsub_pb.Message) string {
+func pubsubMsgIdHashData(m *pubsub_pb.Message) string {
 	hasher, err := blake2b.New256(nil)
 	if err != nil {
 		panic("failed to construct hasher")
@@ -30,7 +33,7 @@ func PubsubMsgIdHashData(m *pubsub_pb.Message) string {
 }
 
 // Generate a pubsub ID from the message topic + sender + data.
-func PubsubMsgIdHashDataAndSender(m *pubsub_pb.Message) string {
+func pubsubMsgIdHashDataAndSender(m *pubsub_pb.Message) string {
 	hasher, err := blake2b.New256(nil)
 	if err != nil {
 		panic("failed to construct hasher")

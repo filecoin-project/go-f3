@@ -246,7 +246,7 @@ func observeManifest(ctx context.Context, manif *manifest.Manifest, pubSub *pubs
 		return fmt.Errorf("registering topic validator: %w", err)
 	}
 
-	topic, err := pubSub.Join(manif.PubSubTopic(), pubsub.WithTopicMessageIdFn(psutil.PubsubMsgIdHashData))
+	topic, err := pubSub.Join(manif.PubSubTopic(), pubsub.WithTopicMessageIdFn(psutil.GPBFTMessageIdFn))
 	if err != nil {
 		return fmt.Errorf("joining topic: %w", err)
 	}

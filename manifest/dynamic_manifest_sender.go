@@ -53,7 +53,7 @@ func NewManifestSender(ctx context.Context, h host.Host, ps *pubsub.PubSub, firs
 	}
 
 	var err error
-	m.manifestTopic, err = m.pubsub.Join(ManifestPubSubTopicName, pubsub.WithTopicMessageIdFn(psutil.PubsubMsgIdHashDataAndSender))
+	m.manifestTopic, err = m.pubsub.Join(ManifestPubSubTopicName, pubsub.WithTopicMessageIdFn(psutil.ManifestMessageIdFn))
 	if err != nil {
 		return nil, fmt.Errorf("could not join on pubsub topic: %s: %w", ManifestPubSubTopicName, err)
 	}

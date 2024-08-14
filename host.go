@@ -330,7 +330,7 @@ func (h *gpbftRunner) setupPubsub() error {
 	// Force the default (sender + seqno) message de-duplication mechanism instead of hashing
 	// the message (as lotus does) as we need to be able to re-broadcast duplicate messages with
 	// the same content.
-	topic, err := h.pubsub.Join(pubsubTopicName, pubsub.WithTopicMessageIdFn(psutil.PubsubMsgIdHashData))
+	topic, err := h.pubsub.Join(pubsubTopicName, pubsub.WithTopicMessageIdFn(psutil.GPBFTMessageIdFn))
 	if err != nil {
 		return fmt.Errorf("could not join on pubsub topic: %s: %w", pubsubTopicName, err)
 	}

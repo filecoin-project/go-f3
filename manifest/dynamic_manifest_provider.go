@@ -101,7 +101,7 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 
 	// Use the message hash as the message ID to reduce the chances of routing cycles. We ensure
 	// our rebroadcast interval is greater than our cache timeout.
-	manifestTopic, err := m.pubsub.Join(ManifestPubSubTopicName, pubsub.WithTopicMessageIdFn(psutil.PubsubMsgIdHashDataAndSender))
+	manifestTopic, err := m.pubsub.Join(ManifestPubSubTopicName, pubsub.WithTopicMessageIdFn(psutil.ManifestMessageIdFn))
 	if err != nil {
 		return fmt.Errorf("could not join manifest pubsub topic: %w", err)
 	}
