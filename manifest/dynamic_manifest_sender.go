@@ -58,7 +58,7 @@ func NewManifestSender(ctx context.Context, h host.Host, ps *pubsub.PubSub, firs
 		return nil, fmt.Errorf("could not join on pubsub topic: %s: %w", ManifestPubSubTopicName, err)
 	}
 	if err := m.manifestTopic.SetScoreParams(psutil.PubsubTopicScoreParams); err != nil {
-		log.Errorw("could not set topic score params", "error", err)
+		log.Infow("could not set topic score params", "error", err)
 	}
 
 	// Record one-off attributes about the sender for easier runtime debugging.
