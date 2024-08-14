@@ -32,7 +32,7 @@ func init() {
 	psutil.GPBFTMessageIdFn = pubsub.DefaultMsgIdFn
 }
 
-var ManifestSenderTimeout = 2 * pubsub.TimeCacheDuration
+var ManifestSenderTimeout = 30 * time.Second
 
 func TestF3Simple(t *testing.T) {
 	t.Parallel()
