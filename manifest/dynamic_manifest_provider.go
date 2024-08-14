@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync/atomic"
 
+	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log/v2"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -35,6 +37,7 @@ type DynamicManifestProvider struct {
 
 	initialManifest *Manifest
 	manifestChanges chan *Manifest
+	sequenceNumber  atomic.Uint64
 }
 
 // ManifestUpdateMessage updates the GPBFT manifest.
@@ -96,12 +99,15 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 		return err
 	}
 
-	// Force the default (sender + seqno) message de-duplication mechanism instead of hashing
-	// the message (as lotus does) as validation depends on the sender, not the contents of the
-	// message.
-	manifestTopic, err := m.pubsub.Join(ManifestPubSubTopicName, pubsub.WithTopicMessageIdFn(pubsub.DefaultMsgIdFn))
+	// Use the message hash as the message ID to reduce the chances of routing cycles. We ensure
+	// our rebroadcast interval is greater than our cache timeout.
+	manifestTopic, err := m.pubsub.Join(ManifestPubSubTopicName, pubsub.WithTopicMessageIdFn(psutil.PubsubMsgIdHashDataAndSender))
 	if err != nil {
 		return fmt.Errorf("could not join manifest pubsub topic: %w", err)
+	}
+
+	if err := manifestTopic.SetScoreParams(psutil.PubsubTopicScoreParams); err != nil {
+		log.Error("failed to set topic score params", "error", err)
 	}
 
 	manifestSub, err := manifestTopic.Subscribe()
@@ -109,10 +115,8 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 		return fmt.Errorf("subscribing to manifest pubsub topic: %w", err)
 	}
 
-	var msgSeqNumber uint64
 	var currentManifest *Manifest
 	if mBytes, err := m.ds.Get(startCtx, latestManifestKey); errors.Is(err, datastore.ErrNotFound) {
-		msgSeqNumber = 0
 		currentManifest = m.initialManifest
 	} else if err != nil {
 		return fmt.Errorf("error while checking saved manifest")
@@ -123,7 +127,7 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 			return fmt.Errorf("decoding saved manifest: %w", err)
 		}
 
-		msgSeqNumber = update.MessageSequence
+		m.sequenceNumber.Store(update.MessageSequence)
 		currentManifest = &update.Manifest
 	}
 
@@ -164,10 +168,13 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 				continue
 			}
 
-			if update.MessageSequence <= msgSeqNumber {
-				log.Debugw("discarded manifest update", "newSeqNo", update.MessageSequence, "oldSeqNo", msgSeqNumber)
+			oldSeq := m.sequenceNumber.Load()
+
+			if update.MessageSequence <= oldSeq {
+				log.Debugw("discarded manifest update", "newSeqNo", update.MessageSequence, "oldSeqNo", oldSeq)
 				continue
 			}
+			m.sequenceNumber.Store(update.MessageSequence)
 
 			if err := update.Manifest.Validate(); err != nil {
 				log.Errorw("received invalid manifest, discarded", "error", err)
@@ -180,7 +187,6 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 			}
 
 			log.Infow("received manifest update", "seqNo", update.MessageSequence)
-			msgSeqNumber = update.MessageSequence
 
 			oldManifest := currentManifest
 			manifestCopy := update.Manifest
@@ -225,6 +231,11 @@ func (m *DynamicManifestProvider) registerTopicValidator() error {
 		if err != nil {
 			log.Debugw("failed to unmarshal manifest", "from", msg.From, "error", err)
 			return pubsub.ValidationReject
+		}
+
+		// Only allow the latest sequence number through.
+		if update.MessageSequence < m.sequenceNumber.Load() {
+			return pubsub.ValidationIgnore
 		}
 
 		// TODO: Any additional validation?

@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/clock"
+	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/manifest"
 	"go.opentelemetry.io/otel/metric"
 
@@ -329,11 +330,17 @@ func (h *gpbftRunner) setupPubsub() error {
 	// Force the default (sender + seqno) message de-duplication mechanism instead of hashing
 	// the message (as lotus does) as we need to be able to re-broadcast duplicate messages with
 	// the same content.
-	topic, err := h.pubsub.Join(pubsubTopicName, pubsub.WithTopicMessageIdFn(pubsub.DefaultMsgIdFn))
+	topic, err := h.pubsub.Join(pubsubTopicName, pubsub.WithTopicMessageIdFn(psutil.PubsubMsgIdHashData))
 	if err != nil {
 		return fmt.Errorf("could not join on pubsub topic: %s: %w", pubsubTopicName, err)
 	}
+
+	if err := topic.SetScoreParams(psutil.PubsubTopicScoreParams); err != nil {
+		log.Error("failed to set topic score params", "error", err)
+	}
+
 	h.topic = topic
+
 	return nil
 }
 

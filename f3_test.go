@@ -25,7 +25,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const ManifestSenderTimeout = 30 * time.Second
+var ManifestSenderTimeout = 2 * pubsub.TimeCacheDuration
 
 func TestF3Simple(t *testing.T) {
 	t.Parallel()

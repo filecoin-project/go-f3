@@ -17,6 +17,7 @@ import (
 
 	"github.com/filecoin-project/go-f3/cmd/f3/msgdump"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/manifest"
 	leveldb "github.com/ipfs/go-ds-leveldb"
 	logging "github.com/ipfs/go-log/v2"
@@ -152,7 +153,11 @@ var observerCmd = cli.Command{
 		// Connect to bootstrappers once as soon as we start.
 		connectToBootstrappers()
 
-		pubSub, err := pubsub.NewGossipSub(c.Context, host, pubsub.WithPeerExchange(true))
+		pubSub, err := pubsub.NewGossipSub(c.Context, host,
+			pubsub.WithPeerExchange(true),
+			pubsub.WithFloodPublish(true),
+			pubsub.WithPeerScore(PubsubPeerScoreParams, PubsubPeerScoreThresholds),
+		)
 		if err != nil {
 			return fmt.Errorf("initialzing pubsub: %w", err)
 		}
@@ -241,9 +246,12 @@ func observeManifest(ctx context.Context, manif *manifest.Manifest, pubSub *pubs
 		return fmt.Errorf("registering topic validator: %w", err)
 	}
 
-	topic, err := pubSub.Join(manif.PubSubTopic(), pubsub.WithTopicMessageIdFn(pubsub.DefaultMsgIdFn))
+	topic, err := pubSub.Join(manif.PubSubTopic(), pubsub.WithTopicMessageIdFn(psutil.PubsubMsgIdHashData))
 	if err != nil {
 		return fmt.Errorf("joining topic: %w", err)
+	}
+	if err := topic.SetScoreParams(psutil.PubsubTopicScoreParams); err != nil {
+		return fmt.Errorf("failed to set topic params: %w", err)
 	}
 
 	sub, err := topic.Subscribe()

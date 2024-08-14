@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3/internal/clock"
+	"github.com/filecoin-project/go-f3/internal/psutil"
+
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -30,6 +32,14 @@ type ManifestSender struct {
 }
 
 func NewManifestSender(ctx context.Context, h host.Host, ps *pubsub.PubSub, firstManifest *Manifest, publishInterval time.Duration) (*ManifestSender, error) {
+	// The rebroadcast interval must be larger than the time cache duration. Default to 2x just in case.
+	if minInterval := 2 * pubsub.TimeCacheDuration; publishInterval < minInterval {
+		log.Warnf("manifest sender publish interval is too short (%s), increasing to 2x the time-cache duration %s",
+			publishInterval, minInterval,
+		)
+		publishInterval = minInterval
+	}
+
 	clk := clock.GetClock(ctx)
 	m := &ManifestSender{
 		manifest: firstManifest,
@@ -43,9 +53,12 @@ func NewManifestSender(ctx context.Context, h host.Host, ps *pubsub.PubSub, firs
 	}
 
 	var err error
-	m.manifestTopic, err = m.pubsub.Join(ManifestPubSubTopicName, pubsub.WithTopicMessageIdFn(pubsub.DefaultMsgIdFn))
+	m.manifestTopic, err = m.pubsub.Join(ManifestPubSubTopicName, pubsub.WithTopicMessageIdFn(psutil.PubsubMsgIdHashDataAndSender))
 	if err != nil {
 		return nil, fmt.Errorf("could not join on pubsub topic: %s: %w", ManifestPubSubTopicName, err)
+	}
+	if err := m.manifestTopic.SetScoreParams(psutil.PubsubTopicScoreParams); err != nil {
+		return nil, fmt.Errorf("could not join set topic params: %s: %w", ManifestPubSubTopicName, err)
 	}
 
 	// Record one-off attributes about the sender for easier runtime debugging.
