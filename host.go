@@ -242,7 +242,7 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 	backoffTable := h.manifest.EC.BaseDecisionBackoffTable
 
 	attempts := 0
-	backoffMultipler := 1.0 // to account for the one ECDelay after which we got the base decistion
+	backoffMultipler := 2.0 // baseline 1 + 1 to account for the one ECDelay after which we got the base decistion
 	for instance := cert.GPBFTInstance - 1; instance > h.manifest.InitialInstance; instance-- {
 		cert, err := h.certStore.Get(h.runningCtx, instance)
 		if err != nil {
