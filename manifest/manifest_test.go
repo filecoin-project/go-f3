@@ -111,7 +111,7 @@ func TestManifest_NetworkName(t *testing.T) {
 			require.True(t, strings.HasPrefix(gotDsPrefix, "/f3"))
 			require.True(t, strings.HasSuffix(gotDsPrefix, string(test.subject)))
 			gotPubSubTopic := m.PubSubTopic()
-			require.True(t, strings.HasPrefix(gotPubSubTopic, "/f3/granite/0.0.1/"))
+			require.True(t, strings.HasPrefix(gotPubSubTopic, "/f3/granite/0.0.2/"))
 			require.True(t, strings.HasSuffix(gotPubSubTopic, string(test.subject)))
 		})
 	}
