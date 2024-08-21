@@ -19,6 +19,7 @@ type GMessageEnvelope struct {
 type ParquetEnvelope struct {
 	TimestampMicro int64 `parquet:"TimestampMicro,timestamp(microsecond)"`
 	NetworkName    string
+	Instance       uint64
 	Message        PMessage
 }
 
@@ -40,6 +41,7 @@ type PPayload struct {
 	Instance         uint64
 	Round            uint64
 	Step             string `parquet:"Step,enum"`
+	StepNumeric      uint32
 	SupplementalData gpbft.SupplementalData
 	Value            gpbft.ECChain
 }
@@ -49,6 +51,7 @@ func payloadToParquet(vote gpbft.Payload) PPayload {
 		Instance:         vote.Instance,
 		Round:            vote.Round,
 		Step:             vote.Step.String(),
+		StepNumeric:      uint32(vote.Step),
 		SupplementalData: vote.SupplementalData,
 		Value:            vote.Value,
 	}
@@ -58,6 +61,7 @@ func ToParquet(gme GMessageEnvelope) (ParquetEnvelope, error) {
 	pe := ParquetEnvelope{
 		TimestampMicro: gme.UnixMicroTime,
 		NetworkName:    gme.NetworkName,
+		Intance:        gme.Message.Vote.Instance,
 		Message: PMessage{
 			Sender:    gme.Message.Sender,
 			Vote:      payloadToParquet(gme.Message.Vote),

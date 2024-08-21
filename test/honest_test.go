@@ -7,6 +7,7 @@ import (
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim"
+	"github.com/filecoin-project/go-f3/sim/adversary"
 	"github.com/filecoin-project/go-f3/sim/signing"
 	"github.com/stretchr/testify/require"
 )
@@ -185,6 +186,28 @@ func FuzzHonest_AsyncRequireStrongQuorumToProgress(f *testing.F) {
 		// Must decide baseChain's head, i.e. the longest common prefix since there is no strong quorum.
 		requireConsensusAtFirstInstance(t, sm, *baseChain.Head())
 	})
+}
+
+func TestSplitQuorum(t *testing.T) {
+	for seed := 0; seed < 200; seed++ {
+		t.Logf("seed: %v", seed)
+		tsg := sim.NewTipSetGenerator(uint64(seed))
+		baseChain := generateECChain(t, tsg)
+		oneChain := baseChain.Extend(tsg.Sample())
+		anotherChain := baseChain.Extend(tsg.Sample())
+		_ = oneChain
+		sm, err := sim.NewSimulation(asyncOptions(seed,
+			sim.WithBaseChain(&baseChain),
+			sim.AddHonestParticipants(3, sim.NewFixedECChainGenerator(baseChain), uniformOneStoragePower),
+			sim.AddHonestParticipants(3, sim.NewFixedECChainGenerator(anotherChain), uniformOneStoragePower),
+			sim.WithAdversary(adversary.NewAbsentGenerator(gpbft.NewStoragePower(2))),
+		)...)
+		require.NoError(t, err)
+		require.NoErrorf(t, sm.Run(1, 3), "%s", sm.Describe())
+
+		// Must decide baseChain's head, i.e. the longest common prefix since there is no strong quorum.
+		requireConsensusAtFirstInstance(t, sm, *baseChain.Head())
+	}
 }
 
 func TestHonest_FixedLongestCommonPrefix(t *testing.T) {
