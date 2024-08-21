@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/big"
 	"slices"
 	"sort"
 	"time"
@@ -16,7 +15,6 @@ import (
 	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
 	"github.com/filecoin-project/go-f3/merkle"
 	"go.opentelemetry.io/otel/metric"
-	"golang.org/x/crypto/blake2b"
 )
 
 type Phase uint8
@@ -1320,23 +1318,19 @@ func (c *convergeState) FindMaxTicketProposal(table PowerTable) ConvergeValue {
 	// If the same ticket is used for two different values then either we get a decision on one of them
 	// only or we go to a new round. Eventually there is a round where the max ticket is held by a
 	// correct participant, who will not double vote.
-	var maxTicket *big.Int
+	var maxTicket ActorID = math.MaxUint64
 	var maxValue ConvergeValue
 
 	for key, value := range c.values {
 		for _, ticket := range c.tickets[key] {
-			senderPower, _ := table.Get(ticket.Sender)
-			ticketHash := blake2b.Sum256(ticket.Ticket)
-			ticketAsInt := new(big.Int).SetBytes(ticketHash[:])
-			weightedTicket := new(big.Int).Mul(ticketAsInt, big.NewInt(int64(senderPower)))
-			if maxTicket == nil || weightedTicket.Cmp(maxTicket) > 0 {
-				maxTicket = weightedTicket
+			if ticket.Sender < maxTicket {
+				maxTicket = ticket.Sender
 				maxValue = value
 			}
 		}
 	}
 
-	if maxTicket == nil && c.HasSelfValue() {
+	if maxTicket == math.MaxUint64 && c.HasSelfValue() {
 		return *c.self
 	}
 	return maxValue

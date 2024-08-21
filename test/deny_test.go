@@ -51,8 +51,8 @@ func TestDenyQuality(t *testing.T) {
 		ecChainGenerator := sim.NewUniformECChainGenerator(uint64(i), 1, 5)
 		sm, err := sim.NewSimulation(
 			syncOptions(
-				sim.AddHonestParticipants(10, ecChainGenerator, uniformOneStoragePower),
-				sim.WithAdversary(adversary.NewDenyQualityGenerator(oneStoragePower, gst, []gpbft.ActorID{0, 1, 2, 3, 4}...)),
+				sim.AddHonestParticipants(4, ecChainGenerator, uniformOneStoragePower),
+				sim.WithAdversary(adversary.NewDenyQualityGenerator(oneStoragePower, gst, []gpbft.ActorID{2, 3}...)),
 				sim.WithGlobalStabilizationTime(gst*1000),
 				sim.WithTraceLevel(10),
 			)...,
