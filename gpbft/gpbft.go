@@ -1320,23 +1320,28 @@ func (c *convergeState) FindMaxTicketProposal(table PowerTable) ConvergeValue {
 	// If the same ticket is used for two different values then either we get a decision on one of them
 	// only or we go to a new round. Eventually there is a round where the max ticket is held by a
 	// correct participant, who will not double vote.
-	var maxTicket *big.Int
 	var maxValue ConvergeValue
+	var minTicket float64 = math.Inf(1)
 
 	for key, value := range c.values {
 		for _, ticket := range c.tickets[key] {
 			senderPower, _ := table.Get(ticket.Sender)
 			ticketHash := blake2b.Sum256(ticket.Ticket)
 			ticketAsInt := new(big.Int).SetBytes(ticketHash[:])
-			weightedTicket := new(big.Int).Mul(ticketAsInt, big.NewInt(int64(senderPower)))
-			if maxTicket == nil || weightedTicket.Cmp(maxTicket) > 0 {
-				maxTicket = weightedTicket
+
+			// here comes the jank before I write proper math
+			ticketF, _ := new(big.Int).Rsh(ticketAsInt, 256-52).Float64()
+			ticketF = ticketF / float64(1<<52)                  // create float64 in [0, 1) based on ticket
+			ticketF = -math.Log(ticketF) / float64(senderPower) // change the ticket from uniform to exponentital
+
+			if math.IsInf(minTicket, 1) || ticketF < minTicket {
+				minTicket = ticketF
 				maxValue = value
 			}
 		}
 	}
 
-	if maxTicket == nil && c.HasSelfValue() {
+	if math.IsInf(minTicket, 1) && c.HasSelfValue() {
 		return *c.self
 	}
 	return maxValue

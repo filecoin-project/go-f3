@@ -3,7 +3,6 @@ package test
 import (
 	"math"
 	"testing"
-	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim"
@@ -40,7 +39,7 @@ func TestDenyQuality(t *testing.T) {
 	const (
 		instanceCount = 20
 		maxRounds     = 30
-		gst           = 1 * time.Second
+		gst           = 10 * EcEpochDuration
 		participants  = 50
 	)
 
