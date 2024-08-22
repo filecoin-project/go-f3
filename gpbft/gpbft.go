@@ -17,6 +17,8 @@ import (
 	"github.com/filecoin-project/go-f3/merkle"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/crypto/blake2b"
+
+	"modernc.org/mathutil"
 )
 
 type Phase uint8
@@ -1321,7 +1323,9 @@ func (c *convergeState) FindMaxTicketProposal(table PowerTable) ConvergeValue {
 	// only or we go to a new round. Eventually there is a round where the max ticket is held by a
 	// correct participant, who will not double vote.
 	var maxValue ConvergeValue
-	var minTicket float64 = math.Inf(1)
+	var minTicket *big.Float
+
+	const precision = 257
 
 	for key, value := range c.values {
 		for _, ticket := range c.tickets[key] {
@@ -1329,19 +1333,22 @@ func (c *convergeState) FindMaxTicketProposal(table PowerTable) ConvergeValue {
 			ticketHash := blake2b.Sum256(ticket.Ticket)
 			ticketAsInt := new(big.Int).SetBytes(ticketHash[:])
 
-			// here comes the jank before I write proper math
-			ticketF, _ := new(big.Int).Rsh(ticketAsInt, 256-52).Float64()
-			ticketF = ticketF / float64(1<<52)                  // create float64 in [0, 1) based on ticket
-			ticketF = -math.Log(ticketF) / float64(senderPower) // change the ticket from uniform to exponentital
+			c, m := mathutil.BinaryLog(ticketAsInt, precision)
+			c = 256 - c
+			ticketF := big.NewFloat(0).SetPrec(precision).SetInt(m)
+			ticketF.SetMantExp(ticketF, -precision)
+			ticketF.Neg(ticketF)
+			ticketF.Add(ticketF, big.NewFloat(float64(c)))
+			ticketF.Quo(ticketF, big.NewFloat(float64(senderPower)))
 
-			if math.IsInf(minTicket, 1) || ticketF < minTicket {
+			if minTicket == nil || ticketF.Cmp(minTicket) < 0 {
 				minTicket = ticketF
 				maxValue = value
 			}
 		}
 	}
 
-	if math.IsInf(minTicket, 1) && c.HasSelfValue() {
+	if minTicket == nil && c.HasSelfValue() {
 		return *c.self
 	}
 	return maxValue

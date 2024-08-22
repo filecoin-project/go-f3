@@ -1,10 +1,12 @@
 package gpbft_test
 
 import (
+	"math/big"
 	"testing"
 
 	"github.com/filecoin-project/go-f3/emulator"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"modernc.org/mathutil"
 )
 
 var (
@@ -14,6 +16,13 @@ var (
 	tipSet3 = gpbft.TipSet{Epoch: 3, Key: []byte("fisherman")}
 	tipSet4 = gpbft.TipSet{Epoch: 4, Key: []byte("lobstermucher")}
 )
+
+func TestSteb(t *testing.T) {
+	i := big.NewInt(1)
+	i = i.Lsh(i, 256)
+	x, y := mathutil.BinaryLog(i, 256)
+	t.Log(x, y)
+}
 
 func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 	t.Parallel()
