@@ -41,7 +41,7 @@ func TestDenyQuality(t *testing.T) {
 		instanceCount = 20
 		maxRounds     = 30
 		gst           = 1 * time.Second
-		participants  = 30
+		participants  = 50
 	)
 
 	ecGen := sim.NewUniformECChainGenerator(4332432, 1, 5)
