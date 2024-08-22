@@ -1305,8 +1305,8 @@ func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket, ju
 	// Keep only the first justification and ticket received for a value.
 	if _, found := c.values[key]; !found {
 		c.values[key] = ConvergeValue{Chain: value, Justification: justification}
-		c.tickets[key] = append(c.tickets[key], ConvergeTicket{Sender: sender, Ticket: ticket})
 	}
+	c.tickets[key] = append(c.tickets[key], ConvergeTicket{Sender: sender, Ticket: ticket})
 	return nil
 }
 
