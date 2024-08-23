@@ -14,6 +14,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func makeCert(instance uint64, supp gpbft.SupplementalData) *certs.FinalityCertificate {
+	return &certs.FinalityCertificate{
+		GPBFTInstance:    instance,
+		SupplementalData: supp,
+		ECChain:          gpbft.ECChain{{Epoch: 0, Key: gpbft.TipSetKey("tsk0"), PowerTable: supp.PowerTable}},
+	}
+}
+
 func testPowerTable(entries int64) (gpbft.PowerEntries, gpbft.CID) {
 	powerTable := make(gpbft.PowerEntries, entries)
 
@@ -67,11 +75,11 @@ func TestPut(t *testing.T) {
 	cs, err := CreateStore(ctx, ds, 1, pt)
 	require.NoError(t, err)
 
-	cert := &certs.FinalityCertificate{GPBFTInstance: 0, SupplementalData: supp}
+	cert := makeCert(0, supp)
 	err = cs.Put(ctx, cert)
 	require.Error(t, err)
 
-	cert = &certs.FinalityCertificate{GPBFTInstance: 1, SupplementalData: supp}
+	cert = makeCert(1, supp)
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
@@ -82,7 +90,7 @@ func TestPut(t *testing.T) {
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
-	cert = &certs.FinalityCertificate{GPBFTInstance: 3, SupplementalData: supp}
+	cert = makeCert(3, supp)
 	err = cs.Put(ctx, cert)
 	require.Error(t, err)
 }
@@ -99,14 +107,12 @@ func TestPutWrongPowerDelta(t *testing.T) {
 	require.NoError(t, err)
 
 	// Make sure we sanity check the produced power table.
-	cert := &certs.FinalityCertificate{
-		GPBFTInstance:    0,
-		SupplementalData: supp,
-		PowerTableDelta: certs.PowerTableDiff{{
-			ParticipantID: 0,
-			PowerDelta:    gpbft.NewStoragePower(10),
-			SigningKey:    []byte("testkey"),
-		}}}
+	cert := makeCert(0, supp)
+	cert.PowerTableDelta = certs.PowerTableDiff{{
+		ParticipantID: 0,
+		PowerDelta:    gpbft.NewStoragePower(10),
+		SigningKey:    []byte("testkey"),
+	}}
 
 	err = cs.Put(ctx, cert)
 	require.ErrorContains(t, err, "new power table differs from expected")
@@ -127,7 +133,7 @@ func TestGet(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrCertNotFound)
 
-	cert := &certs.FinalityCertificate{GPBFTInstance: 1, SupplementalData: supp}
+	cert := makeCert(1, supp)
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
@@ -151,7 +157,7 @@ func TestGetRange(t *testing.T) {
 	require.Error(t, err)
 
 	for i := uint64(1); i <= 5; i++ {
-		cert := &certs.FinalityCertificate{GPBFTInstance: i, SupplementalData: supp}
+		cert := makeCert(i, supp)
 		err := cs.Put(ctx, cert)
 		require.NoError(t, err)
 	}
@@ -186,7 +192,7 @@ func TestDeleteAll(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := uint64(1); i <= 5; i++ {
-		cert := &certs.FinalityCertificate{GPBFTInstance: i, SupplementalData: supp}
+		cert := makeCert(i, supp)
 		err := cs.Put(ctx, cert)
 		require.NoError(t, err)
 	}
@@ -230,7 +236,7 @@ func TestSubscribeForNewCerts(t *testing.T) {
 	_, closer := cs.SubscribeForNewCerts(ch)
 	defer closer()
 
-	cert := &certs.FinalityCertificate{GPBFTInstance: 1, SupplementalData: supp}
+	cert := makeCert(1, supp)
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
@@ -254,7 +260,7 @@ func TestLatestAfterPut(t *testing.T) {
 	cs, err := CreateStore(ctx, ds, 1, pt)
 	require.NoError(t, err)
 
-	cert := &certs.FinalityCertificate{GPBFTInstance: 1, SupplementalData: supp}
+	cert := makeCert(1, supp)
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
@@ -262,7 +268,7 @@ func TestLatestAfterPut(t *testing.T) {
 	require.NotNil(t, latest)
 	require.Equal(t, uint64(1), latest.GPBFTInstance)
 
-	cert = &certs.FinalityCertificate{GPBFTInstance: 2, SupplementalData: supp}
+	cert = makeCert(2, supp)
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
@@ -283,12 +289,12 @@ func TestPutSequential(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := uint64(1); i <= 5; i++ {
-		cert := &certs.FinalityCertificate{GPBFTInstance: i, SupplementalData: supp}
+		cert := makeCert(i, supp)
 		err := cs.Put(ctx, cert)
 		require.NoError(t, err)
 	}
 
-	cert := &certs.FinalityCertificate{GPBFTInstance: 7, SupplementalData: supp}
+	cert := makeCert(7, supp)
 	err = cs.Put(ctx, cert)
 	require.Error(t, err)
 }
@@ -305,7 +311,7 @@ func TestPersistency(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := uint64(1); i <= 5; i++ {
-		cert := &certs.FinalityCertificate{GPBFTInstance: i, SupplementalData: supp}
+		cert := makeCert(i, supp)
 		err := cs1.Put(ctx, cert)
 		require.NoError(t, err)
 	}
@@ -333,7 +339,7 @@ func TestClear(t *testing.T) {
 	cs, err := CreateStore(ctx, ds, 1, pt)
 	require.NoError(t, err)
 
-	cert := &certs.FinalityCertificate{GPBFTInstance: 1, SupplementalData: supp}
+	cert := makeCert(1, supp)
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
@@ -341,7 +347,7 @@ func TestClear(t *testing.T) {
 	require.NotNil(t, latest)
 	require.Equal(t, uint64(1), latest.GPBFTInstance)
 
-	cert = &certs.FinalityCertificate{GPBFTInstance: 2, SupplementalData: supp}
+	cert = makeCert(2, supp)
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
@@ -434,11 +440,8 @@ func TestPowerEmptyPowerTable(t *testing.T) {
 	emptyPtCid, err := certs.MakePowerTableCID(emptyPt)
 	require.NoError(t, err)
 
-	cert := &certs.FinalityCertificate{
-		GPBFTInstance:    0,
-		PowerTableDelta:  certs.MakePowerTableDiff(pt, emptyPt),
-		SupplementalData: gpbft.SupplementalData{PowerTable: emptyPtCid},
-	}
+	cert := makeCert(0, gpbft.SupplementalData{PowerTable: emptyPtCid})
+	cert.PowerTableDelta = certs.MakePowerTableDiff(pt, emptyPt)
 	err = cs.Put(ctx, cert)
 	require.ErrorContains(t, err, "empty the power table")
 
@@ -481,10 +484,7 @@ func testPowerInner(t *testing.T, firstInstance uint64) {
 	}
 
 	for i := uint64(firstInstance); i < 8; i++ {
-		cert := &certs.FinalityCertificate{
-			GPBFTInstance:    i,
-			SupplementalData: gpbft.SupplementalData{PowerTable: ptCid},
-		}
+		cert := makeCert(i, gpbft.SupplementalData{PowerTable: ptCid})
 		err := cs.Put(ctx, cert)
 		require.NoError(t, err)
 		_, err = cs.GetPowerTable(ctx, i+1)
@@ -492,11 +492,8 @@ func testPowerInner(t *testing.T, firstInstance uint64) {
 	}
 
 	{
-		cert := &certs.FinalityCertificate{
-			GPBFTInstance:    8,
-			PowerTableDelta:  certs.MakePowerTableDiff(pt, newPt),
-			SupplementalData: gpbft.SupplementalData{PowerTable: newPtCid},
-		}
+		cert := makeCert(8, gpbft.SupplementalData{PowerTable: newPtCid})
+		cert.PowerTableDelta = certs.MakePowerTableDiff(pt, newPt)
 		err = cs.Put(ctx, cert)
 		require.NoError(t, err)
 		_, err = cs.GetPowerTable(ctx, cert.GPBFTInstance+1)
@@ -504,10 +501,7 @@ func testPowerInner(t *testing.T, firstInstance uint64) {
 	}
 
 	for i := uint64(9); i < 13; i++ {
-		cert := &certs.FinalityCertificate{
-			GPBFTInstance:    i,
-			SupplementalData: gpbft.SupplementalData{PowerTable: newPtCid},
-		}
+		cert := makeCert(i, gpbft.SupplementalData{PowerTable: newPtCid})
 		err := cs.Put(ctx, cert)
 		require.NoError(t, err)
 		_, err = cs.GetPowerTable(ctx, i+1)
@@ -534,10 +528,7 @@ func testPowerInner(t *testing.T, firstInstance uint64) {
 		require.ErrorContains(t, err, "cannot return future power table")
 
 		// Insert a finality certificate.
-		cert := &certs.FinalityCertificate{
-			GPBFTInstance:    13,
-			SupplementalData: gpbft.SupplementalData{PowerTable: newPtCid},
-		}
+		cert := makeCert(13, gpbft.SupplementalData{PowerTable: newPtCid})
 		err = cs.Put(ctx, cert)
 		require.NoError(t, err)
 

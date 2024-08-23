@@ -63,6 +63,7 @@ func open(ctx context.Context, ds datastore.Datastore) (*Store, error) {
 	}
 
 	metrics.latestInstance.Record(ctx, int64(latestCert.GPBFTInstance))
+	metrics.latestFinalizedEpoch.Record(ctx, latestCert.ECChain.Head().Epoch)
 	cs.busCerts.Publish(latestCert)
 
 	return cs, nil
@@ -339,6 +340,14 @@ func (cs *Store) Put(ctx context.Context, cert *certs.FinalityCertificate) error
 		return fmt.Errorf("certificate store only stores certificates on or after instance %d", cs.firstInstance)
 	}
 
+	// Basic validation just to make sure the certificate is sane. We don't do a full validation
+	// because that should already have been done by the caller.
+	if cert.ECChain.IsZero() {
+		return fmt.Errorf("finality certificate for instance %d is for bottom", cert.GPBFTInstance)
+	} else if err := cert.ECChain.Validate(); err != nil {
+		return fmt.Errorf("invalid chain in finality certificate: %w", err)
+	}
+
 	// Take a lock to ensure ordering.
 	cs.writeLk.Lock()
 	defer cs.writeLk.Unlock()
@@ -404,6 +413,8 @@ func (cs *Store) Put(ctx context.Context, cert *certs.FinalityCertificate) error
 
 	cs.latestPowerTable = newPowerTable
 	metrics.latestInstance.Record(ctx, int64(cert.GPBFTInstance))
+	metrics.tipsetsPerInstance.Record(ctx, int64(len(cert.ECChain.Suffix())))
+	metrics.latestFinalizedEpoch.Record(ctx, cert.ECChain.Head().Epoch)
 	cs.busCerts.Publish(cert)
 
 	return nil
