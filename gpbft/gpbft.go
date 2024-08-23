@@ -814,8 +814,6 @@ func (i *instance) terminate(decision *Justification) {
 	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrTerminatedPhase))
 	metrics.roundHistogram.Record(context.TODO(), int64(i.round))
 	metrics.currentPhase.Record(context.TODO(), int64(TERMINATED_PHASE))
-	base, head := decision.Vote.Value.Base(), decision.Vote.Value.Head()
-	metrics.epochsPerInstance.Record(context.TODO(), head.Epoch-base.Epoch)
 }
 
 func (i *instance) terminated() bool {

@@ -63,6 +63,7 @@ func open(ctx context.Context, ds datastore.Datastore) (*Store, error) {
 	}
 
 	metrics.latestInstance.Record(ctx, int64(latestCert.GPBFTInstance))
+	metrics.latestFinalizedEpoch.Record(ctx, latestCert.ECChain.Head().Epoch)
 	cs.busCerts.Publish(latestCert)
 
 	return cs, nil
@@ -404,6 +405,8 @@ func (cs *Store) Put(ctx context.Context, cert *certs.FinalityCertificate) error
 
 	cs.latestPowerTable = newPowerTable
 	metrics.latestInstance.Record(ctx, int64(cert.GPBFTInstance))
+	metrics.tipsetsPerInstance.Record(ctx, int64(len(cert.ECChain.Suffix())))
+	metrics.latestFinalizedEpoch.Record(ctx, cert.ECChain.Head().Epoch)
 	cs.busCerts.Publish(cert)
 
 	return nil
