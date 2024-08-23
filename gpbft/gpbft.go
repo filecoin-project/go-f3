@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/big"
 	"slices"
 	"sort"
 	"time"
@@ -16,7 +15,6 @@ import (
 	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
 	"github.com/filecoin-project/go-f3/merkle"
 	"go.opentelemetry.io/otel/metric"
-	"golang.org/x/crypto/blake2b"
 )
 
 type Phase uint8
@@ -378,7 +376,7 @@ func (i *instance) receiveOne(msg *GMessage) (bool, error) {
 		// Receive each prefix of the proposal independently.
 		i.quality.ReceiveEachPrefix(msg.Sender, msg.Vote.Value)
 	case CONVERGE_PHASE:
-		if err := msgRound.converged.Receive(msg.Sender, msg.Vote.Value, msg.Ticket, msg.Justification); err != nil {
+		if err := msgRound.converged.Receive(msg.Sender, i.powerTable, msg.Vote.Value, msg.Ticket, msg.Justification); err != nil {
 			return false, fmt.Errorf("failed processing CONVERGE message: %w", err)
 		}
 	case PREPARE_PHASE:
@@ -1252,25 +1250,22 @@ type convergeState struct {
 	senders map[ActorID]struct{}
 	// Chains indexed by key.
 	values map[ChainKey]ConvergeValue
-	// Tickets provided by proposers of each chain.
-	tickets map[ChainKey][]ConvergeTicket
 }
 
 type ConvergeValue struct {
 	Chain         ECChain
 	Justification *Justification
-}
 
-type ConvergeTicket struct {
-	Sender ActorID
-	Ticket Ticket
+	// these are tracked on per ticket basis
+	Sender  ActorID
+	Ticket  Ticket
+	Quality float64
 }
 
 func newConvergeState() *convergeState {
 	return &convergeState{
 		senders: map[ActorID]struct{}{},
 		values:  map[ChainKey]ConvergeValue{},
-		tickets: map[ChainKey][]ConvergeTicket{},
 	}
 }
 
@@ -1292,7 +1287,7 @@ func (c *convergeState) HasSelfValue() bool {
 
 // Receives a new CONVERGE value from a sender.
 // Ignores any subsequent value from a sender from which a value has already been received.
-func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket, justification *Justification) error {
+func (c *convergeState) Receive(sender ActorID, table PowerTable, value ECChain, ticket Ticket, justification *Justification) error {
 	if value.IsZero() {
 		return fmt.Errorf("bottom cannot be justified for CONVERGE")
 	}
@@ -1302,11 +1297,28 @@ func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket, ju
 	c.senders[sender] = struct{}{}
 	key := value.Key()
 
-	// Keep only the first justification and ticket received for a value.
-	if _, found := c.values[key]; !found {
-		c.values[key] = ConvergeValue{Chain: value, Justification: justification}
+	senderPower, _ := table.Get(sender)
+	// Keep only the first justification and best ticket
+	if v, found := c.values[key]; !found {
+		c.values[key] = ConvergeValue{
+			Chain:         value,
+			Justification: justification,
+
+			Sender:  sender,
+			Ticket:  ticket,
+			Quality: ComputeTicketQuality(ticket, senderPower),
+		}
+	} else {
+		newQual := ComputeTicketQuality(ticket, senderPower)
+		// best ticket is lowest
+		if newQual < v.Quality {
+			v.Sender = sender
+			v.Ticket = ticket
+			v.Quality = newQual
+
+			c.values[key] = v
+		}
 	}
-	c.tickets[key] = append(c.tickets[key], ConvergeTicket{Sender: sender, Ticket: ticket})
 	return nil
 }
 
@@ -1318,31 +1330,19 @@ func (c *convergeState) FindMaxTicketProposal(table PowerTable) ConvergeValue {
 	// If the same ticket is used for two different values then either we get a decision on one of them
 	// only or we go to a new round. Eventually there is a round where the max ticket is held by a
 	// correct participant, who will not double vote.
-	var maxValue ConvergeValue
-	var minTicket float64 = math.Inf(1)
+	var bestValue ConvergeValue
+	bestValue.Quality = math.Inf(1)
 
-	for key, value := range c.values {
-		for _, ticket := range c.tickets[key] {
-			senderPower, _ := table.Get(ticket.Sender)
-			ticketHash := blake2b.Sum256(ticket.Ticket)
-			ticketAsInt := new(big.Int).SetBytes(ticketHash[:])
-
-			// here comes the jank before I write proper math
-			ticketF, _ := new(big.Int).Rsh(ticketAsInt, 256-52).Float64()
-			ticketF = ticketF / float64(1<<52)                  // create float64 in [0, 1) based on ticket
-			ticketF = -math.Log(ticketF) / float64(senderPower) // change the ticket from uniform to exponentital
-
-			if math.IsInf(minTicket, 1) || ticketF < minTicket {
-				minTicket = ticketF
-				maxValue = value
-			}
+	for _, value := range c.values {
+		if value.Quality < bestValue.Quality {
+			bestValue = value
 		}
 	}
 
-	if math.IsInf(minTicket, 1) && c.HasSelfValue() {
+	if math.IsInf(bestValue.Quality, 1) && c.HasSelfValue() {
 		return *c.self
 	}
-	return maxValue
+	return bestValue
 }
 
 // Finds some proposal which matches a specific value.
