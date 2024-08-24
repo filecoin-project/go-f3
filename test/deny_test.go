@@ -33,3 +33,34 @@ func TestDeny_SkipsToFuture(t *testing.T) {
 	chain := ecChainGenerator.GenerateECChain(instanceCount-1, gpbft.TipSet{}, math.MaxUint64)
 	requireConsensusAtInstance(t, sm, instanceCount-1, chain...)
 }
+
+func TestDenyQuality(t *testing.T) {
+	t.Parallel()
+	const (
+		instanceCount = 20
+		maxRounds     = 30
+		gst           = 10 * EcEpochDuration
+		participants  = 50
+	)
+
+	ecGen := sim.NewUniformECChainGenerator(4332432, 1, 5)
+
+	attacked := []gpbft.ActorID{}
+	for i := gpbft.ActorID(1); i <= participants; i++ {
+		attacked = append(attacked, i)
+	}
+
+	sm, err := sim.NewSimulation(
+		syncOptions(
+			sim.AddHonestParticipants(1, ecGen, sim.UniformStoragePower(gpbft.NewStoragePower(100*participants))),
+			sim.AddHonestParticipants(participants, ecGen, sim.UniformStoragePower(gpbft.NewStoragePower(100))),
+			sim.WithAdversary(adversary.NewDenyPhaseGenerator(gpbft.NewStoragePower(1), gst, gpbft.QUALITY_PHASE, attacked...)),
+			sim.WithTraceLevel(1),
+			sim.WithGlobalStabilizationTime(gst),
+		)...,
+	)
+	require.NoError(t, err)
+	require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
+	chain := ecGen.GenerateECChain(instanceCount-1, gpbft.TipSet{}, math.MaxUint64)
+	requireConsensusAtInstance(t, sm, instanceCount-1, chain...)
+}

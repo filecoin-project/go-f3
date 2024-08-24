@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/big"
 	"slices"
 	"sort"
 	"time"
@@ -16,7 +15,6 @@ import (
 	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
 	"github.com/filecoin-project/go-f3/merkle"
 	"go.opentelemetry.io/otel/metric"
-	"golang.org/x/crypto/blake2b"
 )
 
 type Phase uint8
@@ -378,7 +376,7 @@ func (i *instance) receiveOne(msg *GMessage) (bool, error) {
 		// Receive each prefix of the proposal independently.
 		i.quality.ReceiveEachPrefix(msg.Sender, msg.Vote.Value)
 	case CONVERGE_PHASE:
-		if err := msgRound.converged.Receive(msg.Sender, msg.Vote.Value, msg.Ticket, msg.Justification); err != nil {
+		if err := msgRound.converged.Receive(msg.Sender, i.powerTable, msg.Vote.Value, msg.Ticket, msg.Justification); err != nil {
 			return false, fmt.Errorf("failed processing CONVERGE message: %w", err)
 		}
 	case PREPARE_PHASE:
@@ -437,7 +435,7 @@ func (i *instance) shouldSkipToRound(round uint64, state *roundState) (ECChain, 
 		return nil, nil, false
 	}
 	proposal := state.converged.FindMaxTicketProposal(i.powerTable)
-	if proposal.Justification == nil {
+	if !proposal.IsValid() {
 		// FindMaxTicketProposal returns a zero-valued ConvergeValue if no such ticket is
 		// found. Hence the check for nil. Otherwise, if found such ConvergeValue must
 		// have a non-nil justification.
@@ -547,7 +545,7 @@ func (i *instance) tryConverge() error {
 	}
 
 	winner := i.getRound(i.round).converged.FindMaxTicketProposal(i.powerTable)
-	if winner.Chain.IsZero() {
+	if !winner.IsValid() {
 		return fmt.Errorf("no values at CONVERGE")
 	}
 	possibleDecisionLastRound := i.getRound(i.round-1).committed.CouldReachStrongQuorumFor(
@@ -566,8 +564,8 @@ func (i *instance) tryConverge() error {
 		// Else preserve own proposal.
 		// This could alternatively loop to next lowest ticket as an optimisation to increase the
 		// chance of proposing the same value as other participants.
-		fallback, ok := i.getRound(i.round).converged.FindProposalFor(i.proposal)
-		if !ok {
+		fallback := i.getRound(i.round).converged.FindProposalFor(i.proposal)
+		if !fallback.IsValid() {
 			panic("own proposal not found at CONVERGE")
 		}
 		justification = fallback.Justification
@@ -1245,32 +1243,36 @@ func (q *quorumState) FindStrongQuorumValue() (quorumValue ECChain, foundQuorum 
 //// CONVERGE phase helper /////
 
 type convergeState struct {
-	// Stores this participant's value so the participant can use it even if it doesn't receive its own
-	// CONVERGE message (which carries the ticket) in a timely fashion.
-	self *ConvergeValue
 	// Participants from which a message has been received.
 	senders map[ActorID]struct{}
 	// Chains indexed by key.
 	values map[ChainKey]ConvergeValue
-	// Tickets provided by proposers of each chain.
-	tickets map[ChainKey][]ConvergeTicket
 }
 
+// ConvergeValue is valid when the Chain is non-zero and Justification is non-nil
 type ConvergeValue struct {
 	Chain         ECChain
 	Justification *Justification
+
+	Quality float64
 }
 
-type ConvergeTicket struct {
-	Sender ActorID
-	Ticket Ticket
+// TakeBetter merges the argument into the ConvergeValue if the ConvergeValue is zero valued or
+// if argument is better due to quality.
+func (cv *ConvergeValue) TakeBetter(cv2 ConvergeValue) {
+	if !cv.IsValid() || cv2.Quality < cv.Quality {
+		*cv = cv2
+	}
+}
+
+func (cv *ConvergeValue) IsValid() bool {
+	return !cv.Chain.IsZero() && cv.Justification != nil
 }
 
 func newConvergeState() *convergeState {
 	return &convergeState{
 		senders: map[ActorID]struct{}{},
 		values:  map[ChainKey]ConvergeValue{},
-		tickets: map[ChainKey][]ConvergeTicket{},
 	}
 }
 
@@ -1278,82 +1280,82 @@ func newConvergeState() *convergeState {
 // This means the participant need not rely on messages broadcast to be received by itself.
 // See HasSelfValue.
 func (c *convergeState) SetSelfValue(value ECChain, justification *Justification) {
-	c.self = &ConvergeValue{
-		Chain:         value,
-		Justification: justification,
+	// any converge for the given value is better than self-reported
+	// as self-reported has no ticket
+	key := value.Key()
+	if _, ok := c.values[key]; !ok {
+		c.values[key] = ConvergeValue{
+			Chain:         value,
+			Justification: justification,
+			Quality:       math.Inf(1), // +Inf because any real ConvergeValue is better than self-value
+		}
 	}
-}
-
-// HasSelfValue checks whether the participant recorded a converge value.
-// See SetSelfValue.
-func (c *convergeState) HasSelfValue() bool {
-	return c.self != nil
 }
 
 // Receives a new CONVERGE value from a sender.
 // Ignores any subsequent value from a sender from which a value has already been received.
-func (c *convergeState) Receive(sender ActorID, value ECChain, ticket Ticket, justification *Justification) error {
+func (c *convergeState) Receive(sender ActorID, table PowerTable, value ECChain, ticket Ticket, justification *Justification) error {
 	if value.IsZero() {
 		return fmt.Errorf("bottom cannot be justified for CONVERGE")
 	}
+	if justification == nil {
+		return fmt.Errorf("CONVERGE message cannot carry nil-justification")
+	}
+
 	if _, ok := c.senders[sender]; ok {
 		return nil
 	}
 	c.senders[sender] = struct{}{}
-	key := value.Key()
+	senderPower, _ := table.Get(sender)
 
-	// Keep only the first justification and ticket received for a value.
-	if _, found := c.values[key]; !found {
-		c.values[key] = ConvergeValue{Chain: value, Justification: justification}
-		c.tickets[key] = append(c.tickets[key], ConvergeTicket{Sender: sender, Ticket: ticket})
+	key := value.Key()
+	// Keep only the first justification and best ticket
+	if v, found := c.values[key]; !found {
+		c.values[key] = ConvergeValue{
+			Chain:         value,
+			Justification: justification,
+			Quality:       ComputeTicketQuality(ticket, senderPower),
+		}
+	} else {
+		newQual := ComputeTicketQuality(ticket, senderPower)
+		// best ticket is lowest
+		if newQual < v.Quality {
+			v.Quality = newQual
+			c.values[key] = v
+		}
 	}
 	return nil
 }
 
-// FindMaxTicketProposal finds the value with the highest ticket, weighted by
-// sender power. Returns the self value (which may be zero) if and only if no
-// other value is found.
+// FindMaxTicketProposal finds the value with the best ticket, weighted by
+// sender power. Returns an invalid (zero-value) ConvergeValue if no converge is found.
 func (c *convergeState) FindMaxTicketProposal(table PowerTable) ConvergeValue {
 	// Non-determinism in case of matching tickets from an equivocation is ok.
 	// If the same ticket is used for two different values then either we get a decision on one of them
 	// only or we go to a new round. Eventually there is a round where the max ticket is held by a
 	// correct participant, who will not double vote.
-	var maxTicket *big.Int
-	var maxValue ConvergeValue
 
-	for key, value := range c.values {
-		for _, ticket := range c.tickets[key] {
-			senderPower, _ := table.Get(ticket.Sender)
-			ticketHash := blake2b.Sum256(ticket.Ticket)
-			ticketAsInt := new(big.Int).SetBytes(ticketHash[:])
-			weightedTicket := new(big.Int).Mul(ticketAsInt, big.NewInt(int64(senderPower)))
-			if maxTicket == nil || weightedTicket.Cmp(maxTicket) > 0 {
-				maxTicket = weightedTicket
-				maxValue = value
-			}
-		}
+	var bestValue ConvergeValue
+
+	for _, value := range c.values {
+		bestValue.TakeBetter(value)
 	}
 
-	if maxTicket == nil && c.HasSelfValue() {
-		return *c.self
-	}
-	return maxValue
+	return bestValue
 }
 
 // Finds some proposal which matches a specific value.
 // This searches values received in messages first, falling back to the participant's self value
 // only if necessary.
-func (c *convergeState) FindProposalFor(chain ECChain) (ConvergeValue, bool) {
+func (c *convergeState) FindProposalFor(chain ECChain) ConvergeValue {
 	for _, value := range c.values {
 		if value.Chain.Eq(chain) {
-			return value, true
+			return value
 		}
 	}
 
-	if c.HasSelfValue() && c.self.Chain.Eq(chain) {
-		return *c.self, true
-	}
-	return ConvergeValue{}, false
+	// Default converge value is not valid
+	return ConvergeValue{}
 }
 
 type broadcastState struct {
