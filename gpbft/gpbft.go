@@ -434,7 +434,7 @@ func (i *instance) shouldSkipToRound(round uint64, state *roundState) (ECChain, 
 	if !state.prepared.ReceivedFromWeakQuorum() {
 		return nil, nil, false
 	}
-	proposal := state.converged.FindMaxTicketProposal(i.powerTable)
+	proposal := state.converged.FindMaxTicketProposal(i.powerTable, nil)
 	if !proposal.IsValid() {
 		// FindMaxTicketProposal returns a zero-valued ConvergeValue if no such ticket is
 		// found. Hence the check for nil. Otherwise, if found such ConvergeValue must
@@ -544,7 +544,7 @@ func (i *instance) tryConverge() error {
 		return nil
 	}
 
-	winner := i.getRound(i.round).converged.FindMaxTicketProposal(i.powerTable)
+	winner := i.getRound(i.round).converged.FindMaxTicketProposal(i.powerTable, nil)
 	if !winner.IsValid() {
 		return fmt.Errorf("no values at CONVERGE")
 	}
@@ -561,12 +561,10 @@ func (i *instance) tryConverge() error {
 		i.proposal = winner.Chain
 		i.log("adopting proposal %s after converge", &winner.Chain)
 	} else {
-		// Else preserve own proposal.
-		// This could alternatively loop to next lowest ticket as an optimisation to increase the
-		// chance of proposing the same value as other participants.
-		fallback := i.getRound(i.round).converged.FindProposalFor(i.proposal)
+		// Else pick a next proposal that is a valid candidate
+		fallback := i.getRound(i.round).converged.FindMaxTicketProposal(i.powerTable, i.isCandidate)
 		if !fallback.IsValid() {
-			panic("own proposal not found at CONVERGE")
+			return fmt.Errorf("no compatible proposal found at CONVERGE")
 		}
 		justification = fallback.Justification
 	}
@@ -1332,7 +1330,7 @@ func (c *convergeState) Receive(sender ActorID, table PowerTable, value ECChain,
 
 // FindMaxTicketProposal finds the value with the best ticket, weighted by
 // sender power. Returns an invalid (zero-value) ConvergeValue if no converge is found.
-func (c *convergeState) FindMaxTicketProposal(table PowerTable) ConvergeValue {
+func (c *convergeState) FindMaxTicketProposal(table PowerTable, filter func(ECChain) bool) ConvergeValue {
 	// Non-determinism in case of matching tickets from an equivocation is ok.
 	// If the same ticket is used for two different values then either we get a decision on one of them
 	// only or we go to a new round. Eventually there is a round where the max ticket is held by a
@@ -1341,7 +1339,9 @@ func (c *convergeState) FindMaxTicketProposal(table PowerTable) ConvergeValue {
 	var bestValue ConvergeValue
 
 	for _, value := range c.values {
-		bestValue.TakeBetter(value)
+		if filter == nil || filter(value.Chain) {
+			bestValue.TakeBetter(value)
+		}
 	}
 
 	return bestValue
