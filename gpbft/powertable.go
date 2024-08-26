@@ -27,10 +27,10 @@ type PowerEntries []PowerEntry
 // Entries is the reverse mapping to a PowerEntry.
 type PowerTable struct {
 	Entries     PowerEntries // Slice to maintain the order. Meant to be maintained in order in order by (Power descending, ID ascending)
-	ScaledPower []uint16
+	ScaledPower []int64
 	Lookup      map[ActorID]int // Maps ActorID to the index of the associated entry in Entries
 	Total       StoragePower
-	ScaledTotal uint16
+	ScaledTotal int64
 }
 
 func (p *PowerEntry) Equal(o *PowerEntry) bool {
@@ -76,7 +76,7 @@ func (p PowerEntries) Swap(i, j int) {
 	p[i], p[j] = p[j], p[i]
 }
 
-func (p PowerEntries) Scaled() (scaled []uint16, total uint16, err error) {
+func (p PowerEntries) Scaled() (scaled []int64, total int64, err error) {
 	totalUnscaled := big.Zero()
 	for i := range p {
 		pwr := p[i].Power
@@ -85,7 +85,7 @@ func (p PowerEntries) Scaled() (scaled []uint16, total uint16, err error) {
 		}
 		totalUnscaled = big.Add(totalUnscaled, pwr)
 	}
-	scaled = make([]uint16, len(p))
+	scaled = make([]int64, len(p))
 	for i := range p {
 		p, err := scalePower(p[i].Power, totalUnscaled)
 		if err != nil {
@@ -148,7 +148,7 @@ func (p *PowerTable) rescale() error {
 
 // Get retrieves the scaled power, unscaled StoragePower and PubKey for the given id, if present in
 // the table. Otherwise, returns 0/nil.
-func (p *PowerTable) Get(id ActorID) (uint16, PubKey) {
+func (p *PowerTable) Get(id ActorID) (int64, PubKey) {
 	if index, ok := p.Lookup[id]; ok {
 		key := p.Entries[index].PubKey
 		scaledPower := p.ScaledPower[index]
@@ -213,7 +213,7 @@ func (p *PowerTable) Validate() error {
 		return errors.New("inconsistent entries and scaled power")
 	}
 	total := NewStoragePower(0)
-	totalScaled := 0 // int instead of uint16 to detect overflow
+	totalScaled := 0 // int instead of int64 to detect overflow
 	var previous *PowerEntry
 	for index, entry := range p.Entries {
 		if lookupIndex, found := p.Lookup[entry.ID]; !found || index != lookupIndex {
@@ -250,7 +250,7 @@ func (p *PowerTable) Validate() error {
 	return nil
 }
 
-func scalePower(power, total StoragePower) (uint16, error) {
+func scalePower(power, total StoragePower) (int64, error) {
 	const maxPower = 0xffff
 	if total.LessThan(power) {
 		return 0, fmt.Errorf("total power %d is less than the power of a single participant %d", total, power)
@@ -258,5 +258,5 @@ func scalePower(power, total StoragePower) (uint16, error) {
 	scaled := big.NewInt(maxPower)
 	scaled = big.Mul(scaled, power)
 	scaled = big.Div(scaled, total)
-	return uint16(scaled.Uint64()), nil
+	return scaled.Int64(), nil
 }

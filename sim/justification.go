@@ -37,7 +37,7 @@ func MakeJustification(backend signing.Backend, nn gpbft.NetworkName, chain gpbf
 	msg := backend.MarshalPayloadForSigning(nn, &payload)
 	signers := rand.Perm(len(powerTable))
 	signersBitfield := bitfield.New()
-	var signingPower uint16
+	var signingPower int64
 
 	type vote struct {
 		index int

@@ -332,7 +332,7 @@ func (p *Participant) validateJustification(msg *GMessage, comt *committee) erro
 	}
 
 	// Check justification power and signature.
-	var justificationPower uint16
+	var justificationPower int64
 	signers := make([]PubKey, 0)
 	if err := msg.Justification.Signers.ForEach(func(bit uint64) error {
 		if int(bit) >= len(comt.power.Entries) {

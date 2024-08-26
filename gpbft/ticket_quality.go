@@ -19,7 +19,7 @@ import (
 // This ends up being `-log(ticket) / power` where ticket is [0, 1).
 // We additionally use log-base-2 instead of natural logarithm as it is easier to implement,
 // and it is just a linear factor on all tickets, meaning it does not influence their ordering.
-func ComputeTicketQuality(ticket []byte, power uint16) float64 {
+func ComputeTicketQuality(ticket []byte, power int64) float64 {
 	// we could use Blake2b-128 but 256 is more common and more widely supported
 	ticketHash := blake2b.Sum256(ticket)
 	quality := linearToExpDist(ticketHash[:16])

@@ -150,7 +150,7 @@ func verifyFinalityCertificateSignature(verifier gpbft.Verifier, powerTable gpbf
 	}
 
 	signers := make([]gpbft.PubKey, 0, len(powerTable))
-	var signerPowers uint16
+	var signerPowers int64
 	if err := cert.Signers.ForEach(func(i uint64) error {
 		if i >= uint64(len(powerTable)) {
 			return fmt.Errorf(
