@@ -1120,9 +1120,12 @@ func (q *quorumState) CouldReachStrongQuorumFor(key ChainKey, withAdversary bool
 	unvotedPower := q.powerTable.ScaledTotal - q.sendersTotalPower
 	adversaryPower := int64(0)
 	if withAdversary {
+		// Account for the fact that the adversary may have double-voted here.
 		adversaryPower = q.powerTable.ScaledTotal / 3
 	}
-	possibleSupport := supportingPower + unvotedPower + adversaryPower
+	// We're double-counting adversary power, so we need to cap the power at the total available
+	// power.
+	possibleSupport := min(supportingPower+unvotedPower+adversaryPower, q.powerTable.ScaledTotal)
 	return IsStrongQuorum(possibleSupport, q.powerTable.ScaledTotal)
 }
 
