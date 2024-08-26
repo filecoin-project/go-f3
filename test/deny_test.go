@@ -1,6 +1,7 @@
 package test
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -23,7 +24,7 @@ func TestDeny_SkipsToFuture(t *testing.T) {
 	sm, err := sim.NewSimulation(
 		asyncOptions(2342342,
 			sim.AddHonestParticipants(6, ecChainGenerator, uniformOneStoragePower),
-			sim.WithAdversary(adversary.NewDenyGenerator(oneStoragePower, gst, denialTarget)),
+			sim.WithAdversary(adversary.NewDenyGenerator(oneStoragePower, gst, adversary.DenyAllMessages, adversary.DenyToOrFrom, denialTarget)),
 			sim.WithGlobalStabilizationTime(gst),
 			sim.WithIgnoreConsensusFor(denialTarget),
 		)...,
@@ -34,7 +35,7 @@ func TestDeny_SkipsToFuture(t *testing.T) {
 	requireConsensusAtInstance(t, sm, instanceCount-1, chain...)
 }
 
-func TestDenyQuality(t *testing.T) {
+func TestDenyPhase(t *testing.T) {
 	t.Parallel()
 	const (
 		instanceCount = 20
@@ -43,24 +44,31 @@ func TestDenyQuality(t *testing.T) {
 		participants  = 50
 	)
 
-	ecGen := sim.NewUniformECChainGenerator(4332432, 1, 5)
+	for _, phase := range []gpbft.Phase{gpbft.QUALITY_PHASE, gpbft.PREPARE_PHASE, gpbft.CONVERGE_PHASE, gpbft.COMMIT_PHASE} {
+		for _, denyMode := range []adversary.DenyTargetMode{adversary.DenyToOrFrom, adversary.DenyFrom, adversary.DenyTo} {
+			phase := phase
+			denyMode := denyMode
+			t.Run(fmt.Sprintf("%s/%s", denyMode, phase), func(t *testing.T) {
+				t.Parallel()
+				ecGen := sim.NewUniformECChainGenerator(4332432, 1, 5)
 
-	attacked := []gpbft.ActorID{}
-	for i := gpbft.ActorID(1); i <= participants; i++ {
-		attacked = append(attacked, i)
+				var attacked []gpbft.ActorID
+				for i := gpbft.ActorID(1); i <= participants; i++ {
+					attacked = append(attacked, i)
+				}
+				sm, err := sim.NewSimulation(
+					syncOptions(
+						sim.AddHonestParticipants(1, ecGen, sim.UniformStoragePower(gpbft.NewStoragePower(100*participants))),
+						sim.AddHonestParticipants(participants, ecGen, sim.UniformStoragePower(gpbft.NewStoragePower(100))),
+						sim.WithAdversary(adversary.NewDenyGenerator(gpbft.NewStoragePower(1), gst, adversary.DenyPhase(phase), denyMode, attacked...)),
+						sim.WithGlobalStabilizationTime(gst),
+					)...,
+				)
+				require.NoError(t, err)
+				require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
+				chain := ecGen.GenerateECChain(instanceCount-1, gpbft.TipSet{}, math.MaxUint64)
+				requireConsensusAtInstance(t, sm, instanceCount-1, chain...)
+			})
+		}
 	}
-
-	sm, err := sim.NewSimulation(
-		syncOptions(
-			sim.AddHonestParticipants(1, ecGen, sim.UniformStoragePower(gpbft.NewStoragePower(100*participants))),
-			sim.AddHonestParticipants(participants, ecGen, sim.UniformStoragePower(gpbft.NewStoragePower(100))),
-			sim.WithAdversary(adversary.NewDenyPhaseGenerator(gpbft.NewStoragePower(1), gst, gpbft.QUALITY_PHASE, attacked...)),
-			sim.WithTraceLevel(1),
-			sim.WithGlobalStabilizationTime(gst),
-		)...,
-	)
-	require.NoError(t, err)
-	require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
-	chain := ecGen.GenerateECChain(instanceCount-1, gpbft.TipSet{}, math.MaxUint64)
-	requireConsensusAtInstance(t, sm, instanceCount-1, chain...)
 }
