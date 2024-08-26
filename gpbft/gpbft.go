@@ -565,11 +565,13 @@ func (i *instance) tryConverge() error {
 	}
 
 	if !i.isCandidate(winner.Chain) {
+		// if winner.Chain is not in candidate set then it means we got swayed
 		i.log("⚠️ swaying from %s to %s by CONVERGE", &i.proposal, &winner.Chain)
 		i.candidates = append(i.candidates, winner.Chain)
 	} else {
 		i.log("adopting proposal %s after converge", &winner.Chain)
 	}
+
 	i.proposal = winner.Chain
 	i.value = winner.Chain
 	i.beginPrepare(winner.Justification)
