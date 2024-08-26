@@ -9,6 +9,7 @@ import (
 	"io"
 	"sync/atomic"
 
+	"github.com/filecoin-project/go-f3/internal/measurements"
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log/v2"
@@ -72,7 +73,7 @@ func NewDynamicManifestProvider(initialManifest *Manifest, ds datastore.Datastor
 
 	return &DynamicManifestProvider{
 		pubsub:           pubsub,
-		ds:               ds,
+		ds:               measurements.NewMeteredDatastore(meter, "f3_manifest_datastore_", ds),
 		manifestServerID: manifestServerID,
 		runningCtx:       ctx,
 		errgrp:           errgrp,
