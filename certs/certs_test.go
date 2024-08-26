@@ -367,7 +367,7 @@ func TestBadFinalityCertificates(t *testing.T) {
 		}))
 		scaledPowerTable, totalPower, err := powerTableCpy.Scaled()
 		require.NoError(t, err)
-		var activePower uint16
+		var activePower int64
 		require.NoError(t, certificate.Signers.ForEach(func(i uint64) error {
 			activePower += scaledPowerTable[i]
 			return nil

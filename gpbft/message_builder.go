@@ -19,7 +19,7 @@ type MessageBuilder struct {
 }
 
 type powerTableAccessor interface {
-	Get(ActorID) (uint16, PubKey)
+	Get(ActorID) (int64, PubKey)
 }
 
 type SignerWithMarshaler interface {

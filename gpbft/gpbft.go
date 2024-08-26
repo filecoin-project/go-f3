@@ -979,7 +979,7 @@ type quorumState struct {
 	// Set of senders from which a message has been received.
 	senders map[ActorID]struct{}
 	// Total power of all distinct senders from which some chain has been received so far.
-	sendersTotalPower uint16
+	sendersTotalPower int64
 	// The power supporting each chain so far.
 	chainSupport map[ChainKey]chainSupport
 	// Table of senders' power.
@@ -991,7 +991,7 @@ type quorumState struct {
 // A chain value and the total power supporting it
 type chainSupport struct {
 	chain           ECChain
-	power           uint16
+	power           int64
 	signatures      map[ActorID][]byte
 	hasStrongQuorum bool
 }
@@ -1034,7 +1034,7 @@ func (q *quorumState) ReceiveEachPrefix(sender ActorID, values ECChain) {
 
 // Adds sender's power to total the first time a value is received from them.
 // Returns the sender's power, and whether this was the first invocation for this sender.
-func (q *quorumState) receiveSender(sender ActorID) (uint16, bool) {
+func (q *quorumState) receiveSender(sender ActorID) (int64, bool) {
 	if _, found := q.senders[sender]; found {
 		return 0, false
 	}
@@ -1045,7 +1045,7 @@ func (q *quorumState) receiveSender(sender ActorID) (uint16, bool) {
 }
 
 // Receives a chain from a sender.
-func (q *quorumState) receiveInner(sender ActorID, value ECChain, power uint16, signature []byte) {
+func (q *quorumState) receiveInner(sender ActorID, value ECChain, power int64, signature []byte) {
 	key := value.Key()
 	candidate, ok := q.chainSupport[key]
 	if !ok {
@@ -1110,7 +1110,7 @@ func (q *quorumState) HasStrongQuorumFor(key ChainKey) bool {
 // representing an equivocating adversary. This is appropriate for testing whether
 // any other participant could have observed a strong quorum in the presence of such adversary.
 func (q *quorumState) CouldReachStrongQuorumFor(key ChainKey, withAdversary bool) bool {
-	var supportingPower uint16
+	var supportingPower int64
 	if supportForChain, found := q.chainSupport[key]; found {
 		supportingPower = supportForChain.power
 	}
@@ -1118,7 +1118,7 @@ func (q *quorumState) CouldReachStrongQuorumFor(key ChainKey, withAdversary bool
 	// combined with the aggregate power of not yet voted participants, exceeds ⅔ of
 	// total power.
 	unvotedPower := q.powerTable.ScaledTotal - q.sendersTotalPower
-	adversaryPower := uint16(0)
+	adversaryPower := int64(0)
 	if withAdversary {
 		adversaryPower = q.powerTable.ScaledTotal / 3
 	}
@@ -1172,7 +1172,7 @@ func (q *quorumState) FindStrongQuorumFor(key ChainKey) (QuorumResult, bool) {
 	// Accumulate signers and signatures until they reach a strong quorum.
 	signatures := make([][]byte, 0, len(chainSupport.signatures))
 	pubkeys := make([]PubKey, 0, len(signatures))
-	var justificationPower uint16
+	var justificationPower int64
 	for i, idx := range signers {
 		if idx >= len(q.powerTable.Entries) {
 			panic(fmt.Sprintf("invalid signer index: %d for %d entries", idx, len(q.powerTable.Entries)))
@@ -1427,7 +1427,7 @@ func findFirstPrefixOf(preferred ECChain, candidates []ECChain) ECChain {
 	return preferred.BaseChain()
 }
 
-func divCeil(a, b uint32) uint32 {
+func divCeil(a, b int64) int64 {
 	quo := a / b
 	rem := a % b
 	if rem != 0 {
@@ -1437,15 +1437,15 @@ func divCeil(a, b uint32) uint32 {
 }
 
 // Check whether a portion of storage power is a strong quorum of the total
-func IsStrongQuorum(part uint16, whole uint16) bool {
-	// uint32 because 2 * whole exceeds uint16
-	return uint32(part) >= divCeil(2*uint32(whole), 3)
+func IsStrongQuorum(part int64, whole int64) bool {
+	// uint32 because 2 * whole exceeds int64
+	return part >= divCeil(2*whole, 3)
 }
 
 // Check whether a portion of storage power is a weak quorum of the total
-func hasWeakQuorum(part, whole uint16) bool {
+func hasWeakQuorum(part, whole int64) bool {
 	// Must be strictly greater than 1/3. Otherwise, there could be a strong quorum.
-	return uint32(part) > divCeil(uint32(whole), 3)
+	return part > divCeil(whole, 3)
 }
 
 // Tests whether lhs is equal to or greater than rhs.
