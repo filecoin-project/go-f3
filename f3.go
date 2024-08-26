@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/clock"
+	"github.com/filecoin-project/go-f3/internal/measurements"
 	"github.com/filecoin-project/go-f3/internal/powerstore"
 	"github.com/filecoin-project/go-f3/manifest"
 
@@ -338,7 +339,8 @@ func (m *F3) resumeInternal(ctx context.Context) error {
 			NetworkName:    m.manifest.NetworkName,
 			RequestTimeout: m.manifest.CertificateExchange.ClientRequestTimeout,
 		}
-		cs, err := openCertstore(m.runningCtx, mPowerEc, m.ds, m.manifest, certClient)
+		cds := measurements.NewMeteredDatastore(meter, "f3_certstore_datastore_", m.ds)
+		cs, err := openCertstore(m.runningCtx, mPowerEc, cds, m.manifest, certClient)
 		if err != nil {
 			return fmt.Errorf("failed to open certstore: %w", err)
 		}
@@ -346,7 +348,8 @@ func (m *F3) resumeInternal(ctx context.Context) error {
 		m.cs = cs
 	}
 	if m.ps == nil {
-		ps, err := powerstore.New(m.runningCtx, mPowerEc, m.ds, m.cs, m.manifest)
+		pds := measurements.NewMeteredDatastore(meter, "f3_ohshitstore_datastore_", m.ds)
+		ps, err := powerstore.New(m.runningCtx, mPowerEc, pds, m.cs, m.manifest)
 		if err != nil {
 			return fmt.Errorf("failed to construct the oshitstore: %w", err)
 		}
