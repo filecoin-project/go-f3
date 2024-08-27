@@ -1374,29 +1374,54 @@ func newBroadcastState() *broadcastState {
 // record stores messages that are required should rebroadcast becomes necessary.
 // The messages stored depend on the current progress of instance. If the
 // instance progresses to DECIDE then only the decide message will be recorded.
-// Otherwise, all messages except QUALITY from the current and previous rounds
+// Otherwise, all messages including QUALITY from the current and previous rounds
 // (i.e. the latest two rounds) are recorded.
 //
 // Note, the messages recorded are more than what FIL-00896 strictly requires at
 // the benefit of less reliance on rebroadcast and reduction in the possibility
 // of participants getting stuck.
+//
+// The rationale for including QUALITY messages as part of rebroadcast is to
+// improve censorship resistance at the face of unreliable message delivery,
+// which can ultimately result in lack of instance progress for extended periods
+// of time. See:
+//   - https://github.com/filecoin-project/FIPs/discussions/809#discussioncomment-10409902
+//   - https://github.com/filecoin-project/FIPs/discussions/809#discussioncomment-10424988
 func (bs *broadcastState) record(mb *MessageBuilder) {
 	switch mb.Payload.Step {
 	case DECIDE_PHASE:
 		// Clear all previous messages, as only DECIDE message need to be rebroadcasted.
 		// Note that DECIDE message is not associated to any round, and is always
 		// broadcasted using round zero.
-		bs.messagesByRound = make(map[uint64][]*MessageBuilder)
+		clear(bs.messagesByRound)
 		bs.messagesByRound[0] = []*MessageBuilder{mb}
-	case COMMIT_PHASE, PREPARE_PHASE, CONVERGE_PHASE:
+	case QUALITY_PHASE, CONVERGE_PHASE, PREPARE_PHASE, COMMIT_PHASE:
 		bs.messagesByRound[mb.Payload.Round] = append(bs.messagesByRound[mb.Payload.Round], mb)
-		// Remove all messages that are older than the latest two rounds.
+		// Remove all messages that are older than the latest two rounds, except QUALITY
+		// which only appears in round 0.
 		for round := int(mb.Payload.Round) - 2; round >= 0; round-- {
-			redundantRound := uint64(round)
-			delete(bs.messagesByRound, redundantRound)
+			switch redundantRound := uint64(round); redundantRound {
+			case 0:
+				var found bool
+				for i, mb := range bs.messagesByRound[0] {
+					if mb.Payload.Step == QUALITY_PHASE {
+						bs.messagesByRound[0] = bs.messagesByRound[0][i : i+1 : 1]
+						found = true
+						break
+					}
+				}
+				if !found {
+					log.Warn("No QUALITY message found for round 0 while trimming rebroadcast messages")
+					delete(bs.messagesByRound, redundantRound)
+				}
+			default:
+				delete(bs.messagesByRound, redundantRound)
+			}
 		}
 	default:
-		// No need to rebroadcast QUALITY messages.
+		// There should not be any message recorded with any other payload step. Warn if
+		// we see any.
+		log.Warnw("Unexpected payload step while recording broadcasted messages", "step", mb.Payload.Step)
 	}
 }
 

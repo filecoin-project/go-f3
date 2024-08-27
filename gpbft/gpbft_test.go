@@ -273,12 +273,14 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 		driver.RequireNoBroadcast()
 		// Trigger rebroadcast alarm.
 		driver.RequireDeliverAlarm()
-		// Expect rebroadcast of PREPARE only; no QUALITY message should be rebroadcasted.
+		// Expect rebroadcast of QUALITY and PREPARE messages.
+		driver.RequireQuality()
 		driver.RequirePrepare(baseChain)
 		driver.RequireNoBroadcast()
 		// Trigger alarm and expect immediate rebroadcast of PREMARE.
 		driver.RequireDeliverAlarm()
-		// Expect rebroadcast of PREPARE only; no QUALITY message should be rebroadcasted.
+		// Expect rebroadcast of QUALITY and PREPARE messages.
+		driver.RequireQuality()
 		driver.RequirePrepare(baseChain)
 		driver.RequireNoBroadcast()
 
@@ -302,7 +304,8 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 		// Trigger rebroadcast alarm.
 		driver.RequireDeliverAlarm()
 
-		// Expect rebroadcast of PREPARE and COMMIT.
+		// Expect rebroadcast of QUALITY, PREPARE and COMMIT.
+		driver.RequireQuality()
 		driver.RequirePrepare(baseChain)
 		driver.RequireCommit(0, baseChain, evidenceOfPrepare)
 		driver.RequireNoBroadcast()
@@ -331,7 +334,8 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 		// Trigger rebroadcast alarm.
 		driver.RequireDeliverAlarm()
 
-		// Expect rebroadcast of all messages from previous and current round (except QUALITY)
+		// Expect rebroadcast of all messages from previous and current round, including QUALITY.
+		driver.RequireQuality()
 		driver.RequirePrepare(baseChain)
 		driver.RequireCommit(0, baseChain, evidenceOfPrepare)
 		driver.RequireConverge(1, baseChain, evidenceOfPrepareForBase)
@@ -357,39 +361,79 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 		// Trigger rebroadcast alarm.
 		driver.RequireDeliverAlarm()
 
-		// Expect rebroadcast of all messages from previous and current round, except
+		// Expect rebroadcast of all messages from previous and current round, including
 		// QUALITY.
+		driver.RequireQuality()
 		driver.RequirePrepare(baseChain)
 		driver.RequireCommit(0, baseChain, evidenceOfPrepare)
 		driver.RequireConverge(1, baseChain, evidenceOfPrepareForBase)
 		driver.RequirePrepareAtRound(1, baseChain, evidenceOfPrepareForBase)
 		driver.RequireCommit(1, baseChain, evidenceOfPrepareAtRound1)
 
-		// Deliver COMMIT at round 1 to facilitate progress to DECIDE.
+		// Facilitate skip to future round to assert rebroadcast only contains messages
+		// from the latest 2 rounds, plus QUALITY from round 0.
+
+		futureRoundProposal := instance.Proposal().Extend(tipSet4.Key)
+		evidenceOfPrepareAtRound76 := instance.NewJustification(76, gpbft.PREPARE_PHASE, futureRoundProposal, 0, 1)
+
+		// Send Prepare messages to facilitate weak quorum of prepare at future round.
 		driver.RequireDeliverMessage(&gpbft.GMessage{
 			Sender:        1,
-			Vote:          instance.NewCommit(1, baseChain),
-			Justification: evidenceOfPrepareAtRound1,
+			Vote:          instance.NewPrepare(77, futureRoundProposal),
+			Justification: evidenceOfPrepareAtRound76,
+		})
+		// Send Converge at future round to facilitate proposal with highest ticket.
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        1,
+			Vote:          instance.NewConverge(77, futureRoundProposal),
+			Justification: evidenceOfPrepareAtRound76,
+			Ticket:        emulator.ValidTicket,
+		})
+		// Expect skip to round.
+		driver.RequireConverge(77, futureRoundProposal, evidenceOfPrepareAtRound76)
+		driver.RequirePrepareAtRound(77, futureRoundProposal, evidenceOfPrepareAtRound76)
+		driver.RequireCommit(77, futureRoundProposal, evidenceOfPrepareAtRound76)
+		// Expect no messages until the rebroadcast timeout has expired.
+		driver.RequireNoBroadcast()
+		// Trigger rebroadcast alarm.
+		driver.RequireDeliverAlarm()
+
+		// Assert that rebroadcast includes QUALITY and messages from round 77, but none
+		// from round 1 since the node should only retain messages from the latest two
+		// rounds, plus quality since it skiped round and has never seen round 76.
+		//
+		// See: https://github.com/filecoin-project/go-f3/issues/595
+		driver.RequireQuality()
+		driver.RequireConverge(77, futureRoundProposal, evidenceOfPrepareAtRound76)
+		driver.RequirePrepareAtRound(77, futureRoundProposal, evidenceOfPrepareAtRound76)
+		driver.RequireCommit(77, futureRoundProposal, evidenceOfPrepareAtRound76)
+		driver.RequireNoBroadcast()
+
+		// Deliver COMMIT at round 77 to facilitate progress to DECIDE.
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        1,
+			Vote:          instance.NewCommit(77, futureRoundProposal),
+			Justification: evidenceOfPrepareAtRound76,
 		})
 
 		// Expect DECIDE with strong evidence of COMMIT.
-		evidenceOfCommit := instance.NewJustification(1, gpbft.COMMIT_PHASE, baseChain, 0, 1)
-		driver.RequireDecide(baseChain, evidenceOfCommit)
+		evidenceOfCommit := instance.NewJustification(77, gpbft.COMMIT_PHASE, futureRoundProposal, 0, 1)
+		driver.RequireDecide(futureRoundProposal, evidenceOfCommit)
 
 		// Trigger alarm and expect immediate rebroadcast, because DECIDE phase has no
 		// phase timeout.
 		driver.RequireDeliverAlarm()
 
 		// Expect rebroadcast of only the DECIDE message.
-		driver.RequireDecide(baseChain, evidenceOfCommit)
+		driver.RequireDecide(futureRoundProposal, evidenceOfCommit)
 
 		// Deliver DECIDE to facilitate progress to decision.
 		driver.RequireDeliverMessage(&gpbft.GMessage{
 			Sender:        1,
-			Vote:          instance.NewDecide(0, baseChain),
+			Vote:          instance.NewDecide(0, futureRoundProposal),
 			Justification: evidenceOfCommit,
 		})
-		driver.RequireDecision(instance.ID(), baseChain)
+		driver.RequireDecision(instance.ID(), futureRoundProposal)
 	})
 }
 
