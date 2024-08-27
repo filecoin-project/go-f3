@@ -38,8 +38,13 @@ func TestTQ_BigLog2_Table(t *testing.T) {
 			bigInt, ok := new(big.Int).SetString(test.input, 16)
 			require.True(t, ok, "parsing int")
 			integer, fract := bigLog2(bigInt)
-			assert.EqualValues(t, test.integer, integer, "wrong integer part")
-			assert.EqualValues(t, test.fract, fract, "wrong fractional part")
+			assert.Equal(t, test.integer, integer, "wrong integer part")
+			assert.InDelta(t, test.fract, fract, 1e-15, "wrong fractional delta")
+			if test.fract != 0.0 {
+				assert.InEpsilon(t, test.fract, fract, 1e-03, "wrong fractional epsilon")
+			} else {
+				assert.Equal(t, test.fract, fract, "wrong fractional epsilon")
+			}
 		})
 	}
 }
