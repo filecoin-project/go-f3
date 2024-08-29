@@ -31,7 +31,7 @@ func (a *aggregation) Aggregate(mask []int, signatures [][]byte) (_agg []byte, _
 		}
 
 		if perr := recover(); perr != nil {
-			_err = fmt.Errorf("panicked aggregating public keys: %v\n%s",
+			_err = fmt.Errorf("panicked aggregating signatures: %v\n%s",
 				perr, string(debug.Stack()))
 			log.Error(_err)
 			status = measurements.AttrStatusPanic
@@ -105,22 +105,11 @@ func (a *aggregation) VerifyAggregate(mask []int, msg []byte, signature []byte) 
 
 func (v *Verifier) Aggregate(pubkeys []gpbft.PubKey) (_agg gpbft.Aggregate, _err error) {
 	defer func() {
-		status := measurements.AttrStatusSuccess
-		if _err != nil {
-			status = measurements.AttrStatusError
-		}
-
 		if perr := recover(); perr != nil {
 			_err = fmt.Errorf("panicked aggregating public keys: %v\n%s",
 				perr, string(debug.Stack()))
 			log.Error(_err)
-			status = measurements.AttrStatusPanic
 		}
-
-		metrics.aggregate.Record(
-			context.TODO(), int64(len(pubkeys)),
-			metric.WithAttributes(status),
-		)
 	}()
 
 	kPubkeys := make([]kyber.Point, 0, len(pubkeys))
