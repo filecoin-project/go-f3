@@ -132,4 +132,17 @@ func (s *SigningTestSuite) TestAggregateAndVerify() {
 
 		require.Error(t, wrongKeyAggregator.VerifyAggregate(mask, msg, aggSig), "wrong pubkey should error")
 	}
+
+	t.Run("mask out of range", func(t *testing.T) {
+		_, err = aggregator.Aggregate([]int{0, 3}, [][]byte{sigs[0]})
+		require.Error(t, err, "mask out of range")
+	})
+
+	t.Run("empty signature is always valid", func(t *testing.T) {
+		sig, err := aggregator.Aggregate([]int{}, [][]byte{})
+		require.NoError(t, err)
+
+		err = aggregator.VerifyAggregate([]int{}, []byte("anything"), sig)
+		require.NoError(t, err)
+	})
 }
