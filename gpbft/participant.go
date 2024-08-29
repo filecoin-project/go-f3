@@ -384,7 +384,7 @@ func (p *Participant) ReceiveMessage(vmsg ValidatedMessage) (err error) {
 
 	// Drop messages for past instances.
 	if msg.Vote.Instance < p.currentInstance {
-		p.tracer.Log("dropping message from old instance %d while received in instance %d",
+		p.trace("dropping message from old instance %d while received in instance %d",
 			msg.Vote.Instance, p.currentInstance)
 		return nil
 	}
@@ -453,9 +453,9 @@ func (p *Participant) beginInstance() error {
 	}
 	// Deliver any queued messages for the new instance.
 	queued := p.mqueue.Drain(p.gpbft.instanceID)
-	if p.tracer != nil {
+	if p.tracing() {
 		for _, msg := range queued {
-			p.tracer.Log("Delivering queued {%d} ← P%d: %v", p.gpbft.instanceID, msg.Sender, msg)
+			p.trace("Delivering queued {%d} ← P%d: %v", p.gpbft.instanceID, msg.Sender, msg)
 		}
 	}
 	if err := p.gpbft.ReceiveMany(queued); err != nil {
@@ -503,7 +503,7 @@ func (p *Participant) handleDecision() {
 	decision := p.finishCurrentInstance()
 	nextStart, err := p.host.ReceiveDecision(decision)
 	if err != nil {
-		p.tracer.Log("failed to receive decision: %+v", err)
+		p.trace("failed to receive decision: %+v", err)
 		p.host.SetAlarm(time.Time{})
 	} else {
 		p.beginNextInstance(p.currentInstance + 1)
@@ -550,6 +550,16 @@ func (p *Participant) Describe() string {
 		return "nil"
 	}
 	return p.gpbft.Describe()
+}
+
+func (p *Participant) tracing() bool {
+	return p.tracer != nil
+}
+
+func (p *Participant) trace(format string, args ...any) {
+	if p.tracer != nil {
+		p.tracer.Log(format, args...)
+	}
 }
 
 // A power table and beacon value used as the committee inputs to an instance.
