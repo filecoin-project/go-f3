@@ -781,7 +781,7 @@ func (t *PowerEntry) MarshalCBOR(w io.Writer) error {
 	}
 
 	// t.PubKey (gpbft.PubKey) (slice)
-	if len(t.PubKey) > 2097152 {
+	if len(t.PubKey) > 48 {
 		return xerrors.Errorf("Byte array in field t.PubKey was too long")
 	}
 
@@ -849,7 +849,7 @@ func (t *PowerEntry) UnmarshalCBOR(r io.Reader) (err error) {
 		return err
 	}
 
-	if extra > 2097152 {
+	if extra > 48 {
 		return fmt.Errorf("t.PubKey: byte array too large (%d)", extra)
 	}
 	if maj != cbg.MajByteString {

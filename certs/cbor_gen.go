@@ -45,7 +45,7 @@ func (t *PowerTableDelta) MarshalCBOR(w io.Writer) error {
 	}
 
 	// t.SigningKey (gpbft.PubKey) (slice)
-	if len(t.SigningKey) > 2097152 {
+	if len(t.SigningKey) > 48 {
 		return xerrors.Errorf("Byte array in field t.SigningKey was too long")
 	}
 
@@ -113,7 +113,7 @@ func (t *PowerTableDelta) UnmarshalCBOR(r io.Reader) (err error) {
 		return err
 	}
 
-	if extra > 2097152 {
+	if extra > 48 {
 		return fmt.Errorf("t.SigningKey: byte array too large (%d)", extra)
 	}
 	if maj != cbg.MajByteString {

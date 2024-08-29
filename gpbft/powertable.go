@@ -18,7 +18,7 @@ var _ sort.Interface = (PowerEntries)(nil)
 type PowerEntry struct {
 	ID     ActorID
 	Power  StoragePower
-	PubKey PubKey
+	PubKey PubKey `cborgen:"maxlen=48"`
 }
 
 type PowerEntries []PowerEntry
