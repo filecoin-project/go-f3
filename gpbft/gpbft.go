@@ -190,11 +190,12 @@ type instance struct {
 	// The value to be transmitted at the next phase, which may be bottom.
 	// This value may change away from the proposal between phases.
 	value ECChain
-	// The set of values that are acceptable candidates to this instance.
-	// This includes the base chain, all prefixes of proposal that found a strong quorum
-	// of support in the QUALITY phase, and any chains that could possibly have been
-	// decided by another participant.
-	candidates []ECChain
+	// candidates contains a set of values that are acceptable candidates to this
+	// instance. This includes the base chain, all prefixes of proposal that found a
+	// strong quorum of support in the QUALITY phase or late arriving quality
+	// messages, including any chains that could possibly have been decided by
+	// another participant.
+	candidates map[ChainKey]struct{}
 	// The final termination value of the instance, for communication to the participant.
 	// This field is an alternative to plumbing an optional decision value out through
 	// all the method calls, or holding a callback handle to receive it here.
@@ -238,8 +239,10 @@ func newInstance(
 		proposal:         input,
 		broadcasted:      newBroadcastState(),
 		value:            ECChain{},
-		candidates:       []ECChain{input.BaseChain()},
-		quality:          newQuorumState(powerTable),
+		candidates: map[ChainKey]struct{}{
+			input.BaseChain().Key(): {},
+		},
+		quality: newQuorumState(powerTable),
 		rounds: map[uint64]*roundState{
 			0: newRoundState(powerTable),
 		},
@@ -351,11 +354,9 @@ func (i *instance) receiveOne(msg *GMessage) (bool, error) {
 	if i.phase == TERMINATED_PHASE {
 		return false, nil // No-op
 	}
-	// Ignore QUALITY messages after exiting the QUALITY phase.
 	// Ignore CONVERGE and PREPARE messages for prior rounds.
 	forPriorRound := msg.Vote.Round < i.round
-	if (msg.Vote.Step == QUALITY_PHASE && i.phase != QUALITY_PHASE) ||
-		(forPriorRound && msg.Vote.Step == CONVERGE_PHASE) ||
+	if (forPriorRound && msg.Vote.Step == CONVERGE_PHASE) ||
 		(forPriorRound && msg.Vote.Step == PREPARE_PHASE) {
 		return false, nil
 	}
@@ -373,8 +374,14 @@ func (i *instance) receiveOne(msg *GMessage) (bool, error) {
 	msgRound := i.getRound(msg.Vote.Round)
 	switch msg.Vote.Step {
 	case QUALITY_PHASE:
-		// Receive each prefix of the proposal independently.
+		// Receive each prefix of the proposal independently, which is accepted at any
+		// round/phase.
 		i.quality.ReceiveEachPrefix(msg.Sender, msg.Vote.Value)
+		// If the instance has surpassed QUALITY phase, update the candidates based
+		// on possible quorum of input prefixes.
+		if i.phase != QUALITY_PHASE {
+			return true, i.updateCandidatesFromQuality()
+		}
 	case CONVERGE_PHASE:
 		if err := msgRound.converged.Receive(msg.Sender, i.powerTable, msg.Vote.Value, msg.Ticket, msg.Justification); err != nil {
 			return false, fmt.Errorf("failed processing CONVERGE message: %w", err)
@@ -486,30 +493,36 @@ func (i *instance) tryQuality() error {
 	if i.phase != QUALITY_PHASE {
 		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, QUALITY_PHASE)
 	}
-	// Wait either for a strong quorum that agree on our proposal,
-	// or for the timeout to expire.
+
+	// Wait either for a strong quorum that agree on our proposal, or for the timeout
+	// to expire.
 	foundQuorum := i.quality.HasStrongQuorumFor(i.proposal.Key())
 	timeoutExpired := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
 
-	if foundQuorum {
-		// Keep current proposal.
-	} else if timeoutExpired {
-		strongQuora := i.quality.ListStrongQuorumValues()
-		i.proposal = findFirstPrefixOf(i.proposal, strongQuora)
-	}
-
 	if foundQuorum || timeoutExpired {
-		// Add prefixes with quorum to candidates (skipping base chain, which is already there).
-		for l := range i.proposal {
-			if l > 0 {
-				i.candidates = append(i.candidates, i.proposal.Prefix(l))
-			}
-		}
+		// If strong quorum of input is found the proposal will remain unchanged.
+		// Otherwise, change the proposal to the longest prefix of input with strong
+		// quorum.
+		i.proposal = i.quality.FindStrongQuorumValueForLongestPrefixOf(i.input)
+		// Add prefixes with quorum to candidates.
+		i.addCandidatePrefixes(i.proposal)
 		i.value = i.proposal
 		i.log("adopting proposal/value %s", &i.proposal)
 		i.beginPrepare(nil)
 	}
+	return nil
+}
 
+// updateCandidatesFromQuality updates candidates as a result of late-arriving
+// QUALITY messages based on the longest input prefix with strong quorum.
+func (i *instance) updateCandidatesFromQuality() error {
+	// Find the longest input prefix that has reached strong quorum as a result of
+	// late-arriving QUALITY messages and update candidates with each of its
+	// prefixes.
+	longestPrefix := i.quality.FindStrongQuorumValueForLongestPrefixOf(i.input)
+	if i.addCandidatePrefixes(longestPrefix) {
+		i.log("expanded candidates for proposal %s from QUALITY quorum of %s", i.proposal, &longestPrefix)
+	}
 	return nil
 }
 
@@ -568,7 +581,7 @@ func (i *instance) tryConverge() error {
 	if !i.isCandidate(winner.Chain) {
 		// if winner.Chain is not in candidate set then it means we got swayed
 		i.log("⚠️ swaying from %s to %s by CONVERGE", i.proposal, winner.Chain)
-		i.candidates = append(i.candidates, winner.Chain)
+		i.addCandidate(winner.Chain)
 	} else {
 		i.log("adopting proposal %s after converge (old proposal %s)", winner.Chain, i.proposal)
 	}
@@ -678,7 +691,7 @@ func (i *instance) tryCommit(round uint64) error {
 			if !v.IsZero() {
 				if !i.isCandidate(v) {
 					i.log("⚠️ swaying from %s to %s by COMMIT", &i.input, &v)
-					i.candidates = append(i.candidates, v)
+					i.addCandidate(v)
 				}
 				if !v.Eq(i.proposal) {
 					i.proposal = v
@@ -795,7 +808,7 @@ func (i *instance) skipToRound(round uint64, chain ECChain, justification *Justi
 
 	if justification.Vote.Step == PREPARE_PHASE {
 		i.log("⚠️ swaying from %s to %s by skip to round %d", &i.proposal, chain, i.round)
-		i.candidates = append(i.candidates, chain)
+		i.addCandidate(chain)
 		i.proposal = chain
 	}
 	i.beginConverge(justification)
@@ -804,10 +817,23 @@ func (i *instance) skipToRound(round uint64, chain ECChain, justification *Justi
 // Returns whether a chain is acceptable as a proposal for this instance to vote for.
 // This is "EC Compatible" in the pseudocode.
 func (i *instance) isCandidate(c ECChain) bool {
-	for _, candidate := range i.candidates {
-		if c.Eq(candidate) {
-			return true
-		}
+	_, exists := i.candidates[c.Key()]
+	return exists
+}
+
+func (i *instance) addCandidatePrefixes(c ECChain) bool {
+	var addedAny bool
+	for l := len(c) - 1; l > 0 && !addedAny; l-- {
+		addedAny = i.addCandidate(c.Prefix(l))
+	}
+	return addedAny
+}
+
+func (i *instance) addCandidate(c ECChain) bool {
+	key := c.Key()
+	if _, exists := i.candidates[key]; !exists {
+		i.candidates[key] = struct{}{}
+		return true
 	}
 	return false
 }
@@ -1208,30 +1234,20 @@ func (q *quorumState) FindStrongQuorumFor(key ChainKey) (QuorumResult, bool) {
 	panic("strong quorum exists but could not be found")
 }
 
-// Returns a list of the chains which have reached an agreeing strong quorum.
-// Chains are returned in descending length order.
-// This is appropriate for use in the QUALITY phase, where each participant
-// votes for every prefix of their preferred chain.
-// Panics if there are multiple chains of the same length with strong quorum
-// (signalling a violation of assumptions about the adversary).
-func (q *quorumState) ListStrongQuorumValues() []ECChain {
-	var withQuorum []ECChain
-	for key, cp := range q.chainSupport {
-		if cp.hasStrongQuorum {
-			withQuorum = append(withQuorum, q.chainSupport[key].chain)
+// FindStrongQuorumValueForLongestPrefixOf finds the longest prefix of preferred
+// chain which has strong quorum, or the base of preferred if no such prefix
+// exists.
+func (q *quorumState) FindStrongQuorumValueForLongestPrefixOf(preferred ECChain) ECChain {
+	if q.HasStrongQuorumFor(preferred.Key()) {
+		return preferred
+	}
+	for i := len(preferred) - 1; i >= 0; i-- {
+		longestPrefix := preferred.Prefix(i)
+		if q.HasStrongQuorumFor(longestPrefix.Key()) {
+			return longestPrefix
 		}
 	}
-	sort.Slice(withQuorum, func(i, j int) bool {
-		return len(withQuorum[i]) > len(withQuorum[j])
-	})
-	prevLength := 0
-	for _, v := range withQuorum {
-		if len(v) == prevLength {
-			panic(fmt.Sprintf("multiple chains of length %d with strong quorum", prevLength))
-		}
-		prevLength = len(v)
-	}
-	return withQuorum
+	return preferred.BaseChain()
 }
 
 // Returns the chain with a strong quorum of support, if there is one.
@@ -1285,9 +1301,9 @@ func newConvergeState() *convergeState {
 	}
 }
 
-// SetSelfValue sets the participant's locally-proposed converge value.
-// This means the participant need not rely on messages broadcast to be received by itself.
-// See HasSelfValue.
+// SetSelfValue sets the participant's locally-proposed converge value. This
+// means the participant need not to rely on messages broadcast to be received by
+// itself.
 func (c *convergeState) SetSelfValue(value ECChain, justification *Justification) {
 	// any converge for the given value is better than self-reported
 	// as self-reported has no ticket
@@ -1450,18 +1466,6 @@ func (bs *broadcastState) record(mb *MessageBuilder) {
 // whether a message is "spammable".
 func isSpammable(msg *GMessage) bool {
 	return msg.Justification == nil && msg.Vote.Round > 0
-}
-
-// Returns the first candidate value that is a prefix of the preferred value, or the base of preferred.
-func findFirstPrefixOf(preferred ECChain, candidates []ECChain) ECChain {
-	for _, v := range candidates {
-		if preferred.HasPrefix(v) {
-			return v
-		}
-	}
-
-	// No candidates are a prefix of preferred.
-	return preferred.BaseChain()
 }
 
 func divCeil(a, b int64) int64 {
