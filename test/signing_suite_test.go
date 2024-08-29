@@ -89,44 +89,47 @@ func (s *SigningTestSuite) TestAggregateAndVerify() {
 	pubKey2, signer2 := s.signerTestSubject(s.T())
 	pubKeys := []gpbft.PubKey{pubKey1, pubKey2}
 
+	aggregator, err := s.verifier.Aggregate(pubKeys)
+	require.NoError(s.T(), err)
+
+	mask := []int{0, 1}
 	sigs := make([][]byte, len(pubKeys))
-	var err error
 	sigs[0], err = signer1.Sign(ctx, pubKey1, msg)
 	require.NoError(s.T(), err)
 	sigs[1], err = signer2.Sign(ctx, pubKey2, msg)
 	require.NoError(s.T(), err)
 
-	aggSig, err := s.verifier.Aggregate(pubKeys, sigs)
+	aggSig, err := aggregator.Aggregate(mask, sigs)
 	require.NoError(t, err)
 
-	err = s.verifier.VerifyAggregate(msg, aggSig, pubKeys)
+	err = aggregator.VerifyAggregate(mask, msg, aggSig)
 	require.NoError(t, err)
 
-	aggSig, err = s.verifier.Aggregate(pubKeys[0:1], sigs[0:1])
+	aggSig, err = aggregator.Aggregate(mask[0:1], sigs[0:1])
 	require.NoError(t, err)
 
-	err = s.verifier.VerifyAggregate(msg, aggSig, pubKeys)
+	err = aggregator.VerifyAggregate(mask, msg, aggSig)
 	require.Error(t, err)
 
-	aggSig, err = s.verifier.Aggregate(pubKeys, [][]byte{sigs[0], sigs[0]})
+	aggSig, err = aggregator.Aggregate(mask, [][]byte{sigs[0], sigs[0]})
 	require.NoError(t, err)
 
-	err = s.verifier.VerifyAggregate(msg, aggSig, pubKeys)
+	err = aggregator.VerifyAggregate(mask, msg, aggSig)
 	require.Error(t, err)
 
-	err = s.verifier.VerifyAggregate(msg, []byte("bad sig"), pubKeys)
+	err = aggregator.VerifyAggregate(mask, msg, []byte("bad sig"))
 	require.Error(t, err)
 
-	_, err = s.verifier.Aggregate(pubKeys, [][]byte{sigs[0]})
+	_, err = aggregator.Aggregate(mask, [][]byte{sigs[0]})
 	require.Error(t, err, "Missmatched pubkeys and sigs lengths should fail")
 
 	{
 		pubKeys2 := slices.Clone(pubKeys)
-		pubKeys2[0] = slices.Clone(pubKeys2[0])
-		pubKeys2[0] = pubKeys2[0][1:len(pubKeys2)]
-		_, err = s.verifier.Aggregate(pubKeys2, sigs)
-		require.Error(t, err, "damaged pubkey should error")
+		pubKey3, _ := s.signerTestSubject(s.T())
+		pubKeys2[0] = pubKey3
+		wrongKeyAggregator, err := s.verifier.Aggregate(pubKeys2)
+		require.NoError(t, err)
 
-		require.Error(t, s.verifier.VerifyAggregate(msg, aggSig, pubKeys2), "damaged pubkey should error")
+		require.Error(t, wrongKeyAggregator.VerifyAggregate(mask, msg, aggSig), "wrong pubkey should error")
 	}
 }

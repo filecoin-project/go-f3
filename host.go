@@ -700,13 +700,6 @@ func (h *gpbftHost) Verify(pubKey gpbft.PubKey, msg []byte, sig []byte) error {
 	return h.verifier.Verify(pubKey, msg, sig)
 }
 
-// Aggregates signatures from a participants.
-func (h *gpbftHost) Aggregate(pubKeys []gpbft.PubKey, sigs [][]byte) ([]byte, error) {
-	return h.verifier.Aggregate(pubKeys, sigs)
-}
-
-// VerifyAggregate verifies an aggregate signature.
-// Implementations must be safe for concurrent use.
-func (h *gpbftHost) VerifyAggregate(payload []byte, aggSig []byte, signers []gpbft.PubKey) error {
-	return h.verifier.VerifyAggregate(payload, aggSig, signers)
+func (h *gpbftHost) Aggregate(pubKeys []gpbft.PubKey) (gpbft.Aggregate, error) {
+	return h.verifier.Aggregate(pubKeys)
 }

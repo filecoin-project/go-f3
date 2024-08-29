@@ -156,6 +156,8 @@ type instance struct {
 	input ECChain
 	// The power table for the base chain, used for power in this instance.
 	powerTable PowerTable
+	// The aggregate signature verifier/aggregator.
+	aggregateVerifier Aggregate
 	// The beacon value from the base chain, used for tickets in this instance.
 	beacon []byte
 	// Current round number.
@@ -217,6 +219,7 @@ func newInstance(
 	input ECChain,
 	data *SupplementalData,
 	powerTable PowerTable,
+	aggregateVerifier Aggregate,
 	beacon []byte) (*instance, error) {
 	if input.IsZero() {
 		return nil, fmt.Errorf("input is empty")
@@ -227,19 +230,20 @@ func newInstance(
 	metrics.currentRound.Record(context.TODO(), 0)
 
 	return &instance{
-		participant:      participant,
-		instanceID:       instanceID,
-		input:            input,
-		powerTable:       powerTable,
-		beacon:           beacon,
-		round:            0,
-		phase:            INITIAL_PHASE,
-		supplementalData: data,
-		proposal:         input,
-		broadcasted:      newBroadcastState(),
-		value:            ECChain{},
-		candidates:       []ECChain{input.BaseChain()},
-		quality:          newQuorumState(powerTable),
+		participant:       participant,
+		instanceID:        instanceID,
+		input:             input,
+		powerTable:        powerTable,
+		aggregateVerifier: aggregateVerifier,
+		beacon:            beacon,
+		round:             0,
+		phase:             INITIAL_PHASE,
+		supplementalData:  data,
+		proposal:          input,
+		broadcasted:       newBroadcastState(),
+		value:             ECChain{},
+		candidates:        []ECChain{input.BaseChain()},
+		quality:           newQuorumState(powerTable),
 		rounds: map[uint64]*roundState{
 			0: newRoundState(powerTable),
 		},
@@ -944,7 +948,7 @@ func (i *instance) alarmAfterSynchrony() time.Time {
 
 // Builds a justification for a value from a quorum result.
 func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase Phase, value ECChain) *Justification {
-	aggSignature, err := quorum.Aggregate(i.participant.host)
+	aggSignature, err := quorum.Aggregate(i.aggregateVerifier)
 	if err != nil {
 		panic(fmt.Errorf("aggregating for phase %v: %v", phase, err))
 	}
@@ -1132,12 +1136,11 @@ func (q *quorumState) CouldReachStrongQuorumFor(key ChainKey, withAdversary bool
 type QuorumResult struct {
 	// Signers is an array of indexes into the powertable, sorted in increasing order
 	Signers    []int
-	PubKeys    []PubKey
 	Signatures [][]byte
 }
 
-func (q QuorumResult) Aggregate(v Verifier) ([]byte, error) {
-	return v.Aggregate(q.PubKeys, q.Signatures)
+func (q QuorumResult) Aggregate(v Aggregate) ([]byte, error) {
+	return v.Aggregate(q.Signers, q.Signatures)
 }
 
 func (q QuorumResult) SignersBitfield() bitfield.BitField {
@@ -1174,7 +1177,6 @@ func (q *quorumState) FindStrongQuorumFor(key ChainKey) (QuorumResult, bool) {
 
 	// Accumulate signers and signatures until they reach a strong quorum.
 	signatures := make([][]byte, 0, len(chainSupport.signatures))
-	pubkeys := make([]PubKey, 0, len(signatures))
 	var justificationPower int64
 	for i, idx := range signers {
 		if idx >= len(q.powerTable.Entries) {
@@ -1184,11 +1186,9 @@ func (q *quorumState) FindStrongQuorumFor(key ChainKey) (QuorumResult, bool) {
 		entry := q.powerTable.Entries[idx]
 		justificationPower += power
 		signatures = append(signatures, chainSupport.signatures[entry.ID])
-		pubkeys = append(pubkeys, entry.PubKey)
 		if IsStrongQuorum(justificationPower, q.powerTable.ScaledTotal) {
 			return QuorumResult{
 				Signers:    signers[:i+1],
-				PubKeys:    pubkeys,
 				Signatures: signatures,
 			}, true
 		}

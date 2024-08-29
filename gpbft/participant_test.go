@@ -91,9 +91,12 @@ func (pt *participantTestSubject) Log(format string, args ...any) {
 }
 
 func (pt *participantTestSubject) expectBeginInstance() {
+	publicKeys := pt.powerTable.Entries.PublicKeys()
+
 	// Prepare the test host.
 	pt.host.On("GetProposalForInstance", pt.instance).Return(pt.supplementalData, pt.canonicalChain, nil)
 	pt.host.On("GetCommitteeForInstance", pt.instance).Return(pt.powerTable, pt.beacon, nil).Once()
+	pt.host.On("Aggregate", publicKeys).Return(nil, nil)
 	pt.host.On("Time").Return(pt.time)
 	pt.host.On("NetworkName").Return(pt.networkName).Maybe()
 	// We need to use `Maybe` here because `MarshalPayloadForSigning` may be called
@@ -106,6 +109,7 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	// Expect calls to get the host state prior to beginning of an instance.
 	pt.host.EXPECT().GetProposalForInstance(pt.instance)
 	pt.host.EXPECT().GetCommitteeForInstance(pt.instance)
+	pt.host.EXPECT().Aggregate(publicKeys)
 	pt.host.EXPECT().Time()
 
 	// Expect alarm is set to 2X of configured delta.
@@ -189,6 +193,7 @@ func (pt *participantTestSubject) mockValidTicket(target gpbft.PubKey, ticket gp
 
 func (pt *participantTestSubject) mockCommitteeForInstance(instance uint64, powerTable *gpbft.PowerTable, beacon []byte) {
 	pt.host.On("GetCommitteeForInstance", instance).Return(powerTable, beacon, nil).Once()
+	pt.host.On("Aggregate", powerTable.Entries.PublicKeys()).Return(nil, nil)
 }
 
 func (pt *participantTestSubject) mockCommitteeUnavailableForInstance(instance uint64) {
