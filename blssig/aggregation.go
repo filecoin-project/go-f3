@@ -127,7 +127,7 @@ func (v *Verifier) Aggregate(pubkeys []gpbft.PubKey) (_agg gpbft.Aggregate, _err
 	}
 	cmask, err := bdn.NewCachedMask(mask)
 	if err != nil {
-		return nil, fmt.Errorf("creating key mask: %w", err)
+		return nil, fmt.Errorf("creating cached bdn mask: %w", err)
 	}
 	return &aggregation{
 		mask:   cmask,
