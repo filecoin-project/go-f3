@@ -20,7 +20,7 @@ type PowerTableDelta struct {
 	// Change in power from base (signed).
 	PowerDelta gpbft.StoragePower
 	// New signing key if relevant (else empty)
-	SigningKey gpbft.PubKey
+	SigningKey gpbft.PubKey `cborgen:"maxlen=48"`
 }
 
 func (d *PowerTableDelta) IsZero() bool {
