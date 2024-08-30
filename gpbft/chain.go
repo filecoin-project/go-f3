@@ -322,5 +322,6 @@ func (c ECChain) String() string {
 		}
 	}
 	b.WriteString("]")
+	b.WriteString(fmt.Sprintf("len(%d)", len(c)))
 	return b.String()
 }

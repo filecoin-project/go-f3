@@ -434,7 +434,7 @@ func (i *instance) shouldSkipToRound(round uint64, state *roundState) (ECChain, 
 	if !state.prepared.ReceivedFromWeakQuorum() {
 		return nil, nil, false
 	}
-	proposal := state.converged.FindMaxTicketProposal(i.powerTable)
+	proposal := state.converged.FindBestTicketProposal(i.powerTable, nil)
 	if !proposal.IsValid() {
 		// FindMaxTicketProposal returns a zero-valued ConvergeValue if no such ticket is
 		// found. Hence the check for nil. Otherwise, if found such ConvergeValue must
@@ -543,36 +543,38 @@ func (i *instance) tryConverge() error {
 	if !timeoutExpired {
 		return nil
 	}
+	commitRoundState := i.getRound(i.round - 1).committed
 
-	winner := i.getRound(i.round).converged.FindMaxTicketProposal(i.powerTable)
+	isValidConvergeValue := func(cv ConvergeValue) bool {
+		// If it is in candidate set
+		if i.isCandidate(cv.Chain) {
+			return true
+		}
+		// If it is not a candidate but it could possibly have been decided by another participant
+		// in the last round, consider it a candidate.
+		if cv.Justification.Vote.Step != PREPARE_PHASE {
+			return false
+		}
+		possibleDecision := commitRoundState.CouldReachStrongQuorumFor(cv.Chain.Key(), true)
+		return possibleDecision
+	}
+
+	winner := i.getRound(i.round).converged.FindBestTicketProposal(i.powerTable, isValidConvergeValue)
 	if !winner.IsValid() {
 		return fmt.Errorf("no values at CONVERGE")
 	}
-	possibleDecisionLastRound := i.getRound(i.round-1).committed.CouldReachStrongQuorumFor(
-		winner.Chain.Key(), true)
-	justification := winner.Justification
-	// If the winner is not a candidate but it could possibly have been decided by another participant
-	// in the last round, consider it a candidate.
-	if !i.isCandidate(winner.Chain) && winner.Justification.Vote.Step == PREPARE_PHASE && possibleDecisionLastRound {
-		i.log("⚠️ swaying from %s to %s by CONVERGE", &i.proposal, &winner.Chain)
+
+	if !i.isCandidate(winner.Chain) {
+		// if winner.Chain is not in candidate set then it means we got swayed
+		i.log("⚠️ swaying from %s to %s by CONVERGE", i.proposal, winner.Chain)
 		i.candidates = append(i.candidates, winner.Chain)
-	}
-	if i.isCandidate(winner.Chain) {
-		i.proposal = winner.Chain
-		i.log("adopting proposal %s after converge", &winner.Chain)
 	} else {
-		// Else preserve own proposal.
-		// This could alternatively loop to next lowest ticket as an optimisation to increase the
-		// chance of proposing the same value as other participants.
-		fallback := i.getRound(i.round).converged.FindProposalFor(i.proposal)
-		if !fallback.IsValid() {
-			panic("own proposal not found at CONVERGE")
-		}
-		justification = fallback.Justification
+		i.log("adopting proposal %s after converge (old proposal %s)", winner.Chain, i.proposal)
 	}
 
-	i.value = i.proposal
-	i.beginPrepare(justification)
+	i.proposal = winner.Chain
+	i.value = winner.Chain
+	i.beginPrepare(winner.Justification)
 	return nil
 }
 
@@ -1260,12 +1262,9 @@ type ConvergeValue struct {
 	Quality float64
 }
 
-// TakeBetter merges the argument into the ConvergeValue if the ConvergeValue is zero valued or
-// if argument is better due to quality.
-func (cv *ConvergeValue) TakeBetter(cv2 ConvergeValue) {
-	if !cv.IsValid() || cv2.Quality < cv.Quality {
-		*cv = cv2
-	}
+// IsOtherBetter returns true if the argument is better than self
+func (cv *ConvergeValue) IsOtherBetter(cv2 ConvergeValue) bool {
+	return !cv.IsValid() || cv2.Quality < cv.Quality
 }
 
 func (cv *ConvergeValue) IsValid() bool {
@@ -1330,18 +1329,21 @@ func (c *convergeState) Receive(sender ActorID, table PowerTable, value ECChain,
 	return nil
 }
 
-// FindMaxTicketProposal finds the value with the best ticket, weighted by
-// sender power. Returns an invalid (zero-value) ConvergeValue if no converge is found.
-func (c *convergeState) FindMaxTicketProposal(table PowerTable) ConvergeValue {
+// FindBestTicketProposal finds the value with the best ticket, weighted by
+// sender power. The filter is applied to select considered converge values.
+// nil value filter is equivalent to consider all.
+// Returns an invalid (zero-value) ConvergeValue if no converge value is found.
+func (c *convergeState) FindBestTicketProposal(table PowerTable, filter func(ConvergeValue) bool) ConvergeValue {
 	// Non-determinism in case of matching tickets from an equivocation is ok.
 	// If the same ticket is used for two different values then either we get a decision on one of them
 	// only or we go to a new round. Eventually there is a round where the max ticket is held by a
 	// correct participant, who will not double vote.
-
 	var bestValue ConvergeValue
 
 	for _, value := range c.values {
-		bestValue.TakeBetter(value)
+		if bestValue.IsOtherBetter(value) && (filter == nil || filter(value)) {
+			bestValue = value
+		}
 	}
 
 	return bestValue
