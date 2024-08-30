@@ -389,6 +389,13 @@ func (i *instance) receiveOne(msg *GMessage) (bool, error) {
 		if !msg.Vote.Value.IsZero() {
 			msgRound.committed.ReceiveJustification(msg.Vote.Value, msg.Justification)
 		}
+		// Every COMMIT phase stays open to new messages even after the protocol moves on
+		// to a new round. Late-arriving COMMITs can still (must) cause a local decision,
+		// *in that round*. Try to complete the COMMIT phase for the round specified by
+		// the message.
+		if i.phase != DECIDE_PHASE {
+			return true, i.tryCommit(msg.Vote.Round)
+		}
 	case DECIDE_PHASE:
 		i.decision.Receive(msg.Sender, msg.Vote.Value, msg.Signature)
 		if i.phase != DECIDE_PHASE {
@@ -398,12 +405,6 @@ func (i *instance) receiveOne(msg *GMessage) (bool, error) {
 		return false, fmt.Errorf("unexpected message step %s", msg.Vote.Step)
 	}
 
-	// Every COMMIT phase stays open to new messages even after the protocol moves on to
-	// a new round. Late-arriving COMMITS can still (must) cause a local decision, *in that round*.
-	// Try to complete the COMMIT phase for the round specified by the message.
-	if msg.Vote.Step == COMMIT_PHASE && i.phase != DECIDE_PHASE {
-		return true, i.tryCommit(msg.Vote.Round)
-	}
 	// Try to complete the current phase in the current round.
 	return true, i.tryCurrentPhase()
 }
