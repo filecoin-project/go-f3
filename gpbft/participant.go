@@ -453,7 +453,7 @@ func (p *Participant) beginInstance() error {
 	}
 	// Deliver any queued messages for the new instance.
 	queued := p.mqueue.Drain(p.gpbft.instanceID)
-	if p.tracing() {
+	if p.tracingEnabled() {
 		for _, msg := range queued {
 			p.trace("Delivering queued {%d} ← P%d: %v", p.gpbft.instanceID, msg.Sender, msg)
 		}
@@ -552,12 +552,12 @@ func (p *Participant) Describe() string {
 	return p.gpbft.Describe()
 }
 
-func (p *Participant) tracing() bool {
+func (p *Participant) tracingEnabled() bool {
 	return p.tracer != nil
 }
 
 func (p *Participant) trace(format string, args ...any) {
-	if p.tracer != nil {
+	if p.tracingEnabled() {
 		p.tracer.Log(format, args...)
 	}
 }
