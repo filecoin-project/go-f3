@@ -126,6 +126,6 @@ func (v *Verifier) Aggregate(pubkeys []gpbft.PubKey) (_agg gpbft.Aggregate, _err
 	}
 	return &aggregation{
 		mask:   mask,
-		scheme: v.scheme,
+		scheme: v.bdnScheme,
 	}, nil
 }
