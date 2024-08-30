@@ -10,6 +10,7 @@ import (
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-state-types/big"
+	"github.com/ipfs/go-cid"
 )
 
 // PowerTableDelta represents a single power table change between GPBFT instances. If the resulting
@@ -126,9 +127,9 @@ func ValidateFinalityCertificates(verifier gpbft.Verifier, network gpbft.Network
 			return nextInstance, chain, prevPowerTable, fmt.Errorf("failed to make power table CID for finality certificate for instance %d: %w", cert.GPBFTInstance, err)
 		}
 
-		if !bytes.Equal(cert.SupplementalData.PowerTable, powerTableCid) {
+		if cert.SupplementalData.PowerTable != powerTableCid {
 			return nextInstance, chain, prevPowerTable, fmt.Errorf(
-				"incorrect power diff from finality certificate for instance %d: expected %+v, got %+v",
+				"incorrect power diff from finality certificate for instance %d: expected %s, got %s",
 				cert.GPBFTInstance, cert.SupplementalData.PowerTable, powerTableCid)
 		}
 		nextInstance++
@@ -315,10 +316,10 @@ func ApplyPowerTableDiffs(prevPowerTable gpbft.PowerEntries, diffs ...PowerTable
 
 // MakePowerTableCID returns the DagCBOR-blake2b256 CID of the given power entries. This method does
 // not mutate, sort, validate, etc. the power entries.
-func MakePowerTableCID(pt gpbft.PowerEntries) (gpbft.CID, error) {
+func MakePowerTableCID(pt gpbft.PowerEntries) (cid.Cid, error) {
 	var buf bytes.Buffer
 	if err := pt.MarshalCBOR(&buf); err != nil {
-		return nil, fmt.Errorf("failed to serialize power table: %w", err)
+		return cid.Undef, fmt.Errorf("failed to serialize power table: %w", err)
 	}
 	return gpbft.MakeCid(buf.Bytes()), nil
 }

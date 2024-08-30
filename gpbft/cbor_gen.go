@@ -56,17 +56,10 @@ func (t *TipSet) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.PowerTable ([]uint8) (slice)
-	if len(t.PowerTable) > 38 {
-		return xerrors.Errorf("Byte array in field t.PowerTable was too long")
-	}
+	// t.PowerTable (cid.Cid) (struct)
 
-	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.PowerTable))); err != nil {
-		return err
-	}
-
-	if _, err := cw.Write(t.PowerTable); err != nil {
-		return err
+	if err := cbg.WriteCid(cw, t.PowerTable); err != nil {
+		return xerrors.Errorf("failed to write cid field t.PowerTable: %w", err)
 	}
 
 	// t.Commitments ([32]uint8) (array)
@@ -154,28 +147,18 @@ func (t *TipSet) UnmarshalCBOR(r io.Reader) (err error) {
 		return err
 	}
 
-	// t.PowerTable ([]uint8) (slice)
+	// t.PowerTable (cid.Cid) (struct)
 
-	maj, extra, err = cr.ReadHeader()
-	if err != nil {
-		return err
-	}
+	{
 
-	if extra > 38 {
-		return fmt.Errorf("t.PowerTable: byte array too large (%d)", extra)
-	}
-	if maj != cbg.MajByteString {
-		return fmt.Errorf("expected byte array")
-	}
+		c, err := cbg.ReadCid(cr)
+		if err != nil {
+			return xerrors.Errorf("failed to read cid field t.PowerTable: %w", err)
+		}
 
-	if extra > 0 {
-		t.PowerTable = make([]uint8, extra)
-	}
+		t.PowerTable = c
 
-	if _, err := io.ReadFull(cr, t.PowerTable); err != nil {
-		return err
 	}
-
 	// t.Commitments ([32]uint8) (array)
 
 	maj, extra, err = cr.ReadHeader()
@@ -397,17 +380,10 @@ func (t *SupplementalData) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.PowerTable ([]uint8) (slice)
-	if len(t.PowerTable) > 38 {
-		return xerrors.Errorf("Byte array in field t.PowerTable was too long")
-	}
+	// t.PowerTable (cid.Cid) (struct)
 
-	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.PowerTable))); err != nil {
-		return err
-	}
-
-	if _, err := cw.Write(t.PowerTable); err != nil {
-		return err
+	if err := cbg.WriteCid(cw, t.PowerTable); err != nil {
+		return xerrors.Errorf("failed to write cid field t.PowerTable: %w", err)
 	}
 
 	return nil
@@ -457,28 +433,18 @@ func (t *SupplementalData) UnmarshalCBOR(r io.Reader) (err error) {
 	if _, err := io.ReadFull(cr, t.Commitments[:]); err != nil {
 		return err
 	}
-	// t.PowerTable ([]uint8) (slice)
+	// t.PowerTable (cid.Cid) (struct)
 
-	maj, extra, err = cr.ReadHeader()
-	if err != nil {
-		return err
-	}
+	{
 
-	if extra > 38 {
-		return fmt.Errorf("t.PowerTable: byte array too large (%d)", extra)
-	}
-	if maj != cbg.MajByteString {
-		return fmt.Errorf("expected byte array")
-	}
+		c, err := cbg.ReadCid(cr)
+		if err != nil {
+			return xerrors.Errorf("failed to read cid field t.PowerTable: %w", err)
+		}
 
-	if extra > 0 {
-		t.PowerTable = make([]uint8, extra)
-	}
+		t.PowerTable = c
 
-	if _, err := io.ReadFull(cr, t.PowerTable); err != nil {
-		return err
 	}
-
 	return nil
 }
 

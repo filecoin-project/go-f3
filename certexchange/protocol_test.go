@@ -19,7 +19,7 @@ import (
 
 const testNetworkName gpbft.NetworkName = "testnet"
 
-func testPowerTable(entries int64) (gpbft.PowerEntries, gpbft.CID) {
+func testPowerTable(entries int64) (gpbft.PowerEntries, cid.Cid) {
 	powerTable := make(gpbft.PowerEntries, entries)
 
 	for i := range powerTable {
@@ -176,10 +176,8 @@ func TestClientServer(t *testing.T) {
 	{
 		ptCid, err := certs.MakePowerTableCID(pt)
 		require.NoError(t, err)
-		ptCid2, err := cid.Cast(ptCid)
-		require.NoError(t, err)
 
-		pt2, err := certexchange.FindInitialPowerTable(ctx, client, ptCid2, 1*time.Second)
+		pt2, err := certexchange.FindInitialPowerTable(ctx, client, ptCid, 1*time.Second)
 		require.NoError(t, err)
 		require.EqualValues(t, pt, pt2)
 	}
