@@ -1065,3 +1065,104 @@ func TestGPBFT_Validation(t *testing.T) {
 		})
 	}
 }
+
+func TestGPBFT_DropOld(t *testing.T) {
+	t.Parallel()
+	participants := gpbft.PowerEntries{
+		gpbft.PowerEntry{
+			ID:    0,
+			Power: gpbft.NewStoragePower(1),
+		},
+		gpbft.PowerEntry{
+			ID:    1,
+			Power: gpbft.NewStoragePower(1),
+		},
+	}
+
+	// We define 3 instances, old, last, and new.
+
+	driver := emulator.NewDriver(t)
+	oldInstance := emulator.NewInstance(t, 0, participants, tipset0, tipSet1)
+	lastInstance := emulator.NewInstance(t, 1, participants, tipSet1, tipSet2)
+	newInstance := emulator.NewInstance(t, 2, participants, tipSet2)
+	driver.AddInstance(oldInstance)
+	driver.AddInstance(lastInstance)
+	driver.AddInstance(newInstance)
+
+	// We immediately skip to the "new" instance.
+	driver.StartInstance(2)
+
+	// All messages from the old instance should be dropped.
+
+	oldDecide := &gpbft.GMessage{
+		Sender: 1,
+		Vote:   oldInstance.NewDecide(0, oldInstance.Proposal()),
+		Ticket: emulator.ValidTicket,
+	}
+	driver.RequireErrOnDeliverMessage(oldDecide, gpbft.ErrValidationTooOld, "message is for prior instance")
+
+	// Everything except decides from the last instance should be dropped.
+
+	lastCommit := &gpbft.GMessage{
+		Sender: 1,
+		Vote:   lastInstance.NewCommit(3, lastInstance.Proposal()),
+		Ticket: emulator.ValidTicket,
+	}
+	driver.RequireErrOnDeliverMessage(lastCommit, gpbft.ErrValidationTooOld, "message is for prior instance")
+
+	lastDecide := &gpbft.GMessage{
+		Sender:        1,
+		Vote:          lastInstance.NewDecide(0, lastInstance.Proposal()),
+		Justification: lastInstance.NewJustification(0, gpbft.COMMIT_PHASE, lastInstance.Proposal(), 0, 1),
+		Ticket:        emulator.ValidTicket,
+	}
+	driver.RequireDeliverMessage(lastDecide)
+
+	// Everything should be delivered for the new instance.
+
+	newQuality := &gpbft.GMessage{
+		Sender: 1,
+		Vote:   newInstance.NewQuality(newInstance.Proposal()),
+		Ticket: emulator.ValidTicket,
+	}
+	newCommit0 := &gpbft.GMessage{
+		Sender:        0,
+		Vote:          newInstance.NewCommit(0, newInstance.Proposal()),
+		Justification: newInstance.NewJustification(0, gpbft.PREPARE_PHASE, newInstance.Proposal(), 0, 1),
+		Ticket:        emulator.ValidTicket,
+	}
+	newCommit1 := &gpbft.GMessage{
+		Sender:        1,
+		Vote:          newInstance.NewCommit(0, newInstance.Proposal()),
+		Justification: newInstance.NewJustification(0, gpbft.PREPARE_PHASE, newInstance.Proposal(), 0, 1),
+		Ticket:        emulator.ValidTicket,
+	}
+	newDecide0 := &gpbft.GMessage{
+		Sender: 0,
+		Vote:   newInstance.NewDecide(0, newInstance.Proposal()),
+
+		Justification: newInstance.NewJustification(0, gpbft.COMMIT_PHASE, newInstance.Proposal(), 0, 1),
+		Ticket:        emulator.ValidTicket,
+	}
+	newDecide1 := &gpbft.GMessage{
+		Sender: 1,
+		Vote:   newInstance.NewDecide(0, newInstance.Proposal()),
+
+		Justification: newInstance.NewJustification(0, gpbft.COMMIT_PHASE, newInstance.Proposal(), 0, 1),
+		Ticket:        emulator.ValidTicket,
+	}
+	driver.RequireDeliverMessage(newQuality)
+	driver.RequireDeliverMessage(newDecide0)
+	driver.RequireDeliverMessage(newCommit0) // no quorum of decides, should still accept it
+	driver.RequireDeliverMessage(newDecide1)
+
+	// Once we've received two decides, we should reject messages from the "new" instance.
+
+	driver.RequireErrOnDeliverMessage(newCommit1, gpbft.ErrValidationTooOld, "message is for prior instance")
+
+	// And we should now reject decides from the "last" instance.
+	driver.RequireErrOnDeliverMessage(lastDecide, gpbft.ErrValidationTooOld, "message is for prior instance")
+
+	// But we should still accept decides from the latest instance.
+	driver.RequireDeliverMessage(newDecide0)
+}

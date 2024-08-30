@@ -158,7 +158,7 @@ func (p *Participant) ValidateMessage(msg *GMessage) (valid ValidatedMessage, er
 		}
 	}()
 
-	comt, err := p.fetchCommittee(msg.Vote.Instance)
+	comt, err := p.fetchCommittee(msg.Vote.Instance, msg.Vote.Step)
 	if err != nil {
 		return nil, err
 	}
@@ -384,7 +384,7 @@ func (p *Participant) ReceiveMessage(vmsg ValidatedMessage) (err error) {
 
 	// Drop messages for past instances.
 	if msg.Vote.Instance < p.currentInstance {
-		p.tracer.Log("dropping message from old instance %d while received in instance %d",
+		p.trace("dropping message from old instance %d while received in instance %d",
 			msg.Vote.Instance, p.currentInstance)
 		return nil
 	}
@@ -441,7 +441,7 @@ func (p *Participant) beginInstance() error {
 		return fmt.Errorf("invalid canonical chain: %w", err)
 	}
 
-	comt, err := p.fetchCommittee(p.currentInstance)
+	comt, err := p.fetchCommittee(p.currentInstance, INITIAL_PHASE)
 	if err != nil {
 		return err
 	}
@@ -453,9 +453,9 @@ func (p *Participant) beginInstance() error {
 	}
 	// Deliver any queued messages for the new instance.
 	queued := p.mqueue.Drain(p.gpbft.instanceID)
-	if p.tracer != nil {
+	if p.tracingEnabled() {
 		for _, msg := range queued {
-			p.tracer.Log("Delivering queued {%d} ← P%d: %v", p.gpbft.instanceID, msg.Sender, msg)
+			p.trace("Delivering queued {%d} ← P%d: %v", p.gpbft.instanceID, msg.Sender, msg)
 		}
 	}
 	if err := p.gpbft.ReceiveMany(queued); err != nil {
@@ -466,12 +466,17 @@ func (p *Participant) beginInstance() error {
 }
 
 // Fetches the committee against which to validate messages for some instance.
-func (p *Participant) fetchCommittee(instance uint64) (*committee, error) {
+func (p *Participant) fetchCommittee(instance uint64, phase Phase) (*committee, error) {
 	p.instanceMutex.Lock()
 	defer p.instanceMutex.Unlock()
 
-	// Reject messages for past instances.
-	if instance < p.currentInstance {
+	switch {
+	// Accept all messages from the current and future instances.
+	case instance >= p.currentInstance:
+	// Accept messages from the previous instance, but only for decide messages.
+	case instance == p.currentInstance-1 && phase == DECIDE_PHASE:
+	// Reject all others as too old.
+	default:
 		return nil, fmt.Errorf("instance %d, current %d: %w",
 			instance, p.currentInstance, ErrValidationTooOld)
 	}
@@ -498,7 +503,7 @@ func (p *Participant) handleDecision() {
 	decision := p.finishCurrentInstance()
 	nextStart, err := p.host.ReceiveDecision(decision)
 	if err != nil {
-		p.tracer.Log("failed to receive decision: %+v", err)
+		p.trace("failed to receive decision: %+v", err)
 		p.host.SetAlarm(time.Time{})
 	} else {
 		p.beginNextInstance(p.currentInstance + 1)
@@ -520,12 +525,17 @@ func (p *Participant) finishCurrentInstance() *Justification {
 func (p *Participant) beginNextInstance(nextInstance uint64) {
 	p.instanceMutex.Lock()
 	defer p.instanceMutex.Unlock()
-	// Clean all messages queued and old committees for instances below the next one.
-	// Skip if there are none to avoid iterating from instance zero when starting up.
-	if len(p.mqueue.messages) > 0 || len(p.committees) > 0 {
-		for i := p.currentInstance; i < nextInstance; i++ {
-			delete(p.mqueue.messages, i)
-			delete(p.committees, i)
+	// Clean all messages queued and for instances below the next one.
+	for inst := range p.mqueue.messages {
+		if inst < nextInstance {
+			delete(p.mqueue.messages, inst)
+		}
+	}
+	// Clean committees from instances below the previous one. We keep the last committee so we
+	// can continue to validate and propagate DECIDE messages.
+	for inst := range p.committees {
+		if inst+1 < nextInstance {
+			delete(p.mqueue.messages, inst)
 		}
 	}
 	p.currentInstance = nextInstance
@@ -540,6 +550,16 @@ func (p *Participant) Describe() string {
 		return "nil"
 	}
 	return p.gpbft.Describe()
+}
+
+func (p *Participant) tracingEnabled() bool {
+	return p.tracer != nil
+}
+
+func (p *Participant) trace(format string, args ...any) {
+	if p.tracingEnabled() {
+		p.tracer.Log(format, args...)
+	}
 }
 
 // A power table and beacon value used as the committee inputs to an instance.
