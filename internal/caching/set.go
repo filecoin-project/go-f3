@@ -100,6 +100,6 @@ func (ss *Set) newKey(namespace, v []byte) ([32]byte, error) {
 func (ss *Set) Clear() {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
-	clear(ss.flip)
-	clear(ss.flop)
+	ss.flip = make(map[[32]byte]struct{})
+	ss.flop = make(map[[32]byte]struct{})
 }
