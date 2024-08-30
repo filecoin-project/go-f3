@@ -36,8 +36,9 @@ type ECInstance struct {
 	// SupplementalData is the additional data for this instance.
 	SupplementalData *gpbft.SupplementalData
 
-	ec        *simEC
-	decisions map[gpbft.ActorID]*gpbft.Justification
+	ec                *simEC
+	decisions         map[gpbft.ActorID]*gpbft.Justification
+	aggregateVerifier gpbft.Aggregate
 }
 
 type errGroup []error
@@ -64,6 +65,12 @@ func (ec *simEC) BeginInstance(baseChain gpbft.ECChain, pt *gpbft.PowerTable) *E
 	// Note a real beacon value will come from a finalised chain with some lookback.
 	beacon := baseChain.Head().Key
 	nextInstanceID := uint64(ec.Len())
+
+	agg, err := ec.verifier.Aggregate(pt.Entries.PublicKeys())
+	if err != nil {
+		panic(err)
+	}
+
 	instance := &ECInstance{
 		Instance:   nextInstanceID,
 		BaseChain:  baseChain,
@@ -72,8 +79,9 @@ func (ec *simEC) BeginInstance(baseChain gpbft.ECChain, pt *gpbft.PowerTable) *E
 		SupplementalData: &gpbft.SupplementalData{
 			PowerTable: gpbft.CID(fmt.Sprintf("supp-data-pt@%d", nextInstanceID)),
 		},
-		ec:        ec,
-		decisions: make(map[gpbft.ActorID]*gpbft.Justification),
+		ec:                ec,
+		aggregateVerifier: agg,
+		decisions:         make(map[gpbft.ActorID]*gpbft.Justification),
 	}
 	ec.instances = append(ec.instances, instance)
 	return instance
@@ -123,14 +131,14 @@ func (eci *ECInstance) validateDecision(decision *gpbft.Justification) error {
 
 	// Extract signers.
 	justificationPower := gpbft.NewStoragePower(0)
-	signers := make([]gpbft.PubKey, 0)
+	signers := make([]int, 0)
 	powerTable := eci.PowerTable
 	if err := decision.Signers.ForEach(func(bit uint64) error {
 		if int(bit) >= len(powerTable.Entries) {
 			return fmt.Errorf("invalid signer index: %d", bit)
 		}
 		justificationPower = big.Add(justificationPower, powerTable.Entries[bit].Power)
-		signers = append(signers, powerTable.Entries[bit].PubKey)
+		signers = append(signers, int(bit))
 		return nil
 	}); err != nil {
 		return fmt.Errorf("failed to iterate over signers: %w", err)
@@ -144,7 +152,8 @@ func (eci *ECInstance) validateDecision(decision *gpbft.Justification) error {
 	}
 	// Verify aggregate signature
 	payload := eci.ec.verifier.MarshalPayloadForSigning(eci.ec.networkName, &decision.Vote)
-	if err := eci.ec.verifier.VerifyAggregate(payload, decision.Signature, signers); err != nil {
+
+	if err := eci.aggregateVerifier.VerifyAggregate(signers, payload, decision.Signature); err != nil {
 		return fmt.Errorf("invalid aggregate signature: %v: %w", decision, err)
 	}
 

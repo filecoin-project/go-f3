@@ -333,7 +333,7 @@ func (p *Participant) validateJustification(msg *GMessage, comt *committee) erro
 
 	// Check justification power and signature.
 	var justificationPower int64
-	signers := make([]PubKey, 0)
+	signers := make([]int, 0)
 	if err := msg.Justification.Signers.ForEach(func(bit uint64) error {
 		if int(bit) >= len(comt.power.Entries) {
 			return fmt.Errorf("invalid signer index: %d", bit)
@@ -343,7 +343,7 @@ func (p *Participant) validateJustification(msg *GMessage, comt *committee) erro
 			return fmt.Errorf("signer with ID %d has no power", comt.power.Entries[bit].ID)
 		}
 		justificationPower += power
-		signers = append(signers, comt.power.Entries[bit].PubKey)
+		signers = append(signers, int(bit))
 		return nil
 	}); err != nil {
 		return fmt.Errorf("failed to iterate over signers: %w", err)
@@ -354,7 +354,7 @@ func (p *Participant) validateJustification(msg *GMessage, comt *committee) erro
 	}
 
 	payload := p.host.MarshalPayloadForSigning(p.host.NetworkName(), &msg.Justification.Vote)
-	if err := p.host.VerifyAggregate(payload, msg.Justification.Signature, signers); err != nil {
+	if err := comt.aggregateVerifier.VerifyAggregate(signers, payload, msg.Justification.Signature); err != nil {
 		return fmt.Errorf("verification of the aggregate failed: %+v: %w", msg.Justification, err)
 	}
 
@@ -445,7 +445,7 @@ func (p *Participant) beginInstance() error {
 	if err != nil {
 		return err
 	}
-	if p.gpbft, err = newInstance(p, p.currentInstance, chain, data, *comt.power, comt.beacon); err != nil {
+	if p.gpbft, err = newInstance(p, p.currentInstance, chain, data, *comt.power, comt.aggregateVerifier, comt.beacon); err != nil {
 		return fmt.Errorf("failed creating new gpbft instance: %w", err)
 	}
 	if err := p.gpbft.Start(); err != nil {
@@ -490,7 +490,16 @@ func (p *Participant) fetchCommittee(instance uint64, phase Phase) (*committee, 
 		if err := power.Validate(); err != nil {
 			return nil, fmt.Errorf("instance %d: %w: invalid power: %w", instance, ErrValidationNoCommittee, err)
 		}
-		comt = &committee{power: power, beacon: beacon}
+
+		// TODO: filter out participants with no effective power after rounding?
+		// TODO: this is slow and under a lock, but we only want to do it once per
+		// instance... ideally we'd have a per-instance lock/once, but that probably isn't
+		// worth it.
+		agg, err := p.host.Aggregate(power.Entries.PublicKeys())
+		if err != nil {
+			return nil, fmt.Errorf("failed to pre-compute aggregate mask for instance %d: %w: %w", instance, ErrValidationNoCommittee, err)
+		}
+		comt = &committee{power: power, beacon: beacon, aggregateVerifier: agg}
 		p.committees[instance] = comt
 	}
 	return comt, nil
@@ -564,8 +573,9 @@ func (p *Participant) trace(format string, args ...any) {
 
 // A power table and beacon value used as the committee inputs to an instance.
 type committee struct {
-	power  *PowerTable
-	beacon []byte
+	power             *PowerTable
+	beacon            []byte
+	aggregateVerifier Aggregate
 }
 
 // A collection of messages queued for delivery for a future instance.

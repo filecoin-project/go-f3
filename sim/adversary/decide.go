@@ -97,30 +97,32 @@ func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) erro
 	}
 
 	var (
-		pubkeys []gpbft.PubKey
-		sigs    [][]byte
+		mask []int
+		sigs [][]byte
 	)
 
 	if err := signers.ForEach(func(j uint64) error {
-		pubkey := gpbft.PubKey("fake pubkeyaaaaa")
-		sig := []byte("fake sig")
-		if j < uint64(len(powertable.Entries)) {
-			pubkey = powertable.Entries[j].PubKey
-			var err error
-			sig, err = i.host.Sign(context.Background(), pubkey, sigPayload)
-			if err != nil {
-				return err
-			}
+		if j >= uint64(len(powertable.Entries)) {
+			return nil
+		}
+		pubkey := powertable.Entries[j].PubKey
+		sig, err := i.host.Sign(context.Background(), pubkey, sigPayload)
+		if err != nil {
+			return err
 		}
 
-		pubkeys = append(pubkeys, pubkey)
+		mask = append(mask, int(j))
 		sigs = append(sigs, sig)
 		return nil
 	}); err != nil {
 		panic(err)
 	}
 
-	aggregatedSig, err := i.host.Aggregate(pubkeys, sigs)
+	agg, err := i.host.Aggregate(powertable.Entries.PublicKeys())
+	if err != nil {
+		panic(err)
+	}
+	aggregatedSig, err := agg.Aggregate(mask, sigs)
 	if err != nil {
 		panic(err)
 	}

@@ -76,35 +76,18 @@ func (s *FakeBackend) Verify(signer gpbft.PubKey, msg, sig []byte) error {
 	}
 }
 
-func (*FakeBackend) Aggregate(signers []gpbft.PubKey, sigs [][]byte) ([]byte, error) {
-	if len(signers) != len(sigs) {
-		return nil, errors.New("public keys and signatures length mismatch")
-	}
-	hasher := sha256.New()
-	for i, signer := range signers {
+func (s *FakeBackend) Aggregate(keys []gpbft.PubKey) (gpbft.Aggregate, error) {
+	for i, signer := range keys {
 		if len(signer) != 16 {
-			return nil, fmt.Errorf("wrong signer pubkey length: %d != 16", len(signer))
+			return nil, fmt.Errorf("wrong signer %d pubkey length: %d != 16", i, len(signer))
 		}
-		hasher.Write(signer)
-		hasher.Write(sigs[i])
 	}
-	return hasher.Sum(nil), nil
-}
 
-func (s *FakeBackend) VerifyAggregate(payload, aggSig []byte, signers []gpbft.PubKey) error {
-	hasher := sha256.New()
-	for _, signer := range signers {
-		sig, err := s.generateSignature(signer, payload)
-		if err != nil {
-			return err
-		}
-		hasher.Write(signer)
-		hasher.Write(sig)
-	}
-	if !bytes.Equal(aggSig, hasher.Sum(nil)) {
-		return errors.New("signature is not valid")
-	}
-	return nil
+	return &fakeAggregate{
+		keys:    keys,
+		backend: s,
+	}, nil
+
 }
 
 func (v *FakeBackend) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Payload) []byte {
@@ -141,4 +124,45 @@ func (v *FakeBackend) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Pa
 		_, _ = buf.Write(ts.Key)
 	}
 	return buf.Bytes()
+}
+
+type fakeAggregate struct {
+	keys    []gpbft.PubKey
+	backend *FakeBackend
+}
+
+// Aggregate implements gpbft.Aggregate.
+func (f *fakeAggregate) Aggregate(signerMask []int, sigs [][]byte) ([]byte, error) {
+	if len(signerMask) != len(sigs) {
+		return nil, errors.New("public keys and signatures length mismatch")
+	}
+	hasher := sha256.New()
+	for i, bit := range signerMask {
+		if bit >= len(f.keys) {
+			return nil, fmt.Errorf("signer %d out of range", bit)
+		}
+		binary.Write(hasher, binary.BigEndian, int64(bit))
+		hasher.Write(f.keys[bit])
+		hasher.Write(sigs[i])
+	}
+	return hasher.Sum(nil), nil
+}
+
+// VerifyAggregate implements gpbft.Aggregate.
+func (f *fakeAggregate) VerifyAggregate(signerMask []int, payload []byte, aggSig []byte) error {
+	hasher := sha256.New()
+	for _, bit := range signerMask {
+		signer := f.keys[bit]
+		sig, err := f.backend.generateSignature(signer, payload)
+		if err != nil {
+			return err
+		}
+		binary.Write(hasher, binary.BigEndian, int64(bit))
+		hasher.Write(signer)
+		hasher.Write(sig)
+	}
+	if !bytes.Equal(aggSig, hasher.Sum(nil)) {
+		return errors.New("signature is not valid")
+	}
+	return nil
 }

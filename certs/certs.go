@@ -149,7 +149,8 @@ func verifyFinalityCertificateSignature(verifier gpbft.Verifier, powerTable gpbf
 		return fmt.Errorf("failed to scale power table: %w", err)
 	}
 
-	signers := make([]gpbft.PubKey, 0, len(powerTable))
+	keys := powerTable.PublicKeys()
+	mask := make([]int, 0, len(powerTable))
 	var signerPowers int64
 	if err := cert.Signers.ForEach(func(i uint64) error {
 		if i >= uint64(len(powerTable)) {
@@ -164,7 +165,7 @@ func verifyFinalityCertificateSignature(verifier gpbft.Verifier, powerTable gpbf
 				cert.GPBFTInstance, powerTable[i].ID)
 		}
 		signerPowers += power
-		signers = append(signers, powerTable[i].PubKey)
+		mask = append(mask, int(i))
 		return nil
 	}); err != nil {
 		return err
@@ -191,7 +192,12 @@ func verifyFinalityCertificateSignature(verifier gpbft.Verifier, powerTable gpbf
 		signedBytes = payload.MarshalForSigning(nn)
 	}
 
-	if err := verifier.VerifyAggregate(signedBytes, cert.Signature, signers); err != nil {
+	aggregate, err := verifier.Aggregate(keys)
+	if err != nil {
+		return err
+	}
+
+	if err := aggregate.VerifyAggregate(mask, signedBytes, cert.Signature); err != nil {
 		return fmt.Errorf("invalid signature on finality certificate for instance %d: %w", cert.GPBFTInstance, err)
 	}
 	return nil

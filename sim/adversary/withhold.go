@@ -106,15 +106,19 @@ func (w *WithholdCommit) StartInstanceAt(instance uint64, _when time.Time) error
 	sort.Ints(signers)
 
 	signatures := make([][]byte, 0)
-	pubKeys := make([]gpbft.PubKey, 0)
+	mask := make([]int, 0)
 	prepareMarshalled := w.host.MarshalPayloadForSigning(w.host.NetworkName(), &preparePayload)
 	for _, signerIndex := range signers {
 		entry := powertable.Entries[signerIndex]
 		signatures = append(signatures, w.sign(entry.PubKey, prepareMarshalled))
-		pubKeys = append(pubKeys, entry.PubKey)
+		mask = append(mask, signerIndex)
 		justification.Signers.Set(uint64(signerIndex))
 	}
-	justification.Signature, err = w.host.Aggregate(pubKeys, signatures)
+	agg, err := w.host.Aggregate(powertable.Entries.PublicKeys())
+	if err != nil {
+		panic(err)
+	}
+	justification.Signature, err = agg.Aggregate(mask, signatures)
 	if err != nil {
 		panic(err)
 	}

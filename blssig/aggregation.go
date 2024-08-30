@@ -12,12 +12,18 @@ import (
 
 	"github.com/drand/kyber"
 	"github.com/drand/kyber/sign"
+	"github.com/drand/kyber/sign/bdn"
 )
 
 // Max size of the point cache.
 const maxPointCacheSize = 10_000
 
-func (v *Verifier) Aggregate(pubkeys []gpbft.PubKey, signatures [][]byte) (_agg []byte, _err error) {
+type aggregation struct {
+	mask   *bdn.CachedMask
+	scheme *bdn.Scheme
+}
+
+func (a *aggregation) Aggregate(mask []int, signatures [][]byte) (_agg []byte, _err error) {
 	defer func() {
 		status := measurements.AttrStatusSuccess
 		if _err != nil {
@@ -25,29 +31,31 @@ func (v *Verifier) Aggregate(pubkeys []gpbft.PubKey, signatures [][]byte) (_agg 
 		}
 
 		if perr := recover(); perr != nil {
-			_err = fmt.Errorf("panicked aggregating public keys: %v\n%s",
+			_err = fmt.Errorf("panicked aggregating signatures: %v\n%s",
 				perr, string(debug.Stack()))
 			log.Error(_err)
 			status = measurements.AttrStatusPanic
 		}
 
 		metrics.aggregate.Record(
-			context.TODO(), int64(len(pubkeys)),
+			context.TODO(), int64(len(mask)),
 			metric.WithAttributes(status),
 		)
 	}()
 
-	if len(pubkeys) != len(signatures) {
+	if len(mask) != len(signatures) {
 		return nil, fmt.Errorf("lengths of pubkeys and sigs does not match %d != %d",
-			len(pubkeys), len(signatures))
+			len(mask), len(signatures))
 	}
 
-	mask, err := v.pubkeysToMask(pubkeys)
-	if err != nil {
-		return nil, fmt.Errorf("converting public keys to mask: %w", err)
+	bdnMask := a.mask.Clone()
+	for _, bit := range mask {
+		if err := bdnMask.SetBit(bit, true); err != nil {
+			return nil, err
+		}
 	}
 
-	aggSigPoint, err := v.scheme.AggregateSignatures(signatures, mask)
+	aggSigPoint, err := a.scheme.AggregateSignatures(signatures, bdnMask)
 	if err != nil {
 		return nil, fmt.Errorf("computing aggregate signature: %w", err)
 	}
@@ -59,7 +67,7 @@ func (v *Verifier) Aggregate(pubkeys []gpbft.PubKey, signatures [][]byte) (_agg 
 	return aggSig, nil
 }
 
-func (v *Verifier) VerifyAggregate(msg []byte, signature []byte, pubkeys []gpbft.PubKey) (_err error) {
+func (a *aggregation) VerifyAggregate(mask []int, msg []byte, signature []byte) (_err error) {
 	defer func() {
 		status := measurements.AttrStatusSuccess
 		if _err != nil {
@@ -75,25 +83,35 @@ func (v *Verifier) VerifyAggregate(msg []byte, signature []byte, pubkeys []gpbft
 		}
 
 		metrics.verifyAggregate.Record(
-			context.TODO(), int64(len(pubkeys)),
+			context.TODO(), int64(len(mask)),
 			metric.WithAttributes(status),
 		)
 	}()
 
-	mask, err := v.pubkeysToMask(pubkeys)
-	if err != nil {
-		return fmt.Errorf("converting public keys to mask: %w", err)
+	bdnMask := a.mask.Clone()
+	for _, bit := range mask {
+		if err := bdnMask.SetBit(bit, true); err != nil {
+			return err
+		}
 	}
 
-	aggPubKey, err := v.scheme.AggregatePublicKeys(mask)
+	aggPubKey, err := a.scheme.AggregatePublicKeys(bdnMask)
 	if err != nil {
 		return fmt.Errorf("aggregating public keys: %w", err)
 	}
 
-	return v.scheme.Verify(aggPubKey, msg, signature)
+	return a.scheme.Verify(aggPubKey, msg, signature)
 }
 
-func (v *Verifier) pubkeysToMask(pubkeys []gpbft.PubKey) (*sign.Mask, error) {
+func (v *Verifier) Aggregate(pubkeys []gpbft.PubKey) (_agg gpbft.Aggregate, _err error) {
+	defer func() {
+		if perr := recover(); perr != nil {
+			_err = fmt.Errorf("panicked aggregating public keys: %v\n%s",
+				perr, string(debug.Stack()))
+			log.Error(_err)
+		}
+	}()
+
 	kPubkeys := make([]kyber.Point, 0, len(pubkeys))
 	for i, p := range pubkeys {
 		point, err := v.pubkeyToPoint(p)
@@ -107,11 +125,12 @@ func (v *Verifier) pubkeysToMask(pubkeys []gpbft.PubKey) (*sign.Mask, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating key mask: %w", err)
 	}
-	for i := range kPubkeys {
-		err := mask.SetBit(i, true)
-		if err != nil {
-			return nil, fmt.Errorf("setting mask bit %d: %w", i, err)
-		}
+	cmask, err := bdn.NewCachedMask(mask)
+	if err != nil {
+		return nil, fmt.Errorf("creating cached bdn mask: %w", err)
 	}
-	return mask, nil
+	return &aggregation{
+		mask:   cmask,
+		scheme: v.scheme,
+	}, nil
 }
