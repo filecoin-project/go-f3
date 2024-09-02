@@ -96,7 +96,7 @@ func (h *driverHost) getInstance(id uint64) *Instance {
 	return h.chain[id]
 }
 
-func (h *driverHost) popReceivedBroadcast() *gpbft.GMessage {
+func (h *driverHost) popNextBroadcast() *gpbft.GMessage {
 	switch len(h.receivedBroadcasts) {
 	case 0:
 		return nil
@@ -104,6 +104,15 @@ func (h *driverHost) popReceivedBroadcast() *gpbft.GMessage {
 		message := h.receivedBroadcasts[0]
 		h.receivedBroadcasts = h.receivedBroadcasts[1:]
 		return message
+	}
+}
+
+func (h *driverHost) peekLastBroadcast() *gpbft.GMessage {
+	switch l := len(h.receivedBroadcasts); l {
+	case 0:
+		return nil
+	default:
+		return h.receivedBroadcasts[l-1]
 	}
 }
 

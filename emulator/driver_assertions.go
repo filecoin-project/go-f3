@@ -32,11 +32,11 @@ func (d *Driver) RequireDeliverAlarm() {
 }
 
 func (d *Driver) RequireNoBroadcast() {
-	d.require.Nil(d.host.popReceivedBroadcast())
+	d.require.Nil(d.host.popNextBroadcast())
 }
 
 func (d *Driver) RequireQuality() {
-	msg := d.host.popReceivedBroadcast()
+	msg := d.host.popNextBroadcast()
 	d.require.NotNil(msg)
 	instance := d.host.getInstance(msg.Vote.Instance)
 	d.require.NotNil(instance)
@@ -56,7 +56,7 @@ func (d *Driver) RequirePrepare(value gpbft.ECChain) {
 }
 
 func (d *Driver) RequirePrepareAtRound(round uint64, value gpbft.ECChain, justification *gpbft.Justification) {
-	msg := d.host.popReceivedBroadcast()
+	msg := d.host.popNextBroadcast()
 	d.require.NotNil(msg)
 	instance := d.host.getInstance(msg.Vote.Instance)
 	d.require.NotNil(instance)
@@ -76,7 +76,7 @@ func (d *Driver) RequireCommitForBottom(round uint64) {
 }
 
 func (d *Driver) RequireCommit(round uint64, vote gpbft.ECChain, justification *gpbft.Justification) {
-	msg := d.host.popReceivedBroadcast()
+	msg := d.host.popNextBroadcast()
 	d.require.NotNil(msg)
 	instance := d.host.getInstance(msg.Vote.Instance)
 	d.require.NotNil(instance)
@@ -92,7 +92,7 @@ func (d *Driver) RequireCommit(round uint64, vote gpbft.ECChain, justification *
 }
 
 func (d *Driver) RequireConverge(round uint64, vote gpbft.ECChain, justification *gpbft.Justification) {
-	msg := d.host.popReceivedBroadcast()
+	msg := d.host.popNextBroadcast()
 	d.require.NotNil(msg)
 	instance := d.host.getInstance(msg.Vote.Instance)
 	d.require.NotNil(instance)
@@ -108,7 +108,7 @@ func (d *Driver) RequireConverge(round uint64, vote gpbft.ECChain, justification
 }
 
 func (d *Driver) RequireDecide(vote gpbft.ECChain, justification *gpbft.Justification) {
-	msg := d.host.popReceivedBroadcast()
+	msg := d.host.popNextBroadcast()
 	d.require.NotNil(msg)
 	instance := d.host.getInstance(msg.Vote.Instance)
 	d.require.NotNil(instance)
@@ -129,4 +129,13 @@ func (d *Driver) RequireDecision(instanceID uint64, expect gpbft.ECChain) {
 	decision := instance.GetDecision()
 	d.require.NotNil(decision)
 	d.require.Equal(expect, decision.Vote.Value)
+}
+
+// RequirePeekAtLastVote asserts that the last message broadcasted by the subject
+// participant was for the given phase, round and vote.
+func (d *Driver) RequirePeekAtLastVote(phase gpbft.Phase, round uint64, vote gpbft.ECChain) {
+	last := d.host.peekLastBroadcast()
+	d.require.Equal(phase, last.Vote.Phase, "Expected last vote phase %s, but got %s", phase, last.Vote.Phase)
+	d.require.Equal(round, last.Vote.Round, "Expected last vote round %d, but got %d", round, last.Vote.Round)
+	d.require.Equal(vote, last.Vote.Value, "Expected last vote value %s, but got %s", vote, last.Vote.Value)
 }

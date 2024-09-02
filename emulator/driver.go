@@ -60,6 +60,12 @@ func (d *Driver) AddInstance(instance *Instance) {
 	d.require.NoError(d.host.addInstance(instance))
 }
 
+// PeekLastBroadcastRequest gets the last broadcast requested by the subject
+// participant without removing it from the pending broadcasts.
+func (d *Driver) PeekLastBroadcastRequest() *gpbft.GMessage {
+	return d.host.peekLastBroadcast()
+}
+
 func (d *Driver) DeliverAlarm() (bool, error) {
 	if d.host.maybeReceiveAlarm() {
 		return true, d.subject.ReceiveAlarm()

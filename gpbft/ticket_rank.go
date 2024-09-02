@@ -10,7 +10,7 @@ import (
 
 // ComputeTicketRank computes a rank for the given ticket, weighted by a
 // participant's power. A lower rank value indicates a better ranking. The
-// process involves the following steps:
+// process involves the following phases:
 //
 //  1. Hash the ticket using the Blake2b256 hash function.
 //  2. Extract the low 128 bits from the hash and interpret them as a Q.128
