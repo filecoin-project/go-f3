@@ -19,7 +19,6 @@ func TestValidationError_SentinelValues(t *testing.T) {
 		{name: "ErrValidationWrongSupplement", subject: ErrValidationWrongSupplement},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			require.True(t, errors.As(test.subject, &ValidationError{}))
 			require.True(t, errors.As(test.subject, &ValidationError{message: "fish"}))

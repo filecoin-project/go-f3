@@ -46,8 +46,6 @@ func TestDenyPhase(t *testing.T) {
 
 	for _, phase := range []gpbft.Phase{gpbft.QUALITY_PHASE, gpbft.PREPARE_PHASE, gpbft.CONVERGE_PHASE, gpbft.COMMIT_PHASE} {
 		for _, denyMode := range []adversary.DenyTargetMode{adversary.DenyToOrFrom, adversary.DenyFrom, adversary.DenyTo} {
-			phase := phase
-			denyMode := denyMode
 			t.Run(fmt.Sprintf("%s/%s", denyMode, phase), func(t *testing.T) {
 				t.Parallel()
 				ecGen := sim.NewUniformECChainGenerator(4332432, 1, 5)

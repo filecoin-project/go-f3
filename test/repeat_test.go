@@ -90,9 +90,7 @@ func FuzzRepeatAdversary(f *testing.F) {
 	f.Fuzz(func(t *testing.T, seed int) {
 		t.Parallel()
 		for _, hc := range repeatAdversaryTestHonestCounts {
-			hc := hc
 			for _, test := range tests {
-				test := test
 				t.Run(test.name, func(t *testing.T) {
 					t.Parallel()
 					rng := rand.New(rand.NewSource(int64(seed)))
