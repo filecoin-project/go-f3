@@ -277,7 +277,7 @@ func (c ECChain) Validate() error {
 // Returns an identifier for the chain suitable for use as a map key.
 // This must completely determine the sequence of tipsets in the chain.
 func (c ECChain) Key() ChainKey {
-	ln := len(c) * (8 + 32 + 4) // epoch + commitement + ts length
+	ln := len(c) * (8 + 32 + 4) // epoch + commitment + ts length
 	for i := range c {
 		ln += len(c[i].Key) + c[i].PowerTable.ByteLen()
 	}
