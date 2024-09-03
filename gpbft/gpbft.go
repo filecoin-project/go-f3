@@ -645,49 +645,55 @@ func (i *instance) beginCommit() {
 }
 
 func (i *instance) tryCommit(round uint64) error {
-	// Unlike all other phases, the COMMIT phase stays open to new messages even after an initial quorum is reached,
-	// and the algorithm moves on to the next round.
-	// A subsequent COMMIT message can cause the node to decide, so there is no check on the current phase.
+	// Unlike all other phases, the COMMIT phase stays open to new messages even
+	// after an initial quorum is reached, and the algorithm moves on to the next
+	// round. A subsequent COMMIT message can cause the node to decide, so there is
+	// no check on the current phase.
 	committed := i.getRound(round).committed
 	quorumValue, foundStrongQuorum := committed.FindStrongQuorumValue()
 	timedOut := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
 	phaseComplete := timedOut && committed.ReceivedFromStrongQuorum()
 
-	if foundStrongQuorum && !quorumValue.IsZero() {
-		// A participant may be forced to decide a value that's not its preferred chain.
-		// The participant isn't influencing that decision against their interest, just accepting it.
+	switch {
+	case foundStrongQuorum && !quorumValue.IsZero():
+		// There is a strong quorum for a non-zero value; accept it. A participant may be
+		// forced to decide a value that's not its preferred chain. The participant isn't
+		// influencing that decision against their interest, just accepting it.
 		i.value = quorumValue
 		i.beginDecide(round)
-	} else if i.round == round && i.phase == COMMIT_PHASE && (foundStrongQuorum || phaseComplete) {
-		if foundStrongQuorum {
-			// If there is a strong quorum for bottom, carry forward the existing proposal.
-		} else {
-			// If there is no strong quorum for bottom, there must be a COMMIT for some other value.
-			// There can only be one such value since it must be justified by a strong quorum of PREPAREs.
-			// Some other participant could possibly have observed a strong quorum for that value,
-			// since they might observe votes from ⅓ of honest power plus a ⅓ equivocating adversary.
-			// Sway to consider that value as a candidate, even if it wasn't the local proposal.
-			for _, v := range committed.ListAllValues() {
-				if !v.IsZero() {
-					if !i.isCandidate(v) {
-						i.log("⚠️ swaying from %s to %s by COMMIT", &i.input, &v)
-						i.candidates = append(i.candidates, v)
-					}
-					if !v.Eq(i.proposal) {
-						i.proposal = v
-						i.log("adopting proposal %s after commit", &i.proposal)
-					}
-					break
+	case i.round != round, i.phase != COMMIT_PHASE:
+		// We are at a phase other than COMMIT or round does not match the current one;
+		// nothing else to do.
+	case foundStrongQuorum:
+		// There is a strong quorum for bottom, carry forward the existing proposal.
+		i.beginNextRound()
+	case phaseComplete:
+		// There is no strong quorum for bottom, which implies there must be a COMMIT for
+		// some other value. There can only be one such value since it must be justified
+		// by a strong quorum of PREPAREs. Some other participant could possibly have
+		// observed a strong quorum for that value, since they might observe votes from ⅓
+		// of honest power plus a ⅓ equivocating adversary. Sway to consider that value
+		// as a candidate, even if it wasn't the local proposal.
+		for _, v := range committed.ListAllValues() {
+			if !v.IsZero() {
+				if !i.isCandidate(v) {
+					i.log("⚠️ swaying from %s to %s by COMMIT", &i.input, &v)
+					i.candidates = append(i.candidates, v)
 				}
+				if !v.Eq(i.proposal) {
+					i.proposal = v
+					i.log("adopting proposal %s after commit", &i.proposal)
+				}
+				break
 			}
 		}
 		i.beginNextRound()
-	} else if timedOut {
+	case timedOut:
+		// The phase has timed out. Attempt to re-broadcast messages.
 		if err := i.tryRebroadcast(); err != nil {
 			return fmt.Errorf("failed to rebroadcast at %s step: %w", i.phase, err)
 		}
 	}
-
 	return nil
 }
 
