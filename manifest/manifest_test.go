@@ -80,7 +80,6 @@ func TestManifest_Serialization(t *testing.T) {
 			want:  &base,
 		},
 	} {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			got, err := manifest.Unmarshal(bytes.NewReader(test.given))
 			require.NoError(t, err)
@@ -104,7 +103,6 @@ func TestManifest_NetworkName(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			m := manifest.Manifest{NetworkName: test.subject}
 			gotDsPrefix := m.DatastorePrefix().String()

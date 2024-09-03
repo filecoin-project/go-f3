@@ -151,7 +151,6 @@ func TestPowerTable(t *testing.T) {
 			},
 		}
 		for _, test := range tests {
-			test := test
 			t.Run(test.name, func(t *testing.T) {
 				subject := test.subject()
 				gotErr := subject.Validate()
@@ -186,7 +185,6 @@ func TestPowerTable(t *testing.T) {
 			},
 		}
 		for _, test := range tests {
-			test := test
 			t.Run(test.name, func(t *testing.T) {
 				subject := test.subject()
 				gotCopy := subject.Copy()

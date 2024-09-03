@@ -34,9 +34,7 @@ func TestDrop_ReachesConsensusDespiteMessageLoss(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		test := test
 		for _, lossProbability := range messageLossProbabilities {
-			lossProbability := lossProbability
 			name := fmt.Sprintf("%s %.0f%% loss", test.name, lossProbability*100)
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()

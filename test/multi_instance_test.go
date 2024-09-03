@@ -33,11 +33,9 @@ func TestHonestMultiInstance_Agreement(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			for hc := 1; hc <= maxHonestCount; hc++ {
-				hc := hc
 				t.Run(fmt.Sprintf("%d", hc), func(t *testing.T) {
 					multiAgreementTest(t, testRNGSeed, hc, instanceCount, maxRounds, test.options...)
 				})

@@ -66,9 +66,7 @@ func TestHonest_Agreement(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		test := test
 		for _, participantCount := range test.participantCounts {
-			participantCount := participantCount
 			name := fmt.Sprintf("%s %d", test.name, participantCount)
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
@@ -139,9 +137,7 @@ func TestHonest_Disagreement(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		for _, participantCount := range test.participantCounts {
-			participantCount := participantCount
 			name := fmt.Sprintf("%s %d", test.name, participantCount)
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()

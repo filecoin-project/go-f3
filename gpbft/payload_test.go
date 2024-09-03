@@ -76,7 +76,6 @@ func TestPayload_Eq(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			require.Equal(t, test.wantEqual, test.one.Eq(test.other))
 		})
@@ -140,7 +139,6 @@ func TestPayload_MarshalForSigning(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			got := test.subject.MarshalForSigning(test.networkName)
 			require.NotEmpty(t, got)

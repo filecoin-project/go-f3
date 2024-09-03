@@ -438,7 +438,6 @@ func TestParticipant(t *testing.T) {
 				},
 			}
 			for _, test := range tests {
-				test := test
 				t.Run(test.name, func(t *testing.T) {
 					subject := newParticipantTestSubject(t, seed, initialInstance)
 					subject.requireStart()
@@ -951,7 +950,6 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			subject := newParticipantTestSubject(t, seed, initialInstanceNumber)
 			require.NoError(t, subject.powerTable.Add(somePowerEntry))
