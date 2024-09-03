@@ -435,7 +435,7 @@ func (i *instance) shouldSkipToRound(round uint64, state *roundState) (ECChain, 
 	if !state.prepared.ReceivedFromWeakQuorum() {
 		return nil, nil, false
 	}
-	proposal := state.converged.FindBestTicketProposal(i.powerTable, nil)
+	proposal := state.converged.FindBestTicketProposal(nil)
 	if !proposal.IsValid() {
 		// FindMaxTicketProposal returns a zero-valued ConvergeValue if no such ticket is
 		// found. Hence the check for nil. Otherwise, if found such ConvergeValue must
@@ -560,7 +560,7 @@ func (i *instance) tryConverge() error {
 		return possibleDecision
 	}
 
-	winner := i.getRound(i.round).converged.FindBestTicketProposal(i.powerTable, isValidConvergeValue)
+	winner := i.getRound(i.round).converged.FindBestTicketProposal(isValidConvergeValue)
 	if !winner.IsValid() {
 		return fmt.Errorf("no values at CONVERGE")
 	}
@@ -1334,7 +1334,7 @@ func (c *convergeState) Receive(sender ActorID, table PowerTable, value ECChain,
 // sender power. The filter is applied to select considered converge values.
 // nil value filter is equivalent to consider all.
 // Returns an invalid (zero-value) ConvergeValue if no converge value is found.
-func (c *convergeState) FindBestTicketProposal(table PowerTable, filter func(ConvergeValue) bool) ConvergeValue {
+func (c *convergeState) FindBestTicketProposal(filter func(ConvergeValue) bool) ConvergeValue {
 	// Non-determinism in case of matching tickets from an equivocation is ok.
 	// If the same ticket is used for two different values then either we get a decision on one of them
 	// only or we go to a new round. Eventually there is a round where the max ticket is held by a
