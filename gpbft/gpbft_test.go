@@ -936,6 +936,10 @@ func TestGPBFT_Validation(t *testing.T) {
 			ID:    1,
 			Power: gpbft.NewStoragePower(1),
 		},
+		gpbft.PowerEntry{
+			ID:    2,
+			Power: gpbft.NewStoragePower(3),
+		},
 	}
 
 	tests := []struct {
@@ -1050,6 +1054,54 @@ func TestGPBFT_Validation(t *testing.T) {
 				}
 			},
 			errContains: "has no justification",
+		},
+		{
+			name: "converge for bottom",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				return &gpbft.GMessage{
+					Sender:        1,
+					Vote:          instance.NewConverge(12, gpbft.ECChain{}),
+					Ticket:        emulator.ValidTicket,
+					Justification: instance.NewJustification(11, gpbft.PREPARE_PHASE, gpbft.ECChain{}, 0, 1),
+				}
+			},
+			errContains: "unexpected zero value for converge phase",
+		},
+		{
+			name: "non-zero value for PREPARE justified by COMMIT",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				return &gpbft.GMessage{
+					Sender:        1,
+					Vote:          instance.NewPrepare(3, instance.Proposal()),
+					Ticket:        emulator.ValidTicket,
+					Justification: instance.NewJustification(2, gpbft.COMMIT_PHASE, instance.Proposal(), 0, 1),
+				}
+			},
+			errContains: "justification for a different value",
+		},
+		{
+			name: "unexpected phase for justification of PREPARE",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				return &gpbft.GMessage{
+					Sender:        1,
+					Vote:          instance.NewPrepare(3, instance.Proposal()),
+					Ticket:        emulator.ValidTicket,
+					Justification: instance.NewJustification(2, gpbft.CONVERGE_PHASE, instance.Proposal(), 0, 1),
+				}
+			},
+			errContains: "justification with unexpected phase",
+		},
+		{
+			name: "justification aggregate with unsorted signatures",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				return &gpbft.GMessage{
+					Sender:        1,
+					Vote:          instance.NewPrepare(3, gpbft.ECChain{}),
+					Ticket:        emulator.ValidTicket,
+					Justification: instance.NewJustification(2, gpbft.COMMIT_PHASE, gpbft.ECChain{}, 0, 1, 2),
+				}
+			},
+			errContains: "invalid aggregate",
 		},
 	}
 	for _, test := range tests {
