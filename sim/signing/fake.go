@@ -116,7 +116,7 @@ func (v *FakeBackend) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Pa
 		length += 8 // epoch
 		length += len(ts.Key)
 		length += len(ts.Commitments)
-		length += len(ts.PowerTable)
+		length += ts.PowerTable.ByteLen()
 	}
 
 	var buf bytes.Buffer
@@ -130,14 +130,14 @@ func (v *FakeBackend) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Pa
 	_ = binary.Write(&buf, binary.BigEndian, p.Round)
 	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
 	_, _ = buf.Write(p.SupplementalData.Commitments[:])
-	_, _ = buf.Write(p.SupplementalData.PowerTable)
+	_, _ = buf.Write(p.SupplementalData.PowerTable.Bytes())
 	_ = binary.Write(&buf, binary.BigEndian, uint32(len(p.Value)))
 	for i := range p.Value {
 		ts := &p.Value[i]
 
 		_ = binary.Write(&buf, binary.BigEndian, ts.Epoch)
 		_, _ = buf.Write(ts.Commitments[:])
-		_, _ = buf.Write(ts.PowerTable)
+		_, _ = buf.Write(ts.PowerTable.Bytes())
 		_, _ = buf.Write(ts.Key)
 	}
 	return buf.Bytes()

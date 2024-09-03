@@ -976,7 +976,8 @@ func TestGPBFT_Validation(t *testing.T) {
 				return &gpbft.GMessage{
 					Sender: 1,
 					Vote: instance.NewQuality(gpbft.ECChain{gpbft.TipSet{
-						Epoch: -1,
+						Epoch:      -1,
+						PowerTable: instance.SupplementalData().PowerTable,
 					}}),
 				}
 			},
@@ -990,7 +991,7 @@ func TestGPBFT_Validation(t *testing.T) {
 					Vote: gpbft.Payload{
 						Step: gpbft.DECIDE_PHASE,
 						SupplementalData: gpbft.SupplementalData{
-							PowerTable: []byte("fish"),
+							PowerTable: gpbft.MakeCid([]byte("fish")),
 						},
 						Value: instance.Proposal(),
 					},
@@ -1005,8 +1006,9 @@ func TestGPBFT_Validation(t *testing.T) {
 				return &gpbft.GMessage{
 					Sender: 1,
 					Vote: gpbft.Payload{
-						Step:  gpbft.DECIDE_PHASE,
-						Value: instance.Proposal(),
+						Step:             gpbft.DECIDE_PHASE,
+						Value:            instance.Proposal(),
+						SupplementalData: instance.SupplementalData(),
 					},
 					Justification: instance.NewJustification(55, gpbft.COMMIT_PHASE, instance.Proposal().Extend([]byte("lobster")), 0, 1),
 				}
@@ -1019,11 +1021,13 @@ func TestGPBFT_Validation(t *testing.T) {
 				return &gpbft.GMessage{
 					Sender: 1,
 					Vote: gpbft.Payload{
-						Step:  gpbft.DECIDE_PHASE,
-						Value: instance.Proposal(),
+						Step:             gpbft.DECIDE_PHASE,
+						Value:            instance.Proposal(),
+						SupplementalData: instance.SupplementalData(),
 					},
 					Justification: instance.NewJustification(55, gpbft.COMMIT_PHASE, gpbft.ECChain{gpbft.TipSet{
-						Epoch: -2,
+						Epoch:      -2,
+						PowerTable: instance.SupplementalData().PowerTable,
 					}}, 0, 1),
 				}
 			},
@@ -1036,8 +1040,9 @@ func TestGPBFT_Validation(t *testing.T) {
 				return &gpbft.GMessage{
 					Sender: 1,
 					Vote: gpbft.Payload{
-						Step:  gpbft.DECIDE_PHASE,
-						Value: instance.Proposal(),
+						Step:             gpbft.DECIDE_PHASE,
+						Value:            instance.Proposal(),
+						SupplementalData: instance.SupplementalData(),
 					},
 					Justification: newInstance.NewJustification(55, gpbft.COMMIT_PHASE, instance.Proposal().Extend([]byte("lobster")), 0, 1),
 				}

@@ -37,7 +37,7 @@ func TestPayload_Eq(t *testing.T) {
 				Step:     gpbft.TERMINATED_PHASE,
 				SupplementalData: gpbft.SupplementalData{
 					Commitments: [32]byte{1, 2, 3, 4},
-					PowerTable:  []byte("fish"),
+					PowerTable:  ptCid,
 				},
 				Value: someChain,
 			},
@@ -47,7 +47,7 @@ func TestPayload_Eq(t *testing.T) {
 				Step:     gpbft.TERMINATED_PHASE,
 				SupplementalData: gpbft.SupplementalData{
 					Commitments: [32]byte{1, 2, 3, 4},
-					PowerTable:  []byte("fish"),
+					PowerTable:  ptCid,
 				},
 				Value: someChain,
 			},
@@ -60,7 +60,7 @@ func TestPayload_Eq(t *testing.T) {
 				Step:     gpbft.TERMINATED_PHASE,
 				SupplementalData: gpbft.SupplementalData{
 					Commitments: [32]byte{1, 2, 3, 4},
-					PowerTable:  []byte("fish"),
+					PowerTable:  ptCid,
 				},
 			},
 			other: &gpbft.Payload{
@@ -69,7 +69,7 @@ func TestPayload_Eq(t *testing.T) {
 				Step:     gpbft.TERMINATED_PHASE,
 				SupplementalData: gpbft.SupplementalData{
 					Commitments: [32]byte{1, 2, 3, 4},
-					PowerTable:  []byte("fish"),
+					PowerTable:  ptCid,
 				},
 				Value: someChain,
 			},
@@ -117,7 +117,7 @@ func TestPayload_MarshalForSigning(t *testing.T) {
 				Step:     gpbft.TERMINATED_PHASE,
 				SupplementalData: gpbft.SupplementalData{
 					Commitments: [32]byte([]byte("🐡 fish unda da sea 🪼  🌊")),
-					PowerTable:  []byte("barreleye"),
+					PowerTable:  ptCid,
 				},
 				Value: someChain,
 			},
@@ -134,8 +134,12 @@ func TestPayload_MarshalForSigning(t *testing.T) {
 				0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
 				0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
 				0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-				0x0, 0x0, 0x0, 0x0, 0x62, 0x61, 0x72, 0x72,
-				0x65, 0x6c, 0x65, 0x79, 0x65},
+				0x0, 0x0, 0x0, 0x0, 0x1, 0x71, 0xa0, 0xe4,
+				0x2, 0x20, 0xfb, 0x3e, 0x4d, 0x51, 0x32,
+				0x34, 0xf9, 0x4f, 0x10, 0x67, 0xbd, 0x4a,
+				0x49, 0x6b, 0xb8, 0x48, 0xf0, 0x73, 0xd,
+				0x9b, 0x7c, 0x7f, 0xfa, 0x5a, 0xc5, 0x4e,
+				0xec, 0xab, 0xb6, 0xac, 0xd3, 0xc7},
 		},
 	}
 	for _, test := range tests {

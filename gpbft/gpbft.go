@@ -14,6 +14,7 @@ import (
 	"github.com/filecoin-project/go-bitfield"
 	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
 	"github.com/filecoin-project/go-f3/merkle"
+	"github.com/ipfs/go-cid"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -86,12 +87,11 @@ type SupplementalData struct {
 	Commitments [32]byte
 	// The DagCBOR-blake2b256 CID of the power table used to validate the next instance, taking
 	// lookback into account.
-	PowerTable CID `cborgen:"maxlen=38"` // []PowerEntry
+	PowerTable cid.Cid // []PowerEntry
 }
 
 func (d *SupplementalData) Eq(other *SupplementalData) bool {
-	return d.Commitments == other.Commitments &&
-		bytes.Equal(d.PowerTable, other.PowerTable)
+	return d.Commitments == other.Commitments && d.PowerTable == other.PowerTable
 }
 
 // Fields of the message that make up the signature payload.
@@ -140,7 +140,7 @@ func (p *Payload) MarshalForSigning(nn NetworkName) []byte {
 	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
 	_, _ = buf.Write(p.SupplementalData.Commitments[:])
 	_, _ = buf.Write(root[:])
-	_, _ = buf.Write(p.SupplementalData.PowerTable)
+	_, _ = buf.Write(p.SupplementalData.PowerTable.Bytes())
 	return buf.Bytes()
 }
 

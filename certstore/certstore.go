@@ -380,8 +380,8 @@ func (cs *Store) Put(ctx context.Context, cert *certs.FinalityCertificate) error
 	// later.
 	if ptCid, err := certs.MakePowerTableCID(newPowerTable); err != nil {
 		return err
-	} else if !bytes.Equal(ptCid, cert.SupplementalData.PowerTable) {
-		return fmt.Errorf("new power table differs from expected power table")
+	} else if ptCid != cert.SupplementalData.PowerTable {
+		return fmt.Errorf("new power table differs from expected power table: %s != %s", ptCid, cert.SupplementalData.PowerTable)
 	}
 
 	// Double check that we're not killing the network.

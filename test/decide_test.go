@@ -147,7 +147,9 @@ func TestIllegalCommittee_WrongSupplementalData(t *testing.T) {
 				adversaryValue,
 				gpbft.NewStoragePower(3),
 				// Justify the base-chain, but attempt to decide on something else.
-				adversary.ImmediateDecideWithJustifiedSupplementalData(gpbft.SupplementalData{}))))...)
+				adversary.ImmediateDecideWithJustifiedSupplementalData(gpbft.SupplementalData{
+					PowerTable: gpbft.MakeCid([]byte("wrong")),
+				}))))...)
 	require.NoError(t, err)
 
 	err = sm.Run(1, maxRounds)

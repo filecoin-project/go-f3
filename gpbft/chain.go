@@ -8,14 +8,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ipfs/go-cid"
+	"github.com/multiformats/go-multihash"
 	cbg "github.com/whyrusleeping/cbor-gen"
-	"golang.org/x/crypto/blake2b"
 )
 
 // TipSetKey is the canonically ordered concatenation of the block CIDs in a tipset.
 type TipSetKey = []byte
-
-type CID = []byte
 
 const (
 	// CidMaxLen specifies the maximum length of a CID.
@@ -29,30 +28,20 @@ const (
 )
 
 // This the CID "prefix" of a v1-DagCBOR-Blake2b256-32 CID. That is:
-//
-// - 0x01     CIDv1
-// - 0x71     DagCBOR
-// - 0xA0E402 LEB128 encoded Blake2b256 multicodec
-// - 0x20     32 (length of the digest)
-var cidPrefix = []byte{0x01, 0x71, 0xA0, 0xE4, 0x02, 0x20}
-
-// Hashes the given data and returns a CBOR + blake2b-256 CID.
-func MakeCid(data []byte) []byte {
-	// We construct this CID manually to avoid depending on go-cid (it's also a _bit_ faster).
-	digest := blake2b.Sum256(data)
-
-	return DigestToCid(digest[:])
+var CidPrefix = cid.Prefix{
+	Version:  1,
+	Codec:    cid.DagCBOR,
+	MhType:   multihash.BLAKE2B_MIN + 31,
+	MhLength: 32,
 }
 
-// DigestToCid turns a digest into CBOR + blake2b-256 CID
-func DigestToCid(digest []byte) []byte {
-	if len(digest) != 32 {
-		panic(fmt.Sprintf("wrong length of digest, expected 32, got %d", len(digest)))
+// Hashes the given data and returns a CBOR + blake2b-256 CID.
+func MakeCid(data []byte) cid.Cid {
+	k, err := CidPrefix.Sum(data)
+	if err != nil {
+		panic(err)
 	}
-	out := make([]byte, 0, CidMaxLen)
-	out = append(out, cidPrefix...)
-	out = append(out, digest...)
-	return out
+	return k
 }
 
 // TipSet represents a single EC tipset.
@@ -62,7 +51,7 @@ type TipSet struct {
 	// The tipset's key (canonically ordered concatenated block-header CIDs).
 	Key TipSetKey `cborgen:"maxlen=760"` // 20 * 38B
 	// Blake2b256-32 CID of the CBOR-encoded power table.
-	PowerTable CID `cborgen:"maxlen=38"` // []PowerEntry
+	PowerTable cid.Cid
 	// Keccak256 root hash of the commitments merkle tree.
 	Commitments [32]byte
 }
@@ -76,10 +65,10 @@ func (ts *TipSet) Validate() error {
 	if len(ts.Key) > TipsetKeyMaxLen {
 		return errors.New("tipset key too long")
 	}
-	if len(ts.PowerTable) == 0 {
+	if !ts.PowerTable.Defined() {
 		return errors.New("power table CID must not be empty")
 	}
-	if len(ts.PowerTable) > CidMaxLen {
+	if ts.PowerTable.ByteLen() > CidMaxLen {
 		return errors.New("power table CID too long")
 	}
 	return nil
@@ -92,7 +81,7 @@ func (ts *TipSet) IsZero() bool {
 func (ts *TipSet) Equal(b *TipSet) bool {
 	return ts.Epoch == b.Epoch &&
 		bytes.Equal(ts.Key, b.Key) &&
-		bytes.Equal(ts.PowerTable, b.PowerTable) &&
+		ts.PowerTable == b.PowerTable &&
 		ts.Commitments == b.Commitments
 }
 
@@ -102,12 +91,12 @@ func (ts *TipSet) MarshalForSigning() []byte {
 	_ = cbg.WriteByteArray(&buf, ts.Key)
 	tsCid := MakeCid(buf.Bytes())
 	buf.Reset()
-	buf.Grow(len(tsCid) + len(ts.PowerTable) + 32 + 8)
+	buf.Grow(tsCid.ByteLen() + ts.PowerTable.ByteLen() + 32 + 8)
 	// epoch || commitments || tipset || powertable
 	_ = binary.Write(&buf, binary.BigEndian, ts.Epoch)
 	_, _ = buf.Write(ts.Commitments[:])
-	_, _ = buf.Write(tsCid)
-	_, _ = buf.Write(ts.PowerTable)
+	_, _ = buf.Write(tsCid.Bytes())
+	_, _ = buf.Write(ts.PowerTable.Bytes())
 	return buf.Bytes()
 }
 
@@ -290,7 +279,7 @@ func (c ECChain) Validate() error {
 func (c ECChain) Key() ChainKey {
 	ln := len(c) * (8 + 32 + 4) // epoch + commitement + ts length
 	for i := range c {
-		ln += len(c[i].Key) + len(c[i].PowerTable)
+		ln += len(c[i].Key) + c[i].PowerTable.ByteLen()
 	}
 	var buf bytes.Buffer
 	buf.Grow(ln)
@@ -300,7 +289,7 @@ func (c ECChain) Key() ChainKey {
 		_, _ = buf.Write(ts.Commitments[:])
 		_ = binary.Write(&buf, binary.BigEndian, uint32(len(ts.Key)))
 		buf.Write(ts.Key)
-		_, _ = buf.Write(ts.PowerTable)
+		_, _ = buf.Write(ts.PowerTable.Bytes())
 	}
 	return ChainKey(buf.String())
 }

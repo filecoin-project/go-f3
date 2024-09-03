@@ -46,7 +46,7 @@ func NewInstance(t *testing.T, id uint64, powerEntries gpbft.PowerEntries, propo
 	pt := gpbft.NewPowerTable()
 	require.NoError(t, pt.Add(powerEntries...))
 	for i, tipset := range proposal {
-		if len(tipset.PowerTable) == 0 {
+		if !tipset.PowerTable.Defined() {
 			// Populate missing power table CIDs to avoid validation error when constructing
 			// ECChain.
 			proposal[i].PowerTable = ptCid
@@ -63,6 +63,10 @@ func NewInstance(t *testing.T, id uint64, powerEntries gpbft.PowerEntries, propo
 		powerTable: pt,
 		beacon:     []byte(fmt.Sprintf("🥓%d", id)),
 		proposal:   proposalChain,
+		supplementalData: gpbft.SupplementalData{
+			Commitments: [32]byte{},
+			PowerTable:  ptCid,
+		},
 	}
 }
 
@@ -102,7 +106,7 @@ func (i *Instance) NewPayload(round uint64, step gpbft.Phase, value gpbft.ECChai
 }
 
 func (i *Instance) NewMessageBuilder(payload gpbft.Payload, justification *gpbft.Justification, withTicket bool) *gpbft.MessageBuilder {
-	if len(payload.SupplementalData.PowerTable) == 0 {
+	if !payload.SupplementalData.PowerTable.Defined() {
 		// Only fill in the power table cid if empty to allow emulation of invalid supplemental data.
 		payload.SupplementalData.PowerTable = i.supplementalData.PowerTable
 	}

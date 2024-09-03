@@ -75,6 +75,8 @@ func NewFakeEC(ctx context.Context, seed uint64, bootstrapEpoch int64, ecPeriod 
 	}
 }
 
+var cidPrefixBytes = gpbft.CidPrefix.Bytes()
+
 func (ec *FakeEC) genTipset(epoch int64) *Tipset {
 	h, err := blake2b.New256(ec.seed)
 	if err != nil {
@@ -102,7 +104,8 @@ func (ec *FakeEC) genTipset(epoch int64) *Tipset {
 			//encode epoch in the first block hash
 			binary.BigEndian.PutUint64(digest[32-8:], uint64(epoch))
 		}
-		tsk = append(tsk, gpbft.DigestToCid(digest)...)
+		tsk = append(tsk, cidPrefixBytes...)
+		tsk = append(tsk, digest...)
 	}
 	return &Tipset{
 		tsk:       tsk,

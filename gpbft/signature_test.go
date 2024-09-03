@@ -24,14 +24,14 @@ func TestPayloadMarshalForSigning(t *testing.T) {
 		},
 		Value: nil, // not valid in f3, but an empty merkle-tree is defined to hash to all zeros.
 	}).MarshalForSigning(nn)
-	require.Len(t, encoded, 96+len(powerTableCid))
+	require.Len(t, encoded, 96+powerTableCid.ByteLen())
 	assert.Equal(t, encoded[:15], []byte("GPBFT:filecoin:"))            // separators
 	assert.Equal(t, encoded[15], uint8(3))                              // step
 	assert.Equal(t, binary.BigEndian.Uint64(encoded[16:24]), uint64(2)) // round
 	assert.Equal(t, binary.BigEndian.Uint64(encoded[24:32]), uint64(1)) // instance (32-byte right aligned)
 	assert.EqualValues(t, encoded[32:64], [32]byte{0x42})               // commitments root
 	assert.EqualValues(t, encoded[64:96], [32]byte{})                   // tipsets
-	assert.EqualValues(t, encoded[96:], powerTableCid)                  // next power table
+	assert.EqualValues(t, encoded[96:], powerTableCid.Bytes())          // next power table
 
 	// Simulate a signed decide message, the one we'll need to verify as a part of finality certificates.
 	encoded = (&gpbft.Payload{
@@ -51,7 +51,7 @@ func TestPayloadMarshalForSigning(t *testing.T) {
 
 	// We expect the instance to be encoded in the last 8 bytes, 32-byte right-aligned.
 	expected[31] = 29
-	expected = append(expected, powerTableCid...)
+	expected = append(expected, powerTableCid.Bytes()...)
 
 	assert.Equal(t, expected, encoded)
 }
@@ -65,7 +65,7 @@ func BenchmarkPayloadMarshalForSigning(b *testing.B) {
 		maxChain[i] = gpbft.TipSet{
 			Epoch:      int64(i),
 			Key:        ts,
-			PowerTable: make([]byte, 38),
+			PowerTable: ptCid,
 		}
 	}
 	payload := &gpbft.Payload{
@@ -87,13 +87,11 @@ func TestTipSetMarshalForSigning(t *testing.T) {
 
 	tsk := make([]byte, 38*5)
 	tsk[0] = 110
-	pt := make([]byte, 38)
-	pt[0] = 123
 	comm := [32]byte{0x42}
 	ts := gpbft.TipSet{
 		Epoch:       1,
 		Key:         tsk,
-		PowerTable:  pt,
+		PowerTable:  ptCid,
 		Commitments: comm,
 	}
 
@@ -105,6 +103,6 @@ func TestTipSetMarshalForSigning(t *testing.T) {
 	require.Len(t, encoded, expectedLen)
 	assert.Equal(t, binary.BigEndian.Uint64(encoded[:8]), uint64(ts.Epoch))
 	assert.Equal(t, encoded[8:40], ts.Commitments[:])
-	assert.Equal(t, encoded[40:78], tsCid)
-	assert.Equal(t, encoded[78:], ts.PowerTable)
+	assert.Equal(t, encoded[40:78], tsCid.Bytes())
+	assert.Equal(t, encoded[78:], ts.PowerTable.Bytes())
 }

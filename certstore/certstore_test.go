@@ -8,6 +8,7 @@ import (
 
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/ipfs/go-cid"
 	datastore "github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/query"
 	ds_sync "github.com/ipfs/go-datastore/sync"
@@ -22,7 +23,7 @@ func makeCert(instance uint64, supp gpbft.SupplementalData) *certs.FinalityCerti
 	}
 }
 
-func testPowerTable(entries int64) (gpbft.PowerEntries, gpbft.CID) {
+func testPowerTable(entries int64) (gpbft.PowerEntries, cid.Cid) {
 	powerTable := make(gpbft.PowerEntries, entries)
 
 	for i := range powerTable {

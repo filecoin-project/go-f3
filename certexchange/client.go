@@ -2,7 +2,6 @@ package certexchange
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -221,8 +220,8 @@ func FindInitialPowerTable(ctx context.Context, c Client, powerTableCID cid.Cid,
 			log.Infow("computing initial power table CID", "error", err)
 			return nil, false
 		}
-		if !bytes.Equal(ptCID, powerTableCID.Bytes()) {
-			log.Infow("peer returned mismatching power table", "peer", p)
+		if ptCID != powerTableCID {
+			log.Infow("peer returned mismatching power table", "peer", p, "expected", powerTableCID, "got", ptCID)
 			return nil, false
 		}
 		return rh.PowerTable, true

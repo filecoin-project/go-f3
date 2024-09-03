@@ -70,7 +70,7 @@ func (ec *simEC) BeginInstance(baseChain gpbft.ECChain, pt *gpbft.PowerTable) *E
 		PowerTable: pt,
 		Beacon:     beacon,
 		SupplementalData: &gpbft.SupplementalData{
-			PowerTable: gpbft.CID(fmt.Sprintf("supp-data-pt@%d", nextInstanceID)),
+			PowerTable: gpbft.MakeCid([]byte(fmt.Sprintf("supp-data-pt@%d", nextInstanceID))),
 		},
 		ec:        ec,
 		decisions: make(map[gpbft.ActorID]*gpbft.Justification),
