@@ -872,11 +872,14 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, createTick
 	if createTicket {
 		mb.BeaconForTicket = i.beacon
 	}
+
+	// Capture the broadcast and metrics first. Because, otherwise the instance will
+	// end up with partial re-broadcast messages if RequestBroadcast panics.
+	i.broadcasted.record(mb)
+	metrics.broadcastCounter.Add(context.TODO(), 1, metric.WithAttributes(attrPhase[p.Step]))
 	if err := i.participant.host.RequestBroadcast(mb); err != nil {
 		i.log("failed to request broadcast: %v", err)
 	}
-	i.broadcasted.record(mb)
-	metrics.broadcastCounter.Add(context.TODO(), 1, metric.WithAttributes(attrPhase[p.Step]))
 }
 
 // tryRebroadcast checks whether re-broadcast timeout has elapsed, and if so
@@ -957,10 +960,13 @@ func (i *instance) rebroadcast() error {
 		mbs := i.broadcasted.messagesByRound[round]
 		for _, mb := range mbs {
 			if err := i.participant.host.RequestBroadcast(mb); err != nil {
-				return err
+				// Silently log the error and proceed. This is consistent with the behaviour of
+				// instance for regular broadcasts.
+				i.log("failed to request rebroadcast %s at round %d: %v", mb.Payload.Step, mb.Payload.Round, err)
+			} else {
+				i.log("rebroadcasting %s at round %d for value %s", mb.Payload.Step.String(), mb.Payload.Round, mb.Payload.Value)
+				metrics.reBroadcastCounter.Add(context.TODO(), 1)
 			}
-			i.log("rebroadcasting %s at round %d for value %s", mb.Payload.Step.String(), mb.Payload.Round, mb.Payload.Value)
-			metrics.reBroadcastCounter.Add(context.TODO(), 1)
 		}
 	}
 	return nil

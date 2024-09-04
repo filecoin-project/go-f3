@@ -21,6 +21,7 @@ type Instance struct {
 	powerTable       *gpbft.PowerTable
 	beacon           []byte
 	decision         *gpbft.Justification
+	signing          Signing
 }
 
 // NewInstance instantiates a new Instance for emulation. If absent, the
@@ -28,7 +29,7 @@ type Instance struct {
 // public keys Power Table CID, etc. for the given params. The given proposal
 // must contain at least one tipset.
 //
-// See Driver.StartInstance.
+// See Driver.RequireStartInstance.
 func NewInstance(t *testing.T, id uint64, powerEntries gpbft.PowerEntries, proposal ...gpbft.TipSet) *Instance {
 	// UX of the gpbft API is pretty painful; encapsulate the pain of getting an
 	// instance going here at the price of accepting partial data and implicitly
@@ -67,9 +68,11 @@ func NewInstance(t *testing.T, id uint64, powerEntries gpbft.PowerEntries, propo
 			Commitments: [32]byte{},
 			PowerTable:  ptCid,
 		},
+		signing: AdhocSigning(),
 	}
 }
 
+func (i *Instance) SetSigning(signing Signing)               { i.signing = signing }
 func (i *Instance) Proposal() gpbft.ECChain                  { return i.proposal }
 func (i *Instance) GetDecision() *gpbft.Justification        { return i.decision }
 func (i *Instance) ID() uint64                               { return i.id }
@@ -134,7 +137,7 @@ func (i *Instance) NewJustification(round uint64, step gpbft.Phase, vote gpbft.E
 }
 
 func (i *Instance) NewJustificationWithPayload(payload gpbft.Payload, from ...gpbft.ActorID) *gpbft.Justification {
-	msg := signing.MarshalPayloadForSigning(networkName, &payload)
+	msg := i.signing.MarshalPayloadForSigning(networkName, &payload)
 	qr := gpbft.QuorumResult{
 		Signers:    make([]int, len(from)),
 		PubKeys:    make([]gpbft.PubKey, len(from)),
@@ -144,13 +147,13 @@ func (i *Instance) NewJustificationWithPayload(payload gpbft.Payload, from ...gp
 		index, found := i.powerTable.Lookup[actor]
 		require.True(i.t, found)
 		entry := i.powerTable.Entries[index]
-		signature, err := signing.Sign(context.Background(), entry.PubKey, msg)
+		signature, err := i.signing.Sign(context.Background(), entry.PubKey, msg)
 		require.NoError(i.t, err)
 		qr.Signatures[j] = signature
 		qr.PubKeys[j] = entry.PubKey
 		qr.Signers[j] = index
 	}
-	aggregate, err := signing.Aggregate(qr.PubKeys, qr.Signatures)
+	aggregate, err := i.signing.Aggregate(qr.PubKeys, qr.Signatures)
 	require.NoError(i.t, err)
 	return &gpbft.Justification{
 		Vote:      payload,

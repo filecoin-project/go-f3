@@ -10,18 +10,30 @@ import (
 )
 
 var (
-	_ gpbft.Verifier         = (*adhocSigning)(nil)
-	_ gpbft.Signer           = (*adhocSigning)(nil)
-	_ gpbft.SigningMarshaler = (*adhocSigning)(nil)
-
-	signing adhocSigning
+	_ Signing = (*adhocSigning)(nil)
+	_ Signing = (*erroneousSigning)(nil)
+	_ Signing = (*panicSigning)(nil)
 )
 
-// adhocSigning marshals, signs and verifies messages on behalf of any given
+type Signing interface {
+	gpbft.Verifier
+	gpbft.Signer
+	gpbft.SigningMarshaler
+}
+
+// AdhocSigning marshals, signs and verifies messages on behalf of any given
 // public key but uniquely and deterministically so using crc32 hash function for
 // performance. This implementation is not secure nor collision resistant. A
 // typical Instance power table is small enough to make the risk of collisions
 // negligible.
+func AdhocSigning() Signing { return adhocSigning{} }
+
+// ErroneousSigning returns an error for every Signing API that can return an error.
+func ErroneousSigning() Signing { return erroneousSigning{} }
+
+// PanicSigning panics for every Signing API.
+func PanicSigning() Signing { return panicSigning{} }
+
 type adhocSigning struct{}
 
 func (s adhocSigning) Sign(_ context.Context, sender gpbft.PubKey, msg []byte) ([]byte, error) {
@@ -84,3 +96,32 @@ func (s adhocSigning) VerifyAggregate(payload, got []byte, signers []gpbft.PubKe
 func (s adhocSigning) MarshalPayloadForSigning(name gpbft.NetworkName, payload *gpbft.Payload) []byte {
 	return payload.MarshalForSigning(name)
 }
+
+type erroneousSigning struct{}
+
+func (p erroneousSigning) Verify(gpbft.PubKey, []byte, []byte) error {
+	return errors.New("err Verify")
+}
+
+func (p erroneousSigning) VerifyAggregate([]byte, []byte, []gpbft.PubKey) error {
+	return errors.New("err VerifyAggregate")
+}
+
+func (p erroneousSigning) Aggregate([]gpbft.PubKey, [][]byte) ([]byte, error) {
+	return nil, errors.New("err Aggregate")
+}
+func (p erroneousSigning) Sign(context.Context, gpbft.PubKey, []byte) ([]byte, error) {
+	return nil, errors.New("err Sign")
+}
+
+func (p erroneousSigning) MarshalPayloadForSigning(gpbft.NetworkName, *gpbft.Payload) []byte {
+	return nil
+}
+
+type panicSigning struct{}
+
+func (p panicSigning) Verify(gpbft.PubKey, []byte, []byte) error                         { panic("π") }
+func (p panicSigning) VerifyAggregate([]byte, []byte, []gpbft.PubKey) error              { panic("π") }
+func (p panicSigning) Aggregate([]gpbft.PubKey, [][]byte) ([]byte, error)                { panic("π") }
+func (p panicSigning) Sign(context.Context, gpbft.PubKey, []byte) ([]byte, error)        { panic("π") }
+func (p panicSigning) MarshalPayloadForSigning(gpbft.NetworkName, *gpbft.Payload) []byte { panic("π") }

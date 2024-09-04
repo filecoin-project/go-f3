@@ -19,8 +19,14 @@ func (d *Driver) RequireErrOnDeliverMessage(message *gpbft.GMessage, err error, 
 	}
 }
 
+// RequireStartInstance asserts that instance with the given ID is started. See
+// StartInstance.
+func (d *Driver) RequireStartInstance(id uint64) {
+	d.require.NoError(d.StartInstance(id))
+}
+
 func (d *Driver) RequireDeliverAlarm() {
-	delivered, err := d.deliverAlarm()
+	delivered, err := d.DeliverAlarm()
 	d.require.NoError(err)
 	d.require.True(delivered)
 }
