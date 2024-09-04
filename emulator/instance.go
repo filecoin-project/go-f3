@@ -130,6 +130,10 @@ func (i *Instance) NewJustification(round uint64, step gpbft.Phase, vote gpbft.E
 		SupplementalData: i.supplementalData,
 		Value:            vote,
 	}
+	return i.NewJustificationWithPayload(payload, from...)
+}
+
+func (i *Instance) NewJustificationWithPayload(payload gpbft.Payload, from ...gpbft.ActorID) *gpbft.Justification {
 	msg := signing.MarshalPayloadForSigning(networkName, &payload)
 	qr := gpbft.QuorumResult{
 		Signers:    make([]int, len(from)),

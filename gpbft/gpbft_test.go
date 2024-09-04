@@ -5,6 +5,8 @@ import (
 
 	"github.com/filecoin-project/go-f3/emulator"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/ipfs/go-cid"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -1095,6 +1097,78 @@ func TestGPBFT_Validation(t *testing.T) {
 				}
 			},
 			errContains: "justification with unexpected phase",
+		},
+		{
+			name: "justification without strong quorum",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				return &gpbft.GMessage{
+					Sender:        1,
+					Vote:          instance.NewPrepare(3, gpbft.ECChain{}),
+					Ticket:        emulator.ValidTicket,
+					Justification: instance.NewJustification(2, gpbft.COMMIT_PHASE, gpbft.ECChain{}, 0),
+				}
+			},
+			errContains: "has justification with insufficient power",
+		},
+		{
+			name: "justification with unknown signer",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				otherInstance := emulator.NewInstance(t, 0, append(participants, gpbft.PowerEntry{
+					ID:    42,
+					Power: gpbft.NewStoragePower(1),
+				}), tipset0, tipSet1, tipSet2)
+
+				return &gpbft.GMessage{
+					Sender: 1,
+					Vote:   instance.NewPrepare(3, gpbft.ECChain{}),
+					Ticket: emulator.ValidTicket,
+					Justification: otherInstance.NewJustificationWithPayload(gpbft.Payload{
+						Instance:         instance.ID(),
+						Round:            2,
+						Step:             gpbft.COMMIT_PHASE,
+						SupplementalData: instance.SupplementalData(),
+						Value:            gpbft.ECChain{},
+					}, 0, 1, 2, 42),
+				}
+			},
+			errContains: "invalid signer index: 3",
+		},
+		{
+			name: "justification for another instance",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				otherInstance := emulator.NewInstance(t, 33, participants, instance.Proposal()...)
+				return &gpbft.GMessage{
+					Sender:        1,
+					Vote:          instance.NewPrepare(3, gpbft.ECChain{}),
+					Ticket:        emulator.ValidTicket,
+					Justification: otherInstance.NewJustification(0, gpbft.PREPARE_PHASE, gpbft.ECChain{}, 0, 1, 2),
+				}
+			},
+			errContains: "message with instanceID 0 has evidence from instanceID: 33",
+		},
+		{
+			name: "justification with inconsistent supplemental data",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				someCid, err := cid.Decode("bafy2bzacedgbq7e3eb4l3ryhbfckvez5mty6ylw5ulofkxql5bfxxji7xt5a2")
+				require.NoError(t, err)
+				require.NotEqual(t, instance.SupplementalData().PowerTable, someCid)
+				return &gpbft.GMessage{
+					Sender: 1,
+					Vote:   instance.NewPrepare(3, gpbft.ECChain{}),
+					Ticket: emulator.ValidTicket,
+					Justification: instance.NewJustificationWithPayload(gpbft.Payload{
+						Instance: instance.ID(),
+						Round:    2,
+						Step:     gpbft.COMMIT_PHASE,
+						SupplementalData: gpbft.SupplementalData{
+							Commitments: [32]byte{},
+							PowerTable:  someCid,
+						},
+						Value: gpbft.ECChain{},
+					}, 0, 1, 2),
+				}
+			},
+			errContains: "message and justification have inconsistent supplemental data",
 		},
 		{
 			name: "justification aggregate with unsorted signatures",
