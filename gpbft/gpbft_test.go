@@ -1,10 +1,15 @@
 package gpbft_test
 
 import (
+	"bytes"
+	"crypto/rand"
+	"io"
 	"testing"
 
 	"github.com/filecoin-project/go-f3/emulator"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/ipfs/go-cid"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -1107,6 +1112,125 @@ func TestGPBFT_Validation(t *testing.T) {
 				}
 			},
 			errContains: "invalid aggregate",
+		},
+		{
+			name: "out of order epochs",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				proposal := instance.Proposal()
+				proposal[1], proposal[2] = proposal[2], proposal[1]
+				return &gpbft.GMessage{
+					Sender: 1,
+					Vote:   instance.NewQuality(proposal),
+				}
+			},
+			errContains: "chain must have increasing epochs",
+		},
+		{
+			name: "repeated epochs",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				proposal := instance.Proposal()
+				proposal[1] = proposal[2]
+				return &gpbft.GMessage{
+					Sender: 1,
+					Vote:   instance.NewQuality(proposal),
+				}
+			},
+			errContains: "chain must have increasing epochs",
+		},
+		{
+			name: "QUALITY with empty value",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				return &gpbft.GMessage{
+					Sender: 1,
+					Vote:   instance.NewQuality(gpbft.ECChain{}),
+				}
+			},
+			errContains: "unexpected zero value for quality phase",
+		},
+		{
+			name: "CONVERGE with empty value justified by strong quorum of PREPARE for bottom",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				return &gpbft.GMessage{
+					Sender:        1,
+					Vote:          instance.NewConverge(1, gpbft.ECChain{}),
+					Ticket:        emulator.ValidTicket,
+					Justification: instance.NewJustification(0, gpbft.PREPARE_PHASE, gpbft.ECChain{}, 0, 1),
+				}
+			},
+			errContains: "unexpected zero value for converge phase",
+		},
+		{
+			name: "DECIDE with empty value justified by strong quorum of COMMIT for bottom",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				return &gpbft.GMessage{
+					Sender:        1,
+					Vote:          instance.NewDecide(0, gpbft.ECChain{}),
+					Ticket:        emulator.ValidTicket,
+					Justification: instance.NewJustification(0, gpbft.COMMIT_PHASE, gpbft.ECChain{}, 0, 1),
+				}
+			},
+			errContains: "unexpected zero value for decide phase",
+		},
+		{
+			name: "DECIDE for non-zero round",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				return &gpbft.GMessage{
+					Sender:        1,
+					Vote:          instance.NewDecide(7, gpbft.ECChain{}),
+					Ticket:        emulator.ValidTicket,
+					Justification: instance.NewJustification(6, gpbft.COMMIT_PHASE, gpbft.ECChain{}, 0, 1),
+				}
+			},
+			errContains: "unexpected non-zero round 7 for decide phase",
+		},
+		{
+			name: "QUALITY with too long a chain",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				powerTableCid := instance.Proposal()[0].PowerTable
+				commitments := instance.Proposal()[0].Commitments
+				tooLongAChain := make(gpbft.ECChain, gpbft.ChainMaxLen+1)
+				for i := range tooLongAChain {
+					tooLongAChain[i] = gpbft.TipSet{
+						Epoch:       int64(i + 1),
+						Key:         nil,
+						PowerTable:  powerTableCid,
+						Commitments: commitments,
+					}
+				}
+				return &gpbft.GMessage{
+					Sender: 1,
+					Vote:   instance.NewQuality(tooLongAChain),
+				}
+			},
+			errContains: "chain too long",
+		},
+		{
+			name: "QUALITY with too long a tipset key",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				var tooLongATipsetKey bytes.Buffer
+				_, err := tooLongATipsetKey.ReadFrom(io.LimitReader(rand.Reader, gpbft.TipsetKeyMaxLen+1))
+				require.NoError(t, err)
+				return &gpbft.GMessage{
+					Sender: 1,
+					Vote:   instance.NewQuality(instance.Proposal().Extend(tooLongATipsetKey.Bytes())),
+				}
+			},
+			errContains: "tipset key too long",
+		},
+		{
+			name: "QUALITY with too long a tipset power table CID",
+			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
+				var tooLongACid bytes.Buffer
+				_, err := tooLongACid.ReadFrom(io.LimitReader(rand.Reader, gpbft.CidMaxLen+1))
+				require.NoError(t, err)
+				proposal := instance.Proposal()
+				proposal[1].PowerTable = cid.NewCidV1(cid.Raw, tooLongACid.Bytes())
+				return &gpbft.GMessage{
+					Sender: 1,
+					Vote:   instance.NewQuality(proposal),
+				}
+			},
+			errContains: "power table CID too long",
 		},
 	}
 	for _, test := range tests {
