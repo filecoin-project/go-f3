@@ -144,6 +144,6 @@ func exponentialBackoffer(exponent float64, base, maxBackoff time.Duration) func
 		if nextBackoff > float64(maxBackoff) {
 			return maxBackoff
 		}
-		return maxBackoff
+		return time.Duration(nextBackoff)
 	}
 }
