@@ -1287,13 +1287,12 @@ type convergeState struct {
 type ConvergeValue struct {
 	Chain         ECChain
 	Justification *Justification
-
-	Quality float64
+	Rank          float64
 }
 
 // IsOtherBetter returns true if the argument is better than self
-func (cv *ConvergeValue) IsOtherBetter(cv2 ConvergeValue) bool {
-	return !cv.IsValid() || cv2.Quality < cv.Quality
+func (cv *ConvergeValue) IsOtherBetter(other ConvergeValue) bool {
+	return !cv.IsValid() || other.Rank < cv.Rank
 }
 
 func (cv *ConvergeValue) IsValid() bool {
@@ -1318,7 +1317,7 @@ func (c *convergeState) SetSelfValue(value ECChain, justification *Justification
 		c.values[key] = ConvergeValue{
 			Chain:         value,
 			Justification: justification,
-			Quality:       math.Inf(1), // +Inf because any real ConvergeValue is better than self-value
+			Rank:          math.Inf(1), // +Inf because any real ConvergeValue is better than self-value
 		}
 	}
 }
@@ -1340,18 +1339,18 @@ func (c *convergeState) Receive(sender ActorID, table PowerTable, value ECChain,
 	senderPower, _ := table.Get(sender)
 
 	key := value.Key()
-	// Keep only the first justification and best ticket
+	// Keep only the first justification and best ticket.
 	if v, found := c.values[key]; !found {
 		c.values[key] = ConvergeValue{
 			Chain:         value,
 			Justification: justification,
-			Quality:       ComputeTicketQuality(ticket, senderPower),
+			Rank:          ComputeTicketRank(ticket, senderPower),
 		}
 	} else {
-		newQual := ComputeTicketQuality(ticket, senderPower)
-		// best ticket is lowest
-		if newQual < v.Quality {
-			v.Quality = newQual
+		// The best ticket is the one that ranks first, i.e. smallest rank value.
+		rank := ComputeTicketRank(ticket, senderPower)
+		if rank < v.Rank {
+			v.Rank = rank
 			c.values[key] = v
 		}
 	}
