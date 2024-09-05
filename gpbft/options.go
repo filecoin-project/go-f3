@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/rand"
 	"time"
 )
 
@@ -117,15 +118,16 @@ func WithMaxCachedMessagesPerInstance(v int) Option {
 	}
 }
 
-var defaultRebroadcastAfter = exponentialBackoffer(1.3, 3*time.Second, 30*time.Second)
+var defaultRebroadcastAfter = exponentialBackoffer(1.3, 0.1, 3*time.Second, 30*time.Second)
 
 // WithRebroadcastBackoff sets the duration after the gPBFT timeout has elapsed, at
 // which all messages in the current round are rebroadcast if the round cannot be
 // terminated, i.e. a strong quorum of senders has not yet been achieved.
 //
-// The backoff duration grows exponentially up to the configured max. Defaults to
-// exponent of 1.3 with 3s base backoff growing to a maximum of 30s.
-func WithRebroadcastBackoff(exponent float64, base, max time.Duration) Option {
+// The backoff duration grows exponentially up to the configured max and is randomized by "jitter"
+// (a number between 0 and 1). Defaults to exponent of 1.3 with 3s base backoff growing to a maximum
+// of 30s, randomized by 10% (5% in either direction).
+func WithRebroadcastBackoff(exponent, jitter float64, base, max time.Duration) Option {
 	return func(o *options) error {
 		if base <= 0 {
 			return fmt.Errorf("rebroadcast backoff duration must be greater than zero; got: %s", base)
@@ -133,14 +135,15 @@ func WithRebroadcastBackoff(exponent float64, base, max time.Duration) Option {
 		if max < base {
 			return fmt.Errorf("rebroadcast backoff max duration must be greater than base; got: %s", max)
 		}
-		o.rebroadcastAfter = exponentialBackoffer(exponent, base, max)
+		o.rebroadcastAfter = exponentialBackoffer(exponent, jitter, base, max)
 		return nil
 	}
 }
 
-func exponentialBackoffer(exponent float64, base, maxBackoff time.Duration) func(attempt int) time.Duration {
+func exponentialBackoffer(exponent, jitter float64, base, maxBackoff time.Duration) func(attempt int) time.Duration {
 	return func(attempt int) time.Duration {
-		nextBackoff := float64(base) * math.Pow(exponent, float64(attempt))
+		shift := 1.0 + (rand.Float64()-0.5)*jitter
+		nextBackoff := float64(base) * math.Pow(exponent, float64(attempt)) * shift
 		if nextBackoff > float64(maxBackoff) {
 			return maxBackoff
 		}

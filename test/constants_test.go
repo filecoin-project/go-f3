@@ -29,7 +29,7 @@ var (
 	testGpbftOptions = []gpbft.Option{
 		gpbft.WithDelta(200 * time.Millisecond),
 		gpbft.WithDeltaBackOffExponent(1.300),
-		gpbft.WithRebroadcastBackoff(1.3, time.Second, 5*time.Second),
+		gpbft.WithRebroadcastBackoff(1.3, 0, time.Second, 5*time.Second),
 	}
 )
 
