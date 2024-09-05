@@ -12,7 +12,7 @@ import (
 	"golang.org/x/exp/rand"
 )
 
-func TestTQ_BigLog2_Table(t *testing.T) {
+func TestTicketRank_BigLog2(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   string
@@ -65,48 +65,48 @@ func FuzzTQ_LinearToExp(f *testing.F) {
 	})
 }
 
-func TestComputeTicketQuality(t *testing.T) {
+func TestComputeTicketRank(t *testing.T) {
 	t.Run("Non-zero for non-zero power", func(t *testing.T) {
 		ticket := generateTicket(t)
 		power := int64(10)
-		quality := ComputeTicketQuality(ticket, power)
-		require.Greater(t, quality, 0.0, "Expected positive quality value, got %f", quality)
+		rank := ComputeTicketRank(ticket, power)
+		require.Greater(t, rank, 0.0, "Expected positive rank value, got %f", rank)
 	})
 
 	t.Run("Weighed by power", func(t *testing.T) {
 		ticket := generateTicket(t)
-		quality1 := ComputeTicketQuality(ticket, 10)
-		quality2 := ComputeTicketQuality(ticket, 11)
-		require.Less(t, quality2, quality1, "Expected quality2 to be less than quality1 due to weight by power, got quality1=%f, quality2=%f", quality1, quality2)
+		rank1 := ComputeTicketRank(ticket, 10)
+		rank2 := ComputeTicketRank(ticket, 11)
+		require.Less(t, rank2, rank1, "Expected rank2 to be less than rank1 due to weight by power, got rank1=%f, rank2=%f", rank1, rank2)
 	})
 
 	t.Run("Zero power is handled gracefully", func(t *testing.T) {
 		ticket := generateTicket(t)
-		quality := ComputeTicketQuality(ticket, 0)
-		require.True(t, math.IsInf(quality, 1), "Expected quality to be infinity with power 0, got %f", quality)
+		rank := ComputeTicketRank(ticket, 0)
+		require.True(t, math.IsInf(rank, 1), "Expected rank to be infinity with power 0, got %f", rank)
 	})
 
 	t.Run("Negative power is handled gracefully", func(t *testing.T) {
 		ticket := generateTicket(t)
-		quality := ComputeTicketQuality(ticket, -5)
-		require.True(t, math.IsInf(quality, 1), "Expected quality to be infinity for negative power, got %f", quality)
+		rank := ComputeTicketRank(ticket, -5)
+		require.True(t, math.IsInf(rank, 1), "Expected rank to be infinity for negative power, got %f", rank)
 	})
 
 	t.Run("Different tickets should have different qualities", func(t *testing.T) {
-		quality1 := ComputeTicketQuality(generateTicket(t), 1413)
-		quality2 := ComputeTicketQuality(generateTicket(t), 1413)
-		require.NotEqual(t, quality1, quality2, "Expected different qualities for different tickets, got quality1=%f, quality2=%f", quality1, quality2)
+		rank1 := ComputeTicketRank(generateTicket(t), 1413)
+		rank2 := ComputeTicketRank(generateTicket(t), 1413)
+		require.NotEqual(t, rank1, rank2, "Expected different qualities for different tickets, got rank1=%f, rank2=%f", rank1, rank2)
 	})
 
-	t.Run("Tickets with same 16 byte prefix should different quality", func(t *testing.T) {
+	t.Run("Tickets with same 16 byte prefix should different rank", func(t *testing.T) {
 		prefix := generateTicket(t)
 		ticket1 := append(prefix, 14)
 		ticket2 := append(prefix, 13)
 		require.NotEqual(t, ticket1, ticket2)
 
-		quality1 := ComputeTicketQuality(ticket1, 1413)
-		quality2 := ComputeTicketQuality(ticket2, 1413)
-		require.NotEqual(t, quality1, quality2, "Expected different qualities for different tickets with the same 16 byte prefix, got quality1=%f, quality2=%f", quality1, quality2)
+		rank1 := ComputeTicketRank(ticket1, 1413)
+		rank2 := ComputeTicketRank(ticket2, 1413)
+		require.NotEqual(t, rank1, rank2, "Expected different qualities for different tickets with the same 16 byte prefix, got rank1=%f, rank2=%f", rank1, rank2)
 	})
 }
 

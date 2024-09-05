@@ -8,25 +8,32 @@ import (
 	"golang.org/x/crypto/blake2b"
 )
 
-// ComputeTicketQuality computes the quality of the ticket.
-// The lower the resulting quality the better.
-// We take the ticket, hash it using Blake2b256, take the low 128 bits, interpret them as a Q.128
-// fixed point number in range of [0, 1). Then we convert this uniform distribution into exponential one,
-// using -log(x) inverse distribution function.
-// The exponential distribution has a property where minimum of two exponentially distributed random
-// variables is itself a exponentially distributed.
-// This allows us to use the rate parameter to weight across different participants according to there power.
-// This ends up being `-log(ticket) / power` where ticket is [0, 1).
-// We additionally use log-base-2 instead of natural logarithm as it is easier to implement,
-// and it is just a linear factor on all tickets, meaning it does not influence their ordering.
-func ComputeTicketQuality(ticket []byte, power int64) float64 {
-	if power <= 0 {
+// ComputeTicketRank computes a rank for the given ticket, weighted by a
+// participant's power. A lower rank value indicates a better ranking. The
+// process involves the following steps:
+//
+//  1. Hash the ticket using the Blake2b256 hash function.
+//  2. Extract the low 128 bits from the hash and interpret them as a Q.128
+//     fixed-point number in the range [0, 1).
+//  3. Convert this uniform distribution to an exponential distribution using
+//     the inverse distribution function -log(x).
+//
+// The exponential distribution has the property that the minimum of two
+// exponentially distributed random variables is also exponentially distributed.
+// This allows us to weight ranks according to the participant's power by using
+// the formula: `-log(ticket) / power`, where `ticket` is in the range [0, 1).
+//
+// We use a base-2 logarithm instead of a natural logarithm for ease of
+// implementation. The choice of logarithm base only affects all ranks linearly
+// and does not alter their order.
+func ComputeTicketRank(ticket Ticket, scaledPower int64) float64 {
+	if scaledPower <= 0 {
 		return math.Inf(1)
 	}
 	// we could use Blake2b-128 but 256 is more common and more widely supported
 	ticketHash := blake2b.Sum256(ticket)
-	quality := linearToExpDist(ticketHash[:16])
-	return quality / float64(power)
+	rank := linearToExpDist(ticketHash[:16])
+	return rank / float64(scaledPower)
 }
 
 // ticket should be 16 bytes
