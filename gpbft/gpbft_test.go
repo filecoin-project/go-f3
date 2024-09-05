@@ -392,8 +392,8 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 
 		// Expect rebroadcast of QUALITY, PREPARE and COMMIT.
 		driver.RequireQuality()
-		driver.RequirePrepare(baseChain)
 		driver.RequireCommit(0, baseChain, evidenceOfPrepare)
+		driver.RequirePrepare(baseChain)
 		driver.RequireNoBroadcast()
 
 		// Deliver COMMIT for bottom to facilitate progress to CONVERGE.
@@ -422,10 +422,10 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 
 		// Expect rebroadcast of all messages from previous and current round, including QUALITY.
 		driver.RequireQuality()
-		driver.RequirePrepare(baseChain)
-		driver.RequireCommit(0, baseChain, evidenceOfPrepare)
-		driver.RequireConverge(1, baseChain, evidenceOfPrepareForBase)
 		driver.RequirePrepareAtRound(1, baseChain, evidenceOfPrepareForBase)
+		driver.RequireConverge(1, baseChain, evidenceOfPrepareForBase)
+		driver.RequireCommit(0, baseChain, evidenceOfPrepare)
+		driver.RequirePrepare(baseChain)
 
 		// Deliver PREPARE for base to facilitate progress to COMMIT.
 		driver.RequireDeliverMessage(&gpbft.GMessage{
@@ -450,11 +450,11 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 		// Expect rebroadcast of all messages from previous and current round, including
 		// QUALITY.
 		driver.RequireQuality()
-		driver.RequirePrepare(baseChain)
-		driver.RequireCommit(0, baseChain, evidenceOfPrepare)
-		driver.RequireConverge(1, baseChain, evidenceOfPrepareForBase)
-		driver.RequirePrepareAtRound(1, baseChain, evidenceOfPrepareForBase)
 		driver.RequireCommit(1, baseChain, evidenceOfPrepareAtRound1)
+		driver.RequirePrepareAtRound(1, baseChain, evidenceOfPrepareForBase)
+		driver.RequireConverge(1, baseChain, evidenceOfPrepareForBase)
+		driver.RequireCommit(0, baseChain, evidenceOfPrepare)
+		driver.RequirePrepare(baseChain)
 
 		// Facilitate skip to future round to assert rebroadcast only contains messages
 		// from the latest 2 rounds, plus QUALITY from round 0.
@@ -490,9 +490,9 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 		//
 		// See: https://github.com/filecoin-project/go-f3/issues/595
 		driver.RequireQuality()
-		driver.RequireConverge(77, futureRoundProposal, evidenceOfPrepareAtRound76)
-		driver.RequirePrepareAtRound(77, futureRoundProposal, evidenceOfPrepareAtRound76)
 		driver.RequireCommit(77, futureRoundProposal, evidenceOfPrepareAtRound76)
+		driver.RequirePrepareAtRound(77, futureRoundProposal, evidenceOfPrepareAtRound76)
+		driver.RequireConverge(77, futureRoundProposal, evidenceOfPrepareAtRound76)
 		driver.RequireNoBroadcast()
 
 		// Deliver COMMIT at round 77 to facilitate progress to DECIDE.
@@ -628,8 +628,8 @@ func TestGPBFT_WithExactOneThirdToTwoThirdPowerDistribution(t *testing.T) {
 		// base to be re-broadcasted.
 		driver.RequireDeliverAlarm()
 		driver.RequireQuality()
-		driver.RequirePrepare(baseChain)
 		driver.RequireCommit(0, baseChain, instance.NewJustification(0, gpbft.PREPARE_PHASE, baseChain, 1))
+		driver.RequirePrepare(baseChain)
 		driver.RequireNoBroadcast()
 
 		// Unstuck the instance from COMMIT.
