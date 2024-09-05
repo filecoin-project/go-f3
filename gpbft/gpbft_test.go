@@ -20,6 +20,87 @@ var (
 	tipSet4 = gpbft.TipSet{Epoch: 4, Key: []byte("lobstermucher")}
 )
 
+func TestGPBFT_UnevenPowerDistribution(t *testing.T) {
+	t.Parallel()
+	newInstanceAndDriver := func(t *testing.T) (*emulator.Instance, *emulator.Driver) {
+		driver := emulator.NewDriver(t)
+		instance := emulator.NewInstance(t,
+			0,
+			gpbft.PowerEntries{
+				gpbft.PowerEntry{
+					ID:    0,
+					Power: gpbft.NewStoragePower(1),
+				},
+				gpbft.PowerEntry{
+					ID:    1,
+					Power: gpbft.NewStoragePower(1),
+				},
+				gpbft.PowerEntry{
+					ID:    2,
+					Power: gpbft.NewStoragePower(2),
+				},
+				gpbft.PowerEntry{
+					ID:    3,
+					Power: gpbft.NewStoragePower(3),
+				},
+				gpbft.PowerEntry{
+					ID:    4,
+					Power: gpbft.NewStoragePower(5),
+				},
+			},
+			tipset0, tipSet1, tipSet2, tipSet3,
+		)
+		driver.AddInstance(instance)
+		driver.RequireNoBroadcast()
+		return instance, driver
+	}
+
+	t.Run("Late arriving COMMIT produces decision at future round", func(t *testing.T) {
+		instance, driver := newInstanceAndDriver(t)
+
+		baseChain := instance.Proposal().BaseChain()
+		proposal1 := baseChain.Extend(tipSet1.Key)
+		proposal2 := proposal1.Extend(tipSet2.Key)
+
+		driver.StartInstance(instance.ID())
+		driver.RequireQuality()
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender: 1,
+			Vote:   instance.NewQuality(proposal1),
+		})
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender: 2,
+			Vote:   instance.NewQuality(proposal2),
+		})
+		driver.RequireDeliverAlarm()
+
+		driver.RequirePrepare(baseChain)
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender: 1,
+			Vote:   instance.NewPrepare(0, proposal1),
+		})
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender: 4,
+			Vote:   instance.NewPrepare(0, proposal2),
+		})
+
+		driver.RequireCommitForBottom(0)
+		evidenceOfPrepareForProposal2AtRound10 := instance.NewJustification(10, gpbft.PREPARE_PHASE, proposal2, 4, 3)
+		commitToProposal2AtRound10 := instance.NewCommit(10, proposal2)
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        4,
+			Vote:          commitToProposal2AtRound10,
+			Justification: evidenceOfPrepareForProposal2AtRound10,
+		})
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        3,
+			Vote:          commitToProposal2AtRound10,
+			Justification: evidenceOfPrepareForProposal2AtRound10,
+		})
+		driver.RequireDecide(proposal2, instance.NewJustification(10, gpbft.COMMIT_PHASE, proposal2, 4, 3))
+	})
+}
+
 func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 	t.Parallel()
 	newInstanceAndDriver := func(t *testing.T) (*emulator.Instance, *emulator.Driver) {
