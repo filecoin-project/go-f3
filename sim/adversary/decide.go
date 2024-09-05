@@ -80,7 +80,7 @@ func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) erro
 	justificationPayload := gpbft.Payload{
 		Instance:         instance,
 		Round:            0,
-		Step:             gpbft.COMMIT_PHASE,
+		Phase:            gpbft.COMMIT_PHASE,
 		Value:            i.jValue,
 		SupplementalData: *supplementalData,
 	}
@@ -133,7 +133,7 @@ func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) erro
 		Payload: gpbft.Payload{
 			Instance:         instance,
 			Round:            0,
-			Step:             gpbft.DECIDE_PHASE,
+			Phase:            gpbft.DECIDE_PHASE,
 			Value:            i.value,
 			SupplementalData: *supplementalData,
 		},

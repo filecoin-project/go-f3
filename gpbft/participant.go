@@ -158,7 +158,7 @@ func (p *Participant) ValidateMessage(msg *GMessage) (valid ValidatedMessage, er
 		}
 	}()
 
-	comt, err := p.fetchCommittee(msg.Vote.Instance, msg.Vote.Step)
+	comt, err := p.fetchCommittee(msg.Vote.Instance, msg.Vote.Phase)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +193,7 @@ func (p *Participant) ValidateMessage(msg *GMessage) (valid ValidatedMessage, er
 	}
 
 	// Check phase-specific constraints.
-	switch msg.Vote.Step {
+	switch msg.Vote.Phase {
 	case QUALITY_PHASE:
 		if msg.Vote.Round != 0 {
 			return nil, fmt.Errorf("unexpected round %d for quality phase: %w", msg.Vote.Round, ErrValidationInvalid)
@@ -221,7 +221,7 @@ func (p *Participant) ValidateMessage(msg *GMessage) (valid ValidatedMessage, er
 	case PREPARE_PHASE, COMMIT_PHASE:
 		// No additional checks for PREPARE and COMMIT.
 	default:
-		return nil, fmt.Errorf("invalid vote step: %d: %w", msg.Vote.Step, ErrValidationInvalid)
+		return nil, fmt.Errorf("invalid vote phase: %d: %w", msg.Vote.Phase, ErrValidationInvalid)
 	}
 
 	// Check vote signature.
@@ -231,9 +231,9 @@ func (p *Participant) ValidateMessage(msg *GMessage) (valid ValidatedMessage, er
 	}
 
 	// Check justification
-	needsJustification := !(msg.Vote.Step == QUALITY_PHASE ||
-		(msg.Vote.Step == PREPARE_PHASE && msg.Vote.Round == 0) ||
-		(msg.Vote.Step == COMMIT_PHASE && msg.Vote.Value.IsZero()))
+	needsJustification := !(msg.Vote.Phase == QUALITY_PHASE ||
+		(msg.Vote.Phase == PREPARE_PHASE && msg.Vote.Round == 0) ||
+		(msg.Vote.Phase == COMMIT_PHASE && msg.Vote.Value.IsZero()))
 
 	if needsJustification {
 		if err := p.validateJustification(msg, comt); err != nil {
@@ -254,7 +254,7 @@ func (p *Participant) ValidateMessage(msg *GMessage) (valid ValidatedMessage, er
 func (p *Participant) validateJustification(msg *GMessage, comt *committee) error {
 
 	if msg.Justification == nil {
-		return fmt.Errorf("message for phase %v round %v has no justification", msg.Vote.Step, msg.Vote.Round)
+		return fmt.Errorf("message for phase %v round %v has no justification", msg.Vote.Phase, msg.Vote.Round)
 	}
 
 	// Only cache the justification if:
@@ -316,8 +316,8 @@ func (p *Participant) validateJustification(msg *GMessage, comt *committee) erro
 		},
 	}
 
-	if expectedPhases, ok := expectations[msg.Vote.Step]; ok {
-		if expected, ok := expectedPhases[msg.Justification.Vote.Step]; ok {
+	if expectedPhases, ok := expectations[msg.Vote.Phase]; ok {
+		if expected, ok := expectedPhases[msg.Justification.Vote.Phase]; ok {
 			if msg.Justification.Vote.Round != expected.Round && expected.Round != math.MaxUint64 {
 				return fmt.Errorf("message %v has justification from wrong round %d", msg, msg.Justification.Vote.Round)
 			}
@@ -325,7 +325,7 @@ func (p *Participant) validateJustification(msg *GMessage, comt *committee) erro
 				return fmt.Errorf("message %v has justification for a different value: %v", msg, msg.Justification.Vote.Value)
 			}
 		} else {
-			return fmt.Errorf("message %v has justification with unexpected phase: %v", msg, msg.Justification.Vote.Step)
+			return fmt.Errorf("message %v has justification with unexpected phase: %v", msg, msg.Justification.Vote.Phase)
 		}
 	} else {
 		return fmt.Errorf("message %v has unexpected phase for justification", msg)
@@ -596,9 +596,9 @@ func (q *messageQueue) Add(msg *GMessage) {
 	if msg.Vote.Round > q.maxRound && isSpammable(msg) {
 		return
 	}
-	// Drop equivocations and duplicates (messages with the same sender, round and step).
+	// Drop equivocations and duplicates (messages with the same sender, round and phase).
 	for _, m := range instanceQueue[msg.Sender] {
-		if m.Vote.Round == msg.Vote.Round && m.Vote.Step == msg.Vote.Step {
+		if m.Vote.Round == msg.Vote.Round && m.Vote.Phase == msg.Vote.Phase {
 			return
 		}
 	}
@@ -607,7 +607,7 @@ func (q *messageQueue) Add(msg *GMessage) {
 }
 
 // Removes and returns all messages for an instance.
-// The returned messages are ordered by round and step.
+// The returned messages are ordered by round and phase.
 func (q *messageQueue) Drain(instance uint64) []*GMessage {
 	var msgs []*GMessage
 	for _, ms := range q.messages[instance] {
@@ -617,7 +617,7 @@ func (q *messageQueue) Drain(instance uint64) []*GMessage {
 		if msgs[i].Vote.Round != msgs[j].Vote.Round {
 			return msgs[i].Vote.Round < msgs[j].Vote.Round
 		}
-		return msgs[i].Vote.Step < msgs[j].Vote.Step
+		return msgs[i].Vote.Phase < msgs[j].Vote.Phase
 	})
 	delete(q.messages, instance)
 	return msgs

@@ -62,7 +62,7 @@ func TestGPBFT_UnevenPowerDistribution(t *testing.T) {
 		proposal1 := baseChain.Extend(tipSet1.Key)
 		proposal2 := proposal1.Extend(tipSet2.Key)
 
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 		driver.RequireQuality()
 		driver.RequireDeliverMessage(&gpbft.GMessage{
 			Sender: 1,
@@ -553,7 +553,7 @@ func TestGPBFT_WithExactOneThirdToTwoThirdPowerDistribution(t *testing.T) {
 		instance, driver := newInstanceAndDriver(t)
 		alternativeProposal := instance.Proposal().BaseChain().Extend(tipSet1.Key)
 
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 		driver.RequireDeliverMessage(&gpbft.GMessage{
 			Sender: 1,
 			Vote:   instance.NewQuality(alternativeProposal),
@@ -591,7 +591,7 @@ func TestGPBFT_WithExactOneThirdToTwoThirdPowerDistribution(t *testing.T) {
 		instance, driver := newInstanceAndDriver(t)
 		baseChain := instance.Proposal().BaseChain()
 
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 
 		// Deliver QUALITY from participant with 1/3 of power.
 		driver.RequireQuality()
@@ -1198,7 +1198,7 @@ func TestGPBFT_Validation(t *testing.T) {
 				return &gpbft.GMessage{
 					Sender: 1,
 					Vote: gpbft.Payload{
-						Step: gpbft.DECIDE_PHASE,
+						Phase: gpbft.DECIDE_PHASE,
 						SupplementalData: gpbft.SupplementalData{
 							PowerTable: gpbft.MakeCid([]byte("fish")),
 						},
@@ -1215,7 +1215,7 @@ func TestGPBFT_Validation(t *testing.T) {
 				return &gpbft.GMessage{
 					Sender: 1,
 					Vote: gpbft.Payload{
-						Step:             gpbft.DECIDE_PHASE,
+						Phase:            gpbft.DECIDE_PHASE,
 						Value:            instance.Proposal(),
 						SupplementalData: instance.SupplementalData(),
 					},
@@ -1230,7 +1230,7 @@ func TestGPBFT_Validation(t *testing.T) {
 				return &gpbft.GMessage{
 					Sender: 1,
 					Vote: gpbft.Payload{
-						Step:             gpbft.DECIDE_PHASE,
+						Phase:            gpbft.DECIDE_PHASE,
 						Value:            instance.Proposal(),
 						SupplementalData: instance.SupplementalData(),
 					},
@@ -1249,7 +1249,7 @@ func TestGPBFT_Validation(t *testing.T) {
 				return &gpbft.GMessage{
 					Sender: 1,
 					Vote: gpbft.Payload{
-						Step:             gpbft.DECIDE_PHASE,
+						Phase:            gpbft.DECIDE_PHASE,
 						Value:            instance.Proposal(),
 						SupplementalData: instance.SupplementalData(),
 					},
@@ -1332,7 +1332,7 @@ func TestGPBFT_Validation(t *testing.T) {
 					Justification: otherInstance.NewJustificationWithPayload(gpbft.Payload{
 						Instance:         instance.ID(),
 						Round:            2,
-						Step:             gpbft.COMMIT_PHASE,
+						Phase:            gpbft.COMMIT_PHASE,
 						SupplementalData: instance.SupplementalData(),
 						Value:            gpbft.ECChain{},
 					}, 0, 1, 2, 42),
@@ -1366,7 +1366,7 @@ func TestGPBFT_Validation(t *testing.T) {
 					Justification: instance.NewJustificationWithPayload(gpbft.Payload{
 						Instance: instance.ID(),
 						Round:    2,
-						Step:     gpbft.COMMIT_PHASE,
+						Phase:    gpbft.COMMIT_PHASE,
 						SupplementalData: gpbft.SupplementalData{
 							Commitments: [32]byte{},
 							PowerTable:  someCid,

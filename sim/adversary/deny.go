@@ -59,7 +59,7 @@ const (
 // DenyPhase denies all messages at the given phase.
 func DenyPhase(phase gpbft.Phase) DenyMessageMatcher {
 	return func(message *gpbft.GMessage) bool {
-		return message.Vote.Step == phase
+		return message.Vote.Phase == phase
 	}
 }
 

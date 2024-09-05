@@ -119,7 +119,7 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	// Expect a broadcast occurs with quality phase message, and the expected chain, signature.
 	payload := gpbft.Payload{
 		Instance:         pt.instance,
-		Step:             gpbft.QUALITY_PHASE,
+		Phase:            gpbft.QUALITY_PHASE,
 		Value:            pt.canonicalChain,
 		SupplementalData: *pt.supplementalData,
 	}
@@ -268,7 +268,7 @@ func TestParticipant(t *testing.T) {
 				},
 			})
 			require.Nil(t, gotValidated)
-			require.ErrorContains(t, gotValidateErr, "invalid vote step: 0")
+			require.ErrorContains(t, gotValidateErr, "invalid vote phase: 0")
 		})
 		t.Run("message is accepted (queued)", func(t *testing.T) {
 			subject := newParticipantTestSubject(t, seed, 0)
@@ -384,7 +384,7 @@ func TestParticipant(t *testing.T) {
 							Sender: somePowerEntry.ID,
 							Vote: gpbft.Payload{
 								Instance:         initialInstance,
-								Step:             gpbft.QUALITY_PHASE,
+								Phase:            gpbft.QUALITY_PHASE,
 								SupplementalData: *subject.supplementalData,
 								Value:            gpbft.ECChain{gpbft.TipSet{Epoch: 0, Key: []byte("wrong"), PowerTable: subject.supplementalData.PowerTable}},
 							},
@@ -401,7 +401,7 @@ func TestParticipant(t *testing.T) {
 							Sender: somePowerEntry.ID,
 							Vote: gpbft.Payload{
 								Instance: initialInstance,
-								Step:     gpbft.QUALITY_PHASE,
+								Phase:    gpbft.QUALITY_PHASE,
 								SupplementalData: gpbft.SupplementalData{
 									Commitments: [32]byte{},
 									PowerTable:  wrongPtCid,
@@ -422,7 +422,7 @@ func TestParticipant(t *testing.T) {
 							Sender: somePowerEntry.ID,
 							Vote: gpbft.Payload{
 								Instance:         initialInstance + 1,
-								Step:             gpbft.QUALITY_PHASE,
+								Phase:            gpbft.QUALITY_PHASE,
 								SupplementalData: *subject.supplementalData,
 								Value:            gpbft.ECChain{gpbft.TipSet{Epoch: 0, Key: []byte("wrong"), PowerTable: subject.supplementalData.PowerTable}},
 							},
@@ -438,7 +438,7 @@ func TestParticipant(t *testing.T) {
 							Sender: somePowerEntry.ID,
 							Vote: gpbft.Payload{
 								Instance:         initialInstance,
-								Step:             gpbft.QUALITY_PHASE,
+								Phase:            gpbft.QUALITY_PHASE,
 								SupplementalData: *subject.supplementalData,
 								Value:            subject.canonicalChain,
 							},
@@ -498,7 +498,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance:         initialInstanceNumber,
-						Step:             gpbft.QUALITY_PHASE,
+						Phase:            gpbft.QUALITY_PHASE,
 						Value:            subject.canonicalChain,
 						SupplementalData: *subject.supplementalData,
 					},
@@ -564,7 +564,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance:         initialInstanceNumber,
-						Step:             gpbft.QUALITY_PHASE,
+						Phase:            gpbft.QUALITY_PHASE,
 						Value:            gpbft.ECChain{*subject.canonicalChain.Base(), gpbft.TipSet{PowerTable: subject.supplementalData.PowerTable}},
 						SupplementalData: *subject.supplementalData,
 					},
@@ -583,21 +583,21 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					},
 				}
 			},
-			wantErr: "invalid vote step: 0",
+			wantErr: "invalid vote phase: 0",
 		},
 		{
-			name: "unknown vote step is error",
+			name: "unknown vote phase is error",
 			msg: func(subject *participantTestSubject) *gpbft.GMessage {
 				return &gpbft.GMessage{
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance:         initialInstanceNumber,
-						Step:             42,
+						Phase:            42,
 						SupplementalData: *subject.supplementalData,
 					},
 				}
 			},
-			wantErr: "invalid vote step: 42",
+			wantErr: "invalid vote phase: 42",
 		},
 		{
 			name: "QUALITY with non-zero vote round is error",
@@ -606,7 +606,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance:         initialInstanceNumber,
-						Step:             gpbft.QUALITY_PHASE,
+						Phase:            gpbft.QUALITY_PHASE,
 						Round:            7,
 						SupplementalData: *subject.supplementalData,
 					},
@@ -621,7 +621,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance:         initialInstanceNumber,
-						Step:             gpbft.QUALITY_PHASE,
+						Phase:            gpbft.QUALITY_PHASE,
 						SupplementalData: *subject.supplementalData,
 					},
 				}
@@ -635,7 +635,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance:         initialInstanceNumber,
-						Step:             gpbft.CONVERGE_PHASE,
+						Phase:            gpbft.CONVERGE_PHASE,
 						SupplementalData: *subject.supplementalData,
 					},
 				}
@@ -649,7 +649,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance:         initialInstanceNumber,
-						Step:             gpbft.CONVERGE_PHASE,
+						Phase:            gpbft.CONVERGE_PHASE,
 						Round:            42,
 						SupplementalData: *subject.supplementalData,
 					},
@@ -664,7 +664,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance:         initialInstanceNumber,
-						Step:             gpbft.CONVERGE_PHASE,
+						Phase:            gpbft.CONVERGE_PHASE,
 						Round:            42,
 						Value:            gpbft.ECChain{*subject.canonicalChain.Base(), gpbft.TipSet{PowerTable: subject.supplementalData.PowerTable}},
 						SupplementalData: *subject.supplementalData,
@@ -682,7 +682,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance:         initialInstanceNumber,
-						Step:             gpbft.CONVERGE_PHASE,
+						Phase:            gpbft.CONVERGE_PHASE,
 						Round:            42,
 						Value:            subject.canonicalChain,
 						SupplementalData: *subject.supplementalData,
@@ -699,7 +699,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance:         initialInstanceNumber,
-						Step:             gpbft.DECIDE_PHASE,
+						Phase:            gpbft.DECIDE_PHASE,
 						Round:            42,
 						SupplementalData: *subject.supplementalData,
 					},
@@ -714,7 +714,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance:         initialInstanceNumber,
-						Step:             gpbft.DECIDE_PHASE,
+						Phase:            gpbft.DECIDE_PHASE,
 						SupplementalData: *subject.supplementalData,
 					},
 				}
@@ -729,7 +729,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance:         initialInstanceNumber,
-						Step:             gpbft.DECIDE_PHASE,
+						Phase:            gpbft.DECIDE_PHASE,
 						Value:            subject.canonicalChain,
 						SupplementalData: *subject.supplementalData,
 					},
@@ -752,7 +752,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Sender: somePowerEntry.ID,
 						Vote: gpbft.Payload{
 							Instance:         initialInstanceNumber,
-							Step:             gpbft.PREPARE_PHASE,
+							Phase:            gpbft.PREPARE_PHASE,
 							SupplementalData: *subject.supplementalData,
 						},
 						Signature:     signature,
@@ -762,7 +762,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Sender: somePowerEntry.ID,
 						Vote: gpbft.Payload{
 							Instance:         initialInstanceNumber,
-							Step:             gpbft.QUALITY_PHASE,
+							Phase:            gpbft.QUALITY_PHASE,
 							Value:            subject.canonicalChain,
 							SupplementalData: *subject.supplementalData,
 						},
@@ -773,7 +773,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Sender: somePowerEntry.ID,
 						Vote: gpbft.Payload{
 							Instance:         initialInstanceNumber,
-							Step:             gpbft.COMMIT_PHASE,
+							Phase:            gpbft.COMMIT_PHASE,
 							SupplementalData: *subject.supplementalData,
 						},
 						Signature:     signature,
@@ -792,7 +792,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Sender: somePowerEntry.ID,
 						Vote: gpbft.Payload{
 							Instance:         initialInstanceNumber,
-							Step:             gpbft.DECIDE_PHASE,
+							Phase:            gpbft.DECIDE_PHASE,
 							Value:            subject.canonicalChain,
 							SupplementalData: *subject.supplementalData,
 						},
@@ -802,7 +802,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Sender: somePowerEntry.ID,
 						Vote: gpbft.Payload{
 							Instance:         initialInstanceNumber,
-							Step:             gpbft.COMMIT_PHASE,
+							Phase:            gpbft.COMMIT_PHASE,
 							Value:            subject.canonicalChain,
 							SupplementalData: *subject.supplementalData,
 						},
@@ -823,7 +823,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Sender: somePowerEntry.ID,
 						Vote: gpbft.Payload{
 							Instance:         initialInstanceNumber,
-							Step:             gpbft.CONVERGE_PHASE,
+							Phase:            gpbft.CONVERGE_PHASE,
 							Round:            4,
 							Value:            subject.canonicalChain,
 							SupplementalData: *subject.supplementalData,
@@ -844,7 +844,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Sender: somePowerEntry.ID,
 						Vote: gpbft.Payload{
 							Instance:         initialInstanceNumber,
-							Step:             gpbft.COMMIT_PHASE,
+							Phase:            gpbft.COMMIT_PHASE,
 							Value:            subject.canonicalChain,
 							SupplementalData: *subject.supplementalData,
 						},
@@ -871,14 +871,14 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Vote: gpbft.Payload{
 							Instance:         initialInstanceNumber,
 							Round:            22,
-							Step:             gpbft.CONVERGE_PHASE,
+							Phase:            gpbft.CONVERGE_PHASE,
 							Value:            subject.canonicalChain,
 							SupplementalData: *subject.supplementalData,
 						},
 						Signature: signature,
 						Justification: &gpbft.Justification{
 							Vote: gpbft.Payload{
-								Step:             gpbft.CONVERGE_PHASE,
+								Phase:            gpbft.CONVERGE_PHASE,
 								Instance:         initialInstanceNumber,
 								SupplementalData: *subject.supplementalData,
 							},
@@ -889,14 +889,14 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Sender: somePowerEntry.ID,
 						Vote: gpbft.Payload{
 							Instance:         initialInstanceNumber,
-							Step:             gpbft.COMMIT_PHASE,
+							Phase:            gpbft.COMMIT_PHASE,
 							Value:            subject.canonicalChain,
 							SupplementalData: *subject.supplementalData,
 						},
 						Signature: signature,
 						Justification: &gpbft.Justification{
 							Vote: gpbft.Payload{
-								Step:             gpbft.DECIDE_PHASE,
+								Phase:            gpbft.DECIDE_PHASE,
 								Instance:         initialInstanceNumber,
 								SupplementalData: *subject.supplementalData,
 							},
@@ -907,14 +907,14 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Sender: somePowerEntry.ID,
 						Vote: gpbft.Payload{
 							Instance:         initialInstanceNumber,
-							Step:             gpbft.DECIDE_PHASE,
+							Phase:            gpbft.DECIDE_PHASE,
 							Value:            subject.canonicalChain,
 							SupplementalData: *subject.supplementalData,
 						},
 						Signature: signature,
 						Justification: &gpbft.Justification{
 							Vote: gpbft.Payload{
-								Step:             gpbft.QUALITY_PHASE,
+								Phase:            gpbft.QUALITY_PHASE,
 								Instance:         initialInstanceNumber,
 								SupplementalData: *subject.supplementalData,
 							},
@@ -936,14 +936,14 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Vote: gpbft.Payload{
 							Instance:         initialInstanceNumber,
 							Round:            22,
-							Step:             gpbft.CONVERGE_PHASE,
+							Phase:            gpbft.CONVERGE_PHASE,
 							Value:            subject.canonicalChain,
 							SupplementalData: *subject.supplementalData,
 						},
 						Signature: signature,
 						Justification: &gpbft.Justification{
 							Vote: gpbft.Payload{
-								Step:             gpbft.COMMIT_PHASE,
+								Phase:            gpbft.COMMIT_PHASE,
 								Round:            22,
 								Instance:         initialInstanceNumber,
 								SupplementalData: *subject.supplementalData,
@@ -956,14 +956,14 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Vote: gpbft.Payload{
 							Instance:         initialInstanceNumber,
 							Round:            22,
-							Step:             gpbft.CONVERGE_PHASE,
+							Phase:            gpbft.CONVERGE_PHASE,
 							Value:            subject.canonicalChain,
 							SupplementalData: *subject.supplementalData,
 						},
 						Signature: signature,
 						Justification: &gpbft.Justification{
 							Vote: gpbft.Payload{
-								Step:             gpbft.PREPARE_PHASE,
+								Phase:            gpbft.PREPARE_PHASE,
 								Round:            22,
 								Instance:         initialInstanceNumber,
 								SupplementalData: *subject.supplementalData,
@@ -983,7 +983,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
 						Instance:         initialInstanceNumber,
-						Step:             gpbft.COMMIT_PHASE,
+						Phase:            gpbft.COMMIT_PHASE,
 						Value:            subject.canonicalChain,
 						SupplementalData: *subject.supplementalData,
 					},
@@ -1068,7 +1068,7 @@ func TestParticipant_ValidateMessageParallel(t *testing.T) {
 			Sender: somePowerEntry.ID,
 			Vote: gpbft.Payload{
 				Instance: initialInstanceNumber + (i % instanceCount),
-				Step:     gpbft.QUALITY_PHASE,
+				Phase:    gpbft.QUALITY_PHASE,
 				Value:    subject.canonicalChain,
 				SupplementalData: gpbft.SupplementalData{
 					PowerTable: ptCid,
