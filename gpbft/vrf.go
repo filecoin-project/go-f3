@@ -14,7 +14,7 @@ func VerifyTicket(nn NetworkName, beacon []byte, instance uint64, round uint64, 
 	return verifier.Verify(source, vrfSerializeSigInput(beacon, instance, round, nn), ticket) == nil
 }
 
-// Serializes the input to the VRF signature for the CONVERGE step of GossiPBFT.
+// Serializes the input to the VRF signature for the CONVERGE phase of GossiPBFT.
 // Only used for VRF ticket creation and/or verification.
 func vrfSerializeSigInput(beacon []byte, instance uint64, round uint64, networkName NetworkName) []byte {
 	var buf bytes.Buffer

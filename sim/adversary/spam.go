@@ -76,7 +76,7 @@ func (s *Spam) spamAtInstance(instance uint64) {
 			Instance:         instance,
 			Round:            spamRound,
 			SupplementalData: *supplementalData,
-			Step:             gpbft.COMMIT_PHASE,
+			Phase:            gpbft.COMMIT_PHASE,
 		}
 		mt := &gpbft.MessageBuilder{
 			NetworkName:      s.host.NetworkName(),

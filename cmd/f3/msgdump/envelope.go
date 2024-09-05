@@ -39,7 +39,7 @@ type PJustification struct {
 type PPayload struct {
 	Instance         uint64
 	Round            uint64
-	Step             string `parquet:"Step,enum"`
+	Phase            string `parquet:"Phase,enum"`
 	SupplementalData gpbft.SupplementalData
 	Value            gpbft.ECChain
 }
@@ -48,7 +48,7 @@ func payloadToParquet(vote gpbft.Payload) PPayload {
 	return PPayload{
 		Instance:         vote.Instance,
 		Round:            vote.Round,
-		Step:             vote.Step.String(),
+		Phase:            vote.Phase.String(),
 		SupplementalData: vote.SupplementalData,
 		Value:            vote.Value,
 	}

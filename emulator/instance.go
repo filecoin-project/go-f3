@@ -98,11 +98,11 @@ func (i *Instance) NewDecide(round uint64, proposal gpbft.ECChain) gpbft.Payload
 	return i.NewPayload(round, gpbft.DECIDE_PHASE, proposal)
 }
 
-func (i *Instance) NewPayload(round uint64, step gpbft.Phase, value gpbft.ECChain) gpbft.Payload {
+func (i *Instance) NewPayload(round uint64, phase gpbft.Phase, value gpbft.ECChain) gpbft.Payload {
 	return gpbft.Payload{
 		Instance:         i.id,
 		Round:            round,
-		Step:             step,
+		Phase:            phase,
 		SupplementalData: i.supplementalData,
 		Value:            value,
 	}
@@ -125,11 +125,11 @@ func (i *Instance) NewMessageBuilder(payload gpbft.Payload, justification *gpbft
 	return mb
 }
 
-func (i *Instance) NewJustification(round uint64, step gpbft.Phase, vote gpbft.ECChain, from ...gpbft.ActorID) *gpbft.Justification {
+func (i *Instance) NewJustification(round uint64, phase gpbft.Phase, vote gpbft.ECChain, from ...gpbft.ActorID) *gpbft.Justification {
 	payload := gpbft.Payload{
 		Instance:         i.id,
 		Round:            round,
-		Step:             step,
+		Phase:            phase,
 		SupplementalData: i.supplementalData,
 		Value:            vote,
 	}

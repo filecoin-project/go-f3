@@ -90,7 +90,7 @@ func (r *Repeat) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
 	p := gpbft.Payload{
 		Instance:         instance,
 		Round:            msg.Vote.Round,
-		Step:             msg.Vote.Step,
+		Phase:            msg.Vote.Phase,
 		SupplementalData: *supplementalData,
 		Value:            msg.Vote.Value,
 	}

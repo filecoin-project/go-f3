@@ -263,10 +263,10 @@ func TestBadFinalityCertificates(t *testing.T) {
 
 	justification := makeJustification(t, rng, tsg, backend, base, 1, powerTable, nextPowerTable)
 
-	// Alter the step
+	// Alter the phase
 	{
 		jCopy := *justification
-		jCopy.Vote.Step = gpbft.COMMIT_PHASE
+		jCopy.Vote.Phase = gpbft.COMMIT_PHASE
 		_, err = certs.NewFinalityCertificate(nil, &jCopy)
 		require.ErrorContains(t, err, "can only create a finality certificate from a decide vote")
 	}

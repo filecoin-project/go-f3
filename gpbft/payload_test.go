@@ -34,7 +34,7 @@ func TestPayload_Eq(t *testing.T) {
 			one: gpbft.Payload{
 				Instance: 1,
 				Round:    2,
-				Step:     gpbft.TERMINATED_PHASE,
+				Phase:    gpbft.TERMINATED_PHASE,
 				SupplementalData: gpbft.SupplementalData{
 					Commitments: [32]byte{1, 2, 3, 4},
 					PowerTable:  ptCid,
@@ -44,7 +44,7 @@ func TestPayload_Eq(t *testing.T) {
 			other: &gpbft.Payload{
 				Instance: 1,
 				Round:    2,
-				Step:     gpbft.TERMINATED_PHASE,
+				Phase:    gpbft.TERMINATED_PHASE,
 				SupplementalData: gpbft.SupplementalData{
 					Commitments: [32]byte{1, 2, 3, 4},
 					PowerTable:  ptCid,
@@ -57,7 +57,7 @@ func TestPayload_Eq(t *testing.T) {
 			name: "partly populated  not eq to self",
 			one: gpbft.Payload{
 				Instance: 1,
-				Step:     gpbft.TERMINATED_PHASE,
+				Phase:    gpbft.TERMINATED_PHASE,
 				SupplementalData: gpbft.SupplementalData{
 					Commitments: [32]byte{1, 2, 3, 4},
 					PowerTable:  ptCid,
@@ -66,7 +66,7 @@ func TestPayload_Eq(t *testing.T) {
 			other: &gpbft.Payload{
 				Instance: 1,
 				Round:    2,
-				Step:     gpbft.TERMINATED_PHASE,
+				Phase:    gpbft.TERMINATED_PHASE,
 				SupplementalData: gpbft.SupplementalData{
 					Commitments: [32]byte{1, 2, 3, 4},
 					PowerTable:  ptCid,
@@ -114,7 +114,7 @@ func TestPayload_MarshalForSigning(t *testing.T) {
 			subject: gpbft.Payload{
 				Instance: 1,
 				Round:    2,
-				Step:     gpbft.TERMINATED_PHASE,
+				Phase:    gpbft.TERMINATED_PHASE,
 				SupplementalData: gpbft.SupplementalData{
 					Commitments: [32]byte([]byte("🐡 fish unda da sea 🪼  🌊")),
 					PowerTable:  ptCid,

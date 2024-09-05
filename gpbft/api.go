@@ -119,7 +119,7 @@ type Signatures interface {
 type DecisionReceiver interface {
 	// Receives a finality decision from the instance, with signatures from a strong quorum
 	// of participants justifying it.
-	// The decision payload always has round = 0 and step = DECIDE.
+	// The decision payload always has round = 0 and phase = DECIDE.
 	// The notification must return the timestamp at which the next instance should begin,
 	// based on the decision received (which may be in the past).
 	// E.g. this might be: finalised tipset timestamp + epoch duration + stabilisation delay.

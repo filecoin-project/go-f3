@@ -64,11 +64,11 @@ type GMessage struct {
 	Sender ActorID
 	// Vote is the payload that is signed by the signature
 	Vote Payload
-	// Signature by the sender's public key over Instance || Round || Step || Value.
+	// Signature by the sender's public key over Instance || Round || Phase || Value.
 	Signature []byte `cborgen:"maxlen=96"`
 	// VRF ticket for CONVERGE messages (otherwise empty byte array).
 	Ticket Ticket `cborgen:"maxlen=96"`
-	// Justification for this message (some messages must be justified by a strong quorum of messages from some previous step).
+	// Justification for this message (some messages must be justified by a strong quorum of messages from some previous phase).
 	Justification *Justification
 }
 
@@ -100,8 +100,8 @@ type Payload struct {
 	Instance uint64
 	// GossiPBFT round number.
 	Round uint64
-	// GossiPBFT step name.
-	Step Phase
+	// GossiPBFT phase name.
+	Phase Phase
 	// The common data.
 	SupplementalData SupplementalData
 	// The value agreed-upon in a single instance.
@@ -117,7 +117,7 @@ func (p *Payload) Eq(other *Payload) bool {
 	}
 	return p.Instance == other.Instance &&
 		p.Round == other.Round &&
-		p.Step == other.Step &&
+		p.Phase == other.Phase &&
 		p.SupplementalData.Eq(&other.SupplementalData) &&
 		p.Value.Eq(other.Value)
 }
@@ -135,7 +135,7 @@ func (p *Payload) MarshalForSigning(nn NetworkName) []byte {
 	buf.WriteString(string(nn))
 	buf.WriteString(":")
 
-	_ = binary.Write(&buf, binary.BigEndian, p.Step)
+	_ = binary.Write(&buf, binary.BigEndian, p.Phase)
 	_ = binary.Write(&buf, binary.BigEndian, p.Round)
 	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
 	_, _ = buf.Write(p.SupplementalData.Commitments[:])
@@ -145,7 +145,7 @@ func (p *Payload) MarshalForSigning(nn NetworkName) []byte {
 }
 
 func (m GMessage) String() string {
-	return fmt.Sprintf("%s{%d}(%d %s)", m.Vote.Step, m.Vote.Instance, m.Vote.Round, &m.Vote.Value)
+	return fmt.Sprintf("%s{%d}(%d %s)", m.Vote.Phase, m.Vote.Instance, m.Vote.Round, &m.Vote.Value)
 }
 
 // A single Granite consensus instance.
@@ -356,8 +356,8 @@ func (i *instance) receiveOne(msg *GMessage) (bool, error) {
 	}
 	// Ignore CONVERGE and PREPARE messages for prior rounds.
 	forPriorRound := msg.Vote.Round < i.round
-	if (forPriorRound && msg.Vote.Step == CONVERGE_PHASE) ||
-		(forPriorRound && msg.Vote.Step == PREPARE_PHASE) {
+	if (forPriorRound && msg.Vote.Phase == CONVERGE_PHASE) ||
+		(forPriorRound && msg.Vote.Phase == PREPARE_PHASE) {
 		return false, nil
 	}
 
@@ -372,7 +372,7 @@ func (i *instance) receiveOne(msg *GMessage) (bool, error) {
 	// Load the round state and process further only valid, non-spammable messages.
 	// Equivocations are handled by the quorum state.
 	msgRound := i.getRound(msg.Vote.Round)
-	switch msg.Vote.Step {
+	switch msg.Vote.Phase {
 	case QUALITY_PHASE:
 		// Receive each prefix of the proposal independently, which is accepted at any
 		// round/phase.
@@ -409,7 +409,7 @@ func (i *instance) receiveOne(msg *GMessage) (bool, error) {
 			i.skipToDecide(msg.Vote.Value, msg.Justification)
 		}
 	default:
-		return false, fmt.Errorf("unexpected message step %s", msg.Vote.Step)
+		return false, fmt.Errorf("unexpected message phase %s", msg.Vote.Phase)
 	}
 
 	// Try to complete the current phase in the current round.
@@ -454,7 +454,7 @@ func (i *instance) shouldSkipToRound(round uint64, state *roundState) (ECChain, 
 
 // Attempts to complete the current phase and round.
 func (i *instance) tryCurrentPhase() error {
-	i.log("try step %s", i.phase)
+	i.log("try phase %s", i.phase)
 	switch i.phase {
 	case QUALITY_PHASE:
 		return i.tryQuality()
@@ -566,7 +566,7 @@ func (i *instance) tryConverge() error {
 		}
 		// If it is not a candidate but it could possibly have been decided by another participant
 		// in the last round, consider it a candidate.
-		if cv.Justification.Vote.Step != PREPARE_PHASE {
+		if cv.Justification.Vote.Phase != PREPARE_PHASE {
 			return false
 		}
 		possibleDecision := commitRoundState.CouldReachStrongQuorumFor(cv.Chain.Key(), true)
@@ -627,7 +627,7 @@ func (i *instance) tryPrepare() error {
 		i.beginCommit()
 	} else if timedOut {
 		if err := i.tryRebroadcast(); err != nil {
-			return fmt.Errorf("failed to rebroadcast at %s step: %w", i.phase, err)
+			return fmt.Errorf("failed to rebroadcast at %s phase: %w", i.phase, err)
 		}
 	}
 
@@ -704,7 +704,7 @@ func (i *instance) tryCommit(round uint64) error {
 	case timedOut:
 		// The phase has timed out. Attempt to re-broadcast messages.
 		if err := i.tryRebroadcast(); err != nil {
-			return fmt.Errorf("failed to rebroadcast at %s step: %w", i.phase, err)
+			return fmt.Errorf("failed to rebroadcast at %s phase: %w", i.phase, err)
 		}
 	}
 	return nil
@@ -757,7 +757,7 @@ func (i *instance) tryDecide() error {
 		}
 	} else {
 		if err := i.tryRebroadcast(); err != nil {
-			return fmt.Errorf("failed to rebroadcast at %s step: %w", i.phase, err)
+			return fmt.Errorf("failed to rebroadcast at %s phase: %w", i.phase, err)
 		}
 	}
 
@@ -806,7 +806,7 @@ func (i *instance) skipToRound(round uint64, chain ECChain, justification *Justi
 	metrics.currentRound.Record(context.TODO(), int64(i.round))
 	metrics.skipCounter.Add(context.TODO(), 1, metric.WithAttributes(attrSkipToRound))
 
-	if justification.Vote.Step == PREPARE_PHASE {
+	if justification.Vote.Phase == PREPARE_PHASE {
 		i.log("⚠️ swaying from %s to %s by skip to round %d", &i.proposal, chain, i.round)
 		i.addCandidate(chain)
 		i.proposal = chain
@@ -853,11 +853,11 @@ func (i *instance) terminated() bool {
 	return i.phase == TERMINATED_PHASE
 }
 
-func (i *instance) broadcast(round uint64, step Phase, value ECChain, createTicket bool, justification *Justification) {
+func (i *instance) broadcast(round uint64, phase Phase, value ECChain, createTicket bool, justification *Justification) {
 	p := Payload{
 		Instance:         i.instanceID,
 		Round:            round,
-		Step:             step,
+		Phase:            phase,
 		SupplementalData: *i.supplementalData,
 		Value:            value,
 	}
@@ -876,7 +876,7 @@ func (i *instance) broadcast(round uint64, step Phase, value ECChain, createTick
 	// Capture the broadcast and metrics first. Because, otherwise the instance will
 	// end up with partial re-broadcast messages if RequestBroadcast panics.
 	i.broadcasted.record(mb)
-	metrics.broadcastCounter.Add(context.TODO(), 1, metric.WithAttributes(attrPhase[p.Step]))
+	metrics.broadcastCounter.Add(context.TODO(), 1, metric.WithAttributes(attrPhase[p.Phase]))
 	if err := i.participant.host.RequestBroadcast(mb); err != nil {
 		i.log("failed to request broadcast: %v", err)
 	}
@@ -962,9 +962,9 @@ func (i *instance) rebroadcast() error {
 			if err := i.participant.host.RequestBroadcast(mb); err != nil {
 				// Silently log the error and proceed. This is consistent with the behaviour of
 				// instance for regular broadcasts.
-				i.log("failed to request rebroadcast %s at round %d: %v", mb.Payload.Step, mb.Payload.Round, err)
+				i.log("failed to request rebroadcast %s at round %d: %v", mb.Payload.Phase, mb.Payload.Round, err)
 			} else {
-				i.log("rebroadcasting %s at round %d for value %s", mb.Payload.Step.String(), mb.Payload.Round, mb.Payload.Value)
+				i.log("rebroadcasting %s at round %d for value %s", mb.Payload.Phase.String(), mb.Payload.Round, mb.Payload.Value)
 				metrics.reBroadcastCounter.Add(context.TODO(), 1)
 			}
 		}
@@ -993,7 +993,7 @@ func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase P
 		Vote: Payload{
 			Instance:         i.instanceID,
 			Round:            round,
-			Step:             phase,
+			Phase:            phase,
 			Value:            value,
 			SupplementalData: *i.supplementalData,
 		},
@@ -1005,7 +1005,7 @@ func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase P
 func (i *instance) log(format string, args ...any) {
 	if i.tracer != nil {
 		msg := fmt.Sprintf(format, args...)
-		i.tracer.Log("{%d}: %s (round %d, step %s, proposal %s, value %s)", i.instanceID, msg,
+		i.tracer.Log("{%d}: %s (round %d, phase %s, proposal %s, value %s)", i.instanceID, msg,
 			i.round, i.phase, &i.proposal, &i.value)
 	}
 }
@@ -1418,7 +1418,7 @@ func newBroadcastState() *broadcastState {
 //   - https://github.com/filecoin-project/FIPs/discussions/809#discussioncomment-10409902
 //   - https://github.com/filecoin-project/FIPs/discussions/809#discussioncomment-10424988
 func (bs *broadcastState) record(mb *MessageBuilder) {
-	switch mb.Payload.Step {
+	switch mb.Payload.Phase {
 	case DECIDE_PHASE:
 		// Clear all previous messages, as only DECIDE message need to be rebroadcasted.
 		// Note that DECIDE message is not associated to any round, and is always
@@ -1434,7 +1434,7 @@ func (bs *broadcastState) record(mb *MessageBuilder) {
 			case 0:
 				var found bool
 				for i, mb := range bs.messagesByRound[0] {
-					if mb.Payload.Step == QUALITY_PHASE {
+					if mb.Payload.Phase == QUALITY_PHASE {
 						bs.messagesByRound[0] = bs.messagesByRound[0][i : i+1 : 1]
 						found = true
 						break
@@ -1449,9 +1449,9 @@ func (bs *broadcastState) record(mb *MessageBuilder) {
 			}
 		}
 	default:
-		// There should not be any message recorded with any other payload step. Warn if
+		// There should not be any message recorded with any other payload phase. Warn if
 		// we see any.
-		log.Warnw("Unexpected payload step while recording broadcasted messages", "step", mb.Payload.Step)
+		log.Warnw("Unexpected payload phase while recording broadcasted messages", "phase", mb.Payload.Phase)
 	}
 }
 

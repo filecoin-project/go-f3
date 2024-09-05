@@ -132,7 +132,7 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 		var err error
 		moreTicks, err = s.network.Tick(s.adversary)
 		if err != nil {
-			return fmt.Errorf("error performing simulation step: %w", err)
+			return fmt.Errorf("error performing simulation phase: %w", err)
 		}
 	}
 	return nil

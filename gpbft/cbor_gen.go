@@ -474,8 +474,8 @@ func (t *Payload) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.Step (gpbft.Phase) (uint8)
-	if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.Step)); err != nil {
+	// t.Phase (gpbft.Phase) (uint8)
+	if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.Phase)); err != nil {
 		return err
 	}
 
@@ -552,7 +552,7 @@ func (t *Payload) UnmarshalCBOR(r io.Reader) (err error) {
 		t.Round = uint64(extra)
 
 	}
-	// t.Step (gpbft.Phase) (uint8)
+	// t.Phase (gpbft.Phase) (uint8)
 
 	maj, extra, err = cr.ReadHeader()
 	if err != nil {
@@ -564,7 +564,7 @@ func (t *Payload) UnmarshalCBOR(r io.Reader) (err error) {
 	if extra > math.MaxUint8 {
 		return fmt.Errorf("integer in input was too large for uint8 field")
 	}
-	t.Step = Phase(extra)
+	t.Phase = Phase(extra)
 	// t.SupplementalData (gpbft.SupplementalData) (struct)
 
 	{

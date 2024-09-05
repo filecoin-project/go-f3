@@ -109,7 +109,7 @@ func (s *FakeBackend) VerifyAggregate(payload, aggSig []byte, signers []gpbft.Pu
 
 func (v *FakeBackend) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Payload) []byte {
 	length := len(gpbft.DomainSeparationTag) + 2 + len(nn)
-	length += 1 + 8 + 8 // step + round + instance
+	length += 1 + 8 + 8 // phase + round + instance
 	length += 4         // len(p.Value)
 	for i := range p.Value {
 		ts := &p.Value[i]
@@ -126,7 +126,7 @@ func (v *FakeBackend) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Pa
 	buf.WriteString(string(nn))
 	buf.WriteString(":")
 
-	_ = binary.Write(&buf, binary.BigEndian, p.Step)
+	_ = binary.Write(&buf, binary.BigEndian, p.Phase)
 	_ = binary.Write(&buf, binary.BigEndian, p.Round)
 	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
 	_, _ = buf.Write(p.SupplementalData.Commitments[:])

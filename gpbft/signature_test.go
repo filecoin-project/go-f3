@@ -17,7 +17,7 @@ func TestPayloadMarshalForSigning(t *testing.T) {
 	encoded := (&gpbft.Payload{
 		Instance: 1,
 		Round:    2,
-		Step:     3,
+		Phase:    3,
 		SupplementalData: gpbft.SupplementalData{
 			Commitments: [32]byte{0x42},
 			PowerTable:  powerTableCid,
@@ -26,7 +26,7 @@ func TestPayloadMarshalForSigning(t *testing.T) {
 	}).MarshalForSigning(nn)
 	require.Len(t, encoded, 96+powerTableCid.ByteLen())
 	assert.Equal(t, encoded[:15], []byte("GPBFT:filecoin:"))            // separators
-	assert.Equal(t, encoded[15], uint8(3))                              // step
+	assert.Equal(t, encoded[15], uint8(3))                              // phase
 	assert.Equal(t, binary.BigEndian.Uint64(encoded[16:24]), uint64(2)) // round
 	assert.Equal(t, binary.BigEndian.Uint64(encoded[24:32]), uint64(1)) // instance (32-byte right aligned)
 	assert.EqualValues(t, encoded[32:64], [32]byte{0x42})               // commitments root
@@ -37,7 +37,7 @@ func TestPayloadMarshalForSigning(t *testing.T) {
 	encoded = (&gpbft.Payload{
 		Instance: 29,
 		Round:    0,
-		Step:     gpbft.DECIDE_PHASE,
+		Phase:    gpbft.DECIDE_PHASE,
 		SupplementalData: gpbft.SupplementalData{
 			Commitments: [32]byte{},
 			PowerTable:  powerTableCid,
@@ -71,7 +71,7 @@ func BenchmarkPayloadMarshalForSigning(b *testing.B) {
 	payload := &gpbft.Payload{
 		Instance: 1,
 		Round:    2,
-		Step:     3,
+		Phase:    3,
 		Value:    maxChain,
 	}
 	for i := 0; i < b.N; i++ {

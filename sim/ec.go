@@ -111,8 +111,8 @@ func (eci *ECInstance) validateDecision(decision *gpbft.Justification) error {
 	switch {
 	case eci.Instance != decision.Vote.Instance:
 		return fmt.Errorf("instance mismatch: expected %d but got %d", eci.Instance, decision.Vote.Instance)
-	case decision.Vote.Step != gpbft.DECIDE_PHASE:
-		return fmt.Errorf("decision for wrong phase: %s", decision.Vote.Step)
+	case decision.Vote.Phase != gpbft.DECIDE_PHASE:
+		return fmt.Errorf("decision for wrong phase: %s", decision.Vote.Phase)
 	case decision.Vote.Round != 0:
 		return fmt.Errorf("decision for wrong round: %d", decision.Vote.Round)
 	case decision.Vote.Value.IsZero():

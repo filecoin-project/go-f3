@@ -69,14 +69,14 @@ func (w *WithholdCommit) StartInstanceAt(instance uint64, _when time.Time) error
 	broadcast(gpbft.Payload{
 		Instance:         instance,
 		Round:            0,
-		Step:             gpbft.QUALITY_PHASE,
+		Phase:            gpbft.QUALITY_PHASE,
 		Value:            w.victimValue,
 		SupplementalData: *supplementalData,
 	}, nil)
 	preparePayload := gpbft.Payload{
 		Instance:         instance,
 		Round:            0,
-		Step:             gpbft.PREPARE_PHASE,
+		Phase:            gpbft.PREPARE_PHASE,
 		Value:            w.victimValue,
 		SupplementalData: *supplementalData,
 	}
@@ -85,7 +85,7 @@ func (w *WithholdCommit) StartInstanceAt(instance uint64, _when time.Time) error
 	commitPayload := gpbft.Payload{
 		Instance:         instance,
 		Round:            0,
-		Step:             gpbft.COMMIT_PHASE,
+		Phase:            gpbft.COMMIT_PHASE,
 		Value:            w.victimValue,
 		SupplementalData: *supplementalData,
 	}
@@ -143,17 +143,17 @@ func (w *WithholdCommit) AllowMessage(_ gpbft.ActorID, to gpbft.ActorID, msg gpb
 			toAnyVictim = true
 		}
 	}
-	if msg.Vote.Step == gpbft.QUALITY_PHASE {
+	if msg.Vote.Phase == gpbft.QUALITY_PHASE {
 		// Don't allow victims to see dissenting QUALITY.
 		if toAnyVictim && !msg.Vote.Value.Eq(w.victimValue) {
 			return false
 		}
-	} else if msg.Vote.Step == gpbft.PREPARE_PHASE {
+	} else if msg.Vote.Phase == gpbft.PREPARE_PHASE {
 		// Don't allow victims to see dissenting PREPARE.
 		if toAnyVictim && !msg.Vote.Value.Eq(w.victimValue) {
 			return false
 		}
-	} else if msg.Vote.Step == gpbft.COMMIT_PHASE {
+	} else if msg.Vote.Phase == gpbft.COMMIT_PHASE {
 		// Allow only the main victim to see our COMMIT.
 		if !toMainVictim && msg.Sender == w.id {
 			return false

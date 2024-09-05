@@ -28,7 +28,7 @@ func MakeJustification(backend signing.Backend, nn gpbft.NetworkName, chain gpbf
 	payload := gpbft.Payload{
 		Instance: instance,
 		Round:    0,
-		Step:     gpbft.DECIDE_PHASE,
+		Phase:    gpbft.DECIDE_PHASE,
 		SupplementalData: gpbft.SupplementalData{
 			PowerTable: powerTableCid,
 		},
