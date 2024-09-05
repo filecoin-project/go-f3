@@ -126,7 +126,7 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 
 	t.Run("Decides proposal on strong quorum", func(t *testing.T) {
 		instance, driver := newInstanceAndDriver(t)
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 		driver.RequireQuality()
 		driver.RequireNoBroadcast()
 
@@ -161,7 +161,7 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 
 	t.Run("Decides base on lack of quorum", func(t *testing.T) {
 		instance, driver := newInstanceAndDriver(t)
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 		driver.RequireQuality()
 		driver.RequireNoBroadcast()
 
@@ -199,7 +199,7 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 
 	t.Run("Converges on base when quorum not possible", func(t *testing.T) {
 		instance, driver := newInstanceAndDriver(t)
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 		driver.RequireQuality()
 		driver.RequireNoBroadcast()
 
@@ -271,7 +271,7 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 			Vote:   instance.NewPrepare(0, instance.Proposal()),
 		})
 
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 		driver.RequireQuality()
 		driver.RequirePrepare(instance.Proposal())
 		evidenceOfPrepare := instance.NewJustification(0, gpbft.PREPARE_PHASE, instance.Proposal(), 0, 1)
@@ -295,7 +295,7 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 			tipSet3, tipSet4,
 		)
 		driver.AddInstance(futureInstance)
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 		driver.RequireDeliverMessage(&gpbft.GMessage{
 			Sender: 1,
 			Vote:   instance.NewQuality(instance.Proposal()),
@@ -337,7 +337,7 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 
 		// Start the future instance and expect progress to commit without any timeouts
 		// based on previously queued messages.
-		driver.StartInstance(futureInstance.ID())
+		driver.RequireStartInstance(futureInstance.ID())
 		driver.RequireQuality()
 		driver.RequirePrepare(futureInstance.Proposal())
 		driver.RequireCommit(0, futureInstance.Proposal(), instance.NewJustification(0, gpbft.PREPARE_PHASE, futureInstance.Proposal(), 0, 1))
@@ -345,7 +345,7 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 
 	t.Run("Rebroadcasts selected messages on timeout", func(t *testing.T) {
 		instance, driver := newInstanceAndDriver(t)
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 		driver.RequireQuality()
 		driver.RequireNoBroadcast()
 		driver.RequireDeliverAlarm()
@@ -673,7 +673,7 @@ func TestGPBFT_SkipsToDecide(t *testing.T) {
 		instance, driver := newInstanceAndDriver(t)
 		wantDecision := instance.Proposal().Extend(tipSet4.Key)
 
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 		driver.RequireQuality()
 		driver.RequireNoBroadcast()
 
@@ -698,7 +698,7 @@ func TestGPBFT_SkipsToDecide(t *testing.T) {
 			Justification: instance.NewJustification(0, gpbft.COMMIT_PHASE, wantDecision, 1),
 		})
 
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 		// Expect immediate decision.
 		driver.RequireDecision(instance.ID(), wantDecision)
 	})
@@ -724,7 +724,7 @@ func TestGPBFT_SoloParticipant(t *testing.T) {
 
 	t.Run("Decides proposal with no timeout", func(t *testing.T) {
 		instance, driver := newInstanceAndDriver(t)
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 		driver.RequireQuality()
 		driver.RequirePrepare(instance.Proposal())
 		driver.RequireCommit(
@@ -742,7 +742,7 @@ func TestGPBFT_SoloParticipant(t *testing.T) {
 	t.Run("Decides base on QUALITY timeout", func(t *testing.T) {
 		instance, driver := newInstanceAndDriver(t)
 		baseChain := instance.Proposal().BaseChain()
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 		driver.RequireDeliverAlarm()
 		driver.RequireQuality()
 		driver.RequirePrepare(baseChain)
@@ -785,7 +785,7 @@ func TestGPBFT_SkipsToRound(t *testing.T) {
 		instance, driver := newInstanceAndDriver(t)
 		futureRoundProposal := instance.Proposal().Extend(tipSet4.Key)
 
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 		driver.RequireQuality()
 		driver.RequireNoBroadcast()
 
@@ -823,7 +823,7 @@ func TestGPBFT_SkipsToRound(t *testing.T) {
 		instance, driver := newInstanceAndDriver(t)
 		futureRoundProposal := instance.Proposal().Extend(tipSet4.Key)
 
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 		driver.RequireQuality()
 		driver.RequireNoBroadcast()
 
@@ -847,7 +847,7 @@ func TestGPBFT_SkipsToRound(t *testing.T) {
 		instance, driver := newInstanceAndDriver(t)
 		futureRoundProposal := instance.Proposal().Extend(tipSet4.Key)
 
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 		driver.RequireQuality()
 		driver.RequireNoBroadcast()
 
@@ -891,7 +891,7 @@ func TestGPBFT_SkipsToRound(t *testing.T) {
 			Ticket:        emulator.ValidTicket,
 		})
 
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 		driver.RequireQuality()
 
 		// Expect skip to round.
@@ -930,7 +930,7 @@ func TestGPBFT_Equivocations(t *testing.T) {
 			instance.Proposal().Extend(tipSet4.Key),
 		}
 
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 
 		// Send the first Quality message for instance proposal
 		driver.RequireDeliverMessage(&gpbft.GMessage{
@@ -1062,7 +1062,7 @@ func TestGPBFT_Equivocations(t *testing.T) {
 		}
 
 		// Start the instance before sending decide messages to avoid skip to decide.
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 		driver.RequireQuality()
 		driver.RequirePrepare(instance.Proposal())
 		driver.RequireCommit(0, instance.Proposal(), evidenceOfPrepare)
@@ -1117,7 +1117,7 @@ func TestGPBFT_ImpossibleQuorum(t *testing.T) {
 		instance, driver := newInstanceAndDriver(t)
 		alternativeProposal := instance.Proposal().BaseChain().Extend([]byte("barreleye"))
 
-		driver.StartInstance(instance.ID())
+		driver.RequireStartInstance(instance.ID())
 		driver.RequireQuality()
 		driver.RequireNoBroadcast()
 		driver.RequireDeliverAlarm()
@@ -1546,7 +1546,7 @@ func TestGPBFT_DropOld(t *testing.T) {
 	driver.AddInstance(newInstance)
 
 	// We immediately skip to the "new" instance.
-	driver.StartInstance(2)
+	driver.RequireStartInstance(2)
 
 	// All messages from the old instance should be dropped.
 

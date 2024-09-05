@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/filecoin-project/go-f3/emulator"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -1093,6 +1094,96 @@ func TestParticipant_ValidateMessageParallel(t *testing.T) {
 	}
 	wg.Wait()
 	subject.assertHostExpectations()
+}
+
+func TestParticipant_WithMisbehavingSigner(t *testing.T) {
+	newDriverAndInstance := func(t *testing.T) (*emulator.Driver, *emulator.Instance) {
+		driver := emulator.NewDriver(t)
+		instance := emulator.NewInstance(t,
+			0,
+			gpbft.PowerEntries{
+				gpbft.PowerEntry{
+					ID:    0,
+					Power: gpbft.NewStoragePower(1),
+				},
+				gpbft.PowerEntry{
+					ID:    1,
+					Power: gpbft.NewStoragePower(1),
+				},
+			},
+			tipset0, tipSet1, tipSet2,
+		)
+		driver.AddInstance(instance)
+		driver.RequireNoBroadcast()
+		return driver, instance
+	}
+
+	t.Run("erroneous signing makes no broadcast", func(t *testing.T) {
+		driver, instance := newDriverAndInstance(t)
+
+		// Error at every signing operation.
+		driver.SetSigning(emulator.ErroneousSigning())
+
+		// Start the instance, which should begin QUALITY.
+		driver.RequireStartInstance(instance.ID())
+		// Expect no broadcast as failure to broadcast should be silently logged.
+		driver.RequireNoBroadcast()
+
+		// Trigger alarm to begin PREPARE
+		driver.RequireDeliverAlarm()
+		// Expect no broadcast as failure to broadcast should be silently logged.
+		driver.RequireNoBroadcast()
+
+		// Trigger alarm to timeout PREPARE
+		driver.RequireDeliverAlarm()
+		// Trigger alarm to timeout rebroadcast and begin rebroadcasting messages.
+		driver.RequireDeliverAlarm()
+		// Expect no broadcast as failure to broadcast should be silently logged.
+		driver.RequireNoBroadcast()
+	})
+
+	t.Run("panic while signing is handled gracefully", func(t *testing.T) {
+		driver, instance := newDriverAndInstance(t)
+
+		// Panic at every signing operation.
+		driver.SetSigning(emulator.PanicSigning())
+
+		// Expect that instance does not start, capturs panic and returns an error.
+		require.ErrorContains(t, driver.StartInstance(instance.ID()), "participant panicked")
+		// Expect no broadcast as the instance is not started
+		driver.RequireNoBroadcast()
+
+		// Expect alarm trigger fails and there was a scheduled alarm.
+		alarmScheduled, err := driver.DeliverAlarm()
+		require.ErrorContains(t, err, "participant panicked")
+		require.True(t, alarmScheduled)
+
+		// Switch to plausible signing to get the instance started.
+		driver.SetSigning(emulator.AdhocSigning())
+		driver.RequireStartInstance(instance.ID())
+		driver.RequireQuality()
+
+		// Switch back to panic signing
+		driver.SetSigning(emulator.PanicSigning())
+
+		// Expect alarm trigger fails again and there was an alarm scheduled by QUALITY.
+		alarmScheduled, err = driver.DeliverAlarm()
+		require.ErrorContains(t, err, "participant panicked")
+		require.True(t, alarmScheduled)
+		// Expect no broadcast.
+		driver.RequireNoBroadcast()
+
+		// Switch to plausible signing and progress to PREPARE.
+		driver.SetSigning(emulator.AdhocSigning())
+		// Trigger timeout at PREPARE to schedule re-broadcast.
+		driver.RequireDeliverAlarm()
+		// Trigger re-broadcast timeout to force broadcast attempt for QUALITY and
+		// PREPARE from round 0, which should have been scheduled regardless of signing
+		// panic.
+		driver.RequireDeliverAlarm()
+		driver.RequireQuality()
+		driver.RequirePrepare(instance.Proposal().BaseChain())
+	})
 }
 
 type validatedMessage struct {

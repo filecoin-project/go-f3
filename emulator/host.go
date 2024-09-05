@@ -15,7 +15,7 @@ const networkName = "emulator-net"
 var _ gpbft.Host = (*driverHost)(nil)
 
 type driverHost struct {
-	adhocSigning
+	Signing
 
 	t                  *testing.T
 	id                 gpbft.ActorID
@@ -25,10 +25,11 @@ type driverHost struct {
 	chain              map[uint64]*Instance
 }
 
-func newHost(t *testing.T) *driverHost {
+func newHost(t *testing.T, signing Signing) *driverHost {
 	return &driverHost{
-		t:     t,
-		chain: make(map[uint64]*Instance),
+		Signing: signing,
+		t:       t,
+		chain:   make(map[uint64]*Instance),
 	}
 }
 

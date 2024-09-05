@@ -3,6 +3,7 @@ package emulator
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -22,9 +23,9 @@ type Driver struct {
 }
 
 // NewDriver instantiates a new Driver with the given GPBFT options. See
-// Driver.StartInstance.
+// Driver.RequireStartInstance.
 func NewDriver(t *testing.T, o ...gpbft.Option) *Driver {
-	h := newHost(t)
+	h := newHost(t, AdhocSigning())
 	participant, err := gpbft.NewParticipant(h, o...)
 	require.NoError(t, err)
 	return &Driver{
@@ -34,15 +35,24 @@ func NewDriver(t *testing.T, o ...gpbft.Option) *Driver {
 	}
 }
 
+func (d *Driver) SetSigning(signing Signing) { d.host.Signing = signing }
+
 // StartInstance sets the current instances and starts emulation for it by signalling the
 // start of instance to the emulated honest gpbft.Participant.
 //
 // See NewInstance.
-func (d *Driver) StartInstance(id uint64) {
-	d.require.NoError(d.subject.StartInstanceAt(id, d.host.Time()))
+func (d *Driver) StartInstance(id uint64) error {
+	if err := d.subject.StartInstanceAt(id, d.host.Time()); err != nil {
+		return err
+	}
 	// Trigger alarm once based on the implicit assumption that go-f3 uses alarm to
 	// kickstart an instance internally.
-	d.RequireDeliverAlarm()
+	if triggered, err := d.DeliverAlarm(); err != nil {
+		return err
+	} else if !triggered {
+		return errors.New("alarm did not trigger at start")
+	}
+	return nil
 }
 
 // AddInstance adds an instance to the list of instances known by the driver.
@@ -50,7 +60,7 @@ func (d *Driver) AddInstance(instance *Instance) {
 	d.require.NoError(d.host.addInstance(instance))
 }
 
-func (d *Driver) deliverAlarm() (bool, error) {
+func (d *Driver) DeliverAlarm() (bool, error) {
 	if d.host.maybeReceiveAlarm() {
 		return true, d.subject.ReceiveAlarm()
 	}
@@ -72,8 +82,8 @@ func (d *Driver) prepareMessage(partialMessage *gpbft.GMessage) *gpbft.GMessage 
 
 	mb := instance.NewMessageBuilder(partialMessage.Vote, partialMessage.Justification, withValidTicket)
 	mb.NetworkName = d.host.NetworkName()
-	mb.SigningMarshaler = d.host.adhocSigning
-	msg, err := mb.Build(context.Background(), d.host.adhocSigning, partialMessage.Sender)
+	mb.SigningMarshaler = d.host
+	msg, err := mb.Build(context.Background(), d.host, partialMessage.Sender)
 	d.require.NoError(err)
 	d.require.NotNil(msg)
 	if !withValidTicket {
