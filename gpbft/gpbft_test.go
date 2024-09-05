@@ -442,6 +442,129 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 	})
 }
 
+func TestGPBFT_WithExactOneThirdToTwoThirdPowerDistribution(t *testing.T) {
+	t.Parallel()
+	newInstanceAndDriver := func(t *testing.T) (*emulator.Instance, *emulator.Driver) {
+		driver := emulator.NewDriver(t)
+		instance := emulator.NewInstance(t,
+			0,
+			gpbft.PowerEntries{
+				gpbft.PowerEntry{
+					ID:    0,
+					Power: gpbft.NewStoragePower(1),
+				},
+				gpbft.PowerEntry{
+					ID:    1,
+					Power: gpbft.NewStoragePower(2),
+				},
+			},
+			tipset0, tipSet1, tipSet2, tipSet3, tipSet4,
+		)
+		driver.AddInstance(instance)
+		driver.RequireNoBroadcast()
+		return instance, driver
+	}
+
+	t.Run("Decides alternative proposal from participant with 2/3 of power", func(t *testing.T) {
+		// Test that messages from participant with 2/3 of power are sufficient on their
+		// own to reach a decision for that participant's proposal.
+
+		instance, driver := newInstanceAndDriver(t)
+		alternativeProposal := instance.Proposal().BaseChain().Extend(tipSet1.Key)
+
+		driver.StartInstance(instance.ID())
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender: 1,
+			Vote:   instance.NewQuality(alternativeProposal),
+		})
+		// Participants wait until either there is a quorum *for their own proposal*,
+		// i.e. instance proposal, or a timeout. Here, the only other QUALITY message
+		// being delivered is for the alternative proposal. Hence, the timeout trigger to
+		// end QUALITY and force progress to PREPARE.
+		driver.RequireDeliverAlarm()
+
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender: 1,
+			Vote:   instance.NewPrepare(0, alternativeProposal),
+		})
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        1,
+			Vote:          instance.NewCommit(0, alternativeProposal),
+			Justification: instance.NewJustification(0, gpbft.PREPARE_PHASE, alternativeProposal, 1),
+		})
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        1,
+			Vote:          instance.NewDecide(0, alternativeProposal),
+			Justification: instance.NewJustification(0, gpbft.COMMIT_PHASE, alternativeProposal, 1),
+		})
+		driver.RequireDecision(instance.ID(), alternativeProposal)
+	})
+
+	t.Run("Gets stuck if participant with 2/3 of power sends no messages", func(t *testing.T) {
+		// Test that if only messages from participant with 1/3 of power are delivered
+		// the instance gets stuck on PREPARE for base chain, rebroadcasting QUALITY and
+		// PREPARE. After delivering PREPARE from the participant with 2/3 of power it
+		// then gets stuck at COMMIT for base rebroadcasting QUALITY, PREPARE and COMMIT.
+		// And finally after delivering COMMIT from participant with 2/3 of power it
+		// decides on base justified by that participant's COMMIT.
+		instance, driver := newInstanceAndDriver(t)
+		baseChain := instance.Proposal().BaseChain()
+
+		driver.StartInstance(instance.ID())
+
+		// Deliver QUALITY from participant with 1/3 of power.
+		driver.RequireQuality()
+		driver.RequireNoBroadcast()
+		// Trigger timeout to force progress to PREPARE since without timeout there is no
+		// strong quorum for instance proposal.
+		driver.RequireDeliverAlarm()
+
+		// Deliver PREPARE from participant with 1/3 of power.
+		driver.RequirePrepare(baseChain)
+		// Trigger timeout of PREPARE phase to force a scheduled re-broadcast.
+		driver.RequireDeliverAlarm()
+
+		// Trigger timeout of re-broadcast and expect QUALITY and PREPARE for base to be
+		// re-broadcasted.
+		driver.RequireDeliverAlarm()
+		driver.RequireQuality()
+		driver.RequirePrepare(baseChain)
+		driver.RequireNoBroadcast()
+
+		// Unstuck the instance from PREPARE.
+		driver.RequireDeliverMessage(
+			&gpbft.GMessage{
+				Sender: 1,
+				Vote:   instance.NewPrepare(0, baseChain),
+			},
+		)
+		driver.RequireCommit(0, baseChain, instance.NewJustification(0, gpbft.PREPARE_PHASE, baseChain, 1, 0))
+
+		// Trigger timeout of COMMIT phase to force a scheduled re-broadcast.
+		driver.RequireDeliverAlarm()
+
+		// Trigger timeout of re-broadcast and expect QUALITY, PREPARE, and COMMIT for
+		// base to be re-broadcasted.
+		driver.RequireDeliverAlarm()
+		driver.RequireQuality()
+		driver.RequirePrepare(baseChain)
+		driver.RequireCommit(0, baseChain, instance.NewJustification(0, gpbft.PREPARE_PHASE, baseChain, 1))
+		driver.RequireNoBroadcast()
+
+		// Unstuck the instance from COMMIT.
+		driver.RequireDeliverMessage(
+			&gpbft.GMessage{
+				Sender:        1,
+				Vote:          instance.NewCommit(0, baseChain),
+				Justification: instance.NewJustification(0, gpbft.PREPARE_PHASE, baseChain, 1),
+			},
+		)
+
+		// Assert that decision is reached with justification from participant with 1/3 of power
+		driver.RequireDecide(baseChain, instance.NewJustification(0, gpbft.COMMIT_PHASE, baseChain, 1))
+	})
+}
+
 func TestGPBFT_SkipsToDecide(t *testing.T) {
 	newInstanceAndDriver := func(t *testing.T) (*emulator.Instance, *emulator.Driver) {
 		driver := emulator.NewDriver(t)
