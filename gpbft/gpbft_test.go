@@ -1622,3 +1622,125 @@ func TestGPBFT_DropOld(t *testing.T) {
 	// But we should still accept decides from the latest instance.
 	driver.RequireDeliverMessage(newDecide0)
 }
+
+func TestGPBFT_Sway(t *testing.T) {
+	t.Parallel()
+	newInstanceAndDriver := func(t *testing.T) (*emulator.Instance, *emulator.Driver) {
+		driver := emulator.NewDriver(t)
+		instance := emulator.NewInstance(t,
+			0,
+			gpbft.PowerEntries{
+				gpbft.PowerEntry{
+					ID:    0,
+					Power: gpbft.NewStoragePower(2),
+				},
+				gpbft.PowerEntry{
+					ID:    1,
+					Power: gpbft.NewStoragePower(2),
+				},
+				gpbft.PowerEntry{
+					ID:    2,
+					Power: gpbft.NewStoragePower(1),
+				},
+				gpbft.PowerEntry{
+					ID:    3,
+					Power: gpbft.NewStoragePower(2),
+				},
+			},
+			tipset0, tipSet1, tipSet2, tipSet3, tipSet4,
+		)
+		driver.AddInstance(instance)
+		driver.RequireNoBroadcast()
+		return instance, driver
+	}
+
+	swayed := func(t *testing.T) bool {
+		instance, driver := newInstanceAndDriver(t)
+		driver.RequireStartInstance(instance.ID())
+		baseProposal := instance.Proposal().BaseChain()
+		proposal2 := baseProposal.Extend(tipSet1.Key)
+		proposal1 := proposal2.Extend(tipSet2.Key).Extend(tipSet3.Key)
+
+		// Trigger alarm to immediately complete QUALITY.
+		driver.RequireDeliverAlarm()
+		driver.RequirePeekAtLastVote(gpbft.PREPARE_PHASE, 0, baseProposal)
+
+		// Deliver PREPARE messages such that reaching quorum is impossible which should
+		// complete the phase.
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender: 0,
+			Vote:   instance.NewPrepare(0, instance.Proposal()),
+		})
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender: 1,
+			Vote:   instance.NewPrepare(0, proposal1),
+		})
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender: 2,
+			Vote:   instance.NewPrepare(0, proposal2),
+		})
+		driver.RequirePeekAtLastVote(gpbft.COMMIT_PHASE, 0, gpbft.ECChain{})
+
+		// Deliver COMMIT messages and trigger timeout to complete the phase but with no
+		// strong quorum. This should progress the instance to CONVERGE at round 1.
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        1,
+			Vote:          instance.NewCommit(0, proposal2),
+			Justification: instance.NewJustification(0, gpbft.PREPARE_PHASE, proposal2, 1, 3, 2),
+		})
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender: 0,
+			Vote:   instance.NewCommit(0, gpbft.ECChain{}),
+		})
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        3,
+			Vote:          instance.NewCommit(0, proposal1),
+			Justification: instance.NewJustification(0, gpbft.PREPARE_PHASE, proposal1, 1, 3, 2),
+		})
+		driver.RequireDeliverAlarm()
+
+		// Assert sway from base to either proposal1 or proposal2 at COMMIT.
+		latestBroadcast := driver.PeekLastBroadcastRequest()
+		require.Equal(t, gpbft.CONVERGE_PHASE, latestBroadcast.Vote.Phase)
+		require.EqualValues(t, 1, latestBroadcast.Vote.Round)
+		swayedToProposal2AtCommit := latestBroadcast.Vote.Value.Eq(proposal2)
+		require.True(t, latestBroadcast.Vote.Value.Eq(proposal1) || swayedToProposal2AtCommit)
+		if !swayedToProposal2AtCommit {
+			// Only proceed if swayed to proposal2 at COMMIT, so that we can test sway to
+			// proposal1 at CONVERGE as an unseen proposal. Otherwise, it is possible that
+			// CONVERGE may stick with proposal2, i.e. an already seen candidate.
+			return false
+		}
+
+		// Deliver converge message for alternative proposal with strong quorum of
+		// PREPARE, which should sway the subject. Then trigger alarm to end CONVERGE.
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        3,
+			Vote:          instance.NewConverge(1, proposal1),
+			Ticket:        emulator.ValidTicket,
+			Justification: instance.NewJustification(0, gpbft.PREPARE_PHASE, proposal1, 0, 1, 3, 2),
+		})
+		driver.RequireDeliverAlarm()
+
+		// Only pass if CONVERGE swayed to either proposal1 or proposal2 but not the same
+		// as whichever COMMIT swayed to.
+		latestBroadcast = driver.PeekLastBroadcastRequest()
+		require.Equal(t, gpbft.PREPARE_PHASE, latestBroadcast.Vote.Phase)
+		require.EqualValues(t, 1, latestBroadcast.Vote.Round)
+		swayedToProposal1AtConverge := latestBroadcast.Vote.Value.Eq(proposal1)
+		require.True(t, swayedToProposal1AtConverge || latestBroadcast.Vote.Value.Eq(proposal2))
+		return swayedToProposal1AtConverge
+	}
+
+	// Swaying is nondeterministic. Require that eventually we sway to one proposal in
+	// COMMIT and other in CONVERGE.
+	t.Run("Sways to alternative unseen proposal at COMMIT and CONVERGE", func(t *testing.T) {
+		// Try 10 times to hit the exact sway we want.
+		for i := 0; i < 10; i++ {
+			if swayed(t) {
+				return
+			}
+		}
+		require.Fail(t, "after 10 tries did not swayed to proposals 1 and 2 at CONVERGE and COMMIT, respectively.")
+	})
+}
