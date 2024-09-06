@@ -952,7 +952,7 @@ func (i *instance) rebroadcast() error {
 	} else {
 		// We rebroadcast messages newest to oldest, except quality which we always
 		// rebroadcast first. That way, if we try to rebroadcast too many at once and some
-		// get dropped, we've already rebroadcast the most useful messages.
+		// get dropped, chances are we've already rebroadcast the most useful messages.
 		msgs = append(msgs, i.broadcasted.previousRound...)
 		msgs = append(msgs, i.broadcasted.currentRound...)
 		if i.broadcasted.quality != nil {
@@ -1393,11 +1393,19 @@ func (c *convergeState) FindProposalFor(chain ECChain) ConvergeValue {
 }
 
 type broadcastState struct {
-	quality       *MessageBuilder
-	decide        *MessageBuilder
+	// Our quality message, always rebroadcast until we reach a decision.
+	quality *MessageBuilder
+	// Our decide message. If set, this is the only message we rebroadcast (and all other fields
+	// should be nil).
+	decide *MessageBuilder
+	// The messages we sent during the previous round (`round - 1`), except quality/decide.
+	// Rebroadcast unless `decide` is non-nil.
 	previousRound []*MessageBuilder
-	currentRound  []*MessageBuilder
-	round         uint64
+	// The messages we sent this round (`round`), except quality/decide. Rebroadcast unless
+	// `decide` is non-nil.
+	currentRound []*MessageBuilder
+	// The latest round in which we broadcast a message.
+	round uint64
 }
 
 // record stores messages that are required should rebroadcast becomes necessary.
@@ -1431,14 +1439,14 @@ func (bs *broadcastState) record(mb *MessageBuilder) {
 		bs.quality = nil
 		bs.decide = mb
 	case CONVERGE_PHASE, PREPARE_PHASE, COMMIT_PHASE:
-		if mb.Payload.Round < bs.round {
-			log.Warnw("Unexpected broadcast of a message for a prior round")
+		switch {
+		case mb.Payload.Round < bs.round:
+			log.Warnw("Unexpected broadcast of a message for a prior round",
+				"latestRecordedRound", bs.round, "messageRound", mb.Payload.Round)
 			return
-		}
-		switch mb.Payload.Round {
-		case bs.round:
+		case mb.Payload.Round == bs.round:
 			bs.currentRound = append(bs.currentRound, mb)
-		case bs.round + 1:
+		case mb.Payload.Round == bs.round+1:
 			bs.previousRound = bs.currentRound
 			bs.currentRound = []*MessageBuilder{mb}
 		default:
