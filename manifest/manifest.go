@@ -34,6 +34,7 @@ var (
 		DeltaBackOffExponent:       2.0,
 		MaxLookaheadRounds:         5,
 		RebroadcastBackoffBase:     3 * time.Second,
+		RebroadcastBackoffSpread:   0.1,
 		RebroadcastBackoffExponent: 1.3,
 		RebroadcastBackoffMax:      30 * time.Second,
 	}
@@ -98,6 +99,7 @@ type GpbftConfig struct {
 
 	RebroadcastBackoffBase     time.Duration
 	RebroadcastBackoffExponent float64
+	RebroadcastBackoffSpread   float64
 	RebroadcastBackoffMax      time.Duration
 }
 
@@ -131,6 +133,7 @@ func (g *GpbftConfig) ToOptions() []gpbft.Option {
 		gpbft.WithMaxLookaheadRounds(g.MaxLookaheadRounds),
 		gpbft.WithRebroadcastBackoff(
 			DefaultGpbftConfig.RebroadcastBackoffExponent,
+			DefaultGpbftConfig.RebroadcastBackoffSpread,
 			DefaultGpbftConfig.RebroadcastBackoffBase,
 			DefaultGpbftConfig.RebroadcastBackoffMax,
 		),
