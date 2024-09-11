@@ -13,6 +13,8 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
+	madns "github.com/multiformats/go-multiaddr-dns"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
 )
@@ -187,11 +189,18 @@ var manifestServeCmd = cli.Command{
 				}
 			}
 			for _, bootstrapper := range bootstrappers {
-				addr, err := peer.AddrInfoFromString(bootstrapper)
-				if err != nil {
+				if maddr, err := multiaddr.NewMultiaddr(bootstrapper); err != nil {
 					_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed to parse to bootstrap address: %s %v\n", bootstrapper, err)
-				} else if err := host.Connect(c.Context, *addr); err != nil {
-					_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed to connect to bootstrap address: %v\n", err)
+				} else if multiaddrs, err := madns.Resolve(c.Context, maddr); err != nil {
+					_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed to resolve bootstrap address: %s %v\n", bootstrapper, err)
+				} else if paddrinfos, err := peer.AddrInfosFromP2pAddrs(multiaddrs...); err != nil {
+					_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed to build peer.AddrInfo for bootstrap address: %s %v\n", bootstrapper, err)
+				} else {
+					for _, paddrinfo := range paddrinfos {
+						if err := host.Connect(c.Context, paddrinfo); err != nil {
+							_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed to connect to bootstrap address: %v\n", err)
+						}
+					}
 				}
 			}
 		}
