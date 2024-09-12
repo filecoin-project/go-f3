@@ -6,6 +6,7 @@ import (
 
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/consensus"
 
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +30,7 @@ var powerTableC = gpbft.PowerEntries{
 }
 
 func TestReplacePowerTable(t *testing.T) {
-	backend := ec.NewFakeEC(context.Background(), 0, 0, 30, powerTableA)
+	backend := consensus.NewFakeEC(context.Background(), 0, 0, 30, powerTableA)
 	modifiedBackend := ec.WithModifiedPower(backend, powerTableB, true)
 
 	head, err := modifiedBackend.GetHead(context.Background())
@@ -42,7 +43,7 @@ func TestReplacePowerTable(t *testing.T) {
 }
 
 func TestModifyPowerTable(t *testing.T) {
-	backend := ec.NewFakeEC(context.Background(), 0, 0, 30, powerTableA)
+	backend := consensus.NewFakeEC(context.Background(), 0, 0, 30, powerTableA)
 	modifiedBackend := ec.WithModifiedPower(backend, powerTableB, false)
 
 	head, err := modifiedBackend.GetHead(context.Background())
@@ -54,7 +55,7 @@ func TestModifyPowerTable(t *testing.T) {
 }
 
 func TestBypassModifiedPowerTable(t *testing.T) {
-	backend := ec.NewFakeEC(context.Background(), 0, 0, 30, powerTableA)
+	backend := consensus.NewFakeEC(context.Background(), 0, 0, 30, powerTableA)
 	modifiedBackend := ec.WithModifiedPower(backend, nil, false)
 	require.Equal(t, backend, modifiedBackend)
 }

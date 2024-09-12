@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3"
-	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/clock"
+	"github.com/filecoin-project/go-f3/internal/consensus"
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/filecoin-project/go-f3/sim/signing"
@@ -290,7 +290,7 @@ type testEnv struct {
 	testCtx        context.Context
 	signingBackend *signing.FakeBackend
 	nodes          []*testNode
-	ec             *ec.FakeEC
+	ec             *consensus.FakeEC
 	manifestSender *manifest.ManifestSender
 	net            mocknet.Mocknet
 	clock          *clock.Mock
@@ -436,7 +436,7 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) *testEnv {
 		})
 	}
 	env.manifest = m
-	env.ec = ec.NewFakeEC(ctx, 1, m.BootstrapEpoch+m.EC.Finality, m.EC.Period, initialPowerTable)
+	env.ec = consensus.NewFakeEC(ctx, 1, m.BootstrapEpoch+m.EC.Finality, m.EC.Period, initialPowerTable)
 
 	var manifestServer peer.ID
 	if dynamicManifest {

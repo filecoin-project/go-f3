@@ -1,4 +1,4 @@
-package ec
+package consensus
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/filecoin-project/go-f3/ec"
 	"golang.org/x/crypto/blake2b"
 
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -14,7 +15,10 @@ import (
 	mbase "github.com/multiformats/go-multibase"
 )
 
-var _ Backend = (*FakeEC)(nil)
+var (
+	_ ec.Backend = (*FakeEC)(nil)
+	_ ec.TipSet  = (*tipset)(nil)
+)
 
 type FakeEC struct {
 	clock             clock.Clock
@@ -28,20 +32,20 @@ type FakeEC struct {
 	pausedAt *time.Time
 }
 
-type Tipset struct {
+type tipset struct {
 	tsk       []byte
 	epoch     int64
 	timestamp time.Time
 }
 
-func (ts *Tipset) Key() gpbft.TipSetKey {
+func (ts *tipset) Key() gpbft.TipSetKey {
 	return ts.tsk
 }
 
-func (ts *Tipset) Epoch() int64 {
+func (ts *tipset) Epoch() int64 {
 	return ts.epoch
 }
-func (ts *Tipset) Beacon() []byte {
+func (ts *tipset) Beacon() []byte {
 	h, err := blake2b.New256([]byte("beacon"))
 	if err != nil {
 		panic(err)
@@ -50,11 +54,11 @@ func (ts *Tipset) Beacon() []byte {
 	return h.Sum(nil)
 }
 
-func (ts *Tipset) Timestamp() time.Time {
+func (ts *tipset) Timestamp() time.Time {
 	return ts.timestamp
 }
 
-func (ts *Tipset) String() string {
+func (ts *tipset) String() string {
 	res, _ := mbase.Encode(mbase.Base32, ts.tsk[:gpbft.CidMaxLen])
 	for i := 1; i*gpbft.CidMaxLen < len(ts.tsk); i++ {
 		enc, _ := mbase.Encode(mbase.Base32, ts.tsk[gpbft.CidMaxLen*i:gpbft.CidMaxLen*(i+1)])
@@ -77,7 +81,7 @@ func NewFakeEC(ctx context.Context, seed uint64, bootstrapEpoch int64, ecPeriod 
 
 var cidPrefixBytes = gpbft.CidPrefix.Bytes()
 
-func (ec *FakeEC) genTipset(epoch int64) *Tipset {
+func (ec *FakeEC) genTipset(epoch int64) *tipset {
 	h, err := blake2b.New256(ec.seed)
 	if err != nil {
 		panic(err)
@@ -107,7 +111,7 @@ func (ec *FakeEC) genTipset(epoch int64) *Tipset {
 		tsk = append(tsk, cidPrefixBytes...)
 		tsk = append(tsk, digest...)
 	}
-	return &Tipset{
+	return &tipset{
 		tsk:       tsk,
 		epoch:     epoch,
 		timestamp: ec.ecStart.Add(time.Duration(epoch) * ec.ecPeriod),
@@ -115,7 +119,7 @@ func (ec *FakeEC) genTipset(epoch int64) *Tipset {
 }
 
 // GetTipsetByHeight should return a tipset or nil/empty byte array if it does not exists
-func (ec *FakeEC) GetTipsetByEpoch(ctx context.Context, epoch int64) (TipSet, error) {
+func (ec *FakeEC) GetTipsetByEpoch(ctx context.Context, epoch int64) (ec.TipSet, error) {
 	if ec.GetCurrentHead() < epoch {
 		return nil, fmt.Errorf("does not yet exist")
 	}
@@ -127,8 +131,7 @@ func (ec *FakeEC) GetTipsetByEpoch(ctx context.Context, epoch int64) (TipSet, er
 	return ts, nil
 }
 
-func (ec *FakeEC) GetParent(ctx context.Context, ts TipSet) (TipSet, error) {
-
+func (ec *FakeEC) GetParent(ctx context.Context, ts ec.TipSet) (ec.TipSet, error) {
 	for epoch := ts.Epoch() - 1; epoch > 0; epoch-- {
 		ts, err := ec.GetTipsetByEpoch(ctx, epoch)
 		if err != nil {
@@ -168,15 +171,15 @@ func (ec *FakeEC) Resume() {
 	ec.pausedAt = nil
 }
 
-func (ec *FakeEC) GetHead(ctx context.Context) (TipSet, error) {
+func (ec *FakeEC) GetHead(ctx context.Context) (ec.TipSet, error) {
 	return ec.GetTipsetByEpoch(ctx, ec.GetCurrentHead())
 }
 
-func (ec *FakeEC) GetPowerTable(ctx context.Context, tsk gpbft.TipSetKey) (gpbft.PowerEntries, error) {
+func (ec *FakeEC) GetPowerTable(context.Context, gpbft.TipSetKey) (gpbft.PowerEntries, error) {
 	return ec.initialPowerTable, nil
 }
 
-func (ec *FakeEC) GetTipset(ctx context.Context, tsk gpbft.TipSetKey) (TipSet, error) {
+func (ec *FakeEC) GetTipset(_ context.Context, tsk gpbft.TipSetKey) (ec.TipSet, error) {
 	epoch := binary.BigEndian.Uint64(tsk[6+32-8 : 6+32])
 	return ec.genTipset(int64(epoch)), nil
 }
