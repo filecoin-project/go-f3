@@ -6,8 +6,8 @@ import (
 	"os"
 
 	"github.com/filecoin-project/go-f3"
-	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/consensus"
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/filecoin-project/go-f3/sim/signing"
 	leveldb "github.com/ipfs/go-ds-leveldb"
@@ -112,7 +112,7 @@ var runCmd = cli.Command{
 		id := c.Uint64("id")
 		signingBackend.Allow(int(id))
 
-		ec := ec.NewFakeEC(ctx, 1, m.BootstrapEpoch, m.EC.Period, initialPowerTable)
+		ec := consensus.NewFakeEC(ctx, 1, m.BootstrapEpoch, m.EC.Period, initialPowerTable)
 
 		module, err := f3.New(ctx, mprovider, ds, h, ps, signingBackend, ec)
 		if err != nil {

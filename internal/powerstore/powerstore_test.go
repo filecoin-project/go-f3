@@ -12,6 +12,7 @@ import (
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/clock"
+	"github.com/filecoin-project/go-f3/internal/consensus"
 	"github.com/filecoin-project/go-f3/internal/powerstore"
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/filecoin-project/go-state-types/big"
@@ -23,7 +24,7 @@ import (
 )
 
 type forgetfulEC struct {
-	*ec.FakeEC
+	*consensus.FakeEC
 
 	ecFinality int64
 }
@@ -68,7 +69,7 @@ func TestPowerStore(t *testing.T) {
 	m := manifest.LocalDevnetManifest()
 
 	ec := &forgetfulEC{
-		FakeEC:     ec.NewFakeEC(ctx, 1234, m.BootstrapEpoch, m.EC.Period, basePowerTable),
+		FakeEC:     consensus.NewFakeEC(ctx, 1234, m.BootstrapEpoch, m.EC.Period, basePowerTable),
 		ecFinality: m.EC.Finality,
 	}
 
