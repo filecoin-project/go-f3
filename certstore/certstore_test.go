@@ -222,7 +222,7 @@ func TestDeleteAll(t *testing.T) {
 	verifyEmpty()
 }
 
-func TestSubscribeForNewCerts(t *testing.T) {
+func TestSubscribe(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -233,8 +233,7 @@ func TestSubscribeForNewCerts(t *testing.T) {
 	cs, err := CreateStore(ctx, ds, 1, pt)
 	require.NoError(t, err)
 
-	ch := make(chan *certs.FinalityCertificate, 1)
-	_, closer := cs.SubscribeForNewCerts(ch)
+	ch, closer := cs.Subscribe()
 	defer closer()
 
 	cert := makeCert(1, supp)

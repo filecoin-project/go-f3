@@ -12,7 +12,6 @@ import (
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
 
-	"github.com/Kubuxu/go-broadcast"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
 	"github.com/ipfs/go-datastore/query"
@@ -30,11 +29,12 @@ var (
 
 // Store is responsible for storing and relaying information about new finality certificates
 type Store struct {
-	writeLk             sync.Mutex
+	mu                  sync.RWMutex
 	ds                  datastore.Datastore
-	busCerts            broadcast.Channel[*certs.FinalityCertificate]
 	firstInstance       uint64
 	powerTableFrequency uint64
+	subscribers         map[chan *certs.FinalityCertificate]struct{}
+	latestCertificate   *certs.FinalityCertificate
 
 	latestPowerTable gpbft.PowerEntries
 }
@@ -44,6 +44,7 @@ func open(ctx context.Context, ds datastore.Datastore) (*Store, error) {
 	cs := &Store{
 		ds:                  namespace.Wrap(ds, datastore.NewKey("/certstore")),
 		powerTableFrequency: defaultPowerTableFrequency,
+		subscribers:         make(map[chan *certs.FinalityCertificate]struct{}),
 	}
 	err := maybeContinueDelete(ctx, ds)
 	if err != nil {
@@ -57,14 +58,13 @@ func open(ctx context.Context, ds datastore.Datastore) (*Store, error) {
 		return nil, fmt.Errorf("determining latest cert: %w", err)
 	}
 
-	latestCert, err := cs.Get(ctx, latestInstance)
+	cs.latestCertificate, err = cs.Get(ctx, latestInstance)
 	if err != nil {
 		return nil, fmt.Errorf("loading latest cert: %w", err)
 	}
 
-	metrics.latestInstance.Record(ctx, int64(latestCert.GPBFTInstance))
-	metrics.latestFinalizedEpoch.Record(ctx, latestCert.ECChain.Head().Epoch)
-	cs.busCerts.Publish(latestCert)
+	metrics.latestInstance.Record(ctx, int64(cs.latestCertificate.GPBFTInstance))
+	metrics.latestFinalizedEpoch.Record(ctx, cs.latestCertificate.ECChain.Head().Epoch)
 
 	return cs, nil
 }
@@ -109,7 +109,7 @@ func OpenOrCreateStore(ctx context.Context, ds datastore.Datastore, firstInstanc
 		return nil, fmt.Errorf("failed to read initial instance number: %w", err)
 	}
 	cs.firstInstance = firstInstance
-	if latest := cs.Latest(); latest != nil {
+	if latest := cs.latestCertificate; latest != nil {
 		cs.latestPowerTable, err = cs.GetPowerTable(ctx, latest.GPBFTInstance+1)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load latest power table: %w", err)
@@ -162,7 +162,7 @@ func OpenStore(ctx context.Context, ds datastore.Datastore) (*Store, error) {
 		return nil, fmt.Errorf("getting first instance: %w", err)
 	}
 	latestPowerTable := cs.firstInstance
-	if latest := cs.Latest(); latest != nil {
+	if latest := cs.latestCertificate; latest != nil {
 		latestPowerTable = latest.GPBFTInstance + 1
 	}
 	cs.latestPowerTable, err = cs.GetPowerTable(ctx, latestPowerTable)
@@ -195,7 +195,9 @@ func (cs *Store) writeInstanceNumber(ctx context.Context, key datastore.Key, val
 
 // Latest returns the newest available certificate
 func (cs *Store) Latest() *certs.FinalityCertificate {
-	return cs.busCerts.Last()
+	cs.mu.RLock()
+	defer cs.mu.RUnlock()
+	return cs.latestCertificate
 }
 
 // Get returns the FinalityCertificate at the specified instance, or an error derived from
@@ -349,11 +351,11 @@ func (cs *Store) Put(ctx context.Context, cert *certs.FinalityCertificate) error
 	}
 
 	// Take a lock to ensure ordering.
-	cs.writeLk.Lock()
-	defer cs.writeLk.Unlock()
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
 
 	nextCert := cs.firstInstance
-	if latestCert := cs.Latest(); latestCert != nil {
+	if latestCert := cs.latestCertificate; latestCert != nil {
 		nextCert = latestCert.GPBFTInstance + 1
 	}
 	if cert.GPBFTInstance > nextCert {
@@ -412,21 +414,47 @@ func (cs *Store) Put(ctx context.Context, cert *certs.FinalityCertificate) error
 	}
 
 	cs.latestPowerTable = newPowerTable
+	cs.latestCertificate = cert
+	for ch := range cs.subscribers {
+		// Always drain first.
+		select {
+		case <-ch:
+		default:
+		}
+		// Then write the latest certificate.
+		ch <- cs.latestCertificate
+	}
+
 	metrics.latestInstance.Record(ctx, int64(cert.GPBFTInstance))
 	metrics.tipsetsPerInstance.Record(ctx, int64(len(cert.ECChain.Suffix())))
 	metrics.latestFinalizedEpoch.Record(ctx, cert.ECChain.Head().Epoch)
-	cs.busCerts.Publish(cert)
 
 	return nil
 }
 
-// SubscribeForNewCerts is used to subscribe to the broadcast channel.
-// If the passed channel is full at any point, it will be dropped from subscription and closed.
-// To stop subscribing, either the closer function can be used or the channel can be abandoned.
-// Passing a channel multiple times to the Subscribe function will result in a panic.
-// The channel will receive new certificates sequentially.
-func (cs *Store) SubscribeForNewCerts(ch chan<- *certs.FinalityCertificate) (last *certs.FinalityCertificate, closer func()) {
-	return cs.busCerts.Subscribe(ch)
+// Subscribe subscribes to new certificate notifications. When read, it will always return the
+// latest not-yet-seen certificate (including the latest certificate when Subscribe is first
+// called, if we have any) but it will drop intermediate certificates. If you need all the
+// certificates, you should keep track of the last certificate you received and call GetRange to get
+// the ones between.
+//
+// The caller must call the closer to unsubscribe and release resources.
+func (cs *Store) Subscribe() (out <-chan *certs.FinalityCertificate, closer func()) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	ch := make(chan *certs.FinalityCertificate, 1)
+	if cs.latestCertificate != nil {
+		ch <- cs.latestCertificate
+	}
+	cs.subscribers[ch] = struct{}{}
+	return ch, func() {
+		cs.mu.Lock()
+		defer cs.mu.Unlock()
+		if _, ok := cs.subscribers[ch]; ok {
+			delete(cs.subscribers, ch)
+			close(ch)
+		}
+	}
 }
 
 var tombstoneKey = datastore.NewKey("/tombstone")
