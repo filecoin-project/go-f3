@@ -108,13 +108,11 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 		return fmt.Errorf("starting a participant: %w", err)
 	}
 
-	// Subscribe to new certificates. We don't bother canceling the subscription as that'll
-	// happen automatically when the channel fills.
-	finalityCertificates := make(chan *certs.FinalityCertificate, 4)
-	_, _ = h.certStore.SubscribeForNewCerts(finalityCertificates)
+	finalityCertificates, unsubCerts := h.certStore.Subscribe()
 
 	h.errgrp.Go(func() (_err error) {
 		defer func() {
+			unsubCerts()
 			if _err != nil && h.runningCtx.Err() == nil {
 				log.Errorf("exited GPBFT runner early: %+v", _err)
 			}
@@ -122,16 +120,7 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 		for h.runningCtx.Err() == nil {
 			// prioritise finality certificates and alarm delivery
 			select {
-			case c, ok := <-finalityCertificates:
-				// We only care about the latest certificate, skip passed old ones.
-				if len(finalityCertificates) > 0 {
-					continue
-				}
-
-				if !ok {
-					finalityCertificates = make(chan *certs.FinalityCertificate, 4)
-					c, _ = h.certStore.SubscribeForNewCerts(finalityCertificates)
-				}
+			case c := <-finalityCertificates:
 				if err := h.receiveCertificate(c); err != nil {
 					return err
 				}
@@ -146,16 +135,7 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 
 			// Handle messages, finality certificates, and alarms
 			select {
-			case c, ok := <-finalityCertificates:
-				// We only care about the latest certificate, skip passed old ones.
-				if len(finalityCertificates) > 0 {
-					continue
-				}
-
-				if !ok {
-					finalityCertificates = make(chan *certs.FinalityCertificate, 4)
-					c, _ = h.certStore.SubscribeForNewCerts(finalityCertificates)
-				}
+			case c := <-finalityCertificates:
 				if err := h.receiveCertificate(c); err != nil {
 					return err
 				}

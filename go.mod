@@ -3,7 +3,6 @@ module github.com/filecoin-project/go-f3
 go 1.22
 
 require (
-	github.com/Kubuxu/go-broadcast v0.0.0-20240621161059-1a8c90734cd6
 	github.com/drand/kyber v1.3.1
 	github.com/drand/kyber-bls12381 v0.3.1
 	github.com/filecoin-project/go-bitfield v0.2.4
