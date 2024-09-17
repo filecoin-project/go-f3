@@ -23,9 +23,9 @@ func TestECChain(t *testing.T) {
 		require.True(t, subject.Eq(subject))
 		require.True(t, subject.Eq(*new(gpbft.ECChain)))
 		require.Nil(t, subject.Suffix())
-		require.Panics(t, func() { subject.Prefix(0) })
-		require.Panics(t, func() { subject.Base() })
-		require.Panics(t, func() { subject.Head() })
+		require.Nil(t, subject.Prefix(0))
+		require.Nil(t, subject.Base())
+		require.Nil(t, subject.Head())
 		require.NoError(t, subject.Validate())
 	})
 	t.Run("NewChain with zero-value base is error", func(t *testing.T) {
