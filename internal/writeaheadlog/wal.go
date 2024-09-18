@@ -20,6 +20,11 @@ import (
 
 var log = logging.Logger("f3/wal")
 
+const (
+	rotateAt     = 1 << 20 // 1MiB
+	walExtension = ".wal.cbor"
+)
+
 type Entry interface {
 	WALEpoch() uint64
 	cbg.CBORMarshaler
@@ -43,7 +48,7 @@ type WriteAheadLog[T any, PT interface {
 }
 
 type logStat struct {
-	logname  string
+	logName  string
 	maxEpoch uint64
 }
 
@@ -57,7 +62,7 @@ func Open[T any, PT interface {
 
 	err := wal.hydrate()
 	if err != nil {
-		return nil, fmt.Errorf("reading the WAL: %v", err)
+		return nil, fmt.Errorf("reading the WAL: %w", err)
 	}
 
 	return &wal, nil
@@ -70,16 +75,16 @@ func (wal *WriteAheadLog[T, PT]) All() ([]T, error) {
 	var res []T
 
 	for _, s := range wal.logFiles {
-		_, content, err := wal.readLogFile(s.logname, true)
+		_, content, err := wal.readLogFile(s.logName, true)
 		if err != nil {
-			return nil, fmt.Errorf("reading log file %q to list: %w", s.logname, err)
+			return nil, fmt.Errorf("reading log file %q to list: %w", s.logName, err)
 		}
 		res = append(res, content...)
 	}
 	if wal.active.file != nil {
-		_, content, err := wal.readLogFile(wal.active.logname, true)
+		_, content, err := wal.readLogFile(wal.active.logName, true)
 		if err != nil {
-			return nil, fmt.Errorf("reading active log file %q to list: %w", wal.active.logname, err)
+			return nil, fmt.Errorf("reading active log file %q to list: %w", wal.active.logName, err)
 		}
 		res = append(res, content...)
 	}
@@ -116,7 +121,7 @@ func (wal *WriteAheadLog[T, PT]) Append(value T) error {
 }
 
 // Purge removes files containing entries only older than keepEpoch
-// It is not guarnateed to remove all entries older than keepEpoch as it will keep the current
+// It is not guaranteed to remove all entries older than keepEpoch as it will keep the current
 // file.
 func (wal *WriteAheadLog[T, PT]) Purge(keepEpoch uint64) error {
 	wal.lk.Lock()
@@ -126,8 +131,8 @@ func (wal *WriteAheadLog[T, PT]) Purge(keepEpoch uint64) error {
 	var err error
 	for _, c := range wal.logFiles {
 		if c.maxEpoch < keepEpoch {
-			err1 := os.Remove(filepath.Join(wal.path, c.logname))
-			err = multierr.Append(err, fmt.Errorf("removing WAL file %q: %w", c.logname, err1))
+			err1 := os.Remove(filepath.Join(wal.path, c.logName))
+			err = multierr.Append(err, fmt.Errorf("removing WAL file %q: %w", c.logName, err1))
 
 			continue
 		}
@@ -137,8 +142,6 @@ func (wal *WriteAheadLog[T, PT]) Purge(keepEpoch uint64) error {
 	return nil
 }
 
-const roatateAt = 1 << 20 // 1MiB
-
 func (wal *WriteAheadLog[T, PT]) maybeRotate() error {
 	if wal.active.file == nil {
 		return wal.rotate()
@@ -147,13 +150,11 @@ func (wal *WriteAheadLog[T, PT]) maybeRotate() error {
 	if err != nil {
 		return fmt.Errorf("collecting stats for the file: %w", err)
 	}
-	if stats.Size() > roatateAt {
+	if stats.Size() > rotateAt {
 		return wal.rotate()
 	}
 	return nil
 }
-
-const walExtension = ".wal.cbor"
 
 // Flush closes the existing file
 // the WAL is safe to discard or can be used still
@@ -173,15 +174,15 @@ func (wal *WriteAheadLog[T, PT]) rotate() error {
 		}
 	}
 
-	wal.active.logname = time.Now().UTC().Format(time.RFC3339Nano) + walExtension
+	wal.active.logName = time.Now().UTC().Format(time.RFC3339Nano) + walExtension
 	var err error
 	wal.active.file, err = os.OpenFile(
-		filepath.Join(wal.path, wal.active.logname),
+		filepath.Join(wal.path, wal.active.logName),
 		os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0666)
 
 	if err != nil {
 		wal.active.file = nil
-		return fmt.Errorf("opening new log file %q: %w", wal.active.logname, err)
+		return fmt.Errorf("opening new log file %q: %w", wal.active.logName, err)
 	}
 	return nil
 }
@@ -242,7 +243,7 @@ func (wal *WriteAheadLog[T, PT]) hydrate() error {
 func (wal *WriteAheadLog[T, PT]) readLogFile(logname string, keepVaues bool) (logStat, []T, error) {
 	var res logStat
 	if len(logname) == 0 {
-		return res, nil, fmt.Errorf("empty logname")
+		return res, nil, errors.New("empty logname")
 	}
 
 	logFile, err := os.Open(filepath.Join(wal.path, logname))
@@ -266,13 +267,13 @@ func (wal *WriteAheadLog[T, PT]) readLogFile(logname string, keepVaues bool) (lo
 	}
 
 	res = logStat{
-		logname:  logname,
+		logName:  logname,
 		maxEpoch: maxEpoch,
 	}
 
 	switch {
 	case err == nil:
-		// the EOF case is expected, this is slightly unexpected by still handle it
+		// the EOF case is expected, this is slightly unexpected but still handle it
 		return res, content, nil
 	case errors.Is(err, io.EOF):
 		return res, content, nil
