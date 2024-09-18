@@ -137,7 +137,7 @@ func (wal *WriteAheadLog[T, PT]) Purge(keepEpoch uint64) error {
 	return nil
 }
 
-const roatateAt = 16 << 20 // 16MiB
+const roatateAt = 1 << 20 // 1MiB
 
 func (wal *WriteAheadLog[T, PT]) maybeRotate() error {
 	if wal.active.file == nil {

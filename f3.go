@@ -412,7 +412,7 @@ func (m *F3) resumeInternal(ctx context.Context) error {
 
 	if runner, err := newRunner(
 		ctx, m.cs, m.ps, m.pubsub, m.verifier,
-		m.outboundMessages, m.manifest,
+		m.outboundMessages, m.manifest, m.wal,
 	); err != nil {
 		return err
 	} else {
