@@ -35,7 +35,6 @@ type WriteAheadLog[T any, PT interface {
 
 	path string
 
-	loaded   bool
 	logFiles []logStat
 	active   struct {
 		file *os.File

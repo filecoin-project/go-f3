@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -65,7 +66,7 @@ var runCmd = cli.Command{
 			return fmt.Errorf("creating temp dir: %w", err)
 		}
 
-		ds, err := leveldb.NewDatastore(tmpdir, nil)
+		ds, err := leveldb.NewDatastore(filepath.Join(tmpdir, "datastore"), nil)
 		if err != nil {
 			return fmt.Errorf("creating a datastore: %w", err)
 		}
@@ -114,7 +115,7 @@ var runCmd = cli.Command{
 
 		ec := consensus.NewFakeEC(ctx, 1, m.BootstrapEpoch, m.EC.Period, initialPowerTable)
 
-		module, err := f3.New(ctx, mprovider, ds, h, ps, signingBackend, ec)
+		module, err := f3.New(ctx, mprovider, ds, h, ps, signingBackend, ec, filepath.Join(tmpdir, "f3"))
 		if err != nil {
 			return fmt.Errorf("creating module: %w", err)
 		}
