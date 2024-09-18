@@ -183,3 +183,5 @@ func (ec *FakeEC) GetTipset(_ context.Context, tsk gpbft.TipSetKey) (ec.TipSet, 
 	epoch := binary.BigEndian.Uint64(tsk[6+32-8 : 6+32])
 	return ec.genTipset(int64(epoch)), nil
 }
+
+func (ec *FakeEC) Finalize(context.Context, gpbft.TipSetKey) error { return nil }

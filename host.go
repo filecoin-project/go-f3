@@ -15,10 +15,9 @@ import (
 	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/manifest"
-	"go.opentelemetry.io/otel/metric"
-
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	peer "github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/multierr"
 	"golang.org/x/sync/errgroup"
 )
@@ -109,7 +108,6 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 	}
 
 	finalityCertificates, unsubCerts := h.certStore.Subscribe()
-
 	h.errgrp.Go(func() (_err error) {
 		defer func() {
 			unsubCerts()
@@ -161,6 +159,45 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 				return nil
 			}
 
+		}
+		return nil
+	})
+
+	// Asynchronously checkpoint the decided tipset keys by explicitly making a
+	// separate subscription to the cert store. This may cause a sync in a case where
+	// the finalized tipset is not already stored by the chain store, which is a
+	// blocking operation. Hence, the asynchronous checkpointing.
+	//
+	// Note, there is no guarantee that every finalized tipset will be checkpointed.
+	// Because:
+	//  1. the subscription only returns the latest certificate, i.e. may
+	//     miss intermediate certificates, and
+	//  2. errors that may occur during checkpointing are silently logged
+	//     to allow checkpointing of future finality certificates.
+	//
+	// Triggering the checkpointing here means that certstore remains the sole source
+	// of truth in terms of tipsets that have been finalised.
+	finalize, unsubFinalize := h.certStore.Subscribe()
+	h.errgrp.Go(func() error {
+		defer unsubFinalize()
+		for h.runningCtx.Err() == nil {
+			select {
+			case <-h.runningCtx.Done():
+				return nil
+			case cert, ok := <-finalize:
+				if !ok {
+					// This should never happen according to certstore subscribe semantic. If it
+					// does, error loudly since the chances are the cause is a programmer error.
+					return errors.New("cert store subscription to finalize tipsets was closed unexpectedly")
+				}
+				key := cert.ECChain.Head().Key
+				if err := h.ec.Finalize(h.runningCtx, key); err != nil {
+					// There is not much we can do here other than logging. The next instance start
+					// will effectively retry checkpointing the latest finalized tipset. This error
+					// will not impact the selection of next instance chain.
+					log.Error(fmt.Errorf("error while finalizing decision at EC: %w", err))
+				}
+			}
 		}
 		return nil
 	})
@@ -408,7 +445,7 @@ func (h *gpbftHost) collectChain(base ec.TipSet, head ec.TipSet) ([]ec.TipSet, e
 	return res[1:], nil
 }
 
-func (h *gpbftRunner) Stop(_ctx context.Context) error {
+func (h *gpbftRunner) Stop(context.Context) error {
 	h.ctxCancel()
 	return multierr.Combine(
 		h.errgrp.Wait(),
@@ -604,7 +641,7 @@ func (h *gpbftHost) SetAlarm(at time.Time) {
 	// we cannot reuse the timer because we don't know if it was read or not
 	h.alertTimer.Stop()
 	if at.IsZero() {
-		// It "at" is zero, we cancel the timer entirely. Unfortunately, we still have to
+		// If "at" is zero, we cancel the timer entirely. Unfortunately, we still have to
 		// replace it for the reason stated above.
 		h.alertTimer = h.clock.Timer(0)
 		if !h.alertTimer.Stop() {
