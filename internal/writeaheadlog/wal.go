@@ -115,7 +115,7 @@ func (wal *WriteAheadLog[T, PT]) Append(value T) error {
 	return nil
 }
 
-// Purge removes files containing entries only order than keepEpoch
+// Purge removes files containing entries only older than keepEpoch
 // It is not guarnateed to remove all entries older than keepEpoch as it will keep the current
 // file.
 func (wal *WriteAheadLog[T, PT]) Purge(keepEpoch uint64) error {
