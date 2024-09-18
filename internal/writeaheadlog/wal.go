@@ -1,6 +1,7 @@
 package writeaheadlog
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -34,22 +35,17 @@ type WriteAheadLog[T any, PT interface {
 
 	path string
 
-	logFiles []logContent[T, PT]
+	loaded   bool
+	logFiles []logStat
 	active   struct {
-		file       *os.File
-		cborWriter *cbg.CborWriter
-		logContent[T, PT]
+		file *os.File
+		logStat
 	}
 }
 
-type logContent[T any, PT interface {
-	*T
-	Entry
-}] struct {
+type logStat struct {
 	logname  string
-	content  []T
 	maxEpoch uint64
-	complete bool
 }
 
 func Open[T any, PT interface {
@@ -60,7 +56,7 @@ func Open[T any, PT interface {
 		path: directory,
 	}
 
-	err := wal.readInAll()
+	err := wal.hydrate()
 	if err != nil {
 		return nil, fmt.Errorf("reading the WAL: %v", err)
 	}
@@ -68,60 +64,54 @@ func Open[T any, PT interface {
 	return &wal, nil
 }
 
-func (wal *WriteAheadLog[T, PT]) All() []T {
+func (wal *WriteAheadLog[T, PT]) All() ([]T, error) {
 	wal.lk.Lock()
 	defer wal.lk.Unlock()
 
 	var res []T
-	for _, c := range wal.logFiles {
-		res = append(res, c.content...)
+
+	for _, s := range wal.logFiles {
+		_, content, err := wal.readLogFile(s.logname, true)
+		if err != nil {
+			return nil, fmt.Errorf("reading log file %q to list: %w", s.logname, err)
+		}
+		res = append(res, content...)
 	}
-	res = append(res, wal.active.content...)
-	return res
+	if wal.active.file != nil {
+		_, content, err := wal.readLogFile(wal.active.logname, true)
+		if err != nil {
+			return nil, fmt.Errorf("reading active log file %q to list: %w", wal.active.logname, err)
+		}
+		res = append(res, content...)
+	}
+
+	return res, nil
 }
 
-/*
-// TODO: version file
-// or mabye not todo, IDK
-const versionFileName = "version"
-const version = 0
-func (wal *WriteAheadLog[T]) readVersion() (int, error) {
-	versionContent, err := os.ReadFile(path.Join(wal.path, versionFileName))
-	if errors.Is(err, os.ErrNotExist) {
-		return -1, nil
-	}
-	if err != nil {
-		return -1, fmt.Errorf("reading the version file: %w", err)
-	}
-
-	version, err := strconv.ParseInt(string(versionContent), 10, 32)
-	if err != nil {
-		return -1, fmt.Errorf("parsing the version number: %w", err)
-	}
-
-	return version, nil
-}
-*/
-
-func (wal *WriteAheadLog[T, PT]) Log(value T) error {
+func (wal *WriteAheadLog[T, PT]) Append(value T) error {
 	wal.lk.Lock()
 	defer wal.lk.Unlock()
 
 	if err := wal.maybeRotate(); err != nil {
 		return fmt.Errorf("attemting to rotate: %w", err)
 	}
+	var buf bytes.Buffer
 
-	err := PT(&value).MarshalCBOR(wal.active.cborWriter)
+	err := PT(&value).MarshalCBOR(&buf)
 	if err != nil {
 		return fmt.Errorf("saving value to WAL: %w", err)
 	}
+	_, err = buf.WriteTo(wal.active.file)
+	if err != nil {
+		return fmt.Errorf("writing buffer to file: %w", err)
+	}
+
 	err = wal.active.file.Sync()
 	if err != nil {
 		return fmt.Errorf("sycning the file: %w", err)
 	}
 
 	wal.active.maxEpoch = max(wal.active.maxEpoch, PT(&value).WALEpoch())
-	wal.active.content = append(wal.active.content, value)
 
 	return nil
 }
@@ -133,7 +123,7 @@ func (wal *WriteAheadLog[T, PT]) Purge(keepEpoch uint64) error {
 	wal.lk.Lock()
 	defer wal.lk.Unlock()
 
-	var keptLogFiles []logContent[T, PT]
+	var keptLogFiles []logStat
 	var err error
 	for _, c := range wal.logFiles {
 		if c.maxEpoch < keepEpoch {
@@ -148,7 +138,7 @@ func (wal *WriteAheadLog[T, PT]) Purge(keepEpoch uint64) error {
 	return nil
 }
 
-const roatateAt = 1 << 20 // 1MiB
+const roatateAt = 16 << 20 // 16MiB
 
 func (wal *WriteAheadLog[T, PT]) maybeRotate() error {
 	if wal.active.file == nil {
@@ -166,12 +156,12 @@ func (wal *WriteAheadLog[T, PT]) maybeRotate() error {
 
 const walExtension = ".wal.cbor"
 
-// Finalize closes the existing file
+// Flush closes the existing file
 // the WAL is safe to discard or can be used still
-func (wal *WriteAheadLog[T, PT]) Finalize() error {
+func (wal *WriteAheadLog[T, PT]) Flush() error {
 	wal.lk.Lock()
 	defer wal.lk.Unlock()
-	return wal.finalize()
+	return wal.flush()
 }
 
 // rotate a log file
@@ -179,7 +169,7 @@ func (wal *WriteAheadLog[T, PT]) Finalize() error {
 // and opens a new one
 func (wal *WriteAheadLog[T, PT]) rotate() error {
 	if wal.active.file != nil {
-		if err := wal.finalize(); err != nil {
+		if err := wal.flush(); err != nil {
 			return fmt.Errorf("finalizing log file: %w", err)
 		}
 	}
@@ -194,12 +184,11 @@ func (wal *WriteAheadLog[T, PT]) rotate() error {
 		wal.active.file = nil
 		return fmt.Errorf("opening new log file %q: %w", wal.active.logname, err)
 	}
-	wal.active.cborWriter = cbg.NewCborWriter(wal.active.file)
 	return nil
 }
 
-// finalize the existing log
-func (wal *WriteAheadLog[T, PT]) finalize() error {
+// flush the existing log
+func (wal *WriteAheadLog[T, PT]) flush() error {
 	if wal.active.file == nil {
 		return nil
 	}
@@ -211,30 +200,26 @@ func (wal *WriteAheadLog[T, PT]) finalize() error {
 	if err != nil {
 		return fmt.Errorf("closing the file: %w", err)
 	}
-	wal.active.file = nil
-	wal.active.cborWriter = nil
+	wal.logFiles = append(wal.logFiles, wal.active.logStat)
 
-	wal.active.logContent.complete = true
-	wal.logFiles = append(wal.logFiles, wal.active.logContent)
-	wal.active.logContent = logContent[T, PT]{}
+	wal.active.file = nil
+	wal.active.logStat = logStat{}
+
 	return nil
 }
 
-func (wal *WriteAheadLog[T, PT]) readInAll() error {
-	_, err := os.Stat(wal.path)
+func (wal *WriteAheadLog[T, PT]) hydrate() error {
+	dirEntries, err := os.ReadDir(wal.path)
+
 	if errors.Is(err, os.ErrNotExist) {
 		err := os.MkdirAll(wal.path, 0777)
 		if err != nil {
 			return fmt.Errorf("making WAL directory at %q: %w", wal.path, err)
 		}
 	} else if err != nil {
-		return fmt.Errorf("checking WAL dir: %w", err)
+		return fmt.Errorf("reading dir entry at %q: %w", wal.path, err)
 	}
 
-	dirEntries, err := os.ReadDir(wal.path)
-	if err != nil {
-		return fmt.Errorf("reading dir entries at %q: %w", wal.path, err)
-	}
 	slices.SortFunc(dirEntries, func(a, b fs.DirEntry) int {
 		return strings.Compare(a.Name(), b.Name())
 	})
@@ -243,23 +228,27 @@ func (wal *WriteAheadLog[T, PT]) readInAll() error {
 		if !strings.HasSuffix(entry.Name(), walExtension) {
 			continue
 		}
-		content, err := wal.readLogFile(entry.Name())
+		logS, _, err := wal.readLogFile(entry.Name(), false)
 		if err != nil {
 			return fmt.Errorf("readling log file: %w", err)
 		}
 
-		wal.logFiles = append(wal.logFiles, content)
+		wal.logFiles = append(wal.logFiles, logS)
 	}
 	return nil
 }
 
 // readLogFile reads in a file logname as a log
 // it eats parsing errors and logs in on purpose
-func (wal *WriteAheadLog[T, PT]) readLogFile(logname string) (logContent[T, PT], error) {
-	var res logContent[T, PT]
+func (wal *WriteAheadLog[T, PT]) readLogFile(logname string, keepVaues bool) (logStat, []T, error) {
+	var res logStat
+	if len(logname) == 0 {
+		return res, nil, fmt.Errorf("empty logname")
+	}
+
 	logFile, err := os.Open(filepath.Join(wal.path, logname))
 	if err != nil {
-		return res, fmt.Errorf("opening logfile %q: %w", logname, err)
+		return res, nil, fmt.Errorf("opening logfile %q: %w", logname, err)
 	}
 	defer logFile.Close()
 
@@ -270,26 +259,26 @@ func (wal *WriteAheadLog[T, PT]) readLogFile(logname string) (logContent[T, PT],
 		var single T
 		err = PT(&single).UnmarshalCBOR(logFileReader)
 		if err == nil {
-			content = append(content, single)
+			if keepVaues {
+				content = append(content, single)
+			}
 			maxEpoch = max(maxEpoch, PT(&single).WALEpoch())
 		}
 	}
 
-	res = logContent[T, PT]{
+	res = logStat{
 		logname:  logname,
-		content:  content,
 		maxEpoch: maxEpoch,
-		complete: true,
 	}
 
 	switch {
 	case err == nil:
-		return res, nil
+		// the EOF case is expected, this is slightly unexpected by still handle it
+		return res, content, nil
 	case errors.Is(err, io.EOF):
-		return res, nil
+		return res, content, nil
 	default:
 		log.Errorf("got error while reading WAL log file %q: %+v", logname, err)
-		res.complete = false
-		return res, nil
+		return res, content, nil
 	}
 }

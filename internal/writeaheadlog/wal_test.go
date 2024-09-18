@@ -37,15 +37,17 @@ func TestWALSimple(t *testing.T) {
 		{Value: 2, Foo: "Foo2"},
 	}
 	for _, e := range entries {
-		err = wal.Log(e)
+		err = wal.Append(e)
 		require.NoError(t, err)
 	}
-	res := wal.All()
+	res, err := wal.All()
+	require.NoError(t, err)
 	require.Equal(t, entries, res)
 
-	err = wal.Finalize()
+	err = wal.Flush()
 	require.NoError(t, err)
-	res = wal.All()
+	res, err = wal.All()
+	require.NoError(t, err)
 	require.Equal(t, entries, res)
 
 	wal = nil
@@ -53,13 +55,15 @@ func TestWALSimple(t *testing.T) {
 	wal, err = Open[testPayload](path)
 	require.NoError(t, err)
 
-	res = wal.All()
+	res, err = wal.All()
+	require.NoError(t, err)
 	require.Equal(t, entries, res)
 
 	err = wal.Purge(1) // one file, should keep all
 	require.NoError(t, err)
 
-	res = wal.All()
+	res, err = wal.All()
+	require.NoError(t, err)
 	require.Equal(t, entries, res)
 }
 func TestWALRecovery(t *testing.T) {
@@ -73,7 +77,7 @@ func TestWALRecovery(t *testing.T) {
 		{Value: 1, Foo: "Foo1"},
 	}
 	for _, e := range entries {
-		err = wal.Log(e)
+		err = wal.Append(e)
 		require.NoError(t, err)
 	}
 
@@ -83,7 +87,8 @@ func TestWALRecovery(t *testing.T) {
 	wal, err = Open[testPayload](path)
 	require.NoError(t, err)
 
-	res := wal.All()
+	res, err := wal.All()
+	require.NoError(t, err)
 	require.Equal(t, entries, res)
 }
 
@@ -98,7 +103,7 @@ func TestWALPartialWrite(t *testing.T) {
 		{Value: 1, Foo: "Foo1"},
 	}
 	for _, e := range entries {
-		err = wal.Log(e)
+		err = wal.Append(e)
 		require.NoError(t, err)
 	}
 
@@ -113,7 +118,8 @@ func TestWALPartialWrite(t *testing.T) {
 
 	wal, err = Open[testPayload](path)
 	require.NoError(t, err)
-	all := wal.All()
+	all, err := wal.All()
+	require.NoError(t, err)
 	require.Equal(t, []testPayload{entries[0]}, all)
 }
 
@@ -123,13 +129,15 @@ func TestWALEmpty(t *testing.T) {
 	wal, err := Open[testPayload](path)
 	require.NoError(t, err)
 
-	res := wal.All()
+	res, err := wal.All()
+	require.NoError(t, err)
 	require.Empty(t, res)
 
-	err = wal.Finalize()
+	err = wal.Flush()
 	require.NoError(t, err)
 
-	res = wal.All()
+	res, err = wal.All()
+	require.NoError(t, err)
 	require.Empty(t, res)
 }
 
@@ -139,25 +147,31 @@ func TestWALPurge(t *testing.T) {
 	wal, err := Open[testPayload](path)
 	require.NoError(t, err)
 
+	foo0 := testPayload{Value: 0, Foo: "Foo0"}
 	entries := []testPayload{
-		{Value: 0, Foo: "Foo0"},
 		{Value: 1, Foo: "Foo1"},
 		{Value: 2, Foo: "Foo2"},
+		{Value: 3, Foo: "Foo3"},
 	}
 	for _, e := range entries {
-		err = wal.Log(e)
+		err = wal.Append(foo0)
 		require.NoError(t, err)
-		err = wal.Finalize()
+		err = wal.Append(e)
+		require.NoError(t, err)
+		err = wal.Flush()
 		require.NoError(t, err)
 	}
 
-	err = wal.Purge(1)
+	err = wal.Purge(2)
 	require.NoError(t, err)
 
 	expected := []testPayload{
-		{Value: 1, Foo: "Foo1"},
+		foo0,
 		{Value: 2, Foo: "Foo2"},
+		foo0,
+		{Value: 3, Foo: "Foo3"},
 	}
-	res := wal.All()
+	res, err := wal.All()
+	require.NoError(t, err)
 	require.Equal(t, expected, res)
 }
