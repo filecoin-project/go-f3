@@ -67,6 +67,7 @@ func newRunner(
 		pubsub:      ps,
 		clock:       clock.GetClock(runningCtx),
 		verifier:    verifier,
+		wal:         wal,
 		outMessages: out,
 		runningCtx:  runningCtx,
 		errgrp:      errgrp,
