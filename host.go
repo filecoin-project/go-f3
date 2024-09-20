@@ -14,6 +14,7 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/internal/psutil"
+	"github.com/filecoin-project/go-f3/internal/writeaheadlog"
 	"github.com/filecoin-project/go-f3/manifest"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -33,6 +34,7 @@ type gpbftRunner struct {
 	pubsub      *pubsub.PubSub
 	clock       clock.Clock
 	verifier    gpbft.Verifier
+	wal         *writeaheadlog.WriteAheadLog[walEntry, *walEntry]
 	outMessages chan<- *gpbft.MessageBuilder
 
 	participant *gpbft.Participant
@@ -53,6 +55,7 @@ func newRunner(
 	verifier gpbft.Verifier,
 	out chan<- *gpbft.MessageBuilder,
 	m *manifest.Manifest,
+	wal *writeaheadlog.WriteAheadLog[walEntry, *walEntry],
 ) (*gpbftRunner, error) {
 	runningCtx, ctxCancel := context.WithCancel(context.WithoutCancel(ctx))
 	errgrp, runningCtx := errgroup.WithContext(runningCtx)
@@ -64,6 +67,7 @@ func newRunner(
 		pubsub:      ps,
 		clock:       clock.GetClock(runningCtx),
 		verifier:    verifier,
+		wal:         wal,
 		outMessages: out,
 		runningCtx:  runningCtx,
 		errgrp:      errgrp,
@@ -196,6 +200,11 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 					// will effectively retry checkpointing the latest finalized tipset. This error
 					// will not impact the selection of next instance chain.
 					log.Error(fmt.Errorf("error while finalizing decision at EC: %w", err))
+				}
+				const keepInstancesInWAL = 5
+				if cert.GPBFTInstance > keepInstancesInWAL {
+					err := h.wal.Purge(cert.GPBFTInstance - keepInstancesInWAL)
+					log.Error("purging messages from WAL: %+v", err)
 				}
 			}
 		}

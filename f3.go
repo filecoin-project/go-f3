@@ -3,6 +3,8 @@ package f3
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/internal/measurements"
 	"github.com/filecoin-project/go-f3/internal/powerstore"
+	"github.com/filecoin-project/go-f3/internal/writeaheadlog"
 	"github.com/filecoin-project/go-f3/manifest"
 
 	"github.com/ipfs/go-datastore"
@@ -28,6 +31,7 @@ import (
 type F3 struct {
 	verifier         gpbft.Verifier
 	manifestProvider manifest.ManifestProvider
+	diskPath         string
 
 	outboundMessages chan *gpbft.MessageBuilder
 
@@ -43,6 +47,7 @@ type F3 struct {
 
 	mu       sync.Mutex
 	cs       *certstore.Store
+	wal      *writeaheadlog.WriteAheadLog[walEntry, *walEntry]
 	manifest *manifest.Manifest
 	runner   *gpbftRunner
 	ps       *powerstore.Store
@@ -53,13 +58,14 @@ type F3 struct {
 // New creates and setups f3 with libp2p
 // The context is used for initialization not runtime.
 func New(_ctx context.Context, manifest manifest.ManifestProvider, ds datastore.Datastore, h host.Host,
-	ps *pubsub.PubSub, verif gpbft.Verifier, ec ec.Backend) (*F3, error) {
+	ps *pubsub.PubSub, verif gpbft.Verifier, ec ec.Backend, diskPath string) (*F3, error) {
 	runningCtx, cancel := context.WithCancel(context.WithoutCancel(_ctx))
 	errgrp, runningCtx := errgroup.WithContext(runningCtx)
 
 	return &F3{
 		verifier:         verif,
 		manifestProvider: manifest,
+		diskPath:         diskPath,
 		outboundMessages: make(chan *gpbft.MessageBuilder, 128),
 		host:             h,
 		ds:               ds,
@@ -90,14 +96,19 @@ func (m *F3) Broadcast(ctx context.Context, signatureBuilder *gpbft.SignatureBui
 
 	m.mu.Lock()
 	runner := m.runner
+	wal := m.wal
 	m.mu.Unlock()
 
 	if runner == nil {
 		log.Error("attempted to broadcast message while F3 wasn't running")
 		return
 	}
+	err := wal.Append(walEntry{*msg})
+	if err != nil {
+		log.Error("appending to WAL: %+v", err)
+	}
 
-	err := runner.BroadcastMessage(msg)
+	err = runner.BroadcastMessage(msg)
 	if err != nil {
 		log.Warnf("failed to broadcast message: %+v", err)
 	}
@@ -325,6 +336,12 @@ func (m *F3) stopInternal(ctx context.Context) error {
 		}
 		m.certserv = nil
 	}
+	if m.wal != nil {
+		if serr := m.wal.Flush(); serr != nil {
+			err = multierr.Append(err, fmt.Errorf("failed to flush WAL: %w", serr))
+		}
+		m.wal = nil
+	}
 	return err
 }
 
@@ -347,6 +364,13 @@ func (m *F3) resumeInternal(ctx context.Context) error {
 
 		m.cs = cs
 	}
+	walPath := filepath.Join(m.diskPath, "wal", strings.ReplaceAll(string(m.manifest.NetworkName), "/", "-"))
+	var err error
+	m.wal, err = writeaheadlog.Open[walEntry](walPath)
+	if err != nil {
+		return fmt.Errorf("opening WAL: %w", err)
+	}
+
 	if m.ps == nil {
 		pds := measurements.NewMeteredDatastore(meter, "f3_ohshitstore_datastore_", m.ds)
 		ps, err := powerstore.New(m.runningCtx, mPowerEc, pds, m.cs, m.manifest)
@@ -388,7 +412,7 @@ func (m *F3) resumeInternal(ctx context.Context) error {
 
 	if runner, err := newRunner(
 		ctx, m.cs, m.ps, m.pubsub, m.verifier,
-		m.outboundMessages, m.manifest,
+		m.outboundMessages, m.manifest, m.wal,
 	); err != nil {
 		return err
 	} else {
