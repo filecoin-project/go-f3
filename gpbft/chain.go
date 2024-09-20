@@ -59,6 +59,9 @@ type TipSet struct {
 // Validates a tipset.
 // Note the zero value is invalid.
 func (ts *TipSet) Validate() error {
+	if ts == nil {
+		return errors.New("tipset must not be nil")
+	}
 	if len(ts.Key) == 0 {
 		return errors.New("tipset key must not be empty")
 	}
@@ -74,11 +77,10 @@ func (ts *TipSet) Validate() error {
 	return nil
 }
 
-func (ts *TipSet) IsZero() bool {
-	return len(ts.Key) == 0
-}
-
 func (ts *TipSet) Equal(b *TipSet) bool {
+	if ts == nil || b == nil {
+		return ts == b
+	}
 	return ts.Epoch == b.Epoch &&
 		bytes.Equal(ts.Key, b.Key) &&
 		ts.PowerTable == b.PowerTable &&
@@ -135,16 +137,20 @@ func (c ECChain) IsZero() bool {
 }
 
 func (c ECChain) HasSuffix() bool {
-	return len(c.Suffix()) != 0
+	return len(c) > 1
 }
 
-// Returns the base tipset.
+// Returns the base tipset, nil if the chain is zero.
 func (c ECChain) Base() *TipSet {
+	if c.IsZero() {
+		return nil
+	}
 	return &c[0]
 }
 
 // Returns the suffix of the chain after the base.
-// An empty slice for a zero value.
+//
+// Returns nil if the chain is zero or base.
 func (c ECChain) Suffix() []TipSet {
 	if c.IsZero() {
 		return nil
@@ -154,18 +160,30 @@ func (c ECChain) Suffix() []TipSet {
 
 // Returns the last tipset in the chain.
 // This could be the base tipset if there is no suffix.
-// This will panic on a zero value.
+//
+// Returns nil if the chain is zero.
 func (c ECChain) Head() *TipSet {
+	if c.IsZero() {
+		return nil
+	}
 	return &c[len(c)-1]
 }
 
 // Returns a new chain with the same base and no suffix.
-// Invalid for a zero value.
+//
+// Returns nil if the chain is zero.
 func (c ECChain) BaseChain() ECChain {
+	if c.IsZero() {
+		return nil
+	}
 	return ECChain{c[0]}
 }
 
+// Extend the chain with the given tipsets, returning the new chain.
+//
+// Panics if the chain is zero.
 func (c ECChain) Extend(tips ...TipSetKey) ECChain {
+	// truncate capacity so appending to this chain won't modify the shared slice.
 	c = c[:len(c):len(c)]
 	offset := c.Head().Epoch + 1
 	pt := c.Head().PowerTable
@@ -181,12 +199,14 @@ func (c ECChain) Extend(tips ...TipSetKey) ECChain {
 
 // Returns a chain with suffix (after the base) truncated to a maximum length.
 // Prefix(0) returns the base chain.
-// Invalid for a zero value.
+//
+// Returns the zero chain if the chain is zero.
 func (c ECChain) Prefix(to int) ECChain {
 	if c.IsZero() {
-		panic("can't get prefix from zero-valued chain")
+		return nil
 	}
 	length := min(to+1, len(c))
+	// truncate capacity so appending to this chain won't modify the shared slice.
 	return c[:length:length]
 }
 
@@ -202,6 +222,7 @@ func (c ECChain) Eq(other ECChain) bool {
 }
 
 // Checks whether two chains have the same base.
+//
 // Always false for a zero value.
 func (c ECChain) SameBase(other ECChain) bool {
 	if c.IsZero() || other.IsZero() {
@@ -211,12 +232,14 @@ func (c ECChain) SameBase(other ECChain) bool {
 }
 
 // Check whether a chain has a specific base tipset.
+//
 // Always false for a zero value.
 func (c ECChain) HasBase(t *TipSet) bool {
-	return !t.IsZero() && !c.IsZero() && c.Base().Equal(t)
+	return t != nil && !c.IsZero() && c.Base().Equal(t)
 }
 
 // Checks whether a chain has some prefix (including the base).
+//
 // Always false for a zero value.
 func (c ECChain) HasPrefix(other ECChain) bool {
 	if c.IsZero() || other.IsZero() {
@@ -235,7 +258,7 @@ func (c ECChain) HasPrefix(other ECChain) bool {
 
 // Checks whether a chain has some tipset (including as its base).
 func (c ECChain) HasTipset(t *TipSet) bool {
-	if t.IsZero() {
+	if t == nil {
 		// Chain can never contain zero-valued TipSet.
 		return false
 	}
