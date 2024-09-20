@@ -30,7 +30,7 @@ type Participant struct {
 	// if both are to be taken.
 	apiMutex sync.Mutex
 	// Mutex protecting currentInstance and committees cache for concurrent validation.
-	// Note that not every access need be protected:
+	// Note that not every access needs to be protected:
 	// - writes to currentInstance, and reads from it during validation,
 	// - reads from or writes to committees (which is written during validation).
 	instanceMutex sync.Mutex

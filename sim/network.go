@@ -142,24 +142,30 @@ func (n *Network) SetAlarm(sender gpbft.ActorID, at time.Time) {
 	)
 }
 
+// HasMoreTicks checks whether there are any messages left to propagate across
+// the network participants. See Tick.
+func (n *Network) HasMoreTicks() bool {
+	return n.queue.Len() > 0
+}
+
 // Tick disseminates one message among participants and returns whether there are
 // any more messages to process.
-func (n *Network) Tick(adv *adversary.Adversary) (bool, error) {
+func (n *Network) Tick(adv *adversary.Adversary) error {
 	msg := n.queue.Remove()
 	n.clock = msg.deliverAt
 
 	receiver, found := n.participants[msg.dest]
 	if !found {
-		return false, fmt.Errorf("message destined to unknown participant ID: %d", msg.dest)
+		return fmt.Errorf("message destined to unknown participant ID: %d", msg.dest)
 	}
 	switch payload := msg.payload.(type) {
 	case string:
 		if payload != "ALARM" {
-			return false, fmt.Errorf("unknwon string message payload: %s", payload)
+			return fmt.Errorf("unknwon string message payload: %s", payload)
 		}
 		n.log(TraceRecvd, "P%d %s", msg.source, payload)
 		if err := receiver.ReceiveAlarm(); err != nil {
-			return false, fmt.Errorf("failed to deliver alarm from %d to %d: %w", msg.source, msg.dest, err)
+			return fmt.Errorf("failed to deliver alarm from %d to %d: %w", msg.source, msg.dest, err)
 		}
 	case gpbft.GMessage:
 		// If GST has not elapsed, check if adversary allows the propagation of message.
@@ -170,7 +176,7 @@ func (n *Network) Tick(adv *adversary.Adversary) (bool, error) {
 			} else if !adv.AllowMessage(msg.source, msg.dest, payload) {
 				// GST has not passed and adversary blocks the delivery of message; proceed to
 				// next tick.
-				return n.queue.Len() > 0, nil
+				return nil
 			}
 		}
 		validated, err := receiver.ValidateMessage(&payload)
@@ -179,16 +185,16 @@ func (n *Network) Tick(adv *adversary.Adversary) (bool, error) {
 				// Silently drop old messages.
 				break
 			}
-			return false, fmt.Errorf("invalid message from %d to %d: %w", msg.source, msg.dest, err)
+			return fmt.Errorf("invalid message from %d to %d: %w", msg.source, msg.dest, err)
 		}
 		n.log(TraceRecvd, "P%d ← P%d: %v", msg.dest, msg.source, msg.payload)
 		if err := receiver.ReceiveMessage(validated); err != nil {
-			return false, fmt.Errorf("failed to deliver message from %d to %d: %w", msg.source, msg.dest, err)
+			return fmt.Errorf("failed to deliver message from %d to %d: %w", msg.source, msg.dest, err)
 		}
 	default:
-		return false, fmt.Errorf("unknown message payload: %v", payload)
+		return fmt.Errorf("unknown message payload: %v", payload)
 	}
-	return n.queue.Len() > 0, nil
+	return nil
 }
 
 func (n *Network) log(level int, format string, args ...interface{}) {
