@@ -3,6 +3,7 @@ package f3_test
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -294,6 +295,7 @@ type testEnv struct {
 	manifestSender *manifest.ManifestSender
 	net            mocknet.Mocknet
 	clock          *clock.Mock
+	tempDir        string // we need to ask for it before any of our cleanup hooks
 
 	manifest        manifest.Manifest
 	manifestVersion uint64
@@ -407,7 +409,7 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) *testEnv {
 	ctx, cancel := context.WithCancel(context.Background())
 	ctx, clk := clock.WithMockClock(ctx)
 	grp, ctx := errgroup.WithContext(ctx)
-	env := &testEnv{t: t, errgrp: grp, testCtx: ctx, net: mocknet.New(), clock: clk}
+	env := &testEnv{t: t, errgrp: grp, testCtx: ctx, net: mocknet.New(), clock: clk, tempDir: t.TempDir()}
 
 	// Cleanup on exit.
 	env.t.Cleanup(func() {
@@ -588,7 +590,8 @@ func (e *testEnv) newF3Instance(id int, manifestServer peer.ID) (*testNode, erro
 
 	e.signingBackend.Allow(id)
 
-	n.f3, err = f3.New(e.testCtx, mprovider, ds, h, ps, e.signingBackend, e.ec, e.t.TempDir())
+	n.f3, err = f3.New(e.testCtx, mprovider, ds, h, ps, e.signingBackend, e.ec,
+		filepath.Join(e.tempDir, fmt.Sprintf("instance-%d", id)))
 	if err != nil {
 		return nil, fmt.Errorf("creating module: %w", err)
 	}

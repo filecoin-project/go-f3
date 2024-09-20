@@ -230,7 +230,7 @@ func (wal *WriteAheadLog[T, PT]) hydrate() error {
 		}
 		logS, _, err := wal.readLogFile(entry.Name(), false)
 		if err != nil {
-			return fmt.Errorf("readling log file: %w", err)
+			return fmt.Errorf("reading log file: %w", err)
 		}
 
 		wal.logFiles = append(wal.logFiles, logS)

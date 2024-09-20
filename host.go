@@ -36,6 +36,7 @@ type gpbftRunner struct {
 	verifier    gpbft.Verifier
 	wal         *writeaheadlog.WriteAheadLog[walEntry, *walEntry]
 	outMessages chan<- *gpbft.MessageBuilder
+	equivFilter equivocationFilter
 
 	participant *gpbft.Participant
 	topic       *pubsub.Topic
@@ -56,6 +57,7 @@ func newRunner(
 	out chan<- *gpbft.MessageBuilder,
 	m *manifest.Manifest,
 	wal *writeaheadlog.WriteAheadLog[walEntry, *walEntry],
+	pID peer.ID,
 ) (*gpbftRunner, error) {
 	runningCtx, ctxCancel := context.WithCancel(context.WithoutCancel(ctx))
 	errgrp, runningCtx := errgroup.WithContext(runningCtx)
@@ -72,12 +74,20 @@ func newRunner(
 		runningCtx:  runningCtx,
 		errgrp:      errgrp,
 		ctxCancel:   ctxCancel,
+		equivFilter: newEquivocationFilter(pID),
 	}
 
 	// create a stopped timer to facilitate alerts requested from gpbft
 	runner.alertTimer = runner.clock.Timer(0)
 	if !runner.alertTimer.Stop() {
 		<-runner.alertTimer.C
+	}
+	walEntries, err := wal.All()
+	if err != nil {
+		return nil, fmt.Errorf("reading WAL: %w", err)
+	}
+	for _, v := range walEntries {
+		runner.equivFilter.ProcessBroadcast(v.Message)
 	}
 
 	log.Infof("Starting gpbft runner")
@@ -300,11 +310,20 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 // Sends a message to all other participants.
 // The message's sender must be one that the network interface can sign on behalf of.
 func (h *gpbftRunner) BroadcastMessage(msg *gpbft.GMessage) error {
+	if !h.equivFilter.ProcessBroadcast(msg) {
+		// equivocation filter does its own logging and this error just gets logged
+		return nil
+	}
+	err := h.wal.Append(walEntry{msg})
+	if err != nil {
+		log.Error("appending to WAL: %+v", err)
+	}
+
 	if h.topic == nil {
 		return pubsub.ErrTopicClosed
 	}
 	var bw bytes.Buffer
-	err := msg.MarshalCBOR(&bw)
+	err = msg.MarshalCBOR(&bw)
 	if err != nil {
 		return fmt.Errorf("marshalling GMessage for broadcast: %w", err)
 	}
@@ -459,6 +478,7 @@ func (h *gpbftHost) collectChain(base ec.TipSet, head ec.TipSet) ([]ec.TipSet, e
 func (h *gpbftRunner) Stop(context.Context) error {
 	h.ctxCancel()
 	return multierr.Combine(
+		h.wal.Flush(),
 		h.errgrp.Wait(),
 		h.teardownPubsub(),
 	)
