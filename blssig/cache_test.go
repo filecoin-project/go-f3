@@ -5,16 +5,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	bls12381 "go.dedis.ch/kyber/v4/pairing/bls12381/kilic"
-	"go.dedis.ch/kyber/v4/sign/bdn"
 
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/bls/bdn"
+	bls12381 "github.com/filecoin-project/go-f3/internal/bls/gnark"
 )
 
 const maxCacheMemory uint64 = 10 << 20 // 10MiB
 
 func TestCacheMemory(t *testing.T) {
-	suite := bls12381.NewBLS12381Suite()
+	suite := bls12381.NewSuiteBLS12381()
 	scheme := bdn.NewSchemeOnG2(suite)
 
 	rand := suite.RandomStream()

@@ -8,8 +8,9 @@ import (
 	"github.com/filecoin-project/go-f3/blssig"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"go.dedis.ch/kyber/v4/pairing"
-	bls12381 "go.dedis.ch/kyber/v4/pairing/bls12381/kilic"
-	"go.dedis.ch/kyber/v4/sign/bdn"
+
+	"github.com/filecoin-project/go-f3/internal/bls/bdn"
+	bls12381 "github.com/filecoin-project/go-f3/internal/bls/gnark"
 )
 
 var _ Backend = (*BLSBackend)(nil)
@@ -36,7 +37,7 @@ func (b *BLSBackend) Sign(ctx context.Context, sender gpbft.PubKey, msg []byte) 
 }
 
 func NewBLSBackend() *BLSBackend {
-	suite := bls12381.NewBLS12381Suite()
+	suite := bls12381.NewSuiteBLS12381()
 	return &BLSBackend{
 		Verifier:        blssig.VerifierWithKeyOnG1(),
 		signersByPubKey: make(map[string]*blssig.Signer),

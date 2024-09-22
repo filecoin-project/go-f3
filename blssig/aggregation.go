@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"runtime/debug"
 
-	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/internal/measurements"
+	"go.dedis.ch/kyber/v4"
 	"go.opentelemetry.io/otel/metric"
 
-	"go.dedis.ch/kyber/v4"
-	"go.dedis.ch/kyber/v4/sign"
+	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/bls/bdn"
+	"github.com/filecoin-project/go-f3/internal/measurements"
 )
 
 // Max size of the point cache.
@@ -93,7 +93,7 @@ func (v *Verifier) VerifyAggregate(msg []byte, signature []byte, pubkeys []gpbft
 	return v.scheme.Verify(aggPubKey, msg, signature)
 }
 
-func (v *Verifier) pubkeysToMask(pubkeys []gpbft.PubKey) (*sign.Mask, error) {
+func (v *Verifier) pubkeysToMask(pubkeys []gpbft.PubKey) (*bdn.Mask, error) {
 	kPubkeys := make([]kyber.Point, 0, len(pubkeys))
 	for i, p := range pubkeys {
 		point, err := v.pubkeyToPoint(p)
@@ -103,9 +103,9 @@ func (v *Verifier) pubkeysToMask(pubkeys []gpbft.PubKey) (*sign.Mask, error) {
 		kPubkeys = append(kPubkeys, point.Clone())
 	}
 
-	mask, err := sign.NewMask(kPubkeys, nil)
+	mask, err := bdn.NewMask(v.keyGroup, kPubkeys, nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating key mask: %w", err)
+		return nil, fmt.Errorf("creating bdn mask: %w", err)
 	}
 	for i := range kPubkeys {
 		err := mask.SetBit(i, true)

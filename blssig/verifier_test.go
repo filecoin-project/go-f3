@@ -4,14 +4,14 @@ import (
 	"context"
 	"testing"
 
+	"github.com/filecoin-project/go-f3/internal/bls/bdn"
+	bls12381 "github.com/filecoin-project/go-f3/internal/bls/gnark"
 	"github.com/stretchr/testify/require"
-	bls12381 "go.dedis.ch/kyber/v4/pairing/bls12381/kilic"
-	"go.dedis.ch/kyber/v4/sign/bdn"
 )
 
 func BenchmarkBLSSigning(b *testing.B) {
 	var (
-		blsSuit   = bls12381.NewBLS12381Suite()
+		blsSuit   = bls12381.NewSuiteBLS12381()
 		blsSchema = bdn.NewSchemeOnG2(blsSuit)
 	)
 	privKey, pubKey := blsSchema.NewKeyPair(blsSuit.RandomStream())

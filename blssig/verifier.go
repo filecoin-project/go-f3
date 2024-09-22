@@ -8,11 +8,11 @@ import (
 	"sync"
 
 	"go.dedis.ch/kyber/v4"
-	bls12381 "go.dedis.ch/kyber/v4/pairing/bls12381/kilic"
-	"go.dedis.ch/kyber/v4/sign/bdn"
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/bls/bdn"
+	bls12381 "github.com/filecoin-project/go-f3/internal/bls/gnark"
 	"github.com/filecoin-project/go-f3/internal/measurements"
 )
 
@@ -25,7 +25,7 @@ type Verifier struct {
 }
 
 func VerifierWithKeyOnG1() *Verifier {
-	suite := bls12381.NewBLS12381Suite()
+	suite := bls12381.NewSuiteBLS12381()
 	return &Verifier{
 		scheme:   bdn.NewSchemeOnG2(suite),
 		keyGroup: suite.G1(),
