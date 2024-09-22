@@ -5,10 +5,10 @@ import (
 	"context"
 	"errors"
 
-	"github.com/drand/kyber"
-	bls12381 "github.com/drand/kyber-bls12381"
-	"github.com/drand/kyber/sign/bdn"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"go.dedis.ch/kyber/v4"
+	bls12381 "go.dedis.ch/kyber/v4/pairing/bls12381/kilic"
+	"go.dedis.ch/kyber/v4/sign/bdn"
 )
 
 var _ gpbft.Signer = (*Signer)(nil)

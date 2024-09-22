@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	bls12381 "github.com/drand/kyber-bls12381"
-	"github.com/drand/kyber/sign/bdn"
 	"github.com/stretchr/testify/require"
+	bls12381 "go.dedis.ch/kyber/v4/pairing/bls12381/kilic"
+	"go.dedis.ch/kyber/v4/sign/bdn"
 )
 
 func BenchmarkBLSSigning(b *testing.B) {

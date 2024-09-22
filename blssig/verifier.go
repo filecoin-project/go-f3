@@ -7,10 +7,9 @@ import (
 	"runtime/debug"
 	"sync"
 
-	"github.com/drand/kyber"
-	bls12381 "github.com/drand/kyber-bls12381"
-	"github.com/drand/kyber/pairing"
-	"github.com/drand/kyber/sign/bdn"
+	"go.dedis.ch/kyber/v4"
+	bls12381 "go.dedis.ch/kyber/v4/pairing/bls12381/kilic"
+	"go.dedis.ch/kyber/v4/sign/bdn"
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -18,7 +17,6 @@ import (
 )
 
 type Verifier struct {
-	suite    pairing.Suite
 	scheme   *bdn.Scheme
 	keyGroup kyber.Group
 
@@ -29,7 +27,6 @@ type Verifier struct {
 func VerifierWithKeyOnG1() *Verifier {
 	suite := bls12381.NewBLS12381Suite()
 	return &Verifier{
-		suite:    suite,
 		scheme:   bdn.NewSchemeOnG2(suite),
 		keyGroup: suite.G1(),
 	}

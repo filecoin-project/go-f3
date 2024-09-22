@@ -10,8 +10,8 @@ import (
 	"github.com/filecoin-project/go-f3/internal/measurements"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/drand/kyber"
-	"github.com/drand/kyber/sign"
+	"go.dedis.ch/kyber/v4"
+	"go.dedis.ch/kyber/v4/sign"
 )
 
 // Max size of the point cache.
@@ -103,7 +103,7 @@ func (v *Verifier) pubkeysToMask(pubkeys []gpbft.PubKey) (*sign.Mask, error) {
 		kPubkeys = append(kPubkeys, point.Clone())
 	}
 
-	mask, err := sign.NewMask(v.suite, kPubkeys, nil)
+	mask, err := sign.NewMask(kPubkeys, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating key mask: %w", err)
 	}

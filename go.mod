@@ -3,8 +3,6 @@ module github.com/filecoin-project/go-f3
 go 1.22
 
 require (
-	github.com/drand/kyber v1.3.1
-	github.com/drand/kyber-bls12381 v0.3.1
 	github.com/filecoin-project/go-bitfield v0.2.4
 	github.com/filecoin-project/go-clock v0.1.0
 	github.com/filecoin-project/go-state-types v0.14.0
@@ -22,6 +20,7 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/urfave/cli/v2 v2.25.5
 	github.com/whyrusleeping/cbor-gen v0.1.1
+	go.dedis.ch/kyber/v4 v4.0.0-pre2.0.20240916105431-b283c0cdd30a
 	go.opentelemetry.io/otel v1.28.0
 	go.opentelemetry.io/otel/metric v1.28.0
 	go.uber.org/multierr v1.11.0
