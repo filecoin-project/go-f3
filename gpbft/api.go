@@ -83,6 +83,9 @@ type Committee struct {
 	PowerTable *PowerTable
 	// Beacon is the unique beacon value associated with the committee.
 	Beacon []byte
+	// AggregateVerifier is used to aggregate and verify aggregate signatures made by the
+	// committee.
+	AggregateVerifier Aggregate
 }
 
 // Endpoint to which participants can send messages.
@@ -116,15 +119,27 @@ type SigningMarshaler interface {
 	MarshalPayloadForSigning(NetworkName, *Payload) []byte
 }
 
+type Aggregate interface {
+	// Aggregates signatures from a participants.
+	//
+	// Implementations must be safe for concurrent use.
+	Aggregate(signerMask []int, sigs [][]byte) ([]byte, error)
+	// VerifyAggregate verifies an aggregate signature.
+	//
+	// Implementations must be safe for concurrent use.
+	VerifyAggregate(signerMask []int, payload, aggSig []byte) error
+}
+
 type Verifier interface {
 	// Verifies a signature for the given public key.
+	//
 	// Implementations must be safe for concurrent use.
 	Verify(pubKey PubKey, msg, sig []byte) error
-	// Aggregates signatures from a participants.
-	Aggregate(pubKeys []PubKey, sigs [][]byte) ([]byte, error)
-	// VerifyAggregate verifies an aggregate signature.
+	// Return an Aggregate that can aggregate and verify aggregate signatures made by the given
+	// public keys.
+	//
 	// Implementations must be safe for concurrent use.
-	VerifyAggregate(payload, aggSig []byte, signers []PubKey) error
+	Aggregate(pubKeys []PubKey) (Aggregate, error)
 }
 
 type Signatures interface {

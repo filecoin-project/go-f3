@@ -33,6 +33,14 @@ type PowerTable struct {
 	ScaledTotal int64
 }
 
+func (e PowerEntries) PublicKeys() []PubKey {
+	keys := make([]PubKey, len(e))
+	for i, e := range e {
+		keys[i] = e.PubKey
+	}
+	return keys
+}
+
 func (p *PowerEntry) Equal(o *PowerEntry) bool {
 	return p.ID == o.ID && p.Power == o.Power && bytes.Equal(p.PubKey, o.PubKey)
 }

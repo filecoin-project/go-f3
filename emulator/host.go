@@ -82,8 +82,9 @@ func (h *driverHost) GetCommittee(id uint64) (*gpbft.Committee, error) {
 		return nil, fmt.Errorf("instance ID %d not found", id)
 	}
 	return &gpbft.Committee{
-		PowerTable: instance.powerTable,
-		Beacon:     instance.beacon,
+		PowerTable:        instance.powerTable,
+		Beacon:            instance.beacon,
+		AggregateVerifier: instance.aggregateVerifier,
 	}, nil
 }
 

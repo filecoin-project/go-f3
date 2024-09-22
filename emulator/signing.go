@@ -3,6 +3,7 @@ package emulator
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"hash/crc32"
 
@@ -58,13 +59,22 @@ func (s adhocSigning) Verify(sender gpbft.PubKey, msg, got []byte) error {
 	}
 }
 
-func (s adhocSigning) Aggregate(signers []gpbft.PubKey, sigs [][]byte) ([]byte, error) {
-	if len(signers) != len(sigs) {
+type aggregate struct {
+	keys    []gpbft.PubKey
+	signing adhocSigning
+}
+
+// Aggregate implements gpbft.Aggregate.
+func (a *aggregate) Aggregate(signerMask []int, sigs [][]byte) ([]byte, error) {
+	if len(signerMask) != len(sigs) {
 		return nil, errors.New("public keys and signatures length mismatch")
 	}
 	hasher := crc32.NewIEEE()
-	for i, signer := range signers {
-		if _, err := hasher.Write(signer); err != nil {
+	for i, bit := range signerMask {
+		if err := binary.Write(hasher, binary.BigEndian, uint64(bit)); err != nil {
+			return nil, err
+		}
+		if _, err := hasher.Write(a.keys[bit]); err != nil {
 			return nil, err
 		}
 		if _, err := hasher.Write(sigs[i]); err != nil {
@@ -74,16 +84,17 @@ func (s adhocSigning) Aggregate(signers []gpbft.PubKey, sigs [][]byte) ([]byte, 
 	return hasher.Sum(nil), nil
 }
 
-func (s adhocSigning) VerifyAggregate(payload, got []byte, signers []gpbft.PubKey) error {
-	signatures := make([][]byte, len(signers))
+// VerifyAggregate implements gpbft.Aggregate.
+func (a *aggregate) VerifyAggregate(signerMask []int, payload []byte, got []byte) error {
+	signatures := make([][]byte, len(signerMask))
 	var err error
-	for i, signer := range signers {
-		signatures[i], err = s.Sign(context.Background(), signer, payload)
+	for i, bit := range signerMask {
+		signatures[i], err = a.signing.Sign(context.Background(), a.keys[bit], payload)
 		if err != nil {
 			return err
 		}
 	}
-	want, err := s.Aggregate(signers, signatures)
+	want, err := a.Aggregate(signerMask, signatures)
 	if err != nil {
 		return err
 	}
@@ -93,22 +104,33 @@ func (s adhocSigning) VerifyAggregate(payload, got []byte, signers []gpbft.PubKe
 	return nil
 }
 
+func (s adhocSigning) Aggregate(keys []gpbft.PubKey) (gpbft.Aggregate, error) {
+	return &aggregate{keys: keys,
+		signing: s,
+	}, nil
+}
+
 func (s adhocSigning) MarshalPayloadForSigning(name gpbft.NetworkName, payload *gpbft.Payload) []byte {
 	return payload.MarshalForSigning(name)
 }
 
 type erroneousSigning struct{}
+type erroneousAggregate struct{}
 
 func (p erroneousSigning) Verify(gpbft.PubKey, []byte, []byte) error {
 	return errors.New("err Verify")
 }
 
-func (p erroneousSigning) VerifyAggregate([]byte, []byte, []gpbft.PubKey) error {
+func (p erroneousAggregate) VerifyAggregate([]int, []byte, []byte) error {
 	return errors.New("err VerifyAggregate")
 }
 
-func (p erroneousSigning) Aggregate([]gpbft.PubKey, [][]byte) ([]byte, error) {
+func (p erroneousAggregate) Aggregate([]int, [][]byte) ([]byte, error) {
 	return nil, errors.New("err Aggregate")
+}
+
+func (p erroneousSigning) Aggregate([]gpbft.PubKey) (gpbft.Aggregate, error) {
+	return erroneousAggregate{}, nil
 }
 func (p erroneousSigning) Sign(context.Context, gpbft.PubKey, []byte) ([]byte, error) {
 	return nil, errors.New("err Sign")
@@ -119,9 +141,16 @@ func (p erroneousSigning) MarshalPayloadForSigning(gpbft.NetworkName, *gpbft.Pay
 }
 
 type panicSigning struct{}
+type panicAggregate struct{}
 
 func (p panicSigning) Verify(gpbft.PubKey, []byte, []byte) error                         { panic("π") }
 func (p panicSigning) VerifyAggregate([]byte, []byte, []gpbft.PubKey) error              { panic("π") }
-func (p panicSigning) Aggregate([]gpbft.PubKey, [][]byte) ([]byte, error)                { panic("π") }
 func (p panicSigning) Sign(context.Context, gpbft.PubKey, []byte) ([]byte, error)        { panic("π") }
 func (p panicSigning) MarshalPayloadForSigning(gpbft.NetworkName, *gpbft.Payload) []byte { panic("π") }
+
+func (p panicSigning) Aggregate([]gpbft.PubKey) (gpbft.Aggregate, error) {
+	return panicAggregate{}, nil
+}
+
+func (p panicAggregate) VerifyAggregate([]int, []byte, []byte) error { panic("π") }
+func (p panicAggregate) Aggregate([]int, [][]byte) ([]byte, error)   { panic("π") }

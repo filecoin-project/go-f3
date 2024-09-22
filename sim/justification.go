@@ -67,6 +67,8 @@ func MakeJustification(backend signing.Backend, nn gpbft.NetworkName, chain gpbf
 	slices.SortFunc(votes, func(a, b vote) int {
 		return cmp.Compare(a.index, b.index)
 	})
+	signers = signers[:len(votes)]
+	slices.Sort(signers)
 	pks := make([]gpbft.PubKey, len(votes))
 	sigs := make([][]byte, len(votes))
 	for i, vote := range votes {
@@ -74,7 +76,12 @@ func MakeJustification(backend signing.Backend, nn gpbft.NetworkName, chain gpbf
 		sigs[i] = vote.sig
 	}
 
-	sig, err := backend.Aggregate(pks, sigs)
+	agg, err := backend.Aggregate(powerTable.PublicKeys())
+	if err != nil {
+		return nil, err
+	}
+
+	sig, err := agg.Aggregate(signers, sigs)
 	if err != nil {
 		return nil, err
 	}

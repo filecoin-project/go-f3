@@ -333,7 +333,7 @@ func (p *Participant) validateJustification(msg *GMessage, comt *Committee) erro
 
 	// Check justification power and signature.
 	var justificationPower int64
-	signers := make([]PubKey, 0)
+	signers := make([]int, 0)
 	if err := msg.Justification.Signers.ForEach(func(bit uint64) error {
 		if int(bit) >= len(comt.PowerTable.Entries) {
 			return fmt.Errorf("invalid signer index: %d", bit)
@@ -343,7 +343,7 @@ func (p *Participant) validateJustification(msg *GMessage, comt *Committee) erro
 			return fmt.Errorf("signer with ID %d has no power", comt.PowerTable.Entries[bit].ID)
 		}
 		justificationPower += power
-		signers = append(signers, comt.PowerTable.Entries[bit].PubKey)
+		signers = append(signers, int(bit))
 		return nil
 	}); err != nil {
 		return fmt.Errorf("failed to iterate over signers: %w", err)
@@ -354,7 +354,7 @@ func (p *Participant) validateJustification(msg *GMessage, comt *Committee) erro
 	}
 
 	payload := p.host.MarshalPayloadForSigning(p.host.NetworkName(), &msg.Justification.Vote)
-	if err := p.host.VerifyAggregate(payload, msg.Justification.Signature, signers); err != nil {
+	if err := comt.AggregateVerifier.VerifyAggregate(signers, payload, msg.Justification.Signature); err != nil {
 		return fmt.Errorf("verification of the aggregate failed: %+v: %w", msg.Justification, err)
 	}
 
@@ -445,7 +445,7 @@ func (p *Participant) beginInstance() error {
 	if err != nil {
 		return err
 	}
-	if p.gpbft, err = newInstance(p, p.currentInstance, chain, data, comt.PowerTable, comt.Beacon); err != nil {
+	if p.gpbft, err = newInstance(p, p.currentInstance, chain, data, comt.PowerTable, comt.AggregateVerifier, comt.Beacon); err != nil {
 		return fmt.Errorf("failed creating new gpbft instance: %w", err)
 	}
 	if err := p.gpbft.Start(); err != nil {

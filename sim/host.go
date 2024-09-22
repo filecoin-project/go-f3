@@ -90,7 +90,9 @@ func (v *simHost) GetCommittee(instance uint64) (*gpbft.Committee, error) {
 		return nil, ErrInstanceUnavailable
 	}
 	return &gpbft.Committee{
-		PowerTable: i.PowerTable, Beacon: i.Beacon,
+		PowerTable:        i.PowerTable,
+		Beacon:            i.Beacon,
+		AggregateVerifier: i.aggregateVerifier,
 	}, nil
 }
 

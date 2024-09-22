@@ -14,14 +14,15 @@ import (
 // Instance represents a GPBFT instance capturing all the information necessary
 // for GPBFT to function, along with the final decision reached if any.
 type Instance struct {
-	t                *testing.T
-	id               uint64
-	supplementalData gpbft.SupplementalData
-	proposal         gpbft.ECChain
-	powerTable       *gpbft.PowerTable
-	beacon           []byte
-	decision         *gpbft.Justification
-	signing          Signing
+	t                 *testing.T
+	id                uint64
+	supplementalData  gpbft.SupplementalData
+	proposal          gpbft.ECChain
+	powerTable        *gpbft.PowerTable
+	beacon            []byte
+	decision          *gpbft.Justification
+	signing           Signing
+	aggregateVerifier gpbft.Aggregate
 }
 
 // NewInstance instantiates a new Instance for emulation. If absent, the
@@ -58,7 +59,8 @@ func NewInstance(t *testing.T, id uint64, powerEntries gpbft.PowerEntries, propo
 	}
 	proposalChain, err := gpbft.NewChain(proposal[0], proposal[1:]...)
 	require.NoError(t, err)
-	return &Instance{
+
+	i := &Instance{
 		t:          t,
 		id:         id,
 		powerTable: pt,
@@ -68,11 +70,18 @@ func NewInstance(t *testing.T, id uint64, powerEntries gpbft.PowerEntries, propo
 			Commitments: [32]byte{},
 			PowerTable:  ptCid,
 		},
-		signing: AdhocSigning(),
 	}
+
+	i.SetSigning(AdhocSigning())
+	return i
 }
 
-func (i *Instance) SetSigning(signing Signing)               { i.signing = signing }
+func (i *Instance) SetSigning(signing Signing) {
+	var err error
+	i.signing = signing
+	i.aggregateVerifier, err = signing.Aggregate(i.powerTable.Entries.PublicKeys())
+	require.NoError(i.t, err)
+}
 func (i *Instance) Proposal() gpbft.ECChain                  { return i.proposal }
 func (i *Instance) GetDecision() *gpbft.Justification        { return i.decision }
 func (i *Instance) ID() uint64                               { return i.id }
@@ -140,7 +149,6 @@ func (i *Instance) NewJustificationWithPayload(payload gpbft.Payload, from ...gp
 	msg := i.signing.MarshalPayloadForSigning(networkName, &payload)
 	qr := gpbft.QuorumResult{
 		Signers:    make([]int, len(from)),
-		PubKeys:    make([]gpbft.PubKey, len(from)),
 		Signatures: make([][]byte, len(from)),
 	}
 	for j, actor := range from {
@@ -150,10 +158,9 @@ func (i *Instance) NewJustificationWithPayload(payload gpbft.Payload, from ...gp
 		signature, err := i.signing.Sign(context.Background(), entry.PubKey, msg)
 		require.NoError(i.t, err)
 		qr.Signatures[j] = signature
-		qr.PubKeys[j] = entry.PubKey
 		qr.Signers[j] = index
 	}
-	aggregate, err := i.signing.Aggregate(qr.PubKeys, qr.Signatures)
+	aggregate, err := i.aggregateVerifier.Aggregate(qr.Signers, qr.Signatures)
 	require.NoError(i.t, err)
 	return &gpbft.Justification{
 		Vote:      payload,

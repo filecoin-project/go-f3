@@ -21,29 +21,29 @@ func (_m *MockHost) EXPECT() *MockHost_Expecter {
 	return &MockHost_Expecter{mock: &_m.Mock}
 }
 
-// Aggregate provides a mock function with given fields: pubKeys, sigs
-func (_m *MockHost) Aggregate(pubKeys []PubKey, sigs [][]byte) ([]byte, error) {
-	ret := _m.Called(pubKeys, sigs)
+// Aggregate provides a mock function with given fields: pubKeys
+func (_m *MockHost) Aggregate(pubKeys []PubKey) (Aggregate, error) {
+	ret := _m.Called(pubKeys)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Aggregate")
 	}
 
-	var r0 []byte
+	var r0 Aggregate
 	var r1 error
-	if rf, ok := ret.Get(0).(func([]PubKey, [][]byte) ([]byte, error)); ok {
-		return rf(pubKeys, sigs)
+	if rf, ok := ret.Get(0).(func([]PubKey) (Aggregate, error)); ok {
+		return rf(pubKeys)
 	}
-	if rf, ok := ret.Get(0).(func([]PubKey, [][]byte) []byte); ok {
-		r0 = rf(pubKeys, sigs)
+	if rf, ok := ret.Get(0).(func([]PubKey) Aggregate); ok {
+		r0 = rf(pubKeys)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]byte)
+			r0 = ret.Get(0).(Aggregate)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func([]PubKey, [][]byte) error); ok {
-		r1 = rf(pubKeys, sigs)
+	if rf, ok := ret.Get(1).(func([]PubKey) error); ok {
+		r1 = rf(pubKeys)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -58,24 +58,23 @@ type MockHost_Aggregate_Call struct {
 
 // Aggregate is a helper method to define mock.On call
 //   - pubKeys []PubKey
-//   - sigs [][]byte
-func (_e *MockHost_Expecter) Aggregate(pubKeys interface{}, sigs interface{}) *MockHost_Aggregate_Call {
-	return &MockHost_Aggregate_Call{Call: _e.mock.On("Aggregate", pubKeys, sigs)}
+func (_e *MockHost_Expecter) Aggregate(pubKeys interface{}) *MockHost_Aggregate_Call {
+	return &MockHost_Aggregate_Call{Call: _e.mock.On("Aggregate", pubKeys)}
 }
 
-func (_c *MockHost_Aggregate_Call) Run(run func(pubKeys []PubKey, sigs [][]byte)) *MockHost_Aggregate_Call {
+func (_c *MockHost_Aggregate_Call) Run(run func(pubKeys []PubKey)) *MockHost_Aggregate_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].([]PubKey), args[1].([][]byte))
+		run(args[0].([]PubKey))
 	})
 	return _c
 }
 
-func (_c *MockHost_Aggregate_Call) Return(_a0 []byte, _a1 error) *MockHost_Aggregate_Call {
+func (_c *MockHost_Aggregate_Call) Return(_a0 Aggregate, _a1 error) *MockHost_Aggregate_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockHost_Aggregate_Call) RunAndReturn(run func([]PubKey, [][]byte) ([]byte, error)) *MockHost_Aggregate_Call {
+func (_c *MockHost_Aggregate_Call) RunAndReturn(run func([]PubKey) (Aggregate, error)) *MockHost_Aggregate_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -523,54 +522,6 @@ func (_c *MockHost_Verify_Call) Return(_a0 error) *MockHost_Verify_Call {
 }
 
 func (_c *MockHost_Verify_Call) RunAndReturn(run func(PubKey, []byte, []byte) error) *MockHost_Verify_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// VerifyAggregate provides a mock function with given fields: payload, aggSig, signers
-func (_m *MockHost) VerifyAggregate(payload []byte, aggSig []byte, signers []PubKey) error {
-	ret := _m.Called(payload, aggSig, signers)
-
-	if len(ret) == 0 {
-		panic("no return value specified for VerifyAggregate")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func([]byte, []byte, []PubKey) error); ok {
-		r0 = rf(payload, aggSig, signers)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockHost_VerifyAggregate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'VerifyAggregate'
-type MockHost_VerifyAggregate_Call struct {
-	*mock.Call
-}
-
-// VerifyAggregate is a helper method to define mock.On call
-//   - payload []byte
-//   - aggSig []byte
-//   - signers []PubKey
-func (_e *MockHost_Expecter) VerifyAggregate(payload interface{}, aggSig interface{}, signers interface{}) *MockHost_VerifyAggregate_Call {
-	return &MockHost_VerifyAggregate_Call{Call: _e.mock.On("VerifyAggregate", payload, aggSig, signers)}
-}
-
-func (_c *MockHost_VerifyAggregate_Call) Run(run func(payload []byte, aggSig []byte, signers []PubKey)) *MockHost_VerifyAggregate_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].([]byte), args[1].([]byte), args[2].([]PubKey))
-	})
-	return _c
-}
-
-func (_c *MockHost_VerifyAggregate_Call) Return(_a0 error) *MockHost_VerifyAggregate_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockHost_VerifyAggregate_Call) RunAndReturn(run func([]byte, []byte, []PubKey) error) *MockHost_VerifyAggregate_Call {
 	_c.Call.Return(run)
 	return _c
 }
