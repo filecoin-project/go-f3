@@ -82,11 +82,11 @@ func (r *Repeat) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
 		return nil
 	}
 	instance := msg.Vote.Instance
-	supplementalData, _, err := r.host.GetProposalForInstance(instance)
+	supplementalData, _, err := r.host.GetProposal(instance)
 	if err != nil {
 		panic(err)
 	}
-	power, beacon, _ := r.host.GetCommitteeForInstance(instance)
+	committee, _ := r.host.GetCommittee(instance)
 	p := gpbft.Payload{
 		Instance:         instance,
 		Round:            msg.Vote.Round,
@@ -96,13 +96,13 @@ func (r *Repeat) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
 	}
 	mt := &gpbft.MessageBuilder{
 		NetworkName:      r.host.NetworkName(),
-		PowerTable:       power,
+		PowerTable:       committee.PowerTable,
 		Payload:          p,
 		Justification:    msg.Justification,
 		SigningMarshaler: r.host,
 	}
 	if len(msg.Ticket) > 0 {
-		mt.BeaconForTicket = beacon
+		mt.BeaconForTicket = committee.Beacon
 	}
 	for i := 0; i < echoCount; i++ {
 		if msg.Sender != r.ID() {

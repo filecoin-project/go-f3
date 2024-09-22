@@ -52,21 +52,37 @@ type Receiver interface {
 	MessageReceiver
 }
 
-type Chain interface {
-	// Returns the supplemental data and the chain to propose for a new GPBFT instance.
-	// The chain must be a suffix of the chain finalised by the immediately prior instance.
-	// The supplemental data must be derived entirely from prior instances and all participants
-	// must propose the same supplemental data.
+// ProposalProvider provides proposal chains for new GPBFT instances along with
+// supplemental data.
+type ProposalProvider interface {
+	// GetProposal returns the supplemental data and the chain to propose for a new
+	// GPBFT instance. The returned chain must be a suffix of the chain finalized by
+	// the immediately prior instance. The supplemental data must be entirely derived
+	// from prior instances, ensuring that all participants propose the same
+	// supplemental data.
 	//
-	// Returns an error if the chain for the instance is not available.
-	GetProposalForInstance(instance uint64) (data *SupplementalData, chain ECChain, err error)
+	// Returns an error if the chain for the specified instance is not available.
+	GetProposal(instance uint64) (data *SupplementalData, chain ECChain, err error)
+}
 
-	// Returns the power table and beacon value to be used for a GPBFT instance.
-	// These values should be derived from a chain previously received as final by the host,
-	// or known to be final via some other channel (e.g. when bootstrapping the protocol).
-	// The offset (how many instances to look back) is determined by the host.
-	// Returns an error if the committee for the instance is not available.
-	GetCommitteeForInstance(instance uint64) (power *PowerTable, beacon []byte, err error)
+// CommitteeProvider defines an interface for retrieving committee information
+// required for GPBFT instances.
+type CommitteeProvider interface {
+	// GetCommittee returns the power table and beacon for a given GPBFT instance.
+	// These values should be derived from a chain that is finalized or known to be
+	// final, with the offset determined by the host.
+	//
+	// Returns an error if the committee is unavailable for the specified instance.
+	GetCommittee(instance uint64) (*Committee, error)
+}
+
+// Committee captures the voting power and beacon value associated to an instance
+// of GPBFT.
+type Committee struct {
+	// PowerTable represents the Voting power distribution among committee members.
+	PowerTable *PowerTable
+	// Beacon is the unique beacon value associated with the committee.
+	Beacon []byte
 }
 
 // Endpoint to which participants can send messages.
@@ -134,7 +150,8 @@ type Tracer interface {
 
 // Participant interface to the host system resources.
 type Host interface {
-	Chain
+	ProposalProvider
+	CommitteeProvider
 	Network
 	Clock
 	Signatures

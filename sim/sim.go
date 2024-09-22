@@ -111,7 +111,7 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 			//  * the simulation stabilisation delay is not long enough to halt the start of
 			//    next instance for those nodes before others have caught up.
 			//
-			// See simHost.GetProposalForInstance.
+			// See gpbft.ProposalProvider.
 			currentInstance = s.ec.GetInstance(currentInstance.Instance + 1)
 			if currentInstance == nil {
 				// Instantiate the next instance even if it goes beyond finalInstance.

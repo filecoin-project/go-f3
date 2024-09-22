@@ -68,7 +68,7 @@ func (h *driverHost) maybeReceiveDecision(decision *gpbft.Justification) error {
 	}
 }
 
-func (h *driverHost) GetProposalForInstance(id uint64) (*gpbft.SupplementalData, gpbft.ECChain, error) {
+func (h *driverHost) GetProposal(id uint64) (*gpbft.SupplementalData, gpbft.ECChain, error) {
 	instance := h.chain[id]
 	if instance == nil {
 		return nil, nil, fmt.Errorf("instance ID %d not found", id)
@@ -76,12 +76,15 @@ func (h *driverHost) GetProposalForInstance(id uint64) (*gpbft.SupplementalData,
 	return &instance.supplementalData, instance.Proposal(), nil
 }
 
-func (h *driverHost) GetCommitteeForInstance(id uint64) (power *gpbft.PowerTable, beacon []byte, err error) {
+func (h *driverHost) GetCommittee(id uint64) (*gpbft.Committee, error) {
 	instance := h.chain[id]
 	if instance == nil {
-		return nil, nil, fmt.Errorf("instance ID %d not found", id)
+		return nil, fmt.Errorf("instance ID %d not found", id)
 	}
-	return instance.powerTable, instance.beacon, nil
+	return &gpbft.Committee{
+		PowerTable: instance.powerTable,
+		Beacon:     instance.beacon,
+	}, nil
 }
 
 func (h *driverHost) addInstance(instance *Instance) error {

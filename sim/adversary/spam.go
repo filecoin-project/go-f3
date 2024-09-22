@@ -63,11 +63,11 @@ func (s *Spam) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
 func (s *Spam) spamAtInstance(instance uint64) {
 	// Spam the network with COMMIT messages by incrementing rounds up to
 	// roundsAhead.
-	supplementalData, _, err := s.host.GetProposalForInstance(instance)
+	supplementalData, _, err := s.host.GetProposal(instance)
 	if err != nil {
 		panic(err)
 	}
-	power, _, err := s.host.GetCommitteeForInstance(instance)
+	committee, err := s.host.GetCommittee(instance)
 	if err != nil {
 		panic(err)
 	}
@@ -80,7 +80,7 @@ func (s *Spam) spamAtInstance(instance uint64) {
 		}
 		mt := &gpbft.MessageBuilder{
 			NetworkName:      s.host.NetworkName(),
-			PowerTable:       power,
+			PowerTable:       committee.PowerTable,
 			Payload:          p,
 			SigningMarshaler: s.host,
 		}
