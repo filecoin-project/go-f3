@@ -155,7 +155,7 @@ type instance struct {
 	// The EC chain input to this instance.
 	input ECChain
 	// The power table for the base chain, used for power in this instance.
-	powerTable PowerTable
+	powerTable *PowerTable
 	// The beacon value from the base chain, used for tickets in this instance.
 	beacon []byte
 	// Current round number.
@@ -217,7 +217,7 @@ func newInstance(
 	instanceID uint64,
 	input ECChain,
 	data *SupplementalData,
-	powerTable PowerTable,
+	powerTable *PowerTable,
 	beacon []byte) (*instance, error) {
 	if input.IsZero() {
 		return nil, fmt.Errorf("input is empty")
@@ -256,7 +256,7 @@ type roundState struct {
 	committed *quorumState
 }
 
-func newRoundState(powerTable PowerTable) *roundState {
+func newRoundState(powerTable *PowerTable) *roundState {
 	return &roundState{
 		converged: newConvergeState(),
 		prepared:  newQuorumState(powerTable),
@@ -863,7 +863,7 @@ func (i *instance) broadcast(round uint64, phase Phase, value ECChain, createTic
 
 	mb := &MessageBuilder{
 		NetworkName:      i.participant.host.NetworkName(),
-		PowerTable:       &i.powerTable,
+		PowerTable:       i.powerTable,
 		SigningMarshaler: i.participant.host,
 		Payload:          p,
 		Justification:    justification,
@@ -1025,7 +1025,7 @@ type quorumState struct {
 	// The power supporting each chain so far.
 	chainSupport map[ChainKey]chainSupport
 	// Table of senders' power.
-	powerTable PowerTable
+	powerTable *PowerTable
 	// Stores justifications received for some value.
 	receivedJustification map[ChainKey]*Justification
 }
@@ -1039,7 +1039,7 @@ type chainSupport struct {
 }
 
 // Creates a new, empty quorum state.
-func newQuorumState(powerTable PowerTable) *quorumState {
+func newQuorumState(powerTable *PowerTable) *quorumState {
 	return &quorumState{
 		senders:               map[ActorID]struct{}{},
 		chainSupport:          map[ChainKey]chainSupport{},
@@ -1325,7 +1325,7 @@ func (c *convergeState) SetSelfValue(value ECChain, justification *Justification
 
 // Receives a new CONVERGE value from a sender.
 // Ignores any subsequent value from a sender from which a value has already been received.
-func (c *convergeState) Receive(sender ActorID, table PowerTable, value ECChain, ticket Ticket, justification *Justification) error {
+func (c *convergeState) Receive(sender ActorID, table *PowerTable, value ECChain, ticket Ticket, justification *Justification) error {
 	if value.IsZero() {
 		return fmt.Errorf("bottom cannot be justified for CONVERGE")
 	}
