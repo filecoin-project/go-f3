@@ -40,7 +40,7 @@ type Participant struct {
 	// Instance identifier for the current (or, if none, next to start) GPBFT instance.
 	currentInstance uint64
 	// Cache of committees for the current or future instances.
-	committees map[uint64]*committee
+	committeeProvider *cachedCommitteeProvider
 
 	// Current Granite instance.
 	gpbft *instance
@@ -89,11 +89,11 @@ func NewParticipant(host Host, o ...Option) (*Participant, error) {
 		return nil, err
 	}
 	return &Participant{
-		options:         opts,
-		host:            host,
-		committees:      make(map[uint64]*committee),
-		mqueue:          newMessageQueue(opts.maxLookaheadRounds),
-		validationCache: caching.NewGroupedSet(opts.maxCachedInstances, opts.maxCachedMessagesPerInstance),
+		options:           opts,
+		host:              host,
+		committeeProvider: newCachedCommitteeProvider(host),
+		mqueue:            newMessageQueue(opts.maxLookaheadRounds),
+		validationCache:   caching.NewGroupedSet(opts.maxCachedInstances, opts.maxCachedMessagesPerInstance),
 	}, nil
 }
 
@@ -182,7 +182,7 @@ func (p *Participant) ValidateMessage(msg *GMessage) (valid ValidatedMessage, er
 	}
 
 	// Check sender is eligible.
-	senderPower, senderPubKey := comt.power.Get(msg.Sender)
+	senderPower, senderPubKey := comt.PowerTable.Get(msg.Sender)
 	if senderPower == 0 {
 		return nil, fmt.Errorf("sender %d with zero power or not in power table: %w", msg.Sender, ErrValidationInvalid)
 	}
@@ -208,7 +208,7 @@ func (p *Participant) ValidateMessage(msg *GMessage) (valid ValidatedMessage, er
 		if msg.Vote.Value.IsZero() {
 			return nil, fmt.Errorf("unexpected zero value for converge phase: %w", ErrValidationInvalid)
 		}
-		if !VerifyTicket(p.host.NetworkName(), comt.beacon, msg.Vote.Instance, msg.Vote.Round, senderPubKey, p.host, msg.Ticket) {
+		if !VerifyTicket(p.host.NetworkName(), comt.Beacon, msg.Vote.Instance, msg.Vote.Round, senderPubKey, p.host, msg.Ticket) {
 			return nil, fmt.Errorf("failed to verify ticket from %v: %w", msg.Sender, ErrValidationInvalid)
 		}
 	case DECIDE_PHASE:
@@ -251,7 +251,7 @@ func (p *Participant) ValidateMessage(msg *GMessage) (valid ValidatedMessage, er
 	return &validatedMessage{msg: msg}, nil
 }
 
-func (p *Participant) validateJustification(msg *GMessage, comt *committee) error {
+func (p *Participant) validateJustification(msg *GMessage, comt *Committee) error {
 
 	if msg.Justification == nil {
 		return fmt.Errorf("message for phase %v round %v has no justification", msg.Vote.Phase, msg.Vote.Round)
@@ -335,21 +335,21 @@ func (p *Participant) validateJustification(msg *GMessage, comt *committee) erro
 	var justificationPower int64
 	signers := make([]PubKey, 0)
 	if err := msg.Justification.Signers.ForEach(func(bit uint64) error {
-		if int(bit) >= len(comt.power.Entries) {
+		if int(bit) >= len(comt.PowerTable.Entries) {
 			return fmt.Errorf("invalid signer index: %d", bit)
 		}
-		power := comt.power.ScaledPower[bit]
+		power := comt.PowerTable.ScaledPower[bit]
 		if power == 0 {
-			return fmt.Errorf("signer with ID %d has no power", comt.power.Entries[bit].ID)
+			return fmt.Errorf("signer with ID %d has no power", comt.PowerTable.Entries[bit].ID)
 		}
 		justificationPower += power
-		signers = append(signers, comt.power.Entries[bit].PubKey)
+		signers = append(signers, comt.PowerTable.Entries[bit].PubKey)
 		return nil
 	}); err != nil {
 		return fmt.Errorf("failed to iterate over signers: %w", err)
 	}
 
-	if !IsStrongQuorum(justificationPower, comt.power.ScaledTotal) {
+	if !IsStrongQuorum(justificationPower, comt.PowerTable.ScaledTotal) {
 		return fmt.Errorf("message %v has justification with insufficient power: %v", msg, justificationPower)
 	}
 
@@ -428,7 +428,7 @@ func (p *Participant) ReceiveAlarm() (err error) {
 }
 
 func (p *Participant) beginInstance() error {
-	data, chain, err := p.host.GetProposalForInstance(p.currentInstance)
+	data, chain, err := p.host.GetProposal(p.currentInstance)
 	if err != nil {
 		return fmt.Errorf("failed fetching chain for instance %d: %w", p.currentInstance, err)
 	}
@@ -445,7 +445,7 @@ func (p *Participant) beginInstance() error {
 	if err != nil {
 		return err
 	}
-	if p.gpbft, err = newInstance(p, p.currentInstance, chain, data, *comt.power, comt.beacon); err != nil {
+	if p.gpbft, err = newInstance(p, p.currentInstance, chain, data, *comt.PowerTable, comt.Beacon); err != nil {
 		return fmt.Errorf("failed creating new gpbft instance: %w", err)
 	}
 	if err := p.gpbft.Start(); err != nil {
@@ -466,7 +466,7 @@ func (p *Participant) beginInstance() error {
 }
 
 // Fetches the committee against which to validate messages for some instance.
-func (p *Participant) fetchCommittee(instance uint64, phase Phase) (*committee, error) {
+func (p *Participant) fetchCommittee(instance uint64, phase Phase) (*Committee, error) {
 	p.instanceMutex.Lock()
 	defer p.instanceMutex.Unlock()
 
@@ -481,19 +481,7 @@ func (p *Participant) fetchCommittee(instance uint64, phase Phase) (*committee, 
 			instance, p.currentInstance, ErrValidationTooOld)
 	}
 
-	comt, ok := p.committees[instance]
-	if !ok {
-		power, beacon, err := p.host.GetCommitteeForInstance(instance)
-		if err != nil {
-			return nil, fmt.Errorf("instance %d: %w: %w", instance, ErrValidationNoCommittee, err)
-		}
-		if err := power.Validate(); err != nil {
-			return nil, fmt.Errorf("instance %d: %w: invalid power: %w", instance, ErrValidationNoCommittee, err)
-		}
-		comt = &committee{power: power, beacon: beacon}
-		p.committees[instance] = comt
-	}
-	return comt, nil
+	return p.committeeProvider.GetCommittee(instance)
 }
 
 func (p *Participant) handleDecision() {
@@ -533,10 +521,8 @@ func (p *Participant) beginNextInstance(nextInstance uint64) {
 	}
 	// Clean committees from instances below the previous one. We keep the last committee so we
 	// can continue to validate and propagate DECIDE messages.
-	for inst := range p.committees {
-		if inst+1 < nextInstance {
-			delete(p.mqueue.messages, inst)
-		}
+	if nextInstance > 0 {
+		p.committeeProvider.EvictCommitteesBefore(nextInstance - 1)
 	}
 	p.currentInstance = nextInstance
 }
@@ -560,12 +546,6 @@ func (p *Participant) trace(format string, args ...any) {
 	if p.tracingEnabled() {
 		p.tracer.Log(format, args...)
 	}
-}
-
-// A power table and beacon value used as the committee inputs to an instance.
-type committee struct {
-	power  *PowerTable
-	beacon []byte
 }
 
 // A collection of messages queued for delivery for a future instance.

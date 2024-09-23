@@ -80,79 +80,70 @@ func (_c *MockHost_Aggregate_Call) RunAndReturn(run func([]PubKey, [][]byte) ([]
 	return _c
 }
 
-// GetCommitteeForInstance provides a mock function with given fields: instance
-func (_m *MockHost) GetCommitteeForInstance(instance uint64) (*PowerTable, []byte, error) {
+// GetCommittee provides a mock function with given fields: instance
+func (_m *MockHost) GetCommittee(instance uint64) (*Committee, error) {
 	ret := _m.Called(instance)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetCommitteeForInstance")
+		panic("no return value specified for GetCommittee")
 	}
 
-	var r0 *PowerTable
-	var r1 []byte
-	var r2 error
-	if rf, ok := ret.Get(0).(func(uint64) (*PowerTable, []byte, error)); ok {
+	var r0 *Committee
+	var r1 error
+	if rf, ok := ret.Get(0).(func(uint64) (*Committee, error)); ok {
 		return rf(instance)
 	}
-	if rf, ok := ret.Get(0).(func(uint64) *PowerTable); ok {
+	if rf, ok := ret.Get(0).(func(uint64) *Committee); ok {
 		r0 = rf(instance)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*PowerTable)
+			r0 = ret.Get(0).(*Committee)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(uint64) []byte); ok {
+	if rf, ok := ret.Get(1).(func(uint64) error); ok {
 		r1 = rf(instance)
 	} else {
-		if ret.Get(1) != nil {
-			r1 = ret.Get(1).([]byte)
-		}
+		r1 = ret.Error(1)
 	}
 
-	if rf, ok := ret.Get(2).(func(uint64) error); ok {
-		r2 = rf(instance)
-	} else {
-		r2 = ret.Error(2)
-	}
-
-	return r0, r1, r2
+	return r0, r1
 }
 
-// MockHost_GetCommitteeForInstance_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCommitteeForInstance'
-type MockHost_GetCommitteeForInstance_Call struct {
+// MockHost_GetCommittee_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCommittee'
+type MockHost_GetCommittee_Call struct {
 	*mock.Call
 }
 
-// GetCommitteeForInstance is a helper method to define mock.On call
+// GetCommittee is a helper method to define mock.On call
 //   - instance uint64
-func (_e *MockHost_Expecter) GetCommitteeForInstance(instance interface{}) *MockHost_GetCommitteeForInstance_Call {
-	return &MockHost_GetCommitteeForInstance_Call{Call: _e.mock.On("GetCommitteeForInstance", instance)}
+func (_e *MockHost_Expecter) GetCommittee(instance interface{}) *MockHost_GetCommittee_Call {
+	return &MockHost_GetCommittee_Call{Call: _e.mock.On("GetCommittee", instance)}
 }
 
-func (_c *MockHost_GetCommitteeForInstance_Call) Run(run func(instance uint64)) *MockHost_GetCommitteeForInstance_Call {
+func (_c *MockHost_GetCommittee_Call) Run(run func(instance uint64)) *MockHost_GetCommittee_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(uint64))
 	})
 	return _c
 }
 
-func (_c *MockHost_GetCommitteeForInstance_Call) Return(power *PowerTable, beacon []byte, err error) *MockHost_GetCommitteeForInstance_Call {
-	_c.Call.Return(power, beacon, err)
+func (_c *MockHost_GetCommittee_Call) Return(_a0 *Committee, _a1 error) *MockHost_GetCommittee_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockHost_GetCommitteeForInstance_Call) RunAndReturn(run func(uint64) (*PowerTable, []byte, error)) *MockHost_GetCommitteeForInstance_Call {
+func (_c *MockHost_GetCommittee_Call) RunAndReturn(run func(uint64) (*Committee, error)) *MockHost_GetCommittee_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetProposalForInstance provides a mock function with given fields: instance
-func (_m *MockHost) GetProposalForInstance(instance uint64) (*SupplementalData, ECChain, error) {
+// GetProposal provides a mock function with given fields: instance
+func (_m *MockHost) GetProposal(instance uint64) (*SupplementalData, ECChain, error) {
 	ret := _m.Called(instance)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetProposalForInstance")
+		panic("no return value specified for GetProposal")
 	}
 
 	var r0 *SupplementalData
@@ -186,30 +177,30 @@ func (_m *MockHost) GetProposalForInstance(instance uint64) (*SupplementalData, 
 	return r0, r1, r2
 }
 
-// MockHost_GetProposalForInstance_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetProposalForInstance'
-type MockHost_GetProposalForInstance_Call struct {
+// MockHost_GetProposal_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetProposal'
+type MockHost_GetProposal_Call struct {
 	*mock.Call
 }
 
-// GetProposalForInstance is a helper method to define mock.On call
+// GetProposal is a helper method to define mock.On call
 //   - instance uint64
-func (_e *MockHost_Expecter) GetProposalForInstance(instance interface{}) *MockHost_GetProposalForInstance_Call {
-	return &MockHost_GetProposalForInstance_Call{Call: _e.mock.On("GetProposalForInstance", instance)}
+func (_e *MockHost_Expecter) GetProposal(instance interface{}) *MockHost_GetProposal_Call {
+	return &MockHost_GetProposal_Call{Call: _e.mock.On("GetProposal", instance)}
 }
 
-func (_c *MockHost_GetProposalForInstance_Call) Run(run func(instance uint64)) *MockHost_GetProposalForInstance_Call {
+func (_c *MockHost_GetProposal_Call) Run(run func(instance uint64)) *MockHost_GetProposal_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(uint64))
 	})
 	return _c
 }
 
-func (_c *MockHost_GetProposalForInstance_Call) Return(data *SupplementalData, chain ECChain, err error) *MockHost_GetProposalForInstance_Call {
+func (_c *MockHost_GetProposal_Call) Return(data *SupplementalData, chain ECChain, err error) *MockHost_GetProposal_Call {
 	_c.Call.Return(data, chain, err)
 	return _c
 }
 
-func (_c *MockHost_GetProposalForInstance_Call) RunAndReturn(run func(uint64) (*SupplementalData, ECChain, error)) *MockHost_GetProposalForInstance_Call {
+func (_c *MockHost_GetProposal_Call) RunAndReturn(run func(uint64) (*SupplementalData, ECChain, error)) *MockHost_GetProposal_Call {
 	_c.Call.Return(run)
 	return _c
 }

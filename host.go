@@ -469,7 +469,7 @@ func (h *gpbftRunner) Stop(context.Context) error {
 // These will be used as input to a subsequent instance of the protocol.
 // The chain should be a suffix of the last chain notified to the host via
 // ReceiveDecision (or known to be final via some other channel).
-func (h *gpbftHost) GetProposalForInstance(instance uint64) (_ *gpbft.SupplementalData, _ gpbft.ECChain, _err error) {
+func (h *gpbftHost) GetProposal(instance uint64) (_ *gpbft.SupplementalData, _ gpbft.ECChain, _err error) {
 	defer func(start time.Time) {
 		metrics.proposalFetchTime.Record(context.TODO(), time.Since(start).Seconds(), metric.WithAttributes(attrStatusFromErr(_err)))
 	}(time.Now())
@@ -547,12 +547,12 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (_ *gpbft.Supplement
 	}
 
 	var supplData gpbft.SupplementalData
-	pt, _, err := h.GetCommitteeForInstance(instance + 1)
+	committee, err := h.GetCommittee(instance + 1)
 	if err != nil {
 		return nil, nil, fmt.Errorf("getting commite for %d: %w", instance+1, err)
 	}
 
-	supplData.PowerTable, err = certs.MakePowerTableCID(pt.Entries)
+	supplData.PowerTable, err = certs.MakePowerTableCID(committee.PowerTable.Entries)
 	if err != nil {
 		return nil, nil, fmt.Errorf("making power table cid for supplemental data: %w", err)
 	}
@@ -560,7 +560,7 @@ func (h *gpbftHost) GetProposalForInstance(instance uint64) (_ *gpbft.Supplement
 	return &supplData, chain, nil
 }
 
-func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (_ *gpbft.PowerTable, _ []byte, _err error) {
+func (h *gpbftHost) GetCommittee(instance uint64) (_ *gpbft.Committee, _err error) {
 	defer func(start time.Time) {
 		metrics.committeeFetchTime.Record(context.TODO(), time.Since(start).Seconds(), metric.WithAttributes(attrStatusFromErr(_err)))
 	}(time.Now())
@@ -573,25 +573,25 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (_ *gpbft.PowerTabl
 		//boostrap phase
 		powerEntries, err = h.certStore.GetPowerTable(h.runningCtx, h.manifest.InitialInstance)
 		if err != nil {
-			return nil, nil, fmt.Errorf("getting power table: %w", err)
+			return nil, fmt.Errorf("getting power table: %w", err)
 		}
 		if h.certStore.Latest() == nil {
 			ts, err := h.ec.GetTipsetByEpoch(h.runningCtx, h.manifest.BootstrapEpoch-h.manifest.EC.Finality)
 			if err != nil {
-				return nil, nil, fmt.Errorf("getting tipset for boostrap epoch with lookback: %w", err)
+				return nil, fmt.Errorf("getting tipset for boostrap epoch with lookback: %w", err)
 			}
 			powerTsk = ts.Key()
 		} else {
 			cert, err := h.certStore.Get(h.runningCtx, h.manifest.InitialInstance)
 			if err != nil {
-				return nil, nil, fmt.Errorf("getting finality certificate: %w", err)
+				return nil, fmt.Errorf("getting finality certificate: %w", err)
 			}
 			powerTsk = cert.ECChain.Base().Key
 		}
 	} else {
 		cert, err := h.certStore.Get(h.runningCtx, instance-h.manifest.CommitteeLookback)
 		if err != nil {
-			return nil, nil, fmt.Errorf("getting finality certificate: %w", err)
+			return nil, fmt.Errorf("getting finality certificate: %w", err)
 		}
 		powerTsk = cert.ECChain.Head().Key
 
@@ -601,23 +601,27 @@ func (h *gpbftHost) GetCommitteeForInstance(instance uint64) (_ *gpbft.PowerTabl
 
 			powerEntries, err = h.ec.GetPowerTable(h.runningCtx, powerTsk)
 			if err != nil {
-				return nil, nil, fmt.Errorf("getting power table: %w", err)
+				return nil, fmt.Errorf("getting power table: %w", err)
 			}
 		}
 	}
 
 	ts, err := h.ec.GetTipset(h.runningCtx, powerTsk)
 	if err != nil {
-		return nil, nil, fmt.Errorf("getting tipset: %w", err)
+		return nil, fmt.Errorf("getting tipset: %w", err)
 	}
 
 	table := gpbft.NewPowerTable()
-	err = table.Add(powerEntries...)
-	if err != nil {
-		return nil, nil, fmt.Errorf("adding entries to power table: %w", err)
+	if err := table.Add(powerEntries...); err != nil {
+		return nil, fmt.Errorf("adding entries to power table: %w", err)
 	}
-
-	return table, ts.Beacon(), nil
+	if err := table.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid power table for instance %d: %w", instance, err)
+	}
+	return &gpbft.Committee{
+		PowerTable: table,
+		Beacon:     ts.Beacon(),
+	}, nil
 }
 
 // Returns the network's name (for signature separation)
@@ -681,22 +685,22 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) (time.Time, e
 
 func (h *gpbftHost) saveDecision(decision *gpbft.Justification) (*certs.FinalityCertificate, error) {
 	instance := decision.Vote.Instance
-	current, _, err := h.GetCommitteeForInstance(instance)
+	current, err := h.GetCommittee(instance)
 	if err != nil {
 		return nil, fmt.Errorf("getting commitee for current instance %d: %w", instance, err)
 	}
 
-	next, _, err := h.GetCommitteeForInstance(instance + 1)
+	next, err := h.GetCommittee(instance + 1)
 	if err != nil {
 		return nil, fmt.Errorf("getting commitee for next instance %d: %w", instance+1, err)
 	}
-	powerDiff := certs.MakePowerTableDiff(current.Entries, next.Entries)
+	powerDiff := certs.MakePowerTableDiff(current.PowerTable.Entries, next.PowerTable.Entries)
 
 	cert, err := certs.NewFinalityCertificate(powerDiff, decision)
 	if err != nil {
 		return nil, fmt.Errorf("forming certificate out of decision: %w", err)
 	}
-	_, _, _, err = certs.ValidateFinalityCertificates(h, h.NetworkName(), current.Entries, decision.Vote.Instance, nil, *cert)
+	_, _, _, err = certs.ValidateFinalityCertificates(h, h.NetworkName(), current.PowerTable.Entries, decision.Vote.Instance, nil, *cert)
 	if err != nil {
 		return nil, fmt.Errorf("certificate is invalid: %w", err)
 	}

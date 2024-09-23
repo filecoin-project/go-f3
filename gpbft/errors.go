@@ -11,7 +11,7 @@ var (
 	// ErrValidationNoCommittee signals that a message is invalid because there is no
 	// committee for the instance to which it belongs.
 	//
-	// See: Chain.GetCommitteeForInstance.
+	// See: CommitteeProvider.
 	ErrValidationNoCommittee = newValidationError("no committee for instance")
 	// ErrValidationInvalid signals that a message violates the validity rules of
 	// gpbft protocol.

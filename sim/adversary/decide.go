@@ -69,11 +69,11 @@ func (i *ImmediateDecide) ID() gpbft.ActorID {
 }
 
 func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) error {
-	supplementalData, _, err := i.host.GetProposalForInstance(instance)
+	supplementalData, _, err := i.host.GetProposal(instance)
 	if err != nil {
 		panic(err)
 	}
-	powertable, _, err := i.host.GetCommitteeForInstance(instance)
+	committee, err := i.host.GetCommittee(instance)
 	if err != nil {
 		panic(err)
 	}
@@ -90,7 +90,7 @@ func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) erro
 	sigPayload := i.host.MarshalPayloadForSigning(i.host.NetworkName(), &justificationPayload)
 	signers := bitfield.New()
 
-	signers.Set(uint64(powertable.Lookup[i.id]))
+	signers.Set(uint64(committee.PowerTable.Lookup[i.id]))
 
 	if i.additionalParticipant != nil {
 		signers.Set(*i.additionalParticipant)
@@ -104,8 +104,8 @@ func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) erro
 	if err := signers.ForEach(func(j uint64) error {
 		pubkey := gpbft.PubKey("fake pubkeyaaaaa")
 		sig := []byte("fake sig")
-		if j < uint64(len(powertable.Entries)) {
-			pubkey = powertable.Entries[j].PubKey
+		if j < uint64(len(committee.PowerTable.Entries)) {
+			pubkey = committee.PowerTable.Entries[j].PubKey
 			var err error
 			sig, err = i.host.Sign(context.Background(), pubkey, sigPayload)
 			if err != nil {
@@ -128,7 +128,7 @@ func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) erro
 	// Immediately send a DECIDE message
 	mb := &gpbft.MessageBuilder{
 		NetworkName:      i.host.NetworkName(),
-		PowerTable:       powertable,
+		PowerTable:       committee.PowerTable,
 		SigningMarshaler: i.host,
 		Payload: gpbft.Payload{
 			Instance:         instance,

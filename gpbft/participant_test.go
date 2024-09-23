@@ -97,8 +97,8 @@ func (pt *participantTestSubject) Log(format string, args ...any) {
 
 func (pt *participantTestSubject) expectBeginInstance() {
 	// Prepare the test host.
-	pt.host.On("GetProposalForInstance", pt.instance).Return(pt.supplementalData, pt.canonicalChain, nil)
-	pt.host.On("GetCommitteeForInstance", pt.instance).Return(pt.powerTable, pt.beacon, nil).Once()
+	pt.host.On("GetProposal", pt.instance).Return(pt.supplementalData, pt.canonicalChain, nil)
+	pt.host.On("GetCommittee", pt.instance).Return(&gpbft.Committee{PowerTable: pt.powerTable, Beacon: pt.beacon}, nil).Once()
 	pt.host.On("Time").Return(pt.time)
 	pt.host.On("NetworkName").Return(pt.networkName).Maybe()
 	// We need to use `Maybe` here because `MarshalPayloadForSigning` may be called
@@ -109,8 +109,8 @@ func (pt *participantTestSubject) expectBeginInstance() {
 		Return([]byte(gpbft.DomainSeparationTag + ":" + pt.networkName)).Maybe()
 
 	// Expect calls to get the host state prior to beginning of an instance.
-	pt.host.EXPECT().GetProposalForInstance(pt.instance)
-	pt.host.EXPECT().GetCommitteeForInstance(pt.instance)
+	pt.host.EXPECT().GetProposal(pt.instance)
+	pt.host.EXPECT().GetCommittee(pt.instance)
 	pt.host.EXPECT().Time()
 
 	// Expect alarm is set to 2X of configured delta.
@@ -193,11 +193,11 @@ func (pt *participantTestSubject) mockValidTicket(target gpbft.PubKey, ticket gp
 }
 
 func (pt *participantTestSubject) mockCommitteeForInstance(instance uint64, powerTable *gpbft.PowerTable, beacon []byte) {
-	pt.host.On("GetCommitteeForInstance", instance).Return(powerTable, beacon, nil).Once()
+	pt.host.On("GetCommittee", instance).Return(&gpbft.Committee{PowerTable: powerTable, Beacon: beacon}, nil).Once()
 }
 
 func (pt *participantTestSubject) mockCommitteeUnavailableForInstance(instance uint64) {
-	pt.host.On("GetCommitteeForInstance", instance).Return(nil, nil, errors.New("committee not available"))
+	pt.host.On("GetCommittee", instance).Return(nil, errors.New("committee not available"))
 }
 
 func (pt *participantTestSubject) matchMessageSigningPayload() any {
@@ -226,14 +226,14 @@ func TestParticipant(t *testing.T) {
 	t.Run("panic is recovered", func(t *testing.T) {
 		t.Run("on Start", func(t *testing.T) {
 			subject := newParticipantTestSubject(t, seed, 0)
-			subject.host.On("GetProposalForInstance", subject.instance).Panic("saw me no chain")
+			subject.host.On("GetProposal", subject.instance).Panic("saw me no chain")
 			require.NotPanics(t, func() {
 				require.ErrorContains(t, subject.Start(), "saw me no chain")
 			})
 		})
 		t.Run("on ReceiveAlarm", func(t *testing.T) {
 			subject := newParticipantTestSubject(t, seed, 0)
-			subject.host.On("GetProposalForInstance", subject.instance).Panic("saw me no chain")
+			subject.host.On("GetProposal", subject.instance).Panic("saw me no chain")
 			require.NotPanics(t, func() {
 				require.ErrorContains(t, subject.ReceiveAlarm(), "saw me no chain")
 			})
@@ -313,7 +313,7 @@ func TestParticipant(t *testing.T) {
 				subject := newParticipantTestSubject(t, seed, 0)
 				var zeroChain gpbft.ECChain
 				emptySupplementalData := new(gpbft.SupplementalData)
-				subject.host.On("GetProposalForInstance", subject.instance).Return(emptySupplementalData, zeroChain, nil)
+				subject.host.On("GetProposal", subject.instance).Return(emptySupplementalData, zeroChain, nil)
 				require.ErrorContains(t, subject.Start(), "cannot be zero-valued")
 				subject.assertHostExpectations()
 				subject.requireNotStarted()
@@ -322,7 +322,7 @@ func TestParticipant(t *testing.T) {
 				subject := newParticipantTestSubject(t, seed, 0)
 				invalidChain := gpbft.ECChain{gpbft.TipSet{PowerTable: subject.supplementalData.PowerTable}}
 				emptySupplementalData := new(gpbft.SupplementalData)
-				subject.host.On("GetProposalForInstance", subject.instance).Return(emptySupplementalData, invalidChain, nil)
+				subject.host.On("GetProposal", subject.instance).Return(emptySupplementalData, invalidChain, nil)
 				require.ErrorContains(t, subject.Start(), "invalid canonical chain")
 				subject.assertHostExpectations()
 				subject.requireNotStarted()
@@ -331,7 +331,7 @@ func TestParticipant(t *testing.T) {
 				subject := newParticipantTestSubject(t, seed, 0)
 				invalidChain := gpbft.ECChain{gpbft.TipSet{PowerTable: subject.supplementalData.PowerTable}}
 				emptySupplementalData := new(gpbft.SupplementalData)
-				subject.host.On("GetProposalForInstance", subject.instance).Return(emptySupplementalData, invalidChain, errors.New("fish"))
+				subject.host.On("GetProposal", subject.instance).Return(emptySupplementalData, invalidChain, errors.New("fish"))
 				require.ErrorContains(t, subject.Start(), "fish")
 				subject.assertHostExpectations()
 				subject.requireNotStarted()
@@ -347,8 +347,8 @@ func TestParticipant(t *testing.T) {
 				supplementalData := &gpbft.SupplementalData{
 					PowerTable: chain[0].PowerTable,
 				}
-				subject.host.On("GetProposalForInstance", subject.instance).Return(supplementalData, chain, nil)
-				subject.host.On("GetCommitteeForInstance", subject.instance).Return(nil, nil, errors.New("fish"))
+				subject.host.On("GetProposal", subject.instance).Return(supplementalData, chain, nil)
+				subject.host.On("GetCommittee", subject.instance).Return(nil, errors.New("fish"))
 				require.ErrorContains(t, subject.Start(), "fish")
 				subject.assertHostExpectations()
 				subject.requireNotStarted()

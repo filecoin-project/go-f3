@@ -55,15 +55,15 @@ func (w *WithholdCommit) StartInstanceAt(instance uint64, _when time.Time) error
 	if len(w.victims) == 0 {
 		return errors.New("victims must be set")
 	}
-	supplementalData, _, err := w.host.GetProposalForInstance(instance)
+	supplementalData, _, err := w.host.GetProposal(instance)
 	if err != nil {
 		panic(err)
 	}
-	powertable, _, err := w.host.GetCommitteeForInstance(instance)
+	committee, err := w.host.GetCommittee(instance)
 	if err != nil {
 		panic(err)
 	}
-	broadcast := w.synchronousBroadcastRequester(powertable)
+	broadcast := w.synchronousBroadcastRequester(committee.PowerTable)
 	// All victims need to see QUALITY and PREPARE in order to send their COMMIT,
 	// but only the one victim will see our COMMIT.
 	broadcast(gpbft.Payload{
@@ -100,16 +100,16 @@ func (w *WithholdCommit) StartInstanceAt(instance uint64, _when time.Time) error
 	// properly to accumulate the evidence for its COMMIT message.
 	signers := make([]int, 0)
 	for _, actorID := range w.victims {
-		signers = append(signers, powertable.Lookup[actorID])
+		signers = append(signers, committee.PowerTable.Lookup[actorID])
 	}
-	signers = append(signers, powertable.Lookup[w.id])
+	signers = append(signers, committee.PowerTable.Lookup[w.id])
 	sort.Ints(signers)
 
 	signatures := make([][]byte, 0)
 	pubKeys := make([]gpbft.PubKey, 0)
 	prepareMarshalled := w.host.MarshalPayloadForSigning(w.host.NetworkName(), &preparePayload)
 	for _, signerIndex := range signers {
-		entry := powertable.Entries[signerIndex]
+		entry := committee.PowerTable.Entries[signerIndex]
 		signatures = append(signatures, w.sign(entry.PubKey, prepareMarshalled))
 		pubKeys = append(pubKeys, entry.PubKey)
 		justification.Signers.Set(uint64(signerIndex))
