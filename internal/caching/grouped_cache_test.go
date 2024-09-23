@@ -101,10 +101,10 @@ func TestGroupedSet(t *testing.T) {
 
 	t.Run("explicit group removal is removed", func(t *testing.T) {
 		// Assert group 1 exists and removed
-		require.True(t, subject.RemoveGroup(1))
+		require.True(t, subject.RemoveGroupsLessThan(2))
 
 		// Assert group 1 is already removed
-		require.False(t, subject.RemoveGroup(1))
+		require.False(t, subject.RemoveGroupsLessThan(2))
 
 		contains, err := subject.Contains(g1v1())
 		require.NoError(t, err)

@@ -79,10 +79,16 @@ func (gs *GroupedSet) Add(g uint64, namespace, v []byte) (bool, error) {
 	return !contained, nil
 }
 
-func (gs *GroupedSet) RemoveGroup(group uint64) bool {
+func (gs *GroupedSet) RemoveGroupsLessThan(group uint64) bool {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
-	return gs.evict(group)
+	var evictedAtLeastOne bool
+	for g := range gs.groups {
+		if g < group {
+			evictedAtLeastOne = gs.evict(g) || evictedAtLeastOne
+		}
+	}
+	return evictedAtLeastOne
 }
 
 func (gs *GroupedSet) evict(group uint64) bool {
