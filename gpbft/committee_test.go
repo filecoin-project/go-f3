@@ -134,7 +134,7 @@ func generateValidPowerTable(t *testing.T) *PowerTable {
 	pt := NewPowerTable()
 	require.NoError(t, pt.Add(PowerEntry{
 		ID:     ActorID(rand.Uint64N(100)),
-		Power:  NewStoragePower(int64(rand.Uint64N(100))),
+		Power:  NewStoragePower(int64(rand.Uint64N(100) + 1)),
 		PubKey: []byte("lobster"),
 	}))
 	return pt
