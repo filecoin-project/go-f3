@@ -281,7 +281,7 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 	t.Run("Queues future instance messages during current instance", func(t *testing.T) {
 		instance, driver := newInstanceAndDriver(t)
 		futureInstance := emulator.NewInstance(t,
-			42,
+			8,
 			gpbft.PowerEntries{
 				gpbft.PowerEntry{
 					ID:    0,

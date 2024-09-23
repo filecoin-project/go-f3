@@ -8,11 +8,12 @@ import (
 	"time"
 )
 
-var (
+const (
 	defaultDelta                        = 3 * time.Second
 	defaultDeltaBackOffExponent         = 2.0
 	defaultMaxCachedInstances           = 10
 	defaultMaxCachedMessagesPerInstance = 25_000
+	defaultCommitteeLookback            = 10
 )
 
 // Option represents a configurable parameter.
@@ -22,6 +23,7 @@ type options struct {
 	delta                time.Duration
 	deltaBackOffExponent float64
 
+	committeeLookback  uint64
 	maxLookaheadRounds uint64
 	rebroadcastAfter   func(int) time.Duration
 
@@ -36,6 +38,7 @@ func newOptions(o ...Option) (*options, error) {
 	opts := &options{
 		delta:                        defaultDelta,
 		deltaBackOffExponent:         defaultDeltaBackOffExponent,
+		committeeLookback:            defaultCommitteeLookback,
 		rebroadcastAfter:             defaultRebroadcastAfter,
 		maxCachedInstances:           defaultMaxCachedInstances,
 		maxCachedMessagesPerInstance: defaultMaxCachedMessagesPerInstance,
@@ -114,6 +117,15 @@ func WithMaxCachedInstances(v int) Option {
 func WithMaxCachedMessagesPerInstance(v int) Option {
 	return func(o *options) error {
 		o.maxCachedMessagesPerInstance = v
+		return nil
+	}
+}
+
+// WithCommitteeLookback sets the number of instances in the past from which the
+// committee for the latest instance is derived. Defaults to 10 if unset.
+func WithCommitteeLookback(lookback uint64) Option {
+	return func(o *options) error {
+		o.committeeLookback = lookback
 		return nil
 	}
 }

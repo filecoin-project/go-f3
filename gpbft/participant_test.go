@@ -82,6 +82,9 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 	}))
 
 	subject.host = gpbft.NewMockHost(t)
+	// Expect ad-hoc calls to getting network name as such calls bear no significance
+	// to correctness.
+	subject.host.On("NetworkName").Return(subject.networkName).Maybe()
 	subject.Participant, err = gpbft.NewParticipant(subject.host,
 		gpbft.WithTracer(subject),
 		gpbft.WithDelta(delta),
@@ -100,7 +103,6 @@ func (pt *participantTestSubject) expectBeginInstance() {
 	pt.host.On("GetProposal", pt.instance).Return(pt.supplementalData, pt.canonicalChain, nil)
 	pt.host.On("GetCommittee", pt.instance).Return(&gpbft.Committee{PowerTable: pt.powerTable, Beacon: pt.beacon}, nil).Once()
 	pt.host.On("Time").Return(pt.time)
-	pt.host.On("NetworkName").Return(pt.networkName).Maybe()
 	// We need to use `Maybe` here because `MarshalPayloadForSigning` may be called
 	// an additional time for verification.
 	// Without the `Maybe` the tests immediately fails here:
@@ -517,7 +519,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					},
 				}
 			},
-			wantErr: "committee not available",
+			wantErr: gpbft.ErrValidationNoCommittee.Error(),
 		},
 		{
 			name: "zero message is error",
