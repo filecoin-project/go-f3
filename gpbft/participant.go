@@ -445,7 +445,7 @@ func (p *Participant) beginInstance() error {
 	if err != nil {
 		return err
 	}
-	if p.gpbft, err = newInstance(p, p.currentInstance, chain, data, *comt.PowerTable, comt.Beacon); err != nil {
+	if p.gpbft, err = newInstance(p, p.currentInstance, chain, data, comt.PowerTable, comt.Beacon); err != nil {
 		return fmt.Errorf("failed creating new gpbft instance: %w", err)
 	}
 	if err := p.gpbft.Start(); err != nil {
