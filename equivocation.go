@@ -107,12 +107,11 @@ func (ef *equivocationFilter) ProcessBroadcast(m *gpbft.GMessage) bool {
 	}
 	// if we are not alone, broadcast the message if we have the best (lowest PeerID)
 
-	ourIndex := slices.Index(senders.origins, ef.localPID)
 	log.Warnw("self-equivocation detected during broadcast", "sender", m.Sender, "instance", m.Vote.Instance,
-		"round", m.Vote.Round, "phase", m.Vote.Phase, "sourcers", senders, "decidedBrodcastPriority", ourIndex)
+		"round", m.Vote.Round, "phase", m.Vote.Phase, "sourcers", senders, "localPID", ef.localPID)
 
 	// if there are multiple senders, only broadcast if we are the smallest one
-	return ourIndex == 0
+	return senders.origins[0] == ef.localPID
 }
 
 func (ef *equivocationFilter) ProcessReceive(peerID peer.ID, m *gpbft.GMessage) {
@@ -123,13 +122,10 @@ func (ef *equivocationFilter) ProcessReceive(peerID peer.ID, m *gpbft.GMessage) 
 		// the instance does not match
 		return
 	}
-	if ef.seenMessages == nil {
-		// not initialized
-		return
-	}
 	senders, ok := ef.activeSenders[m.Sender]
 	if !ok {
-		// we do not track the sender
+		// we do not track the sender because we didn't send any messages from that ID
+		// otherwise we would have to track all messages
 		return
 	}
 	key := ef.formKey(m)

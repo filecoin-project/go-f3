@@ -47,7 +47,6 @@ type F3 struct {
 
 	mu       sync.Mutex
 	cs       *certstore.Store
-	wal      *writeaheadlog.WriteAheadLog[walEntry, *walEntry]
 	manifest *manifest.Manifest
 	runner   *gpbftRunner
 	ps       *powerstore.Store
@@ -407,7 +406,7 @@ func (m *F3) resumeInternal(ctx context.Context) error {
 	cleanName = strings.ReplaceAll(cleanName, ".", "")
 	cleanName = strings.ReplaceAll(cleanName, "\u0000", "")
 
-	walPath := filepath.Join(m.diskPath, "wal")
+	walPath := filepath.Join(m.diskPath, "wal", cleanName)
 	wal, err := writeaheadlog.Open[walEntry](walPath)
 	if err != nil {
 		return fmt.Errorf("opening WAL: %w", err)
