@@ -44,7 +44,7 @@ func TestWALSimple(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, entries, res)
 
-	err = wal.Flush()
+	err = wal.Close()
 	require.NoError(t, err)
 	res, err = wal.All()
 	require.NoError(t, err)
@@ -133,7 +133,7 @@ func TestWALEmpty(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, res)
 
-	err = wal.Flush()
+	err = wal.Close()
 	require.NoError(t, err)
 
 	res, err = wal.All()
@@ -158,7 +158,7 @@ func TestWALPurge(t *testing.T) {
 		require.NoError(t, err)
 		err = wal.Append(e)
 		require.NoError(t, err)
-		err = wal.Flush()
+		err = wal.Close()
 		require.NoError(t, err)
 	}
 

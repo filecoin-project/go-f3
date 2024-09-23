@@ -403,7 +403,11 @@ func (m *F3) resumeInternal(ctx context.Context) error {
 		return err
 	}
 
-	walPath := filepath.Join(m.diskPath, "wal", strings.ReplaceAll(string(m.manifest.NetworkName), "/", "-"))
+	cleanName := strings.ReplaceAll(string(m.manifest.NetworkName), "/", "-")
+	cleanName = strings.ReplaceAll(cleanName, ".", "")
+	cleanName = strings.ReplaceAll(cleanName, "\u0000", "")
+
+	walPath := filepath.Join(m.diskPath, "wal")
 	wal, err := writeaheadlog.Open[walEntry](walPath)
 	if err != nil {
 		return fmt.Errorf("opening WAL: %w", err)

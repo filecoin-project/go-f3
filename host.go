@@ -316,7 +316,7 @@ func (h *gpbftRunner) BroadcastMessage(msg *gpbft.GMessage) error {
 	}
 	err := h.wal.Append(walEntry{msg})
 	if err != nil {
-		log.Error("appending to WAL: %+v", err)
+		log.Errorw("appending to WAL", "error", err)
 	}
 
 	if h.topic == nil {
@@ -478,7 +478,7 @@ func (h *gpbftHost) collectChain(base ec.TipSet, head ec.TipSet) ([]ec.TipSet, e
 func (h *gpbftRunner) Stop(context.Context) error {
 	h.ctxCancel()
 	return multierr.Combine(
-		h.wal.Flush(),
+		h.wal.Close(),
 		h.errgrp.Wait(),
 		h.teardownPubsub(),
 	)
