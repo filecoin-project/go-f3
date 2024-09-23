@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -71,8 +72,7 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 	}
 
 	// Run until there are no more messages, meaning termination or deadlock.
-	moreTicks := true
-	for moreTicks {
+	for s.network.HasMoreTicks() {
 		if err := s.ec.Err(); err != nil {
 			return fmt.Errorf("error in decision: %w", err)
 		}
@@ -129,9 +129,15 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 				break
 			}
 		}
-		var err error
-		moreTicks, err = s.network.Tick(s.adversary)
-		if err != nil {
+
+		switch err := s.network.Tick(s.adversary); {
+		case errors.Is(err, gpbft.ErrValidationNotRelevant):
+			// Ignore error signalling valid messages that are no longer useful for the
+			// progress of GPBFT. This can occur in normal operation depending on the order
+			// of delivered messages. In production, deployment this error is used to signal
+			// that the message does not need to be propagated among participants. In
+			// simulation, we simply ignore it.
+		case err != nil:
 			return fmt.Errorf("error performing simulation phase: %w", err)
 		}
 	}

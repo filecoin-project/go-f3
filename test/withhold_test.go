@@ -73,9 +73,11 @@ func TestWitholdCommitAdversary(t *testing.T) {
 			}
 			// The adversary could convince the victim to decide a, so all must decide a.
 			require.NoError(t, err)
-			decision := sm.GetInstance(0).GetDecision(0)
-			require.NotNil(t, decision)
-			require.Equal(t, &a, decision)
+			for _, victim := range victims {
+				decision := sm.GetInstance(0).GetDecision(victim)
+				require.NotNil(t, decision)
+				require.Equal(t, &a, decision)
+			}
 		})
 	}
 }

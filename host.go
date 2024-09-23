@@ -354,6 +354,10 @@ func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, _ peer.ID, msg 
 	case errors.Is(err, gpbft.ErrValidationTooOld):
 		// we got the message too late
 		return pubsub.ValidationIgnore
+	case errors.Is(err, gpbft.ErrValidationNotRelevant):
+		// The message is valid but will not effectively aid progress of GPBFT. Ignore it
+		// to stop its further propagation across the network.
+		return pubsub.ValidationIgnore
 	case errors.Is(err, gpbft.ErrValidationNoCommittee):
 		log.Debugf("commitee error during validation: %+v", err)
 		return pubsub.ValidationIgnore

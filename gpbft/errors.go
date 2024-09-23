@@ -25,6 +25,9 @@ var (
 	//
 	// See SupplementalData.
 	ErrValidationWrongSupplement = newValidationError("unexpected supplemental data")
+	// ErrValidationNotRelevant signals that a message is not relevant at the current
+	// instance, and is not worth propagating to others.
+	ErrValidationNotRelevant = newValidationError("message is valid but not relevant")
 
 	// ErrReceivedWrongInstance signals that a message is received with mismatching instance ID.
 	ErrReceivedWrongInstance = errors.New("received message for wrong instance")

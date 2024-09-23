@@ -77,15 +77,36 @@ func (v *cachingValidator) ValidateMessage(msg *GMessage) (valid ValidatedMessag
 	}
 
 	// Infer whether to proceed validating the message relative to the current instance.
-	switch currentInstance := v.progress.Load().id; {
-	case msg.Vote.Instance >= currentInstance+v.committeeLookback:
+	switch current := v.progress.Load(); {
+	case msg.Vote.Instance >= current.id+v.committeeLookback:
 		// Message is beyond current + committee lookback.
 		return nil, ErrValidationNoCommittee
-	case msg.Vote.Instance >= currentInstance,
-		msg.Vote.Instance == currentInstance-1 && msg.Vote.Phase == DECIDE_PHASE:
+	case msg.Vote.Instance > current.id,
+		msg.Vote.Instance+1 == current.id && msg.Vote.Phase == DECIDE_PHASE:
 		// Only proceed to validate the message if it:
 		//  * belongs to an instance within the range of current to current + committee lookback, or
 		//  * is a DECIDE message belonging to previous instance.
+	case msg.Vote.Instance == current.id:
+		// Message belongs to current instance. Only validate messages that are relevant,
+		// i.e.:
+		//   * When current instance is at DECIDE phase only validate DECIDE messages.
+		//   * Otherwise, only validate messages that would be rebroadcasted, i.e. QUALITY,
+		//     DECIDE, messages from previous round, and messages from current round.
+		// Anything else is not relevant.
+		switch {
+		case current.phase == DECIDE_PHASE && msg.Vote.Phase != DECIDE_PHASE:
+			return nil, ErrValidationNotRelevant
+		case msg.Vote.Phase == QUALITY_PHASE,
+			msg.Vote.Phase == DECIDE_PHASE,
+			// Check if message round is larger than or equal to current round.
+			msg.Vote.Round >= current.round,
+			// Check if message round is equal to previous round. Note that we increment the
+			// message round to check this in order to avoid unit64 wrapping.
+			msg.Vote.Round+1 == current.round:
+			// Message is relevant. Progress to further validation.
+		default:
+			return nil, ErrValidationNotRelevant
+		}
 	default:
 		// Message belongs to an instance older than the previous instance.
 		return nil, ErrValidationTooOld

@@ -17,6 +17,7 @@ func TestValidationError_SentinelValues(t *testing.T) {
 		{name: "ErrValidationInvalid", subject: ErrValidationInvalid},
 		{name: "ErrValidationWrongBase", subject: ErrValidationWrongBase},
 		{name: "ErrValidationWrongSupplement", subject: ErrValidationWrongSupplement},
+		{name: "ErrValidationNotRelevant", subject: ErrValidationNotRelevant},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

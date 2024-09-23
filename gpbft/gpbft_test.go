@@ -1609,7 +1609,8 @@ func TestGPBFT_DropOld(t *testing.T) {
 	}
 	driver.RequireDeliverMessage(newQuality)
 	driver.RequireDeliverMessage(newDecide0)
-	driver.RequireDeliverMessage(newCommit0) // no quorum of decides, should still accept it
+	// No quorum of decides, should still accept it but be considered not relevant
+	driver.RequireErrOnDeliverMessage(newCommit0, gpbft.ErrValidationNotRelevant, "not relevant")
 	driver.RequireDeliverMessage(newDecide1)
 
 	// Once we've received two decides, we should reject messages from the "new" instance.
