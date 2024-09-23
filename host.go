@@ -204,7 +204,9 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 				const keepInstancesInWAL = 5
 				if cert.GPBFTInstance > keepInstancesInWAL {
 					err := h.wal.Purge(cert.GPBFTInstance - keepInstancesInWAL)
-					log.Error("purging messages from WAL: %+v", err)
+					if err != nil {
+						log.Errorw("failed to purge messages from WAL", "error", err)
+					}
 				}
 			}
 		}
