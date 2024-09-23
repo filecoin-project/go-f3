@@ -156,9 +156,16 @@ func (wal *WriteAheadLog[T, PT]) maybeRotate() error {
 	return nil
 }
 
-// Flush closes the existing file
+// Close closes the existing file
 // the WAL is safe to discard or can be used still
-func (wal *WriteAheadLog[T, PT]) Flush() error {
+func (wal *WriteAheadLog[T, PT]) Close() error {
+	wal.lk.Lock()
+	defer wal.lk.Unlock()
+	return wal.flush()
+}
+
+// Rotate closes the existing file
+func (wal *WriteAheadLog[T, PT]) Rotate() error {
 	wal.lk.Lock()
 	defer wal.lk.Unlock()
 	return wal.flush()
@@ -230,7 +237,7 @@ func (wal *WriteAheadLog[T, PT]) hydrate() error {
 		}
 		logS, _, err := wal.readLogFile(entry.Name(), false)
 		if err != nil {
-			return fmt.Errorf("readling log file: %w", err)
+			return fmt.Errorf("reading log file: %w", err)
 		}
 
 		wal.logFiles = append(wal.logFiles, logS)

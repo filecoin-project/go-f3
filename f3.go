@@ -47,7 +47,6 @@ type F3 struct {
 
 	mu       sync.Mutex
 	cs       *certstore.Store
-	wal      *writeaheadlog.WriteAheadLog[walEntry, *walEntry]
 	manifest *manifest.Manifest
 	runner   *gpbftRunner
 	ps       *powerstore.Store
@@ -92,23 +91,28 @@ func (m *F3) Manifest() *manifest.Manifest {
 }
 
 func (m *F3) Broadcast(ctx context.Context, signatureBuilder *gpbft.SignatureBuilder, msgSig []byte, vrf []byte) {
-	msg := signatureBuilder.Build(msgSig, vrf)
 
 	m.mu.Lock()
 	runner := m.runner
-	wal := m.wal
+	manifest := m.manifest
 	m.mu.Unlock()
 
 	if runner == nil {
 		log.Error("attempted to broadcast message while F3 wasn't running")
 		return
 	}
-	err := wal.Append(walEntry{*msg})
-	if err != nil {
-		log.Error("appending to WAL: %+v", err)
+	if manifest == nil {
+		log.Error("attempted to broadcast message while manifest is nil")
+		return
+	}
+	if manifest.NetworkName != signatureBuilder.NetworkName {
+		log.Errorw("attempted to broadcast message for a wrong network",
+			"manifestNetwork", manifest.NetworkName, "messageNetwork", signatureBuilder.NetworkName)
+		return
 	}
 
-	err = runner.BroadcastMessage(msg)
+	msg := signatureBuilder.Build(msgSig, vrf)
+	err := runner.BroadcastMessage(msg)
 	if err != nil {
 		log.Warnf("failed to broadcast message: %+v", err)
 	}
@@ -336,12 +340,6 @@ func (m *F3) stopInternal(ctx context.Context) error {
 		}
 		m.certserv = nil
 	}
-	if m.wal != nil {
-		if serr := m.wal.Flush(); serr != nil {
-			err = multierr.Append(err, fmt.Errorf("failed to flush WAL: %w", serr))
-		}
-		m.wal = nil
-	}
 	return err
 }
 
@@ -363,12 +361,6 @@ func (m *F3) resumeInternal(ctx context.Context) error {
 		}
 
 		m.cs = cs
-	}
-	walPath := filepath.Join(m.diskPath, "wal", strings.ReplaceAll(string(m.manifest.NetworkName), "/", "-"))
-	var err error
-	m.wal, err = writeaheadlog.Open[walEntry](walPath)
-	if err != nil {
-		return fmt.Errorf("opening WAL: %w", err)
 	}
 
 	if m.ps == nil {
@@ -410,9 +402,19 @@ func (m *F3) resumeInternal(ctx context.Context) error {
 		return err
 	}
 
+	cleanName := strings.ReplaceAll(string(m.manifest.NetworkName), "/", "-")
+	cleanName = strings.ReplaceAll(cleanName, ".", "")
+	cleanName = strings.ReplaceAll(cleanName, "\u0000", "")
+
+	walPath := filepath.Join(m.diskPath, "wal", cleanName)
+	wal, err := writeaheadlog.Open[walEntry](walPath)
+	if err != nil {
+		return fmt.Errorf("opening WAL: %w", err)
+	}
+
 	if runner, err := newRunner(
 		ctx, m.cs, m.ps, m.pubsub, m.verifier,
-		m.outboundMessages, m.manifest, m.wal,
+		m.outboundMessages, m.manifest, wal, m.host.ID(),
 	); err != nil {
 		return err
 	} else {
