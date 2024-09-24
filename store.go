@@ -27,26 +27,35 @@ func openCertstore(ctx context.Context, ec ec.Backend, ds datastore.Datastore,
 		return nil, err
 	}
 
-	ts, err := ec.GetTipsetByEpoch(ctx, m.BootstrapEpoch-m.EC.Finality)
 	var initialPowerTable gpbft.PowerEntries
-
-	if err == nil {
-		initialPowerTable, err = ec.GetPowerTable(ctx, ts.Key())
-		if err != nil {
-			return nil, fmt.Errorf("getting initial power table: %w", err)
-		}
-	} else if m.InitialPowerTable.Defined() {
-		log.Errorw("could not get initial power table from EC, trying finality exchange", "error", err)
-		initialPowerTable, err = certexchange.FindInitialPowerTable(ctx, certClient,
-			m.InitialPowerTable, m.EC.Period)
-
-		if err != nil {
-			log.Errorw("could not get initial power table from finality exchange", "error", err)
-			return nil, err
-		}
-	} else {
-		return nil, fmt.Errorf("getting initial power tipset: %w", err)
+	initialPowerTable, err := loadInitialPowerTable(ctx, ec, m, certClient)
+	if err != nil {
+		return nil, fmt.Errorf("getting initial power table: %w", err)
 	}
 
 	return certstore.CreateStore(ctx, ds, m.InitialInstance, initialPowerTable)
+}
+
+func loadInitialPowerTable(ctx context.Context, ec ec.Backend, m *manifest.Manifest, certClient certexchange.Client) (gpbft.PowerEntries, error) {
+	epoch := m.BootstrapEpoch - m.EC.Finality
+	if ts, err := ec.GetTipsetByEpoch(ctx, epoch); err != nil {
+		// This is odd because we usually keep the entire chain, just not the state.
+		// Odd but not fatal here.
+		log.Warnw("failed to find bootstrap tipset for F3", "error", err, "epoch", epoch)
+	} else if pt, err := ec.GetPowerTable(ctx, ts.Key()); err != nil {
+		log.Debugw("failed to load the bootstrap power table for F3 from state", "error", err)
+	} else {
+		return pt, nil
+	}
+	if !m.InitialPowerTable.Defined() {
+		return nil, fmt.Errorf("failed to load the F3 bootstrap power table and none is specified in the manifest")
+	}
+
+	log.Infow("loading the F3 bootstrap power table", "epoch", epoch, "cid", m.InitialPowerTable)
+
+	pt, err := certexchange.FindInitialPowerTable(ctx, certClient, m.InitialPowerTable, m.EC.Period)
+	if err != nil {
+		return nil, fmt.Errorf("could not get initial power table from finality exchange: %w", err)
+	}
+	return pt, nil
 }
