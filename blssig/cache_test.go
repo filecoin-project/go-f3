@@ -5,10 +5,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.dedis.ch/kyber/v4/sign/bdn"
 
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/internal/bls/bdn"
-	bls12381 "github.com/filecoin-project/go-f3/internal/bls/gnark"
+	bls12381 "github.com/filecoin-project/go-f3/internal/gnark"
 )
 
 const maxCacheMemory uint64 = 10 << 20 // 10MiB

@@ -5,12 +5,12 @@ import (
 	"errors"
 	"sync"
 
+	"go.dedis.ch/kyber/v4/pairing"
+	"go.dedis.ch/kyber/v4/sign/bdn"
+
 	"github.com/filecoin-project/go-f3/blssig"
 	"github.com/filecoin-project/go-f3/gpbft"
-	"go.dedis.ch/kyber/v4/pairing"
-
-	"github.com/filecoin-project/go-f3/internal/bls/bdn"
-	bls12381 "github.com/filecoin-project/go-f3/internal/bls/gnark"
+	bls12381 "github.com/filecoin-project/go-f3/internal/gnark"
 )
 
 var _ Backend = (*BLSBackend)(nil)

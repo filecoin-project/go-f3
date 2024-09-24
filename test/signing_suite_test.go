@@ -7,11 +7,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+	"go.dedis.ch/kyber/v4/sign/bdn"
 
 	"github.com/filecoin-project/go-f3/blssig"
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/internal/bls/bdn"
-	bls12381 "github.com/filecoin-project/go-f3/internal/bls/gnark"
+	bls12381 "github.com/filecoin-project/go-f3/internal/gnark"
 	"github.com/filecoin-project/go-f3/sim/signing"
 )
 
