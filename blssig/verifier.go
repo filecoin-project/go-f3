@@ -8,11 +8,11 @@ import (
 	"sync"
 
 	"go.dedis.ch/kyber/v4"
+	"go.dedis.ch/kyber/v4/sign/bdn"
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/internal/bls/bdn"
-	bls12381 "github.com/filecoin-project/go-f3/internal/bls/gnark"
+	bls12381 "github.com/filecoin-project/go-f3/internal/gnark"
 	"github.com/filecoin-project/go-f3/internal/measurements"
 )
 

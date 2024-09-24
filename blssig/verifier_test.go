@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/filecoin-project/go-f3/internal/bls/bdn"
-	bls12381 "github.com/filecoin-project/go-f3/internal/bls/gnark"
 	"github.com/stretchr/testify/require"
+	"go.dedis.ch/kyber/v4/sign/bdn"
+
+	bls12381 "github.com/filecoin-project/go-f3/internal/gnark"
 )
 
 func BenchmarkBLSSigning(b *testing.B) {
