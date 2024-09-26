@@ -135,7 +135,10 @@ func (pt *participantTestSubject) expectBeginInstance() {
 
 func (pt *participantTestSubject) requireNotStarted() {
 	pt.t.Helper()
-	require.Zero(pt.t, pt.CurrentRound())
+	instance, round, phase := pt.Progress()
+	require.Zero(pt.t, instance)
+	require.Zero(pt.t, round)
+	require.Equal(pt.t, gpbft.INITIAL_PHASE, phase)
 	require.Equal(pt.t, "nil", pt.Describe())
 }
 

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/filecoin-project/go-f3/internal/caching"
 	logging "github.com/ipfs/go-log/v2"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -25,17 +26,10 @@ type Participant struct {
 	*options
 	host Host
 
-	// Mutex for detecting concurrent invocation of stateful API methods.
-	// To be taken at the top of public API methods, and always taken before instanceMutex,
-	// if both are to be taken.
+	// apiMutex prevents concurrent access to stateful API methods to ensure thread
+	// safety. This mutex should be locked at the beginning of each public API method
+	// that modifies state.
 	apiMutex sync.Mutex
-	// Mutex protecting currentInstance and committees cache for concurrent validation.
-	// Note that not every access needs to be protected:
-	// - writes to currentInstance, and reads from it during validation,
-	// - reads from or writes to committees (which is written during validation).
-	instanceMutex sync.Mutex
-	// Instance identifier for the current (or, if none, next to start) GPBFT instance.
-	currentInstance uint64
 	// Cache of committees for the current or future instances.
 	committeeProvider *cachedCommitteeProvider
 
@@ -48,7 +42,19 @@ type Participant struct {
 	// protocol round for which a strong quorum of COMMIT messages was observed,
 	// which may not be known to the participant.
 	terminatedDuringRound uint64
-	validator             *cachingValidator
+	// progression is the atomic reference to the current GPBFT instance being
+	// progressed by this Participant, or the next instance to be started if no such
+	// instance exists.
+	progression *atomicProgression
+	// messageCache maintains a cache of unique identifiers for valid messages or
+	// justifications that this Participant has received since the previous instance.
+	// It ensures that only relevant messages or justifications are retained by
+	// automatically pruning entries from older instances as the participant
+	// progresses to the next instance.
+	//
+	// See Participant.finishCurrentInstance, Participant.validator.
+	messageCache *caching.GroupedSet
+	validator    *cachingValidator
 }
 
 type validatedMessage struct {
@@ -83,12 +89,16 @@ func NewParticipant(host Host, o ...Option) (*Participant, error) {
 		return nil, err
 	}
 	ccp := newCachedCommitteeProvider(host)
+	messageCache := caching.NewGroupedSet(opts.maxCachedInstances, opts.maxCachedMessagesPerInstance)
+	progression := newAtomicProgression()
 	return &Participant{
 		options:           opts,
 		host:              host,
 		committeeProvider: ccp,
 		mqueue:            newMessageQueue(opts.maxLookaheadRounds),
-		validator:         newValidator(host, ccp, opts.committeeLookback, opts.maxCachedInstances, opts.maxCachedMessagesPerInstance),
+		messageCache:      messageCache,
+		progression:       progression,
+		validator:         newValidator(host, ccp, progression.Get, messageCache, opts.committeeLookback),
 	}, nil
 }
 
@@ -117,25 +127,19 @@ func (p *Participant) StartInstanceAt(instance uint64, when time.Time) (err erro
 	return err
 }
 
-func (p *Participant) CurrentRound() uint64 {
-	if !p.apiMutex.TryLock() {
-		panic("concurrent API method invocation")
-	}
-	defer p.apiMutex.Unlock()
-	if p.gpbft == nil {
-		return 0
-	}
-	return p.gpbft.round
+// Progress returns the latest progress of this Participant in terms of GPBFT
+// instance ID, round and phase.
+//
+// This API is safe for concurrent use.
+func (p *Participant) Progress() (instance, round uint64, phase Phase) {
+	return p.progression.Get()
 }
 
-func (p *Participant) CurrentInstance() uint64 {
-	if !p.apiMutex.TryLock() {
-		panic("concurrent API method invocation")
-	}
-	defer p.apiMutex.Unlock()
-	p.instanceMutex.Lock()
-	defer p.instanceMutex.Unlock()
-	return p.currentInstance
+// currentInstance is a convenient wrapper around Participant.Progress that returns the
+// current GPBFT instance ID for internal use.
+func (p *Participant) currentInstance() uint64 {
+	currentInstance, _, _ := p.Progress()
+	return currentInstance
 }
 
 // ValidateMessage checks if the given message is valid. If invalid, an error is
@@ -171,15 +175,16 @@ func (p *Participant) ReceiveMessage(vmsg ValidatedMessage) (err error) {
 	}()
 	msg := vmsg.Message()
 
+	currentInstance := p.currentInstance()
 	// Drop messages for past instances.
-	if msg.Vote.Instance < p.currentInstance {
+	if msg.Vote.Instance < currentInstance {
 		p.trace("dropping message from old instance %d while received in instance %d",
-			msg.Vote.Instance, p.currentInstance)
+			msg.Vote.Instance, currentInstance)
 		return nil
 	}
 
 	// If the message is for the current instance, deliver immediately.
-	if p.gpbft != nil && msg.Vote.Instance == p.currentInstance {
+	if p.gpbft != nil && msg.Vote.Instance == currentInstance {
 		if err := p.gpbft.Receive(msg); err != nil {
 			return fmt.Errorf("%w: %w", ErrReceivedInternalError, err)
 		}
@@ -217,9 +222,10 @@ func (p *Participant) ReceiveAlarm() (err error) {
 }
 
 func (p *Participant) beginInstance() error {
-	data, chain, err := p.host.GetProposal(p.currentInstance)
+	currentInstance := p.currentInstance()
+	data, chain, err := p.host.GetProposal(currentInstance)
 	if err != nil {
-		return fmt.Errorf("failed fetching chain for instance %d: %w", p.currentInstance, err)
+		return fmt.Errorf("failed fetching chain for instance %d: %w", currentInstance, err)
 	}
 	// Limit length of the chain to be proposed.
 	if chain.IsZero() {
@@ -230,11 +236,11 @@ func (p *Participant) beginInstance() error {
 		return fmt.Errorf("invalid canonical chain: %w", err)
 	}
 
-	comt, err := p.committeeProvider.GetCommittee(p.currentInstance)
+	comt, err := p.committeeProvider.GetCommittee(currentInstance)
 	if err != nil {
 		return err
 	}
-	if p.gpbft, err = newInstance(p, p.currentInstance, chain, data, comt.PowerTable, comt.AggregateVerifier, comt.Beacon, p.validator); err != nil {
+	if p.gpbft, err = newInstance(p, currentInstance, chain, data, comt.PowerTable, comt.AggregateVerifier, comt.Beacon); err != nil {
 		return fmt.Errorf("failed creating new gpbft instance: %w", err)
 	}
 	if err := p.gpbft.Start(); err != nil {
@@ -264,7 +270,7 @@ func (p *Participant) handleDecision() {
 		p.trace("failed to receive decision: %+v", err)
 		p.host.SetAlarm(time.Time{})
 	} else {
-		p.beginNextInstance(p.currentInstance + 1)
+		p.beginNextInstance(p.currentInstance() + 1)
 		p.host.SetAlarm(nextStart)
 	}
 }
@@ -276,13 +282,14 @@ func (p *Participant) finishCurrentInstance() *Justification {
 		p.terminatedDuringRound = p.gpbft.round
 	}
 	p.gpbft = nil
-	p.validator.NotifyProgress(p.currentInstance, 0, INITIAL_PHASE)
+	if currentInstance := p.currentInstance(); currentInstance > 1 {
+		// Remove all cached messages that are older than the previous instance
+		p.messageCache.RemoveGroupsLessThan(currentInstance - 1)
+	}
 	return decision
 }
 
 func (p *Participant) beginNextInstance(nextInstance uint64) {
-	p.instanceMutex.Lock()
-	defer p.instanceMutex.Unlock()
 	// Clean all messages queued and for instances below the next one.
 	for inst := range p.mqueue.messages {
 		if inst < nextInstance {
@@ -294,8 +301,7 @@ func (p *Participant) beginNextInstance(nextInstance uint64) {
 	if nextInstance > 0 {
 		p.committeeProvider.EvictCommitteesBefore(nextInstance - 1)
 	}
-	p.currentInstance = nextInstance
-	p.validator.NotifyProgress(p.currentInstance, 0, INITIAL_PHASE)
+	p.progression.NotifyProgress(nextInstance, 0, INITIAL_PHASE)
 }
 
 func (p *Participant) terminated() bool {
