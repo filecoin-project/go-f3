@@ -90,6 +90,7 @@ func TestF3WithLookback(t *testing.T) {
 	}
 
 	require.Eventually(t, func() bool {
+		env.advance()
 		cert, err := env.nodes[0].f3.GetLatestCert(env.testCtx)
 		require.NoError(t, err)
 		return cert.GPBFTInstance >= 5
