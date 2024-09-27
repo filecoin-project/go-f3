@@ -37,11 +37,6 @@ type Participant struct {
 	gpbft *instance
 	// Messages queued for future instances.
 	mqueue *messageQueue
-	// The round number during which the last instance was terminated.
-	// This is for informational purposes only. It does not necessarily correspond to the
-	// protocol round for which a strong quorum of COMMIT messages was observed,
-	// which may not be known to the participant.
-	terminatedDuringRound uint64
 	// progression is the atomic reference to the current GPBFT instance being
 	// progressed by this Participant, or the next instance to be started if no such
 	// instance exists.
@@ -279,7 +274,6 @@ func (p *Participant) finishCurrentInstance() *Justification {
 	var decision *Justification
 	if p.gpbft != nil {
 		decision = p.gpbft.terminationValue
-		p.terminatedDuringRound = p.gpbft.round
 	}
 	p.gpbft = nil
 	if currentInstance := p.currentInstance(); currentInstance > 1 {
