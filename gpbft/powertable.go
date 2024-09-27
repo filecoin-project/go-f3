@@ -42,7 +42,7 @@ func (e PowerEntries) PublicKeys() []PubKey {
 }
 
 func (p *PowerEntry) Equal(o *PowerEntry) bool {
-	return p.ID == o.ID && p.Power == o.Power && bytes.Equal(p.PubKey, o.PubKey)
+	return p.ID == o.ID && p.Power.Equals(o.Power) && bytes.Equal(p.PubKey, o.PubKey)
 }
 
 func (p PowerEntries) Equal(o PowerEntries) bool {
