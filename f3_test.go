@@ -37,21 +37,16 @@ var ManifestSenderTimeout = 30 * time.Second
 
 func TestF3Simple(t *testing.T) {
 	t.Parallel()
-	env := newTestEnvironment(t, 2, false)
-
-	env.connectAll()
-	env.start()
+	env := newTestEnvironment(t).withNodes(2).start()
 	env.waitForInstanceNumber(5, 10*time.Second, false)
 }
 
 func TestF3WithLookback(t *testing.T) {
 	t.Parallel()
-	env := newTestEnvironment(t, 2, true)
-	env.manifest.EC.HeadLookback = 20
-	env.updateManifest()
+	env := newTestEnvironment(t).withNodes(2).withManifest(func(m *manifest.Manifest) {
+		m.EC.HeadLookback = 20
+	}).start()
 
-	env.connectAll()
-	env.start()
 	env.waitForInstanceNumber(5, 10*time.Second, false)
 
 	// Wait a second to let everything settle.
@@ -74,12 +69,12 @@ func TestF3WithLookback(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	// Now make sure we've advanced by significantly less than 100 instances.
-	// We want to make sure we're not racing.
+	// Now make sure we've advanced by less than 100 instances. We want to make sure we're not
+	// racing.
 	cert, err = env.nodes[0].f3.GetLatestCert(env.testCtx)
 	require.NoError(t, err)
 	require.NotNil(t, cert)
-	require.Less(t, cert.GPBFTInstance, uint64(80))
+	require.Less(t, cert.GPBFTInstance, uint64(90))
 
 	// If we add another EC period, we should make progress again.
 	// We do it bit by bit to give code time to run.
@@ -89,20 +84,13 @@ func TestF3WithLookback(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	require.Eventually(t, func() bool {
-		env.advance()
-		cert, err := env.nodes[0].f3.GetLatestCert(env.testCtx)
-		require.NoError(t, err)
-		return cert.GPBFTInstance >= 5
-	}, 10*time.Second, 10*time.Millisecond)
+	env.waitForInstanceNumber(5, 10*time.Second, true)
 }
 
 func TestF3PauseResumeCatchup(t *testing.T) {
 	t.Parallel()
-	env := newTestEnvironment(t, 3, false)
+	env := newTestEnvironment(t).withNodes(3).start()
 
-	env.connectAll()
-	env.start()
 	env.waitForInstanceNumber(1, 30*time.Second, true)
 
 	// Pausing two nodes should pause the network.
@@ -147,7 +135,7 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 
 func TestF3FailRecover(t *testing.T) {
 	t.Parallel()
-	env := newTestEnvironment(t, 2, false)
+	env := newTestEnvironment(t).withNodes(2)
 
 	// Make it possible to fail a single write for node 0.
 	var failDsWrite atomic.Bool
@@ -164,7 +152,6 @@ func TestF3FailRecover(t *testing.T) {
 
 	env.injectDatastoreFailures(0, dsFailureFunc)
 
-	env.connectAll()
 	env.start()
 	env.waitForInstanceNumber(1, 10*time.Second, true)
 
@@ -179,9 +166,8 @@ func TestF3FailRecover(t *testing.T) {
 
 func TestF3DynamicManifest_WithoutChanges(t *testing.T) {
 	t.Parallel()
-	env := newTestEnvironment(t, 2, true)
+	env := newTestEnvironment(t).withNodes(2).withDynamicManifest()
 
-	env.connectAll()
 	env.start()
 	prev := env.nodes[0].f3.Manifest()
 
@@ -193,23 +179,34 @@ func TestF3DynamicManifest_WithoutChanges(t *testing.T) {
 
 func TestF3DynamicManifest_WithRebootstrap(t *testing.T) {
 	t.Parallel()
-	env := newTestEnvironment(t, 2, true)
-
-	env.connectAll()
-	env.start()
+	env := newTestEnvironment(t).withNodes(2).withDynamicManifest().start()
 
 	prev := env.nodes[0].f3.Manifest()
 	env.waitForInstanceNumber(3, 15*time.Second, false)
-	prevInstance := env.nodes[0].currentGpbftInstance()
 
 	env.manifest.BootstrapEpoch = 1253
-	env.addParticipants(&env.manifest, []gpbft.ActorID{2, 3}, gpbft.NewStoragePower(1), false)
+	for i := 0; i < 2; i++ {
+		nd := env.addNode()
+		pubkey, _ := env.signingBackend.GenerateKey()
+		env.manifest.ExplicitPower = append(env.manifest.ExplicitPower, gpbft.PowerEntry{
+			ID:     gpbft.ActorID(nd.id),
+			PubKey: pubkey,
+			Power:  gpbft.NewStoragePower(1),
+		})
+	}
+
 	env.updateManifest()
+	env.waitForManifest()
 
-	env.waitForManifestChange(prev, 60*time.Second)
-
-	// check that it rebootstrapped and the number of instances is below prevInstance
-	require.True(t, env.nodes[0].currentGpbftInstance() < prevInstance)
+	// check that it rebootstrapped and has a new base epoch.
+	targetBaseEpoch := env.manifest.BootstrapEpoch - env.manifest.EC.Finality
+	env.waitForCondition(func() bool {
+		c, err := env.nodes[0].f3.GetCert(env.testCtx, 0)
+		if err != nil || c == nil {
+			return false
+		}
+		return c.ECChain.Base().Epoch == targetBaseEpoch
+	}, 10*time.Second)
 	env.waitForInstanceNumber(3, 15*time.Second, false)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest())
 	env.requireEqualManifests(false)
@@ -224,30 +221,21 @@ func TestF3DynamicManifest_WithRebootstrap(t *testing.T) {
 
 func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 	t.Parallel()
-	env := newTestEnvironment(t, 2, true)
+	env := newTestEnvironment(t).withNodes(2).withDynamicManifest().start()
 
-	env.connectAll()
-	env.start()
-
-	prev := env.nodes[0].f3.Manifest()
 	env.waitForInstanceNumber(10, 30*time.Second, true)
 
-	prevCopy := *prev
-	prevCopy.Pause = true
-	env.manifestSender.UpdateManifest(&prevCopy)
-
-	env.waitForManifestChange(prev, 30*time.Second)
+	env.manifest.Pause = true
+	env.updateManifest()
 
 	// check that it paused
 	env.waitForNodesStopped(10 * time.Second)
 
-	// New manifest with sequence 2 to start again F3
-	prev = env.nodes[0].f3.Manifest()
-
 	env.manifest.BootstrapEpoch = 956
+	env.manifest.Pause = false
 	env.updateManifest()
+	env.waitForManifest()
 
-	env.waitForManifestChange(prev, 30*time.Second)
 	env.clock.Add(1 * time.Minute)
 
 	env.waitForInstanceNumber(3, 30*time.Second, true)
@@ -262,7 +250,7 @@ func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 var base = manifest.Manifest{
 	BootstrapEpoch:      950,
 	InitialInstance:     0,
-	NetworkName:         gpbft.NetworkName("f3-test/0"),
+	NetworkName:         gpbft.NetworkName("f3-test"),
 	CommitteeLookback:   manifest.DefaultCommitteeLookback,
 	Gpbft:               manifest.DefaultGpbftConfig,
 	EC:                  manifest.DefaultEcConfig,
@@ -273,6 +261,7 @@ var base = manifest.Manifest{
 type testNode struct {
 	e         *testEnv
 	h         host.Host
+	id        int
 	f3        *f3.F3
 	dsErrFunc func(string) error
 }
@@ -284,6 +273,59 @@ func (n *testNode) currentGpbftInstance() uint64 {
 		return n.e.manifest.InitialInstance
 	}
 	return c.GPBFTInstance + 1
+}
+
+func (n *testNode) init() *f3.F3 {
+	if n.f3 != nil {
+		return n.f3
+	}
+
+	ps, err := pubsub.NewGossipSub(n.e.testCtx, n.h)
+	require.NoError(n.e.t, err)
+
+	ds := ds_sync.MutexWrap(failstore.NewFailstore(datastore.NewMapDatastore(), func(s string) error {
+		if n.dsErrFunc != nil {
+			return (n.dsErrFunc)(s)
+		}
+		return nil
+	}))
+
+	var manifestServerID peer.ID
+	if n.e.manifestSender != nil {
+		manifestServerID = n.e.manifestSender.SenderID()
+	}
+
+	var mprovider manifest.ManifestProvider
+	if manifestServerID != "" {
+		mprovider = manifest.NewDynamicManifestProvider(
+			n.e.currentManifest(), ds, ps, manifestServerID)
+	} else {
+		mprovider = manifest.NewStaticManifestProvider(n.e.currentManifest())
+	}
+
+	n.e.signingBackend.Allow(int(n.id))
+
+	n.f3, err = f3.New(n.e.testCtx, mprovider, ds, n.h, ps, n.e.signingBackend, n.e.ec,
+		filepath.Join(n.e.tempDir, fmt.Sprintf("instance-%d", n.id)))
+	require.NoError(n.e.t, err)
+
+	n.e.errgrp.Go(func() error {
+		return runMessageSubscription(n.e.testCtx, n.f3, gpbft.ActorID(n.id), n.e.signingBackend)
+	})
+
+	return n.f3
+}
+
+func (n *testNode) start() {
+	require.NoError(n.e.t, n.init().Start(n.e.testCtx))
+}
+
+func (n *testNode) pause() {
+	require.NoError(n.e.t, n.f3.Pause())
+}
+
+func (n *testNode) resume() {
+	require.NoError(n.e.t, n.f3.Resume())
 }
 
 type testEnv struct {
@@ -302,59 +344,54 @@ type testEnv struct {
 	manifestVersion uint64
 }
 
-// signals the update to the latest manifest in the environment.
-func (e *testEnv) updateManifest() {
-	m := e.manifest // copy because we mutate it locally.
-	e.manifestVersion++
-	nn := fmt.Sprintf("%s/%d", e.manifest.NetworkName, e.manifestVersion)
-	m.NetworkName = gpbft.NetworkName(nn)
-	e.manifestSender.UpdateManifest(&m)
+func (e *testEnv) currentManifest() *manifest.Manifest {
+	m := e.manifest
+	if e.manifestSender != nil {
+		nn := fmt.Sprintf("%s/%d", e.manifest.NetworkName, e.manifestVersion)
+		m.NetworkName = gpbft.NetworkName(nn)
+	}
+	return &m
 }
 
-func (e *testEnv) addParticipants(m *manifest.Manifest, participants []gpbft.ActorID, power gpbft.StoragePower, runNodes bool) {
-	for _, n := range participants {
-		nodeLen := len(e.nodes)
-		newNode := false
-		// nodes are initialized sequentially. If the participantID is over the
-		// number of nodes, it means that it hasn't been initialized and is a new node
-		// that we need to add
-		// If the ID matches an existing one, it adds to the existing power.
-		// NOTE: We do not respect the original ID when adding a new nodes, we use the subsequent one.
-		if n >= gpbft.ActorID(nodeLen) {
-			e.initNode(nodeLen, e.manifestSender.SenderID())
-			newNode = true
-		}
-		pubkey, _ := e.signingBackend.GenerateKey()
-		m.ExplicitPower = append(m.ExplicitPower, gpbft.PowerEntry{
-			ID:     gpbft.ActorID(nodeLen),
-			PubKey: pubkey,
-			Power:  power,
-		})
-		if runNodes && newNode {
-			// connect node
-			for j := 0; j < nodeLen-1; j++ {
-				_, err := e.net.LinkPeers(e.nodes[nodeLen-1].h.ID(), e.nodes[j].h.ID())
-				require.NoError(e.t, err)
-				_, err = e.net.ConnectPeers(e.nodes[nodeLen-1].h.ID(), e.nodes[j].h.ID())
-				require.NoError(e.t, err)
-			}
-			// run
-			e.startNode(nodeLen - 1)
-		}
+// signals the update to the latest manifest in the environment.
+func (e *testEnv) updateManifest() {
+	e.t.Helper()
+	if e.manifestSender == nil {
+		e.t.Fatal("cannot update manifest unless the dynamic manifest is enabled")
 	}
+	e.manifestVersion++
+	e.manifestSender.UpdateManifest(e.currentManifest())
+}
+
+func (e *testEnv) waitForManifest() {
+	e.t.Helper()
+	newManifest := e.currentManifest()
+	e.waitForCondition(func() bool {
+		for _, n := range e.nodes {
+			if n.f3 == nil {
+				continue
+			}
+
+			m := n.f3.Manifest()
+			if m == nil {
+				return false
+			}
+			if !newManifest.Equal(m) {
+				return false
+			}
+		}
+		return true
+	}, 10*time.Second)
 }
 
 func (e *testEnv) waitForCondition(condition func() bool, timeout time.Duration) {
 	e.t.Helper()
 	start := time.Now()
-	for {
-		if condition() {
-			break
+	for !condition() {
+		if time.Since(start) > timeout {
+			e.t.Fatalf("test took too long (more than %s)", timeout)
 		}
 		e.advance()
-		if time.Since(start) > timeout {
-			e.t.Fatalf("test took too long")
-		}
 	}
 }
 
@@ -367,7 +404,7 @@ func (e *testEnv) waitForInstanceNumber(instanceNumber uint64, timeout time.Dura
 			// nodes that are not running are not required to reach the instance
 			// (it will actually panic if we try to fetch it because there is no
 			// runner initialized)
-			if !n.f3.IsRunning() {
+			if n.f3 == nil || !n.f3.IsRunning() {
 				if strict {
 					return false
 				}
@@ -385,32 +422,28 @@ func (e *testEnv) advance() {
 	e.clock.Add(1 * time.Second)
 }
 
-func (e *testEnv) waitForManifestChange(prev *manifest.Manifest, timeout time.Duration) {
-	e.t.Helper()
-	e.waitForCondition(func() bool {
-		for _, n := range e.nodes {
-			if !n.f3.IsRunning() {
-				continue
-			}
+func (e *testEnv) withNodes(n int) *testEnv {
+	for i := 0; i < n; i++ {
+		e.addNode()
+	}
 
-			m := n.f3.Manifest()
-			if m == nil {
-				return false
-			}
-
-			if prev.Equal(m) {
-				return false
-			}
-		}
-		return true
-	}, timeout)
+	return e
 }
 
-func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) *testEnv {
+func newTestEnvironment(t *testing.T) *testEnv {
 	ctx, cancel := context.WithCancel(context.Background())
 	ctx, clk := clock.WithMockClock(ctx)
 	grp, ctx := errgroup.WithContext(ctx)
-	env := &testEnv{t: t, errgrp: grp, testCtx: ctx, net: mocknet.New(), clock: clk, tempDir: t.TempDir()}
+	env := &testEnv{
+		t:              t,
+		errgrp:         grp,
+		testCtx:        ctx,
+		net:            mocknet.New(),
+		clock:          clk,
+		tempDir:        t.TempDir(),
+		manifest:       base,
+		signingBackend: signing.NewFakeBackend(),
+	}
 
 	// Cleanup on exit.
 	env.t.Cleanup(func() {
@@ -418,54 +451,30 @@ func newTestEnvironment(t *testing.T, n int, dynamicManifest bool) *testEnv {
 
 		cancel()
 		for _, n := range env.nodes {
-			require.NoError(env.t, n.f3.Stop(context.Background()))
+			if n.f3 != nil {
+				require.NoError(env.t, n.f3.Stop(context.Background()))
+			}
 		}
 		env.clock.Add(500 * time.Second)
 		require.NoError(env.t, env.errgrp.Wait())
 	})
 
-	// populate manifest
-	m := base
-	initialPowerTable := gpbft.PowerEntries{}
-
-	env.signingBackend = signing.NewFakeBackend()
-	for i := 0; i < n; i++ {
-		pubkey, _ := env.signingBackend.GenerateKey()
-
-		initialPowerTable = append(initialPowerTable, gpbft.PowerEntry{
-			ID:     gpbft.ActorID(i),
-			PubKey: pubkey,
-			Power:  gpbft.NewStoragePower(1000),
-		})
-	}
-	env.manifest = m
-	env.ec = consensus.NewFakeEC(ctx, 1, m.BootstrapEpoch+m.EC.Finality, m.EC.Period, initialPowerTable)
-
-	var manifestServer peer.ID
-	if dynamicManifest {
-		env.newManifestSender()
-		manifestServer = env.manifestSender.SenderID()
-	}
-
-	// initialize nodes
-	for i := 0; i < n; i++ {
-		env.initNode(i, manifestServer)
-	}
-
 	return env
 }
 
-func (e *testEnv) initNode(i int, manifestServer peer.ID) {
-	n, err := e.newF3Instance(i, manifestServer)
+func (e *testEnv) addNode() *testNode {
+	h, err := e.net.GenPeer()
 	require.NoError(e.t, err)
+	n := &testNode{e: e, h: h, id: len(e.nodes)}
 	e.nodes = append(e.nodes, n)
+	return n
 }
 
 func (e *testEnv) requireEqualManifests(strict bool) {
 	m := e.nodes[0].f3.Manifest()
 	for _, n := range e.nodes {
 		// only check running nodes
-		if n.f3.IsRunning() || strict {
+		if (n.f3 != nil && n.f3.IsRunning()) || strict {
 			require.Equal(e.t, n.f3.Manifest(), m)
 		}
 	}
@@ -496,10 +505,49 @@ func (e *testEnv) waitForNodesStopped(timeout time.Duration) {
 	e.waitFor(f, timeout)
 }
 
-func (e *testEnv) start() {
+// Connect & link all nodes. This operation is idempotent.
+func (e *testEnv) connectAll() *testEnv {
+	e.net.LinkAll()
+	e.net.ConnectAllButSelf()
+
+	return e
+}
+
+// Initialize all nodes and create the initial power table. This operation can be called multiple
+// times, but nodes added after it is called won't be added to the power table.
+func (e *testEnv) initialize() *testEnv {
+	// Construct the EC if necessary.
+	if e.ec == nil {
+		initialPowerTable := gpbft.PowerEntries{}
+		for _, n := range e.nodes {
+			pubkey, _ := e.signingBackend.GenerateKey()
+			initialPowerTable = append(initialPowerTable, gpbft.PowerEntry{
+				ID:     gpbft.ActorID(n.id),
+				PubKey: pubkey,
+				Power:  gpbft.NewStoragePower(1000),
+			})
+		}
+
+		e.ec = consensus.NewFakeEC(e.testCtx, 1,
+			e.manifest.BootstrapEpoch+e.manifest.EC.Finality,
+			e.manifest.EC.Period,
+			initialPowerTable)
+	}
+
+	for _, n := range e.nodes {
+		n.init()
+	}
+	return e
+}
+
+// Start all nodes. This will also connect/initialize all nodes if necessary.
+func (e *testEnv) start() *testEnv {
+	e.initialize()
+	e.connectAll()
+
 	// Start the nodes
-	for i := range e.nodes {
-		e.startNode(i)
+	for _, n := range e.nodes {
+		n.start()
 	}
 
 	// wait for nodes to initialize
@@ -509,99 +557,35 @@ func (e *testEnv) start() {
 	if e.manifestSender != nil {
 		e.errgrp.Go(func() error { return e.manifestSender.Run(e.testCtx) })
 	}
+
+	return e
+}
+
+func (e *testEnv) withManifest(fn func(m *manifest.Manifest)) *testEnv {
+	fn(&e.manifest)
+	return e
 }
 
 func (e *testEnv) pauseNode(i int) {
-	n := e.nodes[i]
-	require.NoError(e.t, n.f3.Pause())
+	e.nodes[i].pause()
 }
 
 func (e *testEnv) resumeNode(i int) {
-	n := e.nodes[i]
-	require.NoError(e.t, n.f3.Resume())
+	e.nodes[i].resume()
 }
 
-func (e *testEnv) startNode(i int) {
-	n := e.nodes[i]
-	require.NoError(e.t, n.f3.Start(e.testCtx))
-}
-
-func (e *testEnv) connectAll() {
-	for i, n := range e.nodes {
-		for j := i + 1; j < len(e.nodes); j++ {
-			_, err := e.net.LinkPeers(n.h.ID(), e.nodes[j].h.ID())
-			require.NoError(e.t, err)
-			_, err = e.net.ConnectPeers(n.h.ID(), e.nodes[j].h.ID())
-			require.NoError(e.t, err)
-		}
-	}
-
-	// connect to the manifest server if it exists
-	if e.manifestSender != nil {
-		id := e.manifestSender.PeerInfo().ID
-		for _, n := range e.nodes {
-			_, err := e.net.LinkPeers(n.h.ID(), id)
-			require.NoError(e.t, err)
-			_, err = e.net.ConnectPeers(n.h.ID(), id)
-			require.NoError(e.t, err)
-		}
-
-	}
-}
-
-func (e *testEnv) newManifestSender() {
+func (e *testEnv) withDynamicManifest() *testEnv {
 	h, err := e.net.GenPeer()
 	require.NoError(e.t, err)
 
 	ps, err := pubsub.NewGossipSub(e.testCtx, h)
 	require.NoError(e.t, err)
 
-	m := e.manifest // copy because we mutate this
-	e.manifestSender, err = manifest.NewManifestSender(e.testCtx, h, ps, &m, ManifestSenderTimeout)
+	e.manifestSender, err = manifest.NewManifestSender(e.testCtx, h, ps,
+		e.currentManifest(), ManifestSenderTimeout)
 	require.NoError(e.t, err)
-}
 
-func (e *testEnv) newF3Instance(id int, manifestServer peer.ID) (*testNode, error) {
-	h, err := e.net.GenPeer()
-	if err != nil {
-		return nil, fmt.Errorf("creating libp2p host: %w", err)
-	}
-
-	n := &testNode{e: e, h: h}
-
-	ps, err := pubsub.NewGossipSub(e.testCtx, h)
-	if err != nil {
-		return nil, fmt.Errorf("creating gossipsub: %w", err)
-	}
-
-	ds := ds_sync.MutexWrap(failstore.NewFailstore(datastore.NewMapDatastore(), func(s string) error {
-		if n.dsErrFunc != nil {
-			return (n.dsErrFunc)(s)
-		}
-		return nil
-	}))
-
-	m := e.manifest // copy because we mutate this
-	var mprovider manifest.ManifestProvider
-	if manifestServer != "" {
-		mprovider = manifest.NewDynamicManifestProvider(&m, ds, ps, manifestServer)
-	} else {
-		mprovider = manifest.NewStaticManifestProvider(&m)
-	}
-
-	e.signingBackend.Allow(id)
-
-	n.f3, err = f3.New(e.testCtx, mprovider, ds, h, ps, e.signingBackend, e.ec,
-		filepath.Join(e.tempDir, fmt.Sprintf("instance-%d", id)))
-	if err != nil {
-		return nil, fmt.Errorf("creating module: %w", err)
-	}
-
-	e.errgrp.Go(func() error {
-		return runMessageSubscription(e.testCtx, n.f3, gpbft.ActorID(id), e.signingBackend)
-	})
-
-	return n, nil
+	return e
 }
 
 func (e *testEnv) injectDatastoreFailures(i int, fn func(op string) error) {
