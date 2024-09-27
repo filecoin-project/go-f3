@@ -167,8 +167,8 @@ func (m *F3) computeBootstrapDelay(manifest *manifest.Manifest) (time.Duration, 
 	return delay, nil
 }
 
-// Run start the module. It will exit when context is cancelled.
-// Or if there is an error from the message handling routines.
+// Start the module, call Stop to exit. Canceling the past context will cancel the request to start
+// F3, it won't stop the service after it has started.
 func (m *F3) Start(startCtx context.Context) (_err error) {
 	err := m.manifestProvider.Start(startCtx)
 	if err != nil {
@@ -253,6 +253,7 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 	return nil
 }
 
+// Stop F3.
 func (m *F3) Stop(stopCtx context.Context) (_err error) {
 	m.cancelCtx()
 	return multierr.Combine(
