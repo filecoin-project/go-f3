@@ -21,6 +21,7 @@ jobs:
       - name: Fuzz
         env:
           FUZZTIME: 30s
+          GOGC: '100'
         run: make fuzz
       - name: Upload fuzz failure seed corpus as run artifact
         if: failure()
