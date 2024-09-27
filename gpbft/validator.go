@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"sync/atomic"
 
 	"github.com/filecoin-project/go-f3/internal/caching"
 	"go.opentelemetry.io/otel/metric"
@@ -13,58 +12,30 @@ import (
 
 var (
 	_ MessageValidator = (*cachingValidator)(nil)
-	_ ProgressObserver = (*cachingValidator)(nil)
 )
 
-// ProgressObserver defines an interface for observing and being notified about
-// the progress of a GPBFT instance as it advances through different instance,
-// rounds or phases.
-type ProgressObserver interface {
-	// NotifyProgress is called to notify the observer about the progress of GPBFT
-	// instance, round or phase.
-	NotifyProgress(instance, round uint64, phase Phase)
-}
-
 type cachingValidator struct {
-	progress atomic.Pointer[progress]
-	// cache is a bounded cache of messages that have already been validated, grouped
-	// by instance.
+	// cache is a bounded cache that stores identifiers of the messages or
+	// justifications validated by this validator, grouped by their respective
+	// instance identifiers. During validation, if a message or justification is
+	// already present in the cache, it will be skipped to avoid redundant
+	// validations. Otherwise, once validated the cache is updated to include it.
 	cache             *caching.GroupedSet
 	committeeLookback uint64
 	committeeProvider CommitteeProvider
 	networkName       NetworkName
 	signing           Signatures
+	progress          Progress
 }
 
-type progress struct {
-	id    uint64
-	round uint64
-	phase Phase
-}
-
-func newValidator(host Host, cp CommitteeProvider, committeeLookback uint64, maxCachedInstances int, maxCachedMsgsPerInstance int) *cachingValidator {
-	validator := cachingValidator{
-		cache:             caching.NewGroupedSet(maxCachedInstances, maxCachedMsgsPerInstance),
+func newValidator(host Host, cp CommitteeProvider, progress Progress, cache *caching.GroupedSet, committeeLookback uint64) *cachingValidator {
+	return &cachingValidator{
+		cache:             cache,
 		committeeProvider: cp,
 		committeeLookback: committeeLookback,
 		networkName:       host.NetworkName(),
 		signing:           host,
-	}
-	// Default to instance 0, round 0 and INITIAL phase.
-	validator.progress.Store(&progress{})
-	return &validator
-}
-
-func (v *cachingValidator) NotifyProgress(instance uint64, round uint64, phase Phase) {
-	v.progress.Store(&progress{
-		id:    instance,
-		round: round,
-		phase: phase,
-	})
-	if instance > 0 {
-		// Remove cache of validated messages for instance that are older than the
-		// previous instance.
-		v.cache.RemoveGroupsLessThan(instance - 1)
+		progress:          progress,
 	}
 }
 
@@ -77,16 +48,16 @@ func (v *cachingValidator) ValidateMessage(msg *GMessage) (valid ValidatedMessag
 	}
 
 	// Infer whether to proceed validating the message relative to the current instance.
-	switch current := v.progress.Load(); {
-	case msg.Vote.Instance >= current.id+v.committeeLookback:
+	switch currentInstance, currentRound, currentPhase := v.progress(); {
+	case msg.Vote.Instance >= currentInstance+v.committeeLookback:
 		// Message is beyond current + committee lookback.
 		return nil, ErrValidationNoCommittee
-	case msg.Vote.Instance > current.id,
-		msg.Vote.Instance+1 == current.id && msg.Vote.Phase == DECIDE_PHASE:
+	case msg.Vote.Instance > currentInstance,
+		msg.Vote.Instance+1 == currentInstance && msg.Vote.Phase == DECIDE_PHASE:
 		// Only proceed to validate the message if it:
 		//  * belongs to an instance within the range of current to current + committee lookback, or
 		//  * is a DECIDE message belonging to previous instance.
-	case msg.Vote.Instance == current.id:
+	case msg.Vote.Instance == currentInstance:
 		// Message belongs to current instance. Only validate messages that are relevant,
 		// i.e.:
 		//   * When current instance is at DECIDE phase only validate DECIDE messages.
@@ -94,15 +65,15 @@ func (v *cachingValidator) ValidateMessage(msg *GMessage) (valid ValidatedMessag
 		//     DECIDE, messages from previous round, and messages from current round.
 		// Anything else is not relevant.
 		switch {
-		case current.phase == DECIDE_PHASE && msg.Vote.Phase != DECIDE_PHASE:
+		case currentPhase == DECIDE_PHASE && msg.Vote.Phase != DECIDE_PHASE:
 			return nil, ErrValidationNotRelevant
 		case msg.Vote.Phase == QUALITY_PHASE,
 			msg.Vote.Phase == DECIDE_PHASE,
 			// Check if message round is larger than or equal to current round.
-			msg.Vote.Round >= current.round,
+			msg.Vote.Round >= currentRound,
 			// Check if message round is equal to previous round. Note that we increment the
 			// message round to check this in order to avoid unit64 wrapping.
-			msg.Vote.Round+1 == current.round:
+			msg.Vote.Round+1 == currentRound:
 			// Message is relevant. Progress to further validation.
 		default:
 			return nil, ErrValidationNotRelevant

@@ -211,8 +211,7 @@ type instance struct {
 	// independently of protocol phases/rounds.
 	decision *quorumState
 	// tracer traces logic logs for debugging and simulation purposes.
-	tracer   Tracer
-	progress ProgressObserver
+	tracer Tracer
 }
 
 func newInstance(
@@ -222,8 +221,7 @@ func newInstance(
 	data *SupplementalData,
 	powerTable *PowerTable,
 	aggregateVerifier Aggregate,
-	beacon []byte,
-	progress ProgressObserver) (*instance, error) {
+	beacon []byte) (*instance, error) {
 	if input.IsZero() {
 		return nil, fmt.Errorf("input is empty")
 	}
@@ -253,7 +251,6 @@ func newInstance(
 		},
 		decision: newQuorumState(powerTable),
 		tracer:   participant.tracer,
-		progress: progress,
 	}, nil
 }
 
@@ -486,7 +483,7 @@ func (i *instance) beginQuality() error {
 	}
 	// Broadcast input value and wait to receive from others.
 	i.phase = QUALITY_PHASE
-	i.progress.NotifyProgress(i.instanceID, i.round, i.phase)
+	i.participant.progression.NotifyProgress(i.instanceID, i.round, i.phase)
 	i.phaseTimeout = i.alarmAfterSynchrony()
 	i.resetRebroadcastParams()
 	i.broadcast(i.round, QUALITY_PHASE, i.proposal, false, nil)
@@ -541,7 +538,7 @@ func (i *instance) beginConverge(justification *Justification) {
 	}
 
 	i.phase = CONVERGE_PHASE
-	i.progress.NotifyProgress(i.instanceID, i.round, i.phase)
+	i.participant.progression.NotifyProgress(i.instanceID, i.round, i.phase)
 	i.phaseTimeout = i.alarmAfterSynchrony()
 	i.resetRebroadcastParams()
 
@@ -604,7 +601,7 @@ func (i *instance) tryConverge() error {
 func (i *instance) beginPrepare(justification *Justification) {
 	// Broadcast preparation of value and wait for everyone to respond.
 	i.phase = PREPARE_PHASE
-	i.progress.NotifyProgress(i.instanceID, i.round, i.phase)
+	i.participant.progression.NotifyProgress(i.instanceID, i.round, i.phase)
 	i.phaseTimeout = i.alarmAfterSynchrony()
 	i.resetRebroadcastParams()
 
@@ -645,7 +642,7 @@ func (i *instance) tryPrepare() error {
 
 func (i *instance) beginCommit() {
 	i.phase = COMMIT_PHASE
-	i.progress.NotifyProgress(i.instanceID, i.round, i.phase)
+	i.participant.progression.NotifyProgress(i.instanceID, i.round, i.phase)
 	i.phaseTimeout = i.alarmAfterSynchrony()
 	i.resetRebroadcastParams()
 
@@ -722,7 +719,7 @@ func (i *instance) tryCommit(round uint64) error {
 
 func (i *instance) beginDecide(round uint64) {
 	i.phase = DECIDE_PHASE
-	i.progress.NotifyProgress(i.instanceID, i.round, i.phase)
+	i.participant.progression.NotifyProgress(i.instanceID, i.round, i.phase)
 	i.resetRebroadcastParams()
 	var justification *Justification
 	// Value cannot be empty here.
@@ -748,7 +745,7 @@ func (i *instance) beginDecide(round uint64) {
 // The provided justification must justify the value being decided.
 func (i *instance) skipToDecide(value ECChain, justification *Justification) {
 	i.phase = DECIDE_PHASE
-	i.progress.NotifyProgress(i.instanceID, i.round, i.phase)
+	i.participant.progression.NotifyProgress(i.instanceID, i.round, i.phase)
 	i.proposal = value
 	i.value = i.proposal
 	i.resetRebroadcastParams()
@@ -854,7 +851,7 @@ func (i *instance) addCandidate(c ECChain) bool {
 func (i *instance) terminate(decision *Justification) {
 	i.log("✅ terminated %s during round %d", &i.value, i.round)
 	i.phase = TERMINATED_PHASE
-	i.progress.NotifyProgress(i.instanceID, i.round, i.phase)
+	i.participant.progression.NotifyProgress(i.instanceID, i.round, i.phase)
 	i.value = decision.Vote.Value
 	i.terminationValue = decision
 	i.resetRebroadcastParams()
