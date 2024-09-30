@@ -98,9 +98,7 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 				if instance, _, _ := p.Progress(); instance < currentInstance.Instance {
 					// TODO: enhance control over propagation of finality certificates
 					//       See: https://github.com/filecoin-project/go-f3/issues/327
-					if err := p.StartInstanceAt(currentInstance.Instance, s.network.Time()); err != nil {
-						return fmt.Errorf("participant %d failed to skip to instace %d: %w", p.ID(), currentInstance.Instance, err)
-					}
+					p.StartInstanceAt(currentInstance.Instance, s.network.Time())
 				}
 			}
 
@@ -148,15 +146,11 @@ func (s *Simulation) startParticipants(instance uint64) {
 	when := s.network.Time()
 	// Start participants.
 	for _, p := range s.participants {
-		if err := p.StartInstanceAt(instance, when); err != nil {
-			panic(fmt.Errorf("participant %d failed starting: %w", p.ID(), err))
-		}
+		p.StartInstanceAt(instance, when)
 	}
 	// Start adversary
 	if s.adversary != nil {
-		if err := s.adversary.StartInstanceAt(instance, when); err != nil {
-			panic(fmt.Errorf("adversary %d failed starting: %w", s.adversary.ID(), err))
-		}
+		s.adversary.StartInstanceAt(instance, when)
 	}
 }
 
