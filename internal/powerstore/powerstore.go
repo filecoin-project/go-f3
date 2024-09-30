@@ -223,6 +223,7 @@ func (ps *Store) run(ctx context.Context) error {
 		f3Base, _, err := ps.f3PowerBase(ctx)
 		if err != nil {
 			log.Errorw("failed to determine f3 base epoch", "error", err)
+			continue
 		}
 		ecHeadTs, err := ps.GetHead(ctx)
 		if err != nil {
@@ -339,11 +340,11 @@ func (ps *Store) get(ctx context.Context, epoch int64) (certs.PowerTableDiff, er
 	}
 	buf, err := ps.ds.Get(ctx, ps.dsKeyForDiff(epoch))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to lookup powertable delta for epoch %d: %w", epoch, err)
 	}
 	var diff certs.PowerTableDiff
 	if err := diff.UnmarshalCBOR(bytes.NewReader(buf)); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode powertable delta for epoch %d: %w", epoch, err)
 	}
 
 	return diff, nil
