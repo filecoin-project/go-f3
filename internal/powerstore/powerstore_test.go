@@ -2,7 +2,6 @@ package powerstore_test
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -23,40 +22,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type forgetfulEC struct {
-	*consensus.FakeEC
-
-	ecFinality int64
-}
-
-// GetPowerTable implements ec.Backend.
-func (f *forgetfulEC) GetPowerTable(ctx context.Context, tsk gpbft.TipSetKey) (gpbft.PowerEntries, error) {
-	ts, err := f.GetTipset(ctx, tsk)
-	if err != nil {
-		return nil, err
-	}
-	head, err := f.GetHead(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if ts.Epoch() < head.Epoch()-2*f.ecFinality {
-		return nil, fmt.Errorf("oops, we forgot that power table, head %d, epoch %d", head.Epoch(), ts.Epoch())
-	}
-	pt, err := f.FakeEC.GetPowerTable(ctx, tsk)
-	if err != nil {
-		return nil, err
-	}
-
-	// make sure power changes over time by adding the current epoch to the first entry.
-	pt = slices.Clone(pt)
-	newPower := gpbft.NewStoragePower(ts.Epoch())
-	pt[0].Power = big.Add(newPower, pt[0].Power)
-
-	return pt, nil
-}
-
-var _ ec.Backend = (*forgetfulEC)(nil)
-
 var basePowerTable = gpbft.PowerEntries{
 	{ID: 1, Power: gpbft.NewStoragePower(50), PubKey: gpbft.PubKey("1")},
 	{ID: 3, Power: gpbft.NewStoragePower(10), PubKey: gpbft.PubKey("2")},
@@ -68,10 +33,18 @@ func TestPowerStore(t *testing.T) {
 
 	m := manifest.LocalDevnetManifest()
 
-	ec := &forgetfulEC{
-		FakeEC:     consensus.NewFakeEC(ctx, 1234, m.BootstrapEpoch, m.EC.Period, basePowerTable),
-		ecFinality: m.EC.Finality,
-	}
+	ec := consensus.NewFakeEC(ctx,
+		consensus.WithMaxLookback(2*m.EC.Finality),
+		consensus.WithBootstrapEpoch(m.BootstrapEpoch),
+		consensus.WithECPeriod(m.EC.Period),
+		consensus.WithInitialPowerTable(basePowerTable),
+		consensus.WithEvolvingPowerTable(func(epoch int64, pt gpbft.PowerEntries) gpbft.PowerEntries {
+			pt = slices.Clone(pt)
+			newPower := gpbft.NewStoragePower(epoch)
+			pt[0].Power = big.Add(newPower, pt[0].Power)
+			return pt
+		}),
+	)
 
 	head, err := ec.GetHead(ctx)
 	require.NoError(t, err)

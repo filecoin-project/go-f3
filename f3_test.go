@@ -528,10 +528,11 @@ func (e *testEnv) initialize() *testEnv {
 			})
 		}
 
-		e.ec = consensus.NewFakeEC(e.testCtx, 1,
-			e.manifest.BootstrapEpoch+e.manifest.EC.Finality,
-			e.manifest.EC.Period,
-			initialPowerTable)
+		e.ec = consensus.NewFakeEC(e.testCtx,
+			consensus.WithBootstrapEpoch(e.manifest.BootstrapEpoch+e.manifest.EC.Finality),
+			consensus.WithECPeriod(e.manifest.EC.Period),
+			consensus.WithInitialPowerTable(initialPowerTable),
+		)
 	}
 
 	for _, n := range e.nodes {
