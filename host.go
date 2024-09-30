@@ -452,7 +452,7 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 
 var (
 	_ gpbft.Host     = (*gpbftHost)(nil)
-	_ gpbft.Progress = (*gpbftHost)(nil).Progress
+	_ gpbft.Progress = (*gpbftRunner)(nil).Progress
 )
 
 // gpbftHost is a newtype of gpbftRunner exposing APIs required by the gpbft.Participant
@@ -489,6 +489,14 @@ func (h *gpbftRunner) Stop(context.Context) error {
 		h.errgrp.Wait(),
 		h.teardownPubsub(),
 	)
+}
+
+// Progress returns the latest progress of GPBFT consensus in terms of instance
+// ID, round and phase.
+//
+// This API is safe for concurrent use.
+func (h *gpbftRunner) Progress() (instance, round uint64, phase gpbft.Phase) {
+	return h.participant.Progress()
 }
 
 // Returns inputs to the next GPBFT instance.
@@ -774,12 +782,4 @@ func (h *gpbftHost) Verify(pubKey gpbft.PubKey, msg []byte, sig []byte) error {
 
 func (h *gpbftHost) Aggregate(pubKeys []gpbft.PubKey) (gpbft.Aggregate, error) {
 	return h.verifier.Aggregate(pubKeys)
-}
-
-// Progress returns the latest progress of GPBFT concensus in terms of instance
-// ID, round and phase.
-//
-// This API is safe for concurrent use.
-func (h *gpbftHost) Progress() (instance, round uint64, phase gpbft.Phase) {
-	return h.participant.Progress()
 }
