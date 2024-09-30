@@ -20,13 +20,18 @@ var (
 	_ ec.TipSet  = (*tipset)(nil)
 )
 
+type PowerTableMutator func(epoch int64, pt gpbft.PowerEntries) gpbft.PowerEntries
+
 type FakeEC struct {
 	clock             clock.Clock
 	seed              []byte
 	initialPowerTable gpbft.PowerEntries
+	evolvePowerTable  PowerTableMutator
 
-	ecPeriod time.Duration
-	ecStart  time.Time
+	bootstrapEpoch int64
+	ecPeriod       time.Duration
+	ecMaxLookback  int64
+	ecStart        time.Time
 
 	lk       sync.RWMutex
 	pausedAt *time.Time
@@ -67,16 +72,59 @@ func (ts *tipset) String() string {
 	return res
 }
 
-func NewFakeEC(ctx context.Context, seed uint64, bootstrapEpoch int64, ecPeriod time.Duration, initialPowerTable gpbft.PowerEntries) *FakeEC {
-	clk := clock.GetClock(ctx)
-	return &FakeEC{
-		clock:             clk,
-		seed:              binary.BigEndian.AppendUint64(nil, seed),
-		initialPowerTable: initialPowerTable,
+type fakeECConfig FakeEC
 
-		ecPeriod: ecPeriod,
-		ecStart:  clk.Now().Add(-time.Duration(bootstrapEpoch) * ecPeriod),
+type FakeECOption func(*fakeECConfig)
+
+func WithBootstrapEpoch(epoch int64) FakeECOption {
+	return func(ec *fakeECConfig) {
+		ec.bootstrapEpoch = epoch
 	}
+}
+
+func WithSeed(seed uint64) FakeECOption {
+	return func(ec *fakeECConfig) {
+		ec.seed = binary.BigEndian.AppendUint64(nil, seed)
+	}
+}
+
+func WithInitialPowerTable(initialPowerTable gpbft.PowerEntries) FakeECOption {
+	return func(ec *fakeECConfig) {
+		ec.initialPowerTable = initialPowerTable
+	}
+}
+
+func WithECPeriod(ecPeriod time.Duration) FakeECOption {
+	return func(ec *fakeECConfig) {
+		ec.ecPeriod = ecPeriod
+	}
+}
+
+func WithMaxLookback(distance int64) FakeECOption {
+	return func(ec *fakeECConfig) {
+		ec.ecMaxLookback = distance
+	}
+}
+
+func WithEvolvingPowerTable(fn PowerTableMutator) FakeECOption {
+	return func(ec *fakeECConfig) {
+		ec.evolvePowerTable = fn
+	}
+}
+
+func NewFakeEC(ctx context.Context, options ...FakeECOption) *FakeEC {
+	clk := clock.GetClock(ctx)
+	fakeEc := &FakeEC{
+		clock:    clk,
+		ecPeriod: 30,
+	}
+
+	for _, option := range options {
+		option((*fakeECConfig)(fakeEc))
+	}
+
+	fakeEc.ecStart = clk.Now().Add(-time.Duration(fakeEc.bootstrapEpoch) * fakeEc.ecPeriod)
+	return fakeEc
 }
 
 var cidPrefixBytes = gpbft.CidPrefix.Bytes()
@@ -175,13 +223,32 @@ func (ec *FakeEC) GetHead(ctx context.Context) (ec.TipSet, error) {
 	return ec.GetTipsetByEpoch(ctx, ec.GetCurrentHead())
 }
 
-func (ec *FakeEC) GetPowerTable(context.Context, gpbft.TipSetKey) (gpbft.PowerEntries, error) {
-	return ec.initialPowerTable, nil
+func (ec *FakeEC) GetPowerTable(ctx context.Context, tsk gpbft.TipSetKey) (gpbft.PowerEntries, error) {
+	targetEpoch := ec.epochFromTsk(tsk)
+	headEpoch := ec.GetCurrentHead()
+
+	if targetEpoch > headEpoch {
+		return nil, fmt.Errorf("requested epoch %d beyond head %d", targetEpoch, headEpoch)
+	}
+
+	if ec.ecMaxLookback > 0 && targetEpoch < headEpoch-ec.ecMaxLookback {
+		return nil, fmt.Errorf("oops, we forgot that power table, head %d, epoch %d", headEpoch, targetEpoch)
+	}
+
+	pt := ec.initialPowerTable
+	if ec.evolvePowerTable != nil {
+		pt = ec.evolvePowerTable(targetEpoch, pt)
+	}
+
+	return pt, nil
+}
+
+func (ec *FakeEC) epochFromTsk(tsk gpbft.TipSetKey) int64 {
+	return int64(binary.BigEndian.Uint64(tsk[6+32-8 : 6+32]))
 }
 
 func (ec *FakeEC) GetTipset(_ context.Context, tsk gpbft.TipSetKey) (ec.TipSet, error) {
-	epoch := binary.BigEndian.Uint64(tsk[6+32-8 : 6+32])
-	return ec.genTipset(int64(epoch)), nil
+	return ec.genTipset(ec.epochFromTsk(tsk)), nil
 }
 
 func (ec *FakeEC) Finalize(context.Context, gpbft.TipSetKey) error { return nil }
