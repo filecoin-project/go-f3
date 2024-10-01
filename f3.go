@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/filecoin-project/go-f3/certexchange"
@@ -28,6 +28,15 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+type f3State struct {
+	cs       *certstore.Store
+	runner   *gpbftRunner
+	ps       *powerstore.Store
+	certsub  *certexpoll.Subscriber
+	certserv *certexchange.Server
+	manifest *manifest.Manifest
+}
+
 type F3 struct {
 	verifier         gpbft.Verifier
 	manifestProvider manifest.ManifestProvider
@@ -45,13 +54,8 @@ type F3 struct {
 	cancelCtx  context.CancelFunc
 	errgrp     *errgroup.Group
 
-	mu       sync.Mutex
-	cs       *certstore.Store
-	manifest *manifest.Manifest
-	runner   *gpbftRunner
-	ps       *powerstore.Store
-	certsub  *certexpoll.Subscriber
-	certserv *certexchange.Server
+	manifest atomic.Pointer[manifest.Manifest]
+	state    atomic.Pointer[f3State]
 }
 
 // New creates and setups f3 with libp2p
@@ -85,59 +89,41 @@ func (m *F3) MessagesToSign() <-chan *gpbft.MessageBuilder {
 }
 
 func (m *F3) Manifest() *manifest.Manifest {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.manifest
+	return m.manifest.Load()
 }
 
 func (m *F3) Broadcast(ctx context.Context, signatureBuilder *gpbft.SignatureBuilder, msgSig []byte, vrf []byte) {
-
-	m.mu.Lock()
-	runner := m.runner
-	manifest := m.manifest
-	m.mu.Unlock()
-
-	if runner == nil {
+	state := m.state.Load()
+	if state == nil {
 		log.Error("attempted to broadcast message while F3 wasn't running")
 		return
 	}
-	if manifest == nil {
-		log.Error("attempted to broadcast message while manifest is nil")
-		return
-	}
-	if manifest.NetworkName != signatureBuilder.NetworkName {
+
+	if state.manifest.NetworkName != signatureBuilder.NetworkName {
 		log.Errorw("attempted to broadcast message for a wrong network",
-			"manifestNetwork", manifest.NetworkName, "messageNetwork", signatureBuilder.NetworkName)
+			"manifestNetwork", state.manifest.NetworkName, "messageNetwork", signatureBuilder.NetworkName)
 		return
 	}
 
 	msg := signatureBuilder.Build(msgSig, vrf)
-	err := runner.BroadcastMessage(msg)
+	err := state.runner.BroadcastMessage(msg)
 	if err != nil {
 		log.Warnf("failed to broadcast message: %+v", err)
 	}
 }
 
 func (m *F3) GetLatestCert(ctx context.Context) (*certs.FinalityCertificate, error) {
-	m.mu.Lock()
-	cs := m.cs
-	m.mu.Unlock()
-
-	if cs == nil {
-		return nil, fmt.Errorf("F3 is not running")
+	if state := m.state.Load(); state != nil {
+		return state.cs.Latest(), nil
 	}
-	return cs.Latest(), nil
+	return nil, fmt.Errorf("F3 is not running")
 }
 
 func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCertificate, error) {
-	m.mu.Lock()
-	cs := m.cs
-	m.mu.Unlock()
-
-	if cs == nil {
-		return nil, fmt.Errorf("F3 is not running")
+	if state := m.state.Load(); state != nil {
+		return state.cs.Get(ctx, instance)
 	}
-	return cs.Get(ctx, instance)
+	return nil, fmt.Errorf("F3 is not running")
 }
 
 // Returns the time at which the F3 instance specified by the passed manifest should be started, or
@@ -179,9 +165,7 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 	var pendingManifest *manifest.Manifest
 	select {
 	case pendingManifest = <-m.manifestProvider.ManifestUpdates():
-		m.mu.Lock()
-		m.manifest = pendingManifest
-		m.mu.Unlock()
+		m.manifest.Store(pendingManifest)
 	default:
 	}
 
@@ -200,8 +184,8 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 	}
 	{
 		var maybeNetworkName gpbft.NetworkName
-		if m.manifest != nil {
-			maybeNetworkName = m.manifest.NetworkName
+		if pendingManifest != nil {
+			maybeNetworkName = pendingManifest.NetworkName
 		}
 		log.Infow("F3 is starting", "initialDelay", initialDelay,
 			"hasPendingManifest", pendingManifest != nil, "NetworkName", maybeNetworkName)
@@ -209,9 +193,7 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 
 	m.errgrp.Go(func() (_err error) {
 		defer func() {
-			m.mu.Lock()
-			defer m.mu.Unlock()
-			if err := m.stopInternal(context.Background()); err != nil {
+			if err := m.Pause(context.Background()); err != nil {
 				_err = multierr.Append(_err, err)
 			}
 		}()
@@ -264,27 +246,23 @@ func (m *F3) Stop(stopCtx context.Context) (_err error) {
 
 func (m *F3) reconfigure(ctx context.Context, manif *manifest.Manifest) (_err error) {
 	log.Info("starting f3 reconfiguration")
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	metrics.manifestsReceived.Add(m.runningCtx, 1)
 
-	if err := m.stopInternal(ctx); err != nil {
+	if err := m.Pause(ctx); err != nil {
 		// Log but don't abort.
 		log.Errorw("failed to properly stop F3 while reconfiguring", "error", err)
 	}
+
+	m.manifest.Store(manif)
 
 	// pause if new manifest is nil
 	if manif == nil {
 		return nil
 	}
+
 	// pause if we are not capable of supporting this version
 	if manif.ProtocolVersion > manifest.VersionCapability {
 		return nil
-	}
-
-	// If we have a new manifest, reconfigure.
-	if m.manifest == nil || m.manifest.NetworkName != manif.NetworkName {
-		m.cs = nil
 	}
 
 	// Pause if explicitly paused.
@@ -292,118 +270,104 @@ func (m *F3) reconfigure(ctx context.Context, manif *manifest.Manifest) (_err er
 		return nil
 	}
 
-	// This allows for some possibly unsafe re-configuration
-	m.manifest = manif
-
-	return m.resumeInternal(m.runningCtx)
+	return m.Resume(m.runningCtx)
 }
 
-func (m *F3) Pause() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	return m.stopInternal(m.runningCtx)
-}
-
-func (m *F3) Resume() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	return m.resumeInternal(m.runningCtx)
-}
-
-func (m *F3) stopInternal(ctx context.Context) error {
+func (s *f3State) stop(ctx context.Context) (err error) {
 	log.Info("stopping F3 internals")
-	var err error
-	if m.ps != nil {
-		if serr := m.ps.Stop(ctx); serr != nil {
-			err = multierr.Append(err, fmt.Errorf("failed to stop ohshitstore: %w", serr))
-		}
-		m.ps = nil
+	if serr := s.ps.Stop(ctx); serr != nil {
+		err = multierr.Append(err, fmt.Errorf("failed to stop ohshitstore: %w", serr))
 	}
-	if m.runner != nil {
-		// Log and ignore shutdown errors.
-		if serr := m.runner.Stop(ctx); serr != nil {
-			err = multierr.Append(err, fmt.Errorf("failed to stop gpbft: %w", serr))
-		}
-		m.runner = nil
+	if serr := s.runner.Stop(ctx); serr != nil {
+		err = multierr.Append(err, fmt.Errorf("failed to stop gpbft: %w", serr))
 	}
-	if m.certsub != nil {
-		if serr := m.certsub.Stop(ctx); serr != nil {
-			err = multierr.Append(err, fmt.Errorf("failed to stop certificate exchange subscriber: %w", serr))
-		}
-		m.certsub = nil
+	if serr := s.certsub.Stop(ctx); serr != nil {
+		err = multierr.Append(err, fmt.Errorf("failed to stop certificate exchange subscriber: %w", serr))
 	}
-	if m.certserv != nil {
-		if serr := m.certserv.Stop(ctx); serr != nil {
-
-			err = multierr.Append(err, fmt.Errorf("failed to stop certificate exchange server: %w", serr))
-		}
-		m.certserv = nil
+	if serr := s.certserv.Stop(ctx); serr != nil {
+		err = multierr.Append(err, fmt.Errorf("failed to stop certificate exchange server: %w", serr))
 	}
 	return err
 }
 
-func (m *F3) resumeInternal(ctx context.Context) error {
+func (s *f3State) start(ctx context.Context) error {
+	if err := s.ps.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start the ohshitstore: %w", err)
+	}
+	if err := s.certsub.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start the certificate subscriber: %w", err)
+	}
+	if err := s.certserv.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start the certificate server: %w", err)
+	}
+	if err := s.runner.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start the gpbft runner: %w", err)
+	}
+	return nil
+}
+
+func (m *F3) Pause(ctx context.Context) error {
+	if st := m.state.Swap(nil); st != nil {
+		if err := st.stop(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *F3) Resume(ctx context.Context) error {
 	log.Info("resuming F3 internals")
-	mPowerEc := ec.WithModifiedPower(m.ec, m.manifest.ExplicitPower, m.manifest.IgnoreECPower)
+
+	var (
+		state f3State
+		err   error
+	)
+
+	state.manifest = m.manifest.Load()
+	if state.manifest == nil {
+		return fmt.Errorf("cannot resume F3 without a manifest")
+	}
+
+	mPowerEc := ec.WithModifiedPower(m.ec, state.manifest.ExplicitPower, state.manifest.IgnoreECPower)
 
 	// We don't reset these fields if we only pause/resume.
-	if m.cs == nil {
-		certClient := certexchange.Client{
-			Host:           m.host,
-			NetworkName:    m.manifest.NetworkName,
-			RequestTimeout: m.manifest.CertificateExchange.ClientRequestTimeout,
-		}
-		cds := measurements.NewMeteredDatastore(meter, "f3_certstore_datastore_", m.ds)
-		cs, err := openCertstore(m.runningCtx, mPowerEc, cds, m.manifest, certClient)
-		if err != nil {
-			return fmt.Errorf("failed to open certstore: %w", err)
-		}
-
-		m.cs = cs
-	}
-
-	if m.ps == nil {
-		pds := measurements.NewMeteredDatastore(meter, "f3_ohshitstore_datastore_", m.ds)
-		ps, err := powerstore.New(m.runningCtx, mPowerEc, pds, m.cs, m.manifest)
-		if err != nil {
-			return fmt.Errorf("failed to construct the oshitstore: %w", err)
-		}
-		err = ps.Start(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to start the ohshitstore: %w", err)
-		}
-		m.ps = ps
-	}
-
-	m.certserv = &certexchange.Server{
-		NetworkName:    m.manifest.NetworkName,
-		RequestTimeout: m.manifest.CertificateExchange.ServerRequestTimeout,
+	certClient := certexchange.Client{
 		Host:           m.host,
-		Store:          m.cs,
+		NetworkName:    state.manifest.NetworkName,
+		RequestTimeout: state.manifest.CertificateExchange.ClientRequestTimeout,
 	}
-	if err := m.certserv.Start(ctx); err != nil {
-		return err
+	cds := measurements.NewMeteredDatastore(meter, "f3_certstore_datastore_", m.ds)
+	state.cs, err = openCertstore(m.runningCtx, mPowerEc, cds, state.manifest, certClient)
+	if err != nil {
+		return fmt.Errorf("failed to open certstore: %w", err)
 	}
 
-	m.certsub = &certexpoll.Subscriber{
+	pds := measurements.NewMeteredDatastore(meter, "f3_ohshitstore_datastore_", m.ds)
+	state.ps, err = powerstore.New(m.runningCtx, mPowerEc, pds, state.cs, state.manifest)
+	if err != nil {
+		return fmt.Errorf("failed to construct the oshitstore: %w", err)
+	}
+
+	state.certserv = &certexchange.Server{
+		NetworkName:    state.manifest.NetworkName,
+		RequestTimeout: state.manifest.CertificateExchange.ServerRequestTimeout,
+		Host:           m.host,
+		Store:          state.cs,
+	}
+
+	state.certsub = &certexpoll.Subscriber{
 		Client: certexchange.Client{
 			Host:           m.host,
-			NetworkName:    m.manifest.NetworkName,
-			RequestTimeout: m.manifest.CertificateExchange.ClientRequestTimeout,
+			NetworkName:    state.manifest.NetworkName,
+			RequestTimeout: state.manifest.CertificateExchange.ClientRequestTimeout,
 		},
-		Store:               m.cs,
+		Store:               state.cs,
 		SignatureVerifier:   m.verifier,
-		InitialPollInterval: m.manifest.EC.Period,
-		MaximumPollInterval: m.manifest.CertificateExchange.MaximumPollInterval,
-		MinimumPollInterval: m.manifest.CertificateExchange.MinimumPollInterval,
+		InitialPollInterval: state.manifest.EC.Period,
+		MaximumPollInterval: state.manifest.CertificateExchange.MaximumPollInterval,
+		MinimumPollInterval: state.manifest.CertificateExchange.MinimumPollInterval,
 	}
-	if err := m.certsub.Start(ctx); err != nil {
-		return err
-	}
-
-	cleanName := strings.ReplaceAll(string(m.manifest.NetworkName), "/", "-")
+	cleanName := strings.ReplaceAll(string(state.manifest.NetworkName), "/", "-")
 	cleanName = strings.ReplaceAll(cleanName, ".", "")
 	cleanName = strings.ReplaceAll(cleanName, "\u0000", "")
 
@@ -413,41 +377,40 @@ func (m *F3) resumeInternal(ctx context.Context) error {
 		return fmt.Errorf("opening WAL: %w", err)
 	}
 
-	if runner, err := newRunner(
-		ctx, m.cs, m.ps, m.pubsub, m.verifier,
-		m.outboundMessages, m.manifest, wal, m.host.ID(),
-	); err != nil {
+	state.runner, err = newRunner(
+		ctx, state.cs, state.ps, m.pubsub, m.verifier,
+		m.outboundMessages, state.manifest, wal, m.host.ID(),
+	)
+	if err != nil {
 		return err
-	} else {
-		m.runner = runner
 	}
 
-	return m.runner.Start(ctx)
+	if err := state.start(ctx); err != nil {
+		return err
+	}
+
+	if !m.state.CompareAndSwap(nil, &state) {
+		return fmt.Errorf("concurrent start")
+	}
+
+	return nil
 }
 
 // IsRunning returns true if gpbft is running
 // Used mainly for testing purposes
 func (m *F3) IsRunning() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.runner != nil
+	return m.state.Load() != nil
 }
 
 // GetPowerTable returns the power table for the given tipset
 // Used mainly for testing purposes
 func (m *F3) GetPowerTable(ctx context.Context, ts gpbft.TipSetKey) (gpbft.PowerEntries, error) {
-	m.mu.Lock()
-	manifest := m.manifest
-	ps := m.ps
-	m.mu.Unlock()
-
-	if ps != nil {
-		return ps.GetPowerTable(ctx, ts)
+	if st := m.state.Load(); st != nil {
+		return st.ps.GetPowerTable(ctx, ts)
 	}
-	if manifest != nil {
-		return ec.WithModifiedPower(m.ec, m.manifest.ExplicitPower, m.manifest.IgnoreECPower).
+	if manif := m.manifest.Load(); manif != nil {
+		return ec.WithModifiedPower(m.ec, manif.ExplicitPower, manif.IgnoreECPower).
 			GetPowerTable(ctx, ts)
 	}
-
 	return nil, fmt.Errorf("no known network manifest")
 }
