@@ -107,21 +107,19 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 		}
 	}()
 
-	startInstance := h.manifest.InitialInstance
-	if latest := h.certStore.Latest(); latest != nil {
-		startInstance = latest.GPBFTInstance + 1
-	}
-
 	messageQueue, err := h.startPubsub()
 	if err != nil {
 		return err
 	}
 
-	if err := h.participant.StartInstanceAt(startInstance, h.clock.Now()); err != nil {
-		return fmt.Errorf("starting a participant: %w", err)
+	finalityCertificates, unsubCerts := h.certStore.Subscribe()
+	select {
+	case c := <-finalityCertificates:
+		h.receiveCertificate(c)
+	default:
+		h.participant.StartInstanceAt(h.manifest.InitialInstance, h.clock.Now())
 	}
 
-	finalityCertificates, unsubCerts := h.certStore.Subscribe()
 	h.errgrp.Go(func() (_err error) {
 		defer func() {
 			unsubCerts()
@@ -133,13 +131,13 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 			// prioritise finality certificates and alarm delivery
 			select {
 			case c := <-finalityCertificates:
-				if err := h.receiveCertificate(c); err != nil {
-					return err
-				}
+				h.receiveCertificate(c)
 				continue
 			case <-h.alertTimer.C:
 				if err := h.participant.ReceiveAlarm(); err != nil {
-					return err
+					// TODO: Probably want to just abort the instance and wait
+					// for a finality certificate at this point?
+					log.Errorf("error when receiving alarm: %+v", err)
 				}
 				continue
 			default:
@@ -148,12 +146,12 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 			// Handle messages, finality certificates, and alarms
 			select {
 			case c := <-finalityCertificates:
-				if err := h.receiveCertificate(c); err != nil {
-					return err
-				}
+				h.receiveCertificate(c)
 			case <-h.alertTimer.C:
 				if err := h.participant.ReceiveAlarm(); err != nil {
-					return err
+					// TODO: Probably want to just abort the instance and wait
+					// for a finality certificate at this point?
+					log.Errorf("error when receiving alarm: %+v", err)
 				}
 			case msg, ok := <-messageQueue:
 				if !ok {
@@ -225,17 +223,17 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 	return nil
 }
 
-func (h *gpbftRunner) receiveCertificate(c *certs.FinalityCertificate) error {
+func (h *gpbftRunner) receiveCertificate(c *certs.FinalityCertificate) {
 	nextInstance := c.GPBFTInstance + 1
 	currentInstance, _, _ := h.participant.Progress()
 	if currentInstance >= nextInstance {
-		return nil
+		return
 	}
 
 	log.Infow("skipping forwards based on cert", "from", currentInstance, "to", nextInstance)
 
 	nextInstanceStart := h.computeNextInstanceStart(c)
-	return h.participant.StartInstanceAt(nextInstance, nextInstanceStart)
+	h.participant.StartInstanceAt(nextInstance, nextInstanceStart)
 }
 
 func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) (_nextStart time.Time) {

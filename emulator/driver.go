@@ -42,9 +42,7 @@ func (d *Driver) SetSigning(signing Signing) { d.host.Signing = signing }
 //
 // See NewInstance.
 func (d *Driver) StartInstance(id uint64) error {
-	if err := d.subject.StartInstanceAt(id, d.host.Time()); err != nil {
-		return err
-	}
+	d.subject.StartInstanceAt(id, d.host.Time())
 	// Trigger alarm once based on the implicit assumption that go-f3 uses alarm to
 	// kickstart an instance internally.
 	if triggered, err := d.DeliverAlarm(); err != nil {
