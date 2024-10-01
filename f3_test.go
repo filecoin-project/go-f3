@@ -318,7 +318,8 @@ func (n *testNode) init() *f3.F3 {
 		return n.f3
 	}
 
-	ps, err := pubsub.NewGossipSub(n.e.testCtx, n.h)
+	// We disable message signing in tests to make things faster.
+	ps, err := pubsub.NewGossipSub(n.e.testCtx, n.h, pubsub.WithMessageSignaturePolicy(pubsub.StrictNoSign))
 	require.NoError(n.e.t, err)
 
 	ds := ds_sync.MutexWrap(failstore.NewFailstore(datastore.NewMapDatastore(), func(s string) error {
@@ -637,7 +638,7 @@ func (e *testEnv) withDynamicManifest() *testEnv {
 	h, err := e.net.GenPeer()
 	require.NoError(e.t, err)
 
-	ps, err := pubsub.NewGossipSub(e.testCtx, h)
+	ps, err := pubsub.NewGossipSub(e.testCtx, h, pubsub.WithMessageSignaturePolicy(pubsub.StrictNoSign))
 	require.NoError(e.t, err)
 
 	e.manifestSender, err = manifest.NewManifestSender(e.testCtx, h, ps,
