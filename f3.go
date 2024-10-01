@@ -414,3 +414,10 @@ func (m *F3) GetPowerTable(ctx context.Context, ts gpbft.TipSetKey) (gpbft.Power
 	}
 	return nil, fmt.Errorf("no known network manifest")
 }
+
+func (m *F3) Progress() (instance, round uint64, phase gpbft.Phase) {
+	if st := m.state.Load(); st != nil && st.runner != nil {
+		instance, round, phase = st.runner.Progress()
+	}
+	return
+}
