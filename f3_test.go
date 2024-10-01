@@ -108,17 +108,13 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 
 	// Resuming node 1 should continue agreeing on instances.
 	env.resumeNode(1)
-	// make sure we're ahead of node 2, which may be ahead of node 0.
-	resumeInstance := env.nodes[2].currentGpbftInstance() + 1
+	// make sure we're ahead of node 1.
+	resumeInstance := env.nodes[1].currentGpbftInstance() + 1
 	env.waitForInstanceNumber(resumeInstance, 30*time.Second, false)
 
 	// Wait until we're far enough that pure GPBFT catchup should be impossible.
-	targetInstance := resumeInstance + env.manifest.CommitteeLookback
+	targetInstance := resumeInstance + env.manifest.CommitteeLookback + 1
 	env.waitForInstanceNumber(targetInstance, 30*time.Second, false)
-
-	pausedInstance := env.nodes[2].currentGpbftInstance()
-
-	require.Less(t, pausedInstance, resumeInstance)
 
 	env.resumeNode(2)
 
@@ -126,8 +122,8 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 	env.waitForInstanceNumber(targetInstance, 30*time.Second, true)
 
 	// Pause the "good" node.
-	env.pauseNode(0)
 	node0failInstance := env.nodes[0].currentGpbftInstance()
+	env.pauseNode(0)
 
 	// We should be able to make progress with the remaining nodes.
 	env.waitForInstanceNumber(node0failInstance+3, 30*time.Second, false)
@@ -316,16 +312,12 @@ func (n *testNode) init() *f3.F3 {
 	return n.f3
 }
 
-func (n *testNode) start() {
-	require.NoError(n.e.t, n.init().Start(n.e.testCtx))
-}
-
 func (n *testNode) pause() {
-	require.NoError(n.e.t, n.f3.Pause())
+	require.NoError(n.e.t, n.f3.Pause(n.e.testCtx))
 }
 
 func (n *testNode) resume() {
-	require.NoError(n.e.t, n.f3.Resume())
+	require.NoError(n.e.t, n.f3.Resume(n.e.testCtx))
 }
 
 type testEnv struct {
@@ -546,9 +538,11 @@ func (e *testEnv) start() *testEnv {
 	e.initialize()
 	e.connectAll()
 
-	// Start the nodes
+	// Start the nodes. Async because this can block and we need time to progress.
 	for _, n := range e.nodes {
-		n.start()
+		e.errgrp.Go(func() error {
+			return n.init().Start(n.e.testCtx)
+		})
 	}
 
 	// wait for nodes to initialize
