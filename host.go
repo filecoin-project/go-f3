@@ -115,9 +115,13 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 	finalityCertificates, unsubCerts := h.certStore.Subscribe()
 	select {
 	case c := <-finalityCertificates:
-		h.receiveCertificate(c)
+		if err := h.receiveCertificate(c); err != nil {
+			log.Errorf("error when receiving certificate: %+v", err)
+		}
 	default:
-		h.participant.StartInstanceAt(h.manifest.InitialInstance, h.clock.Now())
+		if err := h.participant.StartInstanceAt(h.manifest.InitialInstance, h.clock.Now()); err != nil {
+			log.Errorf("error when starting instance %d: %+v", h.manifest.InitialInstance, err)
+		}
 	}
 
 	h.errgrp.Go(func() (_err error) {
@@ -131,7 +135,9 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 			// prioritise finality certificates and alarm delivery
 			select {
 			case c := <-finalityCertificates:
-				h.receiveCertificate(c)
+				if err := h.receiveCertificate(c); err != nil {
+					log.Errorf("error when recieving certificate: %+v", err)
+				}
 				continue
 			case <-h.alertTimer.C:
 				if err := h.participant.ReceiveAlarm(); err != nil {
@@ -146,7 +152,9 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 			// Handle messages, finality certificates, and alarms
 			select {
 			case c := <-finalityCertificates:
-				h.receiveCertificate(c)
+				if err := h.receiveCertificate(c); err != nil {
+					log.Errorf("error when recieving certificate: %+v", err)
+				}
 			case <-h.alertTimer.C:
 				if err := h.participant.ReceiveAlarm(); err != nil {
 					// TODO: Probably want to just abort the instance and wait
@@ -223,17 +231,17 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 	return nil
 }
 
-func (h *gpbftRunner) receiveCertificate(c *certs.FinalityCertificate) {
+func (h *gpbftRunner) receiveCertificate(c *certs.FinalityCertificate) error {
 	nextInstance := c.GPBFTInstance + 1
 	currentInstance, _, _ := h.participant.Progress()
 	if currentInstance >= nextInstance {
-		return
+		return nil
 	}
 
 	log.Infow("skipping forwards based on cert", "from", currentInstance, "to", nextInstance)
 
 	nextInstanceStart := h.computeNextInstanceStart(c)
-	h.participant.StartInstanceAt(nextInstance, nextInstanceStart)
+	return h.participant.StartInstanceAt(nextInstance, nextInstanceStart)
 }
 
 func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) (_nextStart time.Time) {
