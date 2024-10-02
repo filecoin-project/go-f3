@@ -254,6 +254,8 @@ func TestF3LateBootstrap(t *testing.T) {
 	targetEpoch := 2*env.manifest.EC.Finality + env.manifest.BootstrapEpoch
 	env.waitForEpoch(targetEpoch + 5)
 	env.waitForCondition(func() bool {
+		env.clock.Add(env.manifest.Gpbft.Delta)
+		time.Sleep(10 * time.Millisecond)
 		cert, err := env.nodes[0].f3.GetLatestCert(env.testCtx)
 		require.NoError(t, err)
 		return cert != nil && cert.ECChain.Head().Epoch > targetEpoch
