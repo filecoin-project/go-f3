@@ -14,7 +14,7 @@ import (
 	"github.com/ipfs/go-datastore"
 )
 
-const VersionCapability = 3
+const VersionCapability = 4
 
 var (
 	DefaultCommitteeLookback uint64 = 10
