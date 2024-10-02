@@ -245,6 +245,10 @@ func TestF3LateBootstrap(t *testing.T) {
 	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2).start()
 
+	// Wait till we're "caught up".
+	bootstrapInstances := uint64(env.manifest.EC.Finality/(gpbft.ChainMaxLen-1)) + 1
+	env.waitForInstanceNumber(bootstrapInstances, 30*time.Second, true)
+
 	// Wait until we've finalized a distant epoch. Once we do, our EC will forget the historical
 	// chain (importantly, forget the bootstrap power table).
 	targetEpoch := 2*env.manifest.EC.Finality + env.manifest.BootstrapEpoch
