@@ -160,7 +160,7 @@ func (pt *participantTestSubject) requireStart() {
 // See [participant.go:Start()] for reference
 func (pt *participantTestSubject) Start() error {
 	pt.host.EXPECT().SetAlarm(pt.time)
-	pt.Participant.StartInstanceAt(pt.instance, pt.time)
+	require.NoError(pt.t, pt.Participant.StartInstanceAt(pt.instance, pt.time))
 	return pt.ReceiveAlarm()
 }
 
@@ -305,7 +305,7 @@ func TestParticipant(t *testing.T) {
 				subject.instance = fInstance
 				subject.expectBeginInstance()
 				// Receiving the certificate should skip directly to the finality instance.
-				subject.StartInstanceAt(fInstance, subject.time)
+				require.NoError(t, subject.StartInstanceAt(fInstance, subject.time))
 				// set subject to the finality instance to see if participant
 				// has begun the right instance.
 				require.NoError(t, subject.ReceiveAlarm())
