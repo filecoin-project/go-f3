@@ -46,7 +46,7 @@ type SimNetwork interface {
 func newHost(id gpbft.ActorID, sim *Simulation, ecg ECChainGenerator, spg StoragePowerGenerator) *simHost {
 	pubKey, _ := sim.signingBacked.GenerateKey()
 	return &simHost{
-		SimNetwork:       sim.network.NetworkFor(sim.signingBacked, id),
+		SimNetwork:       sim.network.networkFor(sim.signingBacked, id),
 		Verifier:         sim.signingBacked,
 		Signer:           sim.signingBacked,
 		SigningMarshaler: sim.signingBacked,

@@ -22,11 +22,6 @@ type powerTableAccessor interface {
 	Get(ActorID) (int64, PubKey)
 }
 
-type SignerWithMarshaler interface {
-	Signer
-	SigningMarshaler
-}
-
 // Build uses the builder and a signer interface to build GMessage
 // It is a shortcut for when separated flow is not required
 func (mt *MessageBuilder) Build(ctx context.Context, signer Signer, id ActorID) (*GMessage, error) {
