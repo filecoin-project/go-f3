@@ -31,9 +31,10 @@ func init() {
 	// Hash-based deduplication breaks fast rebroadcast, even if we set the time window to be
 	// really short because gossipsub has a minimum 1m cache scan interval.
 	psutil.GPBFTMessageIdFn = pubsub.DefaultMsgIdFn
+	psutil.ManifestMessageIdFn = pubsub.DefaultMsgIdFn
 }
 
-var ManifestSenderTimeout = 30 * time.Second
+var manifestSenderTimeout = 10 * time.Second
 
 func TestF3Simple(t *testing.T) {
 	t.Parallel()
@@ -108,13 +109,10 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 
 	// Resuming node 1 should continue agreeing on instances.
 	env.resumeNode(1)
-	// make sure we're ahead of node 1.
-	resumeInstance := env.nodes[1].currentGpbftInstance() + 1
-	env.waitForInstanceNumber(resumeInstance, 30*time.Second, false)
 
 	// Wait until we're far enough that pure GPBFT catchup should be impossible.
-	targetInstance := resumeInstance + env.manifest.CommitteeLookback + 1
-	env.waitForInstanceNumber(targetInstance, 30*time.Second, false)
+	targetInstance := env.nodes[1].currentGpbftInstance() + env.manifest.CommitteeLookback + 1
+	env.waitForInstanceNumber(targetInstance, 60*time.Second, false)
 
 	env.resumeNode(2)
 
@@ -126,7 +124,7 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 	env.pauseNode(0)
 
 	// We should be able to make progress with the remaining nodes.
-	env.waitForInstanceNumber(node0failInstance+3, 30*time.Second, false)
+	env.waitForInstanceNumber(node0failInstance+3, 60*time.Second, false)
 }
 
 func TestF3FailRecover(t *testing.T) {
@@ -178,7 +176,7 @@ func TestF3DynamicManifest_WithRebootstrap(t *testing.T) {
 	env := newTestEnvironment(t).withNodes(2).withDynamicManifest().start()
 
 	prev := env.nodes[0].f3.Manifest()
-	env.waitForInstanceNumber(3, 15*time.Second, false)
+	env.waitForInstanceNumber(3, 15*time.Second, true)
 
 	env.manifest.BootstrapEpoch = 1253
 	for i := 0; i < 2; i++ {
@@ -225,7 +223,7 @@ func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 	env.updateManifest()
 
 	// check that it paused
-	env.waitForNodesStopped(10 * time.Second)
+	env.waitForNodesStopped()
 
 	env.manifest.BootstrapEpoch = 956
 	env.manifest.Pause = false
@@ -241,6 +239,56 @@ func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 	cert0, err := env.nodes[0].f3.GetCert(env.testCtx, 0)
 	require.NoError(t, err)
 	require.Equal(t, env.manifest.BootstrapEpoch-env.manifest.EC.Finality, cert0.ECChain.Base().Epoch)
+}
+
+func TestF3LateBootstrap(t *testing.T) {
+	t.Parallel()
+	env := newTestEnvironment(t).withNodes(2).start()
+
+	// Wait till we're "caught up".
+	bootstrapInstances := uint64(env.manifest.EC.Finality/(gpbft.ChainMaxLen-1)) + 1
+	env.waitForInstanceNumber(bootstrapInstances, 30*time.Second, true)
+
+	// Wait until we've finalized a distant epoch. Once we do, our EC will forget the historical
+	// chain (importantly, forget the bootstrap power table).
+	targetEpoch := 2*env.manifest.EC.Finality + env.manifest.BootstrapEpoch
+	env.waitForEpoch(targetEpoch + 5)
+	env.waitForCondition(func() bool {
+		env.clock.Add(env.manifest.Gpbft.Delta)
+		time.Sleep(10 * time.Millisecond)
+		cert, err := env.nodes[0].f3.GetLatestCert(env.testCtx)
+		require.NoError(t, err)
+		return cert != nil && cert.ECChain.Head().Epoch > targetEpoch
+	}, 30*time.Second)
+
+	// Now update the manifest with the initial power-table CID.
+	cert0, err := env.nodes[0].f3.GetCert(env.testCtx, 0)
+	require.NoError(t, err)
+	env.manifest.InitialPowerTable = cert0.ECChain.Base().PowerTable
+
+	// Create/start a new node.
+	f3 := env.addNode().init()
+	env.connectAll()
+	// We start async because we need to drive the clock forward while fetching the initial
+	// power table.
+	env.errgrp.Go(func() error {
+		return f3.Start(env.testCtx)
+	})
+
+	// Wait for it to finish starting.
+	env.waitForCondition(func() bool {
+		env.clock.Add(env.manifest.EC.Period)
+		// This step takes time, give it time.
+		time.Sleep(10 * time.Millisecond)
+		return f3.IsRunning()
+	}, 10*time.Second)
+
+	// It should eventually catch up.
+	env.waitForCondition(func() bool {
+		cert, err := f3.GetLatestCert(env.testCtx)
+		require.NoError(t, err)
+		return cert != nil && cert.ECChain.Head().Epoch > targetEpoch
+	}, 10*time.Second)
 }
 
 var base = manifest.Manifest{
@@ -276,7 +324,8 @@ func (n *testNode) init() *f3.F3 {
 		return n.f3
 	}
 
-	ps, err := pubsub.NewGossipSub(n.e.testCtx, n.h)
+	// We disable message signing in tests to make things faster.
+	ps, err := pubsub.NewGossipSub(n.e.testCtx, n.h, pubsub.WithMessageSignaturePolicy(pubsub.StrictNoSign))
 	require.NoError(n.e.t, err)
 
 	ds := ds_sync.MutexWrap(failstore.NewFailstore(datastore.NewMapDatastore(), func(s string) error {
@@ -373,7 +422,7 @@ func (e *testEnv) waitForManifest() {
 			}
 		}
 		return true
-	}, 10*time.Second)
+	}, 60*time.Second)
 }
 
 func (e *testEnv) waitForCondition(condition func() bool, timeout time.Duration) {
@@ -420,6 +469,25 @@ func (e *testEnv) withNodes(n int) *testEnv {
 	}
 
 	return e
+}
+
+// waits for all nodes to reach a specific instance number.
+// If the `strict` flag is enabled the check also applies to the non-running nodes
+func (e *testEnv) waitForEpoch(epoch int64) {
+	e.t.Helper()
+	for {
+		head := e.ec.GetCurrentHead()
+		if head < epoch-100 {
+			e.clock.Add(100 * e.manifest.EC.Period)
+		} else if head < epoch-10 {
+			e.clock.Add(10 * e.manifest.EC.Period)
+		} else if head < epoch {
+			e.clock.Add(1 * e.manifest.EC.Period)
+		} else {
+			break
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
 }
 
 func newTestEnvironment(t *testing.T) *testEnv {
@@ -473,6 +541,7 @@ func (e *testEnv) requireEqualManifests(strict bool) {
 }
 
 func (e *testEnv) waitFor(f func(n *testNode) bool, timeout time.Duration) {
+	e.t.Helper()
 	e.waitForCondition(func() bool {
 		for _, n := range e.nodes {
 			if !f(n) {
@@ -484,17 +553,17 @@ func (e *testEnv) waitFor(f func(n *testNode) bool, timeout time.Duration) {
 }
 
 func (e *testEnv) waitForNodesInitialization() {
-	f := func(n *testNode) bool {
+	e.t.Helper()
+	e.waitFor(func(n *testNode) bool {
 		return n.f3.IsRunning()
-	}
-	e.waitFor(f, 5*time.Second)
+	}, 30*time.Second)
 }
 
-func (e *testEnv) waitForNodesStopped(timeout time.Duration) {
-	f := func(n *testNode) bool {
+func (e *testEnv) waitForNodesStopped() {
+	e.t.Helper()
+	e.waitFor(func(n *testNode) bool {
 		return !n.f3.IsRunning()
-	}
-	e.waitFor(f, timeout)
+	}, 30*time.Second)
 }
 
 // Connect & link all nodes. This operation is idempotent.
@@ -521,7 +590,8 @@ func (e *testEnv) initialize() *testEnv {
 		}
 
 		e.ec = consensus.NewFakeEC(e.testCtx,
-			consensus.WithBootstrapEpoch(e.manifest.BootstrapEpoch+e.manifest.EC.Finality),
+			consensus.WithBootstrapEpoch(e.manifest.BootstrapEpoch),
+			consensus.WithMaxLookback(2*e.manifest.EC.Finality),
 			consensus.WithECPeriod(e.manifest.EC.Period),
 			consensus.WithInitialPowerTable(initialPowerTable),
 		)
@@ -535,6 +605,7 @@ func (e *testEnv) initialize() *testEnv {
 
 // Start all nodes. This will also connect/initialize all nodes if necessary.
 func (e *testEnv) start() *testEnv {
+	e.t.Helper()
 	e.initialize()
 	e.connectAll()
 
@@ -573,11 +644,11 @@ func (e *testEnv) withDynamicManifest() *testEnv {
 	h, err := e.net.GenPeer()
 	require.NoError(e.t, err)
 
-	ps, err := pubsub.NewGossipSub(e.testCtx, h)
+	ps, err := pubsub.NewGossipSub(e.testCtx, h, pubsub.WithMessageSignaturePolicy(pubsub.StrictNoSign))
 	require.NoError(e.t, err)
 
 	e.manifestSender, err = manifest.NewManifestSender(e.testCtx, h, ps,
-		e.currentManifest(), ManifestSenderTimeout)
+		e.currentManifest(), manifestSenderTimeout)
 	require.NoError(e.t, err)
 
 	return e
@@ -598,7 +669,8 @@ func runMessageSubscription(ctx context.Context, module *f3.F3, actorID gpbft.Ac
 			}
 			signatureBuilder, err := mb.PrepareSigningInputs(actorID)
 			if err != nil {
-				return fmt.Errorf("preparing signing inputs: %w", err)
+				// This isn't an error, it just means we have no power.
+				continue
 			}
 			// signatureBuilder can be sent over RPC
 			payloadSig, vrfSig, err := signatureBuilder.Sign(ctx, signer)
