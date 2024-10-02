@@ -139,5 +139,4 @@ func (ef *equivocationFilter) ProcessReceive(peerID peer.ID, m *gpbft.GMessage) 
 		// add the message
 		ef.seenMessages[key] = equivMessage{signature: m.Signature, origin: peerID}
 	}
-
 }
