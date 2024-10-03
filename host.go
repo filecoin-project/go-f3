@@ -216,8 +216,14 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 						// There is not much we can do here other than logging. The next instance start
 						// will effectively retry checkpointing the latest finalized tipset. This error
 						// will not impact the selection of next instance chain.
-						log.Error(fmt.Errorf("error while finalizing decision at EC: %w", err))
+						log.Errorf("error while finalizing decision at EC: %+v", err)
 					}
+				} else {
+					ts := cert.ECChain.Head()
+					log.Infow("not finalizing a new head because Finalize the manifest specifies that tipsets should not be finalized",
+						"tsk", ts.Key,
+						"epoch", ts.Epoch,
+					)
 				}
 				const keepInstancesInWAL = 5
 				if cert.GPBFTInstance > keepInstancesInWAL {
