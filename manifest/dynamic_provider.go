@@ -19,7 +19,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var log = logging.Logger("f3/dynamic-manifest")
+var log = logging.Logger("f3/manifest-provider")
 
 var _ ManifestProvider = (*DynamicManifestProvider)(nil)
 

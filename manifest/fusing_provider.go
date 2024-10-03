@@ -80,6 +80,8 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 		return err
 	}
 
+	log.Infof("starting the fusing manifest provider, will switch to the static manifest at %s", start)
+
 	m.errgrp.Go(func() error {
 		dynamicUpdates := m.dynamic.ManifestUpdates()
 		timer := m.clock.Timer(m.clock.Until(start))
@@ -88,6 +90,11 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 		for ctx.Err() == nil {
 			select {
 			case <-timer.C:
+				log.Infow(
+					"fusing to the static manifest, stopping the dynamic manifest provider",
+					"network", m.static.NetworkName,
+					"bootstrap epoch", m.static.BootstrapEpoch,
+				)
 				m.updateManifest(m.static)
 				// Log any errors and move on. We don't bubble it because we don't
 				// want to stop everything if shutting down the dynamic manifest
