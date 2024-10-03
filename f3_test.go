@@ -341,11 +341,12 @@ func (n *testNode) init() *f3.F3 {
 
 	var mprovider manifest.ManifestProvider
 	if manifestServerID != "" {
-		mprovider = manifest.NewDynamicManifestProvider(
+		mprovider, err = manifest.NewDynamicManifestProvider(
 			n.e.currentManifest(), ds, ps, manifestServerID)
 	} else {
-		mprovider = manifest.NewStaticManifestProvider(n.e.currentManifest())
+		mprovider, err = manifest.NewStaticManifestProvider(n.e.currentManifest())
 	}
+	require.NoError(n.e.t, err)
 
 	n.e.signingBackend.Allow(int(n.id))
 

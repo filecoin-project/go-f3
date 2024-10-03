@@ -166,7 +166,7 @@ var observerCmd = cli.Command{
 		if err != nil {
 			return fmt.Errorf("decoding manifestServerID: %w", err)
 		}
-		manifestProvider := manifest.NewDynamicManifestProvider(&manifest.Manifest{}, ds, pubSub, manifestServerID)
+		manifestProvider, err := manifest.NewDynamicManifestProvider(nil, ds, pubSub, manifestServerID)
 		if err != nil {
 			return fmt.Errorf("initialzing manifest sender: %w", err)
 		}

@@ -19,7 +19,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var log = logging.Logger("f3/dynamic-manifest")
+var log = logging.Logger("f3/manifest-provider")
 
 var _ ManifestProvider = (*DynamicManifestProvider)(nil)
 
@@ -66,7 +66,12 @@ func (m *ManifestUpdateMessage) Unmarshal(r io.Reader) error {
 }
 
 func NewDynamicManifestProvider(initialManifest *Manifest, ds datastore.Datastore,
-	pubsub *pubsub.PubSub, manifestServerID peer.ID) *DynamicManifestProvider {
+	pubsub *pubsub.PubSub, manifestServerID peer.ID) (*DynamicManifestProvider, error) {
+	if initialManifest != nil {
+		if err := initialManifest.Validate(); err != nil {
+			return nil, err
+		}
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errgrp, ctx := errgroup.WithContext(ctx)
@@ -80,7 +85,7 @@ func NewDynamicManifestProvider(initialManifest *Manifest, ds datastore.Datastor
 		cancel:           cancel,
 		initialManifest:  initialManifest,
 		manifestChanges:  make(chan *Manifest, 1),
-	}
+	}, nil
 }
 
 var latestManifestKey = datastore.NewKey("latestManifest")
@@ -132,10 +137,12 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 		currentManifest = &update.Manifest
 	}
 
-	if err := currentManifest.Validate(); err != nil {
-		log.Errorw("invalid initial manifest, ignoring", "error", err)
-	} else {
-		m.manifestChanges <- currentManifest
+	if currentManifest != nil {
+		if err := currentManifest.Validate(); err != nil {
+			log.Errorw("invalid initial manifest, ignoring", "error", err)
+		} else {
+			m.updateManifest(currentManifest)
+		}
 	}
 
 	m.errgrp.Go(func() (_err error) {
@@ -199,16 +206,17 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 				continue
 			}
 
-			select {
-			case m.manifestChanges <- currentManifest:
-			case <-m.runningCtx.Done():
-				return nil
-			}
+			m.updateManifest(currentManifest)
 		}
 		return nil
 	})
 
 	return nil
+}
+
+func (m *DynamicManifestProvider) updateManifest(update *Manifest) {
+	drain(m.manifestChanges)
+	m.manifestChanges <- update
 }
 
 func (m *DynamicManifestProvider) registerTopicValidator() error {
