@@ -11,8 +11,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// HeadGetter is the minimal subset of github.com/filecoin-project/go-f3/ec.Backend required by the
-// MixedManifestProvider.
+// HeadGetter is the minimal subset of ec.Backend required by the
+// FusingManifestProvider.
 type HeadGetter interface {
 	GetHead(context.Context) (ec.TipSet, error)
 }
