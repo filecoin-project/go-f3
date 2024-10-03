@@ -40,31 +40,23 @@ func TestWALSimple(t *testing.T) {
 		err = wal.Append(e)
 		require.NoError(t, err)
 	}
-	res, err := wal.All()
-	require.NoError(t, err)
-	require.Equal(t, entries, res)
+	require.Equal(t, entries, wal.All())
 
 	err = wal.Close()
 	require.NoError(t, err)
-	res, err = wal.All()
-	require.NoError(t, err)
-	require.Equal(t, entries, res)
+	require.Equal(t, entries, wal.All())
 
 	wal = nil
 
 	wal, err = Open[testPayload](path)
 	require.NoError(t, err)
 
-	res, err = wal.All()
-	require.NoError(t, err)
-	require.Equal(t, entries, res)
+	require.Equal(t, entries, wal.All())
 
 	err = wal.Purge(1) // one file, should keep all
 	require.NoError(t, err)
 
-	res, err = wal.All()
-	require.NoError(t, err)
-	require.Equal(t, entries, res)
+	require.Equal(t, entries, wal.All())
 }
 func TestWALRecovery(t *testing.T) {
 	path := t.TempDir()
@@ -87,9 +79,8 @@ func TestWALRecovery(t *testing.T) {
 	wal, err = Open[testPayload](path)
 	require.NoError(t, err)
 
-	res, err := wal.All()
 	require.NoError(t, err)
-	require.Equal(t, entries, res)
+	require.Equal(t, entries, wal.All())
 }
 
 func TestWALPartialWrite(t *testing.T) {
@@ -118,9 +109,7 @@ func TestWALPartialWrite(t *testing.T) {
 
 	wal, err = Open[testPayload](path)
 	require.NoError(t, err)
-	all, err := wal.All()
-	require.NoError(t, err)
-	require.Equal(t, []testPayload{entries[0]}, all)
+	require.Equal(t, []testPayload{entries[0]}, wal.All())
 }
 
 func TestWALEmpty(t *testing.T) {
@@ -129,16 +118,12 @@ func TestWALEmpty(t *testing.T) {
 	wal, err := Open[testPayload](path)
 	require.NoError(t, err)
 
-	res, err := wal.All()
-	require.NoError(t, err)
-	require.Empty(t, res)
+	require.Empty(t, wal.All())
 
 	err = wal.Close()
 	require.NoError(t, err)
 
-	res, err = wal.All()
-	require.NoError(t, err)
-	require.Empty(t, res)
+	require.Empty(t, wal.All())
 }
 
 func TestWALPurge(t *testing.T) {
@@ -171,7 +156,5 @@ func TestWALPurge(t *testing.T) {
 		foo0,
 		{Value: 3, Foo: "Foo3"},
 	}
-	res, err := wal.All()
-	require.NoError(t, err)
-	require.Equal(t, expected, res)
+	require.Equal(t, expected, wal.All())
 }

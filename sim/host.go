@@ -43,10 +43,10 @@ type SimNetwork interface {
 	RequestSynchronousBroadcast(mb *gpbft.MessageBuilder) error
 }
 
-func newHost(id gpbft.ActorID, sim *Simulation, ecg ECChainGenerator, spg StoragePowerGenerator) *simHost {
+func newHost(id gpbft.ActorID, sim *Simulation, ecg ECChainGenerator, spg StoragePowerGenerator, isAdversary bool) *simHost {
 	pubKey, _ := sim.signingBacked.GenerateKey()
 	return &simHost{
-		SimNetwork:       sim.network.networkFor(sim.signingBacked, id),
+		SimNetwork:       sim.network.networkFor(sim.signingBacked, id, isAdversary),
 		Verifier:         sim.signingBacked,
 		Signer:           sim.signingBacked,
 		SigningMarshaler: sim.signingBacked,

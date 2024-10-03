@@ -178,11 +178,6 @@ type instance struct {
 	//
 	// See tryRebroadcast.
 	rebroadcastAttempts int
-	// broadcasted selectively stores messages that have been broadcast in case
-	// rebroadcast becomes necessary.
-	//
-	// See: broadcast, tryRebroadcast.
-	broadcasted broadcastState
 	// Supplemental data that all participants must agree on ahead of time. Messages that
 	// propose supplemental data that differs with our supplemental data will be discarded.
 	supplementalData *SupplementalData
@@ -632,11 +627,8 @@ func (i *instance) tryPrepare() error {
 	if foundQuorum || quorumNotPossible || phaseComplete {
 		i.beginCommit()
 	} else if timedOut {
-		if err := i.tryRebroadcast(); err != nil {
-			return fmt.Errorf("failed to rebroadcast at %s phase: %w", i.phase, err)
-		}
+		i.tryRebroadcast()
 	}
-
 	return nil
 }
 
@@ -710,9 +702,7 @@ func (i *instance) tryCommit(round uint64) error {
 		i.beginNextRound()
 	case timedOut:
 		// The phase has timed out. Attempt to re-broadcast messages.
-		if err := i.tryRebroadcast(); err != nil {
-			return fmt.Errorf("failed to rebroadcast at %s phase: %w", i.phase, err)
-		}
+		i.tryRebroadcast()
 	}
 	return nil
 }
@@ -766,11 +756,8 @@ func (i *instance) tryDecide() error {
 			panic("tryDecide with no strong quorum for value")
 		}
 	} else {
-		if err := i.tryRebroadcast(); err != nil {
-			return fmt.Errorf("failed to rebroadcast at %s phase: %w", i.phase, err)
-		}
+		i.tryRebroadcast()
 	}
-
 	return nil
 }
 
@@ -885,9 +872,6 @@ func (i *instance) broadcast(round uint64, phase Phase, value ECChain, createTic
 		mb.BeaconForTicket = i.beacon
 	}
 
-	// Capture the broadcast and metrics first. Because, otherwise the instance will
-	// end up with partial re-broadcast messages if RequestBroadcast panics.
-	i.broadcasted.record(mb)
 	metrics.broadcastCounter.Add(context.TODO(), 1, metric.WithAttributes(attrPhase[p.Phase]))
 	if err := i.participant.host.RequestBroadcast(mb); err != nil {
 		i.log("failed to request broadcast: %v", err)
@@ -897,8 +881,9 @@ func (i *instance) broadcast(round uint64, phase Phase, value ECChain, createTic
 // tryRebroadcast checks whether re-broadcast timeout has elapsed, and if so
 // rebroadcasts messages from current and previous rounds. If not, it sets an
 // alarm for re-broadcast relative to the number of attempts.
-func (i *instance) tryRebroadcast() error {
-	if i.rebroadcastAttempts == 0 && i.rebroadcastTimeout.IsZero() {
+func (i *instance) tryRebroadcast() {
+	switch {
+	case i.rebroadcastAttempts == 0 && i.rebroadcastTimeout.IsZero():
 		// It is the first time that rebroadcast has become necessary; set initial
 		// rebroadcast timeout relative to the phase timeout, and schedule a rebroadcast.
 		//
@@ -916,13 +901,10 @@ func (i *instance) tryRebroadcast() error {
 		i.rebroadcastTimeout = rebroadcastTimeoutOffset.Add(i.participant.rebroadcastAfter(0))
 		i.participant.host.SetAlarm(i.rebroadcastTimeout)
 		i.log("scheduled initial rebroadcast at %v", i.rebroadcastTimeout)
-		return nil
-	}
-
-	if i.rebroadcastTimeoutElapsed() {
+	case i.rebroadcastTimeoutElapsed():
 		// Rebroadcast now that the corresponding timeout has elapsed, and schedule the
 		// successive rebroadcast.
-		err := i.rebroadcast()
+		i.rebroadcast()
 		i.rebroadcastAttempts++
 
 		// Use current host time as the offset for the next alarm to assure that rate of
@@ -934,11 +916,9 @@ func (i *instance) tryRebroadcast() error {
 		i.rebroadcastTimeout = i.participant.host.Time().Add(i.participant.rebroadcastAfter(i.rebroadcastAttempts))
 		i.participant.host.SetAlarm(i.rebroadcastTimeout)
 		i.log("scheduled next rebroadcast at %v", i.rebroadcastTimeout)
-		return err
+	default:
+		// Rebroadcast timeout is set but has not elapsed yet; nothing to do.
 	}
-
-	// Rebroadcast timeout is set but has not elapsed yet; nothing to do.
-	return nil
 }
 
 func (i *instance) resetRebroadcastParams() {
@@ -951,7 +931,7 @@ func (i *instance) rebroadcastTimeoutElapsed() bool {
 	return atOrAfter(now, i.rebroadcastTimeout)
 }
 
-func (i *instance) rebroadcast() error {
+func (i *instance) rebroadcast() {
 	// Rebroadcast quality and all messages from the current and previous rounds, unless the
 	// instance has progressed to DECIDE phase. In which case, only DECIDE message is
 	// rebroadcasted.
@@ -959,31 +939,36 @@ func (i *instance) rebroadcast() error {
 	// Note that the implementation here rebroadcasts more messages than FIP-0086
 	// strictly requires. Because, the cost of rebroadcasting additional messages is
 	// small compared to the reduction in need for rebroadcast.
-	var msgs []*MessageBuilder
-	if i.broadcasted.decide != nil {
-		msgs = append(msgs, i.broadcasted.decide)
+	switch i.phase {
+	case QUALITY_PHASE, CONVERGE_PHASE, PREPARE_PHASE, COMMIT_PHASE:
+		// Rebroadcast request for missing messages are silently ignored. Hence the
+		// simpler bulk rebroadcast if we are not in DECIDE phase.
+		i.rebroadcastQuietly(0, QUALITY_PHASE)
+
+		i.rebroadcastQuietly(i.round, COMMIT_PHASE)
+		i.rebroadcastQuietly(i.round, PREPARE_PHASE)
+		i.rebroadcastQuietly(i.round, CONVERGE_PHASE)
+		if i.round > 0 {
+			i.rebroadcastQuietly(i.round-1, COMMIT_PHASE)
+			i.rebroadcastQuietly(i.round-1, PREPARE_PHASE)
+			i.rebroadcastQuietly(i.round-1, CONVERGE_PHASE)
+		}
+	case DECIDE_PHASE:
+		i.rebroadcastQuietly(0, DECIDE_PHASE)
+	default:
+		log.Errorw("rebroadcast attempted for unexpected phase", "round", i.round, "phase", i.phase)
+	}
+}
+
+func (i *instance) rebroadcastQuietly(round uint64, phase Phase) {
+	if err := i.participant.host.RequestRebroadcast(i.instanceID, round, phase); err != nil {
+		// Silently log the error and proceed. This is consistent with the behaviour of
+		// instance for regular broadcasts.
+		i.log("failed to request rebroadcast %s at round %d: %v", phase, round, err)
 	} else {
-		// We rebroadcast messages newest to oldest, except quality which we always
-		// rebroadcast first. That way, if we try to rebroadcast too many at once and some
-		// get dropped, chances are we've already rebroadcast the most useful messages.
-		msgs = append(msgs, i.broadcasted.previousRound...)
-		msgs = append(msgs, i.broadcasted.currentRound...)
-		if i.broadcasted.quality != nil {
-			msgs = append(msgs, i.broadcasted.quality)
-		}
-		slices.Reverse(msgs)
+		i.log("rebroadcasting %s at round %d", phase, round)
+		metrics.reBroadcastCounter.Add(context.TODO(), 1)
 	}
-	for _, mb := range msgs {
-		if err := i.participant.host.RequestBroadcast(mb); err != nil {
-			// Silently log the error and proceed. This is consistent with the behaviour of
-			// instance for regular broadcasts.
-			i.log("failed to request rebroadcast %s at round %d: %v", mb.Payload.Phase, mb.Payload.Round, err)
-		} else {
-			i.log("rebroadcasting %s at round %d for value %s", mb.Payload.Phase.String(), mb.Payload.Round, mb.Payload.Value)
-			metrics.reBroadcastCounter.Add(context.TODO(), 1)
-		}
-	}
-	return nil
 }
 
 // Sets an alarm to be delivered after a synchrony delay.
@@ -1399,75 +1384,6 @@ func (c *convergeState) FindProposalFor(chain ECChain) ConvergeValue {
 
 	// Default converge value is not valid
 	return ConvergeValue{}
-}
-
-type broadcastState struct {
-	// Our quality message, always rebroadcast until we reach a decision.
-	quality *MessageBuilder
-	// Our decide message. If set, this is the only message we rebroadcast (and all other fields
-	// should be nil).
-	decide *MessageBuilder
-	// The messages we sent during the previous round (`round - 1`), except quality/decide.
-	// Rebroadcast unless `decide` is non-nil.
-	previousRound []*MessageBuilder
-	// The messages we sent this round (`round`), except quality/decide. Rebroadcast unless
-	// `decide` is non-nil.
-	currentRound []*MessageBuilder
-	// The latest round in which we broadcast a message.
-	round uint64
-}
-
-// record stores messages that are required should rebroadcast becomes necessary.
-// The messages stored depend on the current progress of instance. If the
-// instance progresses to DECIDE then only the decide message will be recorded.
-// Otherwise, all messages including QUALITY from the current and previous rounds
-// (i.e. the latest two rounds) are recorded.
-//
-// Note, the messages recorded are more than what FIL-00896 strictly requires at
-// the benefit of less reliance on rebroadcast and reduction in the possibility
-// of participants getting stuck.
-//
-// The rationale for including QUALITY messages as part of rebroadcast is to
-// improve censorship resistance at the face of unreliable message delivery,
-// which can ultimately result in lack of instance progress for extended periods
-// of time. See:
-//   - https://github.com/filecoin-project/FIPs/discussions/809#discussioncomment-10409902
-//   - https://github.com/filecoin-project/FIPs/discussions/809#discussioncomment-10424988
-func (bs *broadcastState) record(mb *MessageBuilder) {
-	if bs.decide != nil {
-		return
-	}
-	switch mb.Payload.Phase {
-	case QUALITY_PHASE:
-		bs.quality = mb
-	case DECIDE_PHASE:
-		// Clear all previous messages, as only DECIDE message need to be rebroadcasted.
-		// Note that DECIDE message is not associated to any round.
-		bs.currentRound = nil
-		bs.previousRound = nil
-		bs.quality = nil
-		bs.decide = mb
-	case CONVERGE_PHASE, PREPARE_PHASE, COMMIT_PHASE:
-		switch {
-		case mb.Payload.Round < bs.round:
-			log.Warnw("Unexpected broadcast of a message for a prior round",
-				"latestRecordedRound", bs.round, "messageRound", mb.Payload.Round)
-			return
-		case mb.Payload.Round == bs.round:
-			bs.currentRound = append(bs.currentRound, mb)
-		case mb.Payload.Round == bs.round+1:
-			bs.previousRound = bs.currentRound
-			bs.currentRound = []*MessageBuilder{mb}
-		default:
-			bs.previousRound = nil
-			bs.currentRound = []*MessageBuilder{mb}
-		}
-		bs.round = mb.Payload.Round
-	default:
-		// There should not be any message recorded with any other payload phase. Warn if
-		// we see any.
-		log.Warnw("Unexpected payload phase while recording broadcasted messages", "phase", mb.Payload.Phase)
-	}
 }
 
 ///// General helpers /////

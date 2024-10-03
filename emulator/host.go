@@ -23,13 +23,15 @@ type driverHost struct {
 	pendingAlarm       *time.Time
 	receivedBroadcasts []*gpbft.GMessage
 	chain              map[uint64]*Instance
+	messages           MessageCache
 }
 
 func newHost(t *testing.T, signing Signing) *driverHost {
 	return &driverHost{
-		Signing: signing,
-		t:       t,
-		chain:   make(map[uint64]*Instance),
+		Signing:  signing,
+		t:        t,
+		chain:    make(map[uint64]*Instance),
+		messages: NewMessageCache(),
 	}
 }
 
@@ -48,6 +50,15 @@ func (h *driverHost) RequestBroadcast(mb *gpbft.MessageBuilder) error {
 		return err
 	}
 	h.receivedBroadcasts = append(h.receivedBroadcasts, msg)
+	require.True(h.t, h.messages.PutIfAbsent(msg))
+	return nil
+}
+
+func (h *driverHost) RequestRebroadcast(instance, round uint64, phase gpbft.Phase) error {
+	message, found := h.messages.Get(instance, round, phase)
+	if found {
+		h.receivedBroadcasts = append(h.receivedBroadcasts, message)
+	}
 	return nil
 }
 

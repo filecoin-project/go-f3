@@ -34,7 +34,7 @@ type gpbftRunner struct {
 	pubsub      *pubsub.PubSub
 	clock       clock.Clock
 	verifier    gpbft.Verifier
-	wal         *writeaheadlog.WriteAheadLog[walEntry, *walEntry]
+	wal         *writeaheadlog.MessageWriteAheadLog
 	outMessages chan<- *gpbft.MessageBuilder
 	equivFilter equivocationFilter
 
@@ -56,7 +56,7 @@ func newRunner(
 	verifier gpbft.Verifier,
 	out chan<- *gpbft.MessageBuilder,
 	m *manifest.Manifest,
-	wal *writeaheadlog.WriteAheadLog[walEntry, *walEntry],
+	wal *writeaheadlog.MessageWriteAheadLog,
 	pID peer.ID,
 ) (*gpbftRunner, error) {
 	runningCtx, ctxCancel := context.WithCancel(context.WithoutCancel(ctx))
@@ -82,17 +82,15 @@ func newRunner(
 	if !runner.alertTimer.Stop() {
 		<-runner.alertTimer.C
 	}
-	walEntries, err := wal.All()
-	if err != nil {
-		return nil, fmt.Errorf("reading WAL: %w", err)
-	}
-	for _, v := range walEntries {
-		runner.equivFilter.ProcessBroadcast(v.Message)
-	}
+
+	wal.ForEach(func(message *gpbft.GMessage) bool {
+		runner.equivFilter.ProcessBroadcast(message)
+		return true
+	})
 
 	log.Infof("Starting gpbft runner")
 	opts := append(m.GpbftOptions(), gpbft.WithTracer(tracer))
-	p, err := gpbft.NewParticipant((*gpbftHost)(runner), opts...)
+	p, err := gpbft.NewParticipant(runner, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating participant: %w", err)
 	}
@@ -328,7 +326,7 @@ func (h *gpbftRunner) BroadcastMessage(msg *gpbft.GMessage) error {
 		// equivocation filter does its own logging and this error just gets logged
 		return nil
 	}
-	err := h.wal.Append(walEntry{msg})
+	err := h.wal.Append(msg)
 	if err != nil {
 		log.Errorw("appending to WAL", "error", err)
 	}
@@ -467,14 +465,11 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 }
 
 var (
-	_ gpbft.Host     = (*gpbftHost)(nil)
+	_ gpbft.Host     = (*gpbftRunner)(nil)
 	_ gpbft.Progress = (*gpbftRunner)(nil).Progress
 )
 
-// gpbftHost is a newtype of gpbftRunner exposing APIs required by the gpbft.Participant
-type gpbftHost gpbftRunner
-
-func (h *gpbftHost) collectChain(base ec.TipSet, head ec.TipSet) ([]ec.TipSet, error) {
+func (h *gpbftRunner) collectChain(base ec.TipSet, head ec.TipSet) ([]ec.TipSet, error) {
 	// TODO: optimize when head is way beyond base
 	res := make([]ec.TipSet, 0, 2*gpbft.ChainMaxLen)
 	res = append(res, head)
@@ -522,7 +517,7 @@ func (h *gpbftRunner) Progress() (instance, round uint64, phase gpbft.Phase) {
 // These will be used as input to a subsequent instance of the protocol.
 // The chain should be a suffix of the last chain notified to the host via
 // ReceiveDecision (or known to be final via some other channel).
-func (h *gpbftHost) GetProposal(instance uint64) (_ *gpbft.SupplementalData, _ gpbft.ECChain, _err error) {
+func (h *gpbftRunner) GetProposal(instance uint64) (_ *gpbft.SupplementalData, _ gpbft.ECChain, _err error) {
 	defer func(start time.Time) {
 		metrics.proposalFetchTime.Record(context.TODO(), time.Since(start).Seconds(), metric.WithAttributes(attrStatusFromErr(_err)))
 	}(time.Now())
@@ -613,7 +608,7 @@ func (h *gpbftHost) GetProposal(instance uint64) (_ *gpbft.SupplementalData, _ g
 	return &supplData, chain, nil
 }
 
-func (h *gpbftHost) GetCommittee(instance uint64) (_ *gpbft.Committee, _err error) {
+func (h *gpbftRunner) GetCommittee(instance uint64) (_ *gpbft.Committee, _err error) {
 	defer func(start time.Time) {
 		metrics.committeeFetchTime.Record(context.TODO(), time.Since(start).Seconds(), metric.WithAttributes(attrStatusFromErr(_err)))
 	}(time.Now())
@@ -691,12 +686,12 @@ func (h *gpbftHost) GetCommittee(instance uint64) (_ *gpbft.Committee, _err erro
 }
 
 // Returns the network's name (for signature separation)
-func (h *gpbftHost) NetworkName() gpbft.NetworkName {
+func (h *gpbftRunner) NetworkName() gpbft.NetworkName {
 	return h.manifest.NetworkName
 }
 
 // Sends a message to all other participants.
-func (h *gpbftHost) RequestBroadcast(mb *gpbft.MessageBuilder) error {
+func (h *gpbftRunner) RequestBroadcast(mb *gpbft.MessageBuilder) error {
 	select {
 	case h.outMessages <- mb:
 		return nil
@@ -705,8 +700,17 @@ func (h *gpbftHost) RequestBroadcast(mb *gpbft.MessageBuilder) error {
 	}
 }
 
+func (h *gpbftRunner) RequestRebroadcast(instance, round uint64, phase gpbft.Phase) error {
+	messages := h.wal.FindMessages(instance, round, phase)
+	var err error
+	for _, message := range messages {
+		err = multierr.Append(err, h.BroadcastMessage(message))
+	}
+	return err
+}
+
 // Returns the current network time.
-func (h *gpbftHost) Time() time.Time {
+func (h *gpbftRunner) Time() time.Time {
 	return h.clock.Now()
 }
 
@@ -715,7 +719,7 @@ func (h *gpbftHost) Time() time.Time {
 // Setting an alarm replaces any previous alarm that has not yet fired.
 // The timestamp may be in the past, in which case the alarm will fire as soon as possible
 // (but not synchronously).
-func (h *gpbftHost) SetAlarm(at time.Time) {
+func (h *gpbftRunner) SetAlarm(at time.Time) {
 	log.Debugf("set alarm for %v", at)
 	// we cannot reuse the timer because we don't know if it was read or not
 	h.alertTimer.Stop()
@@ -737,7 +741,7 @@ func (h *gpbftHost) SetAlarm(at time.Time) {
 // The notification must return the timestamp at which the next instance should begin,
 // based on the decision received (which may be in the past).
 // E.g. this might be: finalised tipset timestamp + epoch duration + stabilisation delay.
-func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) (time.Time, error) {
+func (h *gpbftRunner) ReceiveDecision(decision *gpbft.Justification) (time.Time, error) {
 	log.Infow("reached a decision", "instance", decision.Vote.Instance,
 		"ecHeadEpoch", decision.Vote.Value.Head().Epoch)
 	cert, err := h.saveDecision(decision)
@@ -749,7 +753,7 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) (time.Time, e
 	return (*gpbftRunner)(h).computeNextInstanceStart(cert), nil
 }
 
-func (h *gpbftHost) saveDecision(decision *gpbft.Justification) (*certs.FinalityCertificate, error) {
+func (h *gpbftRunner) saveDecision(decision *gpbft.Justification) (*certs.FinalityCertificate, error) {
 	instance := decision.Vote.Instance
 	current, err := h.GetCommittee(instance)
 	if err != nil {
@@ -782,7 +786,7 @@ func (h *gpbftHost) saveDecision(decision *gpbft.Justification) (*certs.Finality
 // MarshalPayloadForSigning marshals the given payload into the bytes that should be signed.
 // This should usually call `Payload.MarshalForSigning(NetworkName)` except when testing as
 // that method is slow (computes a merkle tree that's necessary for testing).
-func (h *gpbftHost) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Payload) []byte {
+func (h *gpbftRunner) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Payload) []byte {
 	if m, ok := h.verifier.(gpbft.SigningMarshaler); ok {
 		return m.MarshalPayloadForSigning(nn, p)
 	} else {
@@ -792,10 +796,10 @@ func (h *gpbftHost) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Payl
 
 // Verifies a signature for the given public key.
 // Implementations must be safe for concurrent use.
-func (h *gpbftHost) Verify(pubKey gpbft.PubKey, msg []byte, sig []byte) error {
+func (h *gpbftRunner) Verify(pubKey gpbft.PubKey, msg []byte, sig []byte) error {
 	return h.verifier.Verify(pubKey, msg, sig)
 }
 
-func (h *gpbftHost) Aggregate(pubKeys []gpbft.PubKey) (gpbft.Aggregate, error) {
+func (h *gpbftRunner) Aggregate(pubKeys []gpbft.PubKey) (gpbft.Aggregate, error) {
 	return h.verifier.Aggregate(pubKeys)
 }

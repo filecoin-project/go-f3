@@ -400,6 +400,54 @@ func (_c *MockHost_RequestBroadcast_Call) RunAndReturn(run func(*MessageBuilder)
 	return _c
 }
 
+// RequestRebroadcast provides a mock function with given fields: instance, round, phase
+func (_m *MockHost) RequestRebroadcast(instance uint64, round uint64, phase Phase) error {
+	ret := _m.Called(instance, round, phase)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RequestRebroadcast")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(uint64, uint64, Phase) error); ok {
+		r0 = rf(instance, round, phase)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockHost_RequestRebroadcast_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RequestRebroadcast'
+type MockHost_RequestRebroadcast_Call struct {
+	*mock.Call
+}
+
+// RequestRebroadcast is a helper method to define mock.On call
+//   - instance uint64
+//   - round uint64
+//   - phase Phase
+func (_e *MockHost_Expecter) RequestRebroadcast(instance interface{}, round interface{}, phase interface{}) *MockHost_RequestRebroadcast_Call {
+	return &MockHost_RequestRebroadcast_Call{Call: _e.mock.On("RequestRebroadcast", instance, round, phase)}
+}
+
+func (_c *MockHost_RequestRebroadcast_Call) Run(run func(instance uint64, round uint64, phase Phase)) *MockHost_RequestRebroadcast_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(uint64), args[1].(uint64), args[2].(Phase))
+	})
+	return _c
+}
+
+func (_c *MockHost_RequestRebroadcast_Call) Return(_a0 error) *MockHost_RequestRebroadcast_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockHost_RequestRebroadcast_Call) RunAndReturn(run func(uint64, uint64, Phase) error) *MockHost_RequestRebroadcast_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SetAlarm provides a mock function with given fields: at
 func (_m *MockHost) SetAlarm(at time.Time) {
 	_m.Called(at)

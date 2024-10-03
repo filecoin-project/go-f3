@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/filecoin-project/go-f3/emulator"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/sim/adversary"
 	"github.com/filecoin-project/go-f3/sim/latency"
@@ -70,11 +71,13 @@ type signerWithMarshaler interface {
 	gpbft.SigningMarshaler
 }
 
-func (n *Network) networkFor(signer signerWithMarshaler, id gpbft.ActorID) *networkFor {
+func (n *Network) networkFor(signer signerWithMarshaler, id gpbft.ActorID, isAdversary bool) *networkFor {
 	return &networkFor{
 		ParticipantID: id,
 		Signer:        signer,
 		Network:       n,
+		messages:      emulator.NewMessageCache(),
+		isAdversary:   isAdversary,
 	}
 }
 
@@ -82,6 +85,8 @@ type networkFor struct {
 	ParticipantID gpbft.ActorID
 	Signer        signerWithMarshaler
 	*Network
+	messages    emulator.MessageCache
+	isAdversary bool
 }
 
 func (nf *networkFor) Log(format string, args ...any) {
@@ -90,6 +95,12 @@ func (nf *networkFor) Log(format string, args ...any) {
 
 func (nf *networkFor) RequestBroadcast(mb *gpbft.MessageBuilder) error {
 	return nf.requestBroadcast(mb, false)
+}
+func (nf *networkFor) RequestRebroadcast(instance, round uint64, phase gpbft.Phase) error {
+	if msg, found := nf.messages.Get(instance, round, phase); found {
+		nf.broadcast(msg, true)
+	}
+	return nil
 }
 
 func (nf *networkFor) RequestSynchronousBroadcast(mb *gpbft.MessageBuilder) error {
@@ -103,6 +114,13 @@ func (nf *networkFor) requestBroadcast(mb *gpbft.MessageBuilder, sync bool) erro
 		return err
 	}
 	nf.broadcast(msg, sync)
+	absent := nf.messages.PutIfAbsent(msg)
+	if !nf.isAdversary && !absent {
+		// Outside of rebroadcast a non-adversary participant should never broadcast
+		// multiple messages that have the same instance, round and phase. Sanity check
+		// it and error loudly if there is any.
+		panic(fmt.Sprintf("duplicate message broadcast request from same participant (ID %d) for instance %d, round %d, phase %s", nf.ParticipantID, msg.Vote.Instance, msg.Vote.Round, msg.Vote.Phase))
+	}
 	return nil
 }
 
