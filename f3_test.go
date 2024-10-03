@@ -342,7 +342,9 @@ func (n *testNode) init() *f3.F3 {
 	var mprovider manifest.ManifestProvider
 	if manifestServerID != "" {
 		mprovider, err = manifest.NewDynamicManifestProvider(
-			n.e.currentManifest(), ds, ps, manifestServerID)
+			ps, manifestServerID,
+			manifest.DynamicManifestProviderWithInitialManifest(n.e.currentManifest()),
+		)
 	} else {
 		mprovider, err = manifest.NewStaticManifestProvider(n.e.currentManifest())
 	}
