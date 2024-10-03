@@ -30,13 +30,13 @@ var (
 	}
 
 	DefaultGpbftConfig = GpbftConfig{
-		Delta:                      3 * time.Second,
+		Delta:                      6 * time.Second,
 		DeltaBackOffExponent:       2.0,
 		MaxLookaheadRounds:         5,
-		RebroadcastBackoffBase:     3 * time.Second,
+		RebroadcastBackoffBase:     6 * time.Second,
 		RebroadcastBackoffSpread:   0.1,
 		RebroadcastBackoffExponent: 1.3,
-		RebroadcastBackoffMax:      30 * time.Second,
+		RebroadcastBackoffMax:      60 * time.Second,
 	}
 
 	DefaultCxConfig = CxConfig{
@@ -46,14 +46,9 @@ var (
 		MaximumPollInterval:  4 * DefaultEcConfig.Period,
 	}
 
-	// Default instance alignment when catching up. Set to zero for now to avoid breaking
-	// things, we should probably bump the version compatibility when we set this to a non-zero
-	// value (although that's not required).
-	//DefaultCatchUpAlignment = 4 * DefaultGpbftConfig.Delta
-	DefaultCatchUpAlignment time.Duration = 0
+	// Default instance alignment when catching up.
+	DefaultCatchUpAlignment = DefaultEcConfig.Period / 2
 )
-
-type OnManifestChange func(ctx context.Context, prevManifest Manifest) error
 
 type ManifestProvider interface {
 	// Start any background tasks required for the operation of the manifest provider.
