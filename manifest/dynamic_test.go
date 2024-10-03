@@ -2,6 +2,8 @@ package manifest
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,7 +50,17 @@ func TestDynamicManifest(t *testing.T) {
 		require.NoError(t, err)
 
 		providerMake = func() *DynamicManifestProvider {
-			d, err := NewDynamicManifestProvider(initialManifest, ds, pubSub, sender.SenderID())
+			d, err := NewDynamicManifestProvider(pubSub, sender.SenderID(),
+				DynamicManifestProviderWithInitialManifest(initialManifest),
+				DynamicManifestProviderWithDatastore(ds),
+				DynamicManifestProviderWithFilter(func(m *Manifest) error {
+					if strings.Contains(string(m.NetworkName), "forbidden") {
+						return fmt.Errorf("TEST 123 FORBIDDEN!")
+					}
+					return nil
+				}),
+			)
+
 			require.NoError(t, err)
 			return d
 		}
@@ -92,6 +104,17 @@ func TestDynamicManifest(t *testing.T) {
 		t.Fatal("did not expect a manifest update when restarting manifest sender")
 	case <-time.After(1 * time.Second):
 	}
+
+	forbiddenManifest := *initialManifest
+	forbiddenManifest.NetworkName = "forbidden-name"
+	sender.UpdateManifest(&forbiddenManifest)
+
+	select {
+	case <-provider.ManifestUpdates():
+		t.Fatal("expected to filter out forbidden manifest update")
+	case <-time.After(1 * time.Second):
+	}
+
 	newManifest := *initialManifest
 	newManifest.NetworkName = "updated-name"
 	sender.UpdateManifest(&newManifest)

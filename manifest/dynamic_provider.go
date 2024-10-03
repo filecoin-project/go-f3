@@ -30,6 +30,7 @@ const ManifestPubSubTopicName = "/f3/manifests/0.0.2"
 type DynamicManifestProvider struct {
 	pubsub           *pubsub.PubSub
 	ds               datastore.Datastore
+	filter           func(*Manifest) error
 	manifestServerID peer.ID
 
 	runningCtx context.Context
@@ -65,27 +66,59 @@ func (m *ManifestUpdateMessage) Unmarshal(r io.Reader) error {
 	return nil
 }
 
-func NewDynamicManifestProvider(initialManifest *Manifest, ds datastore.Datastore,
-	pubsub *pubsub.PubSub, manifestServerID peer.ID) (*DynamicManifestProvider, error) {
-	if initialManifest != nil {
-		if err := initialManifest.Validate(); err != nil {
-			return nil, err
-		}
+type dynamicManifestProviderConfig DynamicManifestProvider
+type DynamicManifestProviderOption func(cfg *dynamicManifestProviderConfig) error
+
+// DynamicManifestProviderWithDatastore specifies the datastore in which to store/retrieve received
+// dynamic manifest updates. If unspecified, no state is persisted.
+func DynamicManifestProviderWithDatastore(ds datastore.Datastore) func(cfg *dynamicManifestProviderConfig) error {
+	return func(cfg *dynamicManifestProviderConfig) error {
+		cfg.ds = measurements.NewMeteredDatastore(meter, "f3_manifest_datastore_", ds)
+		return nil
 	}
+}
+
+// DynamicManifestProviderWithFilter specifies a filter for incoming manifests.
+func DynamicManifestProviderWithFilter(filter func(*Manifest) error) func(cfg *dynamicManifestProviderConfig) error {
+	return func(cfg *dynamicManifestProviderConfig) error {
+		cfg.filter = filter
+		return nil
+	}
+}
+
+// DynamicManifestProviderWithInitialManifest specifies the initial manifest to use (unless one is
+// available in the datastore).
+func DynamicManifestProviderWithInitialManifest(m *Manifest) func(cfg *dynamicManifestProviderConfig) error {
+	return func(cfg *dynamicManifestProviderConfig) error {
+		if err := m.Validate(); err != nil {
+			return err
+		}
+		cfg.initialManifest = m
+		return nil
+	}
+}
+
+func NewDynamicManifestProvider(pubsub *pubsub.PubSub, manifestServerID peer.ID,
+	options ...DynamicManifestProviderOption) (*DynamicManifestProvider, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errgrp, ctx := errgroup.WithContext(ctx)
 
-	return &DynamicManifestProvider{
+	m := &dynamicManifestProviderConfig{
 		pubsub:           pubsub,
-		ds:               measurements.NewMeteredDatastore(meter, "f3_manifest_datastore_", ds),
 		manifestServerID: manifestServerID,
 		runningCtx:       ctx,
 		errgrp:           errgrp,
 		cancel:           cancel,
-		initialManifest:  initialManifest,
 		manifestChanges:  make(chan *Manifest, 1),
-	}, nil
+		filter:           func(*Manifest) error { return nil },
+	}
+	for _, opt := range options {
+		if err := opt(m); err != nil {
+			return nil, err
+		}
+	}
+	return (*DynamicManifestProvider)(m), nil
 }
 
 var latestManifestKey = datastore.NewKey("latestManifest")
@@ -122,7 +155,9 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 	}
 
 	var currentManifest *Manifest
-	if mBytes, err := m.ds.Get(startCtx, latestManifestKey); errors.Is(err, datastore.ErrNotFound) {
+	if m.ds == nil {
+		currentManifest = m.initialManifest
+	} else if mBytes, err := m.ds.Get(startCtx, latestManifestKey); errors.Is(err, datastore.ErrNotFound) {
 		currentManifest = m.initialManifest
 	} else if err != nil {
 		return fmt.Errorf("error while checking saved manifest")
@@ -189,9 +224,16 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 				continue
 			}
 
-			err = m.ds.Put(m.runningCtx, latestManifestKey, msg.Data)
-			if err != nil {
-				log.Errorw("saving new manifest", "error", err)
+			if err := m.filter(&update.Manifest); err != nil {
+				log.Errorw("received filtered manifest, discarded", "error", err)
+				continue
+			}
+
+			if m.ds != nil {
+				err = m.ds.Put(m.runningCtx, latestManifestKey, msg.Data)
+				if err != nil {
+					log.Errorw("saving new manifest", "error", err)
+				}
 			}
 
 			log.Infow("received manifest update", "seqNo", update.MessageSequence)
