@@ -7,7 +7,6 @@ import (
 
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/internal/clock"
-	"go.uber.org/multierr"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -81,27 +80,28 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 		return err
 	}
 
-	m.errgrp.Go(func() (err error) {
-		defer func() {
-			m.updateManifest(m.static)
-			err = multierr.Append(err, m.dynamic.Stop(context.Background()))
-		}()
+	m.errgrp.Go(func() error {
 		dynamicUpdates := m.dynamic.ManifestUpdates()
-
 		timer := m.clock.Timer(m.clock.Until(start))
 		defer timer.Stop()
 
 		for ctx.Err() == nil {
 			select {
 			case <-timer.C:
+				m.updateManifest(m.static)
+				// Log any errors and move on. We don't bubble it because we don't
+				// want to stop everything if shutting down the dynamic manifest
+				// provider fails when switching over to a static manifest.
+				if err := m.dynamic.Stop(context.Background()); err != nil {
+					log.Errorw("failure when stopping dynamic manifest provider", "error", err)
+				}
 				return nil
 			case update := <-dynamicUpdates:
 				m.updateManifest(update)
 			case <-ctx.Done():
-				return
 			}
 		}
-		return
+		return m.dynamic.Stop(context.Background())
 	})
 
 	return nil
