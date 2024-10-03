@@ -210,12 +210,20 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 					// does, error loudly since the chances are the cause is a programmer error.
 					return errors.New("cert store subscription to finalize tipsets was closed unexpectedly")
 				}
-				key := cert.ECChain.Head().Key
-				if err := h.ec.Finalize(h.runningCtx, key); err != nil {
-					// There is not much we can do here other than logging. The next instance start
-					// will effectively retry checkpointing the latest finalized tipset. This error
-					// will not impact the selection of next instance chain.
-					log.Error(fmt.Errorf("error while finalizing decision at EC: %w", err))
+				if h.manifest.EC.Finalize {
+					key := cert.ECChain.Head().Key
+					if err := h.ec.Finalize(h.runningCtx, key); err != nil {
+						// There is not much we can do here other than logging. The next instance start
+						// will effectively retry checkpointing the latest finalized tipset. This error
+						// will not impact the selection of next instance chain.
+						log.Errorf("error while finalizing decision at EC: %+v", err)
+					}
+				} else {
+					ts := cert.ECChain.Head()
+					log.Infow("not finalizing a new head because Finalize the manifest specifies that tipsets should not be finalized",
+						"tsk", ts.Key,
+						"epoch", ts.Epoch,
+					)
 				}
 				const keepInstancesInWAL = 5
 				if cert.GPBFTInstance > keepInstancesInWAL {
