@@ -18,11 +18,7 @@ import (
 	"go.uber.org/multierr"
 )
 
-var (
-	log = logging.Logger("f3/wal")
-
-	ErrParsingEntry = errors.New("failed to parse log entry")
-)
+var log = logging.Logger("f3/wal")
 
 const (
 	rotateAt     = 1 << 20 // 1MiB
@@ -30,40 +26,36 @@ const (
 )
 
 type Entry interface {
+	WALEpoch() uint64
 	cbg.CBORMarshaler
 	cbg.CBORUnmarshaler
-
-	WALEpoch() uint64
 }
 
-type EntryPointer[T any] interface {
+type WriteAheadLog[T any, PT interface {
 	*T
 	Entry
-}
-
-type Visitor[T any] func(T) (proceed bool)
-
-type WriteAheadLog[T any, PT EntryPointer[T]] struct {
+}] struct {
 	// pointer type trickery above
 	lk sync.Mutex
 
 	path string
 
-	logs   []entriesLog[T]
-	active struct {
+	logFiles []logStat
+	active   struct {
 		file *os.File
-		entriesLog[T]
+		logStat
 	}
 }
 
-type entriesLog[T any] struct {
+type logStat struct {
 	logName  string
 	maxEpoch uint64
-	// entries holds the in-memory cache of WAL entries for fast read access.
-	entries []T
 }
 
-func Open[T any, PT EntryPointer[T]](directory string) (*WriteAheadLog[T, PT], error) {
+func Open[T any, PT interface {
+	*T
+	Entry
+}](directory string) (*WriteAheadLog[T, PT], error) {
 	wal := WriteAheadLog[T, PT]{
 		path: directory,
 	}
@@ -76,38 +68,28 @@ func Open[T any, PT EntryPointer[T]](directory string) (*WriteAheadLog[T, PT], e
 	return &wal, nil
 }
 
-func (wal *WriteAheadLog[T, PT]) All() []T {
-	var entries []T
-	wal.ForEach(func(entry T) bool {
-		entries = append(entries, entry)
-		return true
-	})
-	return entries
-}
-
-// ForEach applies the given visitor function to each log entry in the
-// WriteAheadLog until either the visitor returns false or there are no more
-// entries.
-//
-// This includes both active and archived log files in the iteration. If a parse
-// error occurs while processing an entry (specifically an ErrParsingEntry), the
-// error is logged and the remaining entries in that log file are skipped. Other
-// unexpected errors will halt the iteration.
-func (wal *WriteAheadLog[T, PT]) ForEach(visitor Visitor[T]) {
+func (wal *WriteAheadLog[T, PT]) All() ([]T, error) {
 	wal.lk.Lock()
 	defer wal.lk.Unlock()
 
-	allLogs := wal.logs
-	if wal.active.file != nil {
-		allLogs = append(allLogs, wal.active.entriesLog)
-	}
-	for _, l := range allLogs {
-		for _, entry := range l.entries {
-			if !visitor(entry) {
-				return
-			}
+	var res []T
+
+	for _, s := range wal.logFiles {
+		_, content, err := wal.readLogFile(s.logName, true)
+		if err != nil {
+			return nil, fmt.Errorf("reading log file %q to list: %w", s.logName, err)
 		}
+		res = append(res, content...)
 	}
+	if wal.active.file != nil {
+		_, content, err := wal.readLogFile(wal.active.logName, true)
+		if err != nil {
+			return nil, fmt.Errorf("reading active log file %q to list: %w", wal.active.logName, err)
+		}
+		res = append(res, content...)
+	}
+
+	return res, nil
 }
 
 func (wal *WriteAheadLog[T, PT]) Append(value T) error {
@@ -134,7 +116,6 @@ func (wal *WriteAheadLog[T, PT]) Append(value T) error {
 	}
 
 	wal.active.maxEpoch = max(wal.active.maxEpoch, PT(&value).WALEpoch())
-	wal.active.entries = append(wal.active.entries, value)
 
 	return nil
 }
@@ -146,9 +127,9 @@ func (wal *WriteAheadLog[T, PT]) Purge(keepEpoch uint64) error {
 	wal.lk.Lock()
 	defer wal.lk.Unlock()
 
-	var keptLogFiles []entriesLog[T]
+	var keptLogFiles []logStat
 	var err error
-	for _, c := range wal.logs {
+	for _, c := range wal.logFiles {
 		if c.maxEpoch < keepEpoch {
 			err1 := os.Remove(filepath.Join(wal.path, c.logName))
 			err = multierr.Append(err, fmt.Errorf("removing WAL file %q: %w", c.logName, err1))
@@ -157,7 +138,7 @@ func (wal *WriteAheadLog[T, PT]) Purge(keepEpoch uint64) error {
 		}
 		keptLogFiles = append(keptLogFiles, c)
 	}
-	wal.logs = keptLogFiles
+	wal.logFiles = keptLogFiles
 	return nil
 }
 
@@ -196,7 +177,7 @@ func (wal *WriteAheadLog[T, PT]) Rotate() error {
 func (wal *WriteAheadLog[T, PT]) rotate() error {
 	if wal.active.file != nil {
 		if err := wal.flush(); err != nil {
-			return fmt.Errorf("finalizing log file %q: %w", wal.active.logName, err)
+			return fmt.Errorf("finalizing log file: %w", err)
 		}
 	}
 
@@ -208,7 +189,6 @@ func (wal *WriteAheadLog[T, PT]) rotate() error {
 
 	if err != nil {
 		wal.active.file = nil
-		wal.active.entriesLog = entriesLog[T]{}
 		return fmt.Errorf("opening new log file %q: %w", wal.active.logName, err)
 	}
 	return nil
@@ -227,10 +207,10 @@ func (wal *WriteAheadLog[T, PT]) flush() error {
 	if err != nil {
 		return fmt.Errorf("closing the file: %w", err)
 	}
-	wal.logs = append(wal.logs, wal.active.entriesLog)
+	wal.logFiles = append(wal.logFiles, wal.active.logStat)
 
 	wal.active.file = nil
-	wal.active.entriesLog = entriesLog[T]{}
+	wal.active.logStat = logStat{}
 
 	return nil
 }
@@ -251,53 +231,61 @@ func (wal *WriteAheadLog[T, PT]) hydrate() error {
 		return strings.Compare(a.Name(), b.Name())
 	})
 
-	for _, dir := range dirEntries {
-		if !strings.HasSuffix(dir.Name(), walExtension) {
+	for _, entry := range dirEntries {
+		if !strings.HasSuffix(entry.Name(), walExtension) {
 			continue
 		}
-		stat := entriesLog[T]{logName: dir.Name()}
-		switch err := wal.forEachEntry(stat.logName, func(entry T) bool {
-			stat.maxEpoch = max(stat.maxEpoch, PT(&entry).WALEpoch())
-			stat.entries = append(stat.entries, entry)
-			return true
-		}); {
-		case errors.Is(err, ErrParsingEntry):
-			log.Warnw("Ignored log entry parse error while hydrating", "log", stat.logName, "err", err)
-		case err != nil:
+		logS, _, err := wal.readLogFile(entry.Name(), false)
+		if err != nil {
 			return fmt.Errorf("reading log file: %w", err)
 		}
-		wal.logs = append(wal.logs, stat)
+
+		wal.logFiles = append(wal.logFiles, logS)
 	}
 	return nil
 }
 
-func (wal *WriteAheadLog[T, PT]) forEachEntry(logName string, visitor Visitor[T]) (_err error) {
-	if len(logName) == 0 {
-		return errors.New("log name cannot be empty")
+// readLogFile reads in a file logname as a log
+// it eats parsing errors and logs in on purpose
+func (wal *WriteAheadLog[T, PT]) readLogFile(logname string, keepVaues bool) (logStat, []T, error) {
+	var res logStat
+	if len(logname) == 0 {
+		return res, nil, errors.New("empty logname")
 	}
-	target, err := os.Open(filepath.Clean(filepath.Join(wal.path, logName)))
+
+	logFile, err := os.Open(filepath.Join(wal.path, logname))
 	if err != nil {
-		return fmt.Errorf("opening logfile %q: %w", logName, err)
+		return res, nil, fmt.Errorf("opening logfile %q: %w", logname, err)
 	}
-	defer func() {
-		if err := target.Close(); err != nil {
-			log.Errorw("failed to close log while reading", "name", logName, "err", err)
-			_err = multierr.Append(_err, err)
-		}
-	}()
-	reader := cbg.NewCborReader(target)
-	for {
-		var entry T
-		switch err := PT(&entry).UnmarshalCBOR(reader); {
-		case errors.Is(err, io.EOF):
-			return nil
-		case err != nil:
-			log.Warnw("Failed to parse entry in log", "log", logName, "err", err)
-			return fmt.Errorf("%w: %w", ErrParsingEntry, err)
-		default:
-			if proceed := visitor(entry); !proceed {
-				return nil
+	defer logFile.Close()
+
+	logFileReader := cbg.NewCborReader(logFile)
+	var content []T
+	var maxEpoch uint64
+	for err == nil {
+		var single T
+		err = PT(&single).UnmarshalCBOR(logFileReader)
+		if err == nil {
+			if keepVaues {
+				content = append(content, single)
 			}
+			maxEpoch = max(maxEpoch, PT(&single).WALEpoch())
 		}
+	}
+
+	res = logStat{
+		logName:  logname,
+		maxEpoch: maxEpoch,
+	}
+
+	switch {
+	case err == nil:
+		// the EOF case is expected, this is slightly unexpected but still handle it
+		return res, content, nil
+	case errors.Is(err, io.EOF):
+		return res, content, nil
+	default:
+		log.Errorf("got error while reading WAL log file %q: %+v", logname, err)
+		return res, content, nil
 	}
 }

@@ -40,23 +40,31 @@ func TestWALSimple(t *testing.T) {
 		err = wal.Append(e)
 		require.NoError(t, err)
 	}
-	require.Equal(t, entries, wal.All())
+	res, err := wal.All()
+	require.NoError(t, err)
+	require.Equal(t, entries, res)
 
 	err = wal.Close()
 	require.NoError(t, err)
-	require.Equal(t, entries, wal.All())
+	res, err = wal.All()
+	require.NoError(t, err)
+	require.Equal(t, entries, res)
 
 	wal = nil
 
 	wal, err = Open[testPayload](path)
 	require.NoError(t, err)
 
-	require.Equal(t, entries, wal.All())
+	res, err = wal.All()
+	require.NoError(t, err)
+	require.Equal(t, entries, res)
 
 	err = wal.Purge(1) // one file, should keep all
 	require.NoError(t, err)
 
-	require.Equal(t, entries, wal.All())
+	res, err = wal.All()
+	require.NoError(t, err)
+	require.Equal(t, entries, res)
 }
 func TestWALRecovery(t *testing.T) {
 	path := t.TempDir()
@@ -79,8 +87,9 @@ func TestWALRecovery(t *testing.T) {
 	wal, err = Open[testPayload](path)
 	require.NoError(t, err)
 
+	res, err := wal.All()
 	require.NoError(t, err)
-	require.Equal(t, entries, wal.All())
+	require.Equal(t, entries, res)
 }
 
 func TestWALPartialWrite(t *testing.T) {
@@ -109,7 +118,9 @@ func TestWALPartialWrite(t *testing.T) {
 
 	wal, err = Open[testPayload](path)
 	require.NoError(t, err)
-	require.Equal(t, []testPayload{entries[0]}, wal.All())
+	all, err := wal.All()
+	require.NoError(t, err)
+	require.Equal(t, []testPayload{entries[0]}, all)
 }
 
 func TestWALEmpty(t *testing.T) {
@@ -118,12 +129,16 @@ func TestWALEmpty(t *testing.T) {
 	wal, err := Open[testPayload](path)
 	require.NoError(t, err)
 
-	require.Empty(t, wal.All())
+	res, err := wal.All()
+	require.NoError(t, err)
+	require.Empty(t, res)
 
 	err = wal.Close()
 	require.NoError(t, err)
 
-	require.Empty(t, wal.All())
+	res, err = wal.All()
+	require.NoError(t, err)
+	require.Empty(t, res)
 }
 
 func TestWALPurge(t *testing.T) {
@@ -156,5 +171,7 @@ func TestWALPurge(t *testing.T) {
 		foo0,
 		{Value: 3, Foo: "Foo3"},
 	}
-	require.Equal(t, expected, wal.All())
+	res, err := wal.All()
+	require.NoError(t, err)
+	require.Equal(t, expected, res)
 }

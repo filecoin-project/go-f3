@@ -372,7 +372,7 @@ func (m *F3) Resume(ctx context.Context) error {
 	cleanName = strings.ReplaceAll(cleanName, "\u0000", "")
 
 	walPath := filepath.Join(m.diskPath, "wal", cleanName)
-	wal, err := writeaheadlog.OpenMessageWriteAheadLog(walPath)
+	wal, err := writeaheadlog.Open[walEntry](walPath)
 	if err != nil {
 		return fmt.Errorf("opening WAL: %w", err)
 	}
