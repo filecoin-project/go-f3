@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"go.dedis.ch/kyber/v4/pairing"
 
 	"go.dedis.ch/kyber/v4"
@@ -20,10 +21,10 @@ func TestVerifySigOnG2(t *testing.T) {
 	suite := NewSuite()
 	pkb, _ := hex.DecodeString(pk)
 	pubkeyP := suite.G1().Point()
-	pubkeyP.UnmarshalBinary(pkb)
+	require.NoError(t, pubkeyP.UnmarshalBinary(pkb))
 	sigb, _ := hex.DecodeString(sig)
 	sigP := suite.G2().Point()
-	sigP.UnmarshalBinary(sigb)
+	require.NoError(t, sigP.UnmarshalBinary(sigb))
 	prev, _ := hex.DecodeString(prevSig)
 	h := sha256.New()
 	h.Write(prev)

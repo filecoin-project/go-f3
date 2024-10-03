@@ -582,9 +582,8 @@ func (e *testEnv) waitForNodesStopped() {
 
 // Connect & link all nodes. This operation is idempotent.
 func (e *testEnv) connectAll() *testEnv {
-	e.net.LinkAll()
-	e.net.ConnectAllButSelf()
-
+	require.NoError(e.t, e.net.LinkAll())
+	require.NoError(e.t, e.net.ConnectAllButSelf())
 	return e
 }
 
