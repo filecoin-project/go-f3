@@ -27,6 +27,7 @@ var (
 		// MaxBackoff is 15min given default params
 		BaseDecisionBackoffTable: []float64{1.3, 1.69, 2.2, 2.86, 3.71, 4.83, 6.27, 7.5},
 		HeadLookback:             0,
+		Finalize:                 true,
 	}
 
 	DefaultGpbftConfig = GpbftConfig{
@@ -152,6 +153,8 @@ type EcConfig struct {
 	BaseDecisionBackoffTable []float64
 	// HeadLookback number of unfinalized tipsets to remove from the head
 	HeadLookback int
+	// Finalize indicates whether or not F3 should finalize tipsets as F3 agrees on them.
+	Finalize bool
 }
 
 func (e *EcConfig) Equal(o *EcConfig) bool {
