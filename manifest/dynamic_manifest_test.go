@@ -48,7 +48,9 @@ func TestDynamicManifest(t *testing.T) {
 		require.NoError(t, err)
 
 		providerMake = func() *DynamicManifestProvider {
-			return NewDynamicManifestProvider(initialManifest, ds, pubSub, sender.SenderID())
+			d, err := NewDynamicManifestProvider(initialManifest, ds, pubSub, sender.SenderID())
+			require.NoError(t, err)
+			return d
 		}
 		provider = providerMake()
 		t.Cleanup(func() { require.NoError(t, provider.Stop(context.Background())) })

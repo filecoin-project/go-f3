@@ -12,10 +12,13 @@ type StaticManifestProvider struct {
 	ch <-chan *Manifest
 }
 
-func NewStaticManifestProvider(m *Manifest) ManifestProvider {
+func NewStaticManifestProvider(m *Manifest) (*StaticManifestProvider, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
 	ch := make(chan *Manifest, 1)
 	ch <- m
-	return &StaticManifestProvider{ch: ch}
+	return &StaticManifestProvider{ch: ch}, nil
 }
 
 func (m *StaticManifestProvider) Start(context.Context) error       { return nil }
