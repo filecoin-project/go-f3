@@ -252,13 +252,7 @@ func TestF3LateBootstrap(t *testing.T) {
 	// Wait until we've finalized a distant epoch. Once we do, our EC will forget the historical
 	// chain (importantly, forget the bootstrap power table).
 	targetEpoch := 2*env.manifest.EC.Finality + env.manifest.BootstrapEpoch
-	env.waitForEpoch(targetEpoch + 5)
-	env.waitForCondition(func() bool {
-		time.Sleep(10 * time.Millisecond)
-		cert, err := env.nodes[0].f3.GetLatestCert(env.testCtx)
-		require.NoError(t, err)
-		return cert != nil && cert.ECChain.Head().Epoch > targetEpoch
-	}, 60*time.Second)
+	env.waitForEpochFinalized(targetEpoch)
 
 	// Now update the manifest with the initial power-table CID.
 	cert0, err := env.nodes[0].f3.GetCert(env.testCtx, 0)
@@ -475,10 +469,29 @@ func (e *testEnv) withNodes(n int) *testEnv {
 
 // waits for all nodes to reach a specific instance number.
 // If the `strict` flag is enabled the check also applies to the non-running nodes
-func (e *testEnv) waitForEpoch(epoch int64) {
+func (e *testEnv) waitForEpochFinalized(epoch int64) {
 	e.t.Helper()
 	for {
 		head := e.ec.GetCurrentHead()
+		if head > e.manifest.BootstrapEpoch {
+			e.waitForCondition(func() bool {
+				time.Sleep(time.Millisecond)
+				for _, nd := range e.nodes {
+					if nd.f3 == nil || !nd.f3.IsRunning() {
+						continue
+					}
+					cert, err := nd.f3.GetLatestCert(e.testCtx)
+					if cert == nil || err != nil {
+						continue
+					}
+					if cert.ECChain.Head().Epoch >= head {
+						return true
+					}
+				}
+				return false
+			}, 30*time.Second)
+		}
+
 		if head < epoch-100 {
 			e.clock.Add(100 * e.manifest.EC.Period)
 		} else if head < epoch-10 {
@@ -488,7 +501,6 @@ func (e *testEnv) waitForEpoch(epoch int64) {
 		} else {
 			break
 		}
-		time.Sleep(1 * time.Millisecond)
 	}
 }
 
