@@ -94,6 +94,10 @@ type Network interface {
 	NetworkName() NetworkName
 	// Requests that the message is signed and broadcasted, it should also be delivered locally
 	RequestBroadcast(mb *MessageBuilder) error
+	// RequestRebroadcast requests that a message at given instance, round and phase
+	// previously broadcasted via RequestBroadcast be rebroadcasted. Rebroadcast
+	// requests for messages that have not been broadcasted are silently ignored.
+	RequestRebroadcast(instance, round uint64, phase Phase) error
 }
 
 type Clock interface {

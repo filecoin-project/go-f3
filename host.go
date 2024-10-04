@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/filecoin-project/go-f3/certs"
@@ -46,6 +47,15 @@ type gpbftRunner struct {
 	runningCtx context.Context
 	errgrp     *errgroup.Group
 	ctxCancel  context.CancelFunc
+
+	// msgsMutex guards access to selfMessages
+	msgsMutex    sync.Mutex
+	selfMessages map[uint64]map[roundPhase][]*gpbft.GMessage
+}
+
+type roundPhase struct {
+	round uint64
+	phase gpbft.Phase
 }
 
 func newRunner(
@@ -63,18 +73,19 @@ func newRunner(
 	errgrp, runningCtx := errgroup.WithContext(runningCtx)
 
 	runner := &gpbftRunner{
-		certStore:   cs,
-		manifest:    m,
-		ec:          ec,
-		pubsub:      ps,
-		clock:       clock.GetClock(runningCtx),
-		verifier:    verifier,
-		wal:         wal,
-		outMessages: out,
-		runningCtx:  runningCtx,
-		errgrp:      errgrp,
-		ctxCancel:   ctxCancel,
-		equivFilter: newEquivocationFilter(pID),
+		certStore:    cs,
+		manifest:     m,
+		ec:           ec,
+		pubsub:       ps,
+		clock:        clock.GetClock(runningCtx),
+		verifier:     verifier,
+		wal:          wal,
+		outMessages:  out,
+		runningCtx:   runningCtx,
+		errgrp:       errgrp,
+		ctxCancel:    ctxCancel,
+		equivFilter:  newEquivocationFilter(pID),
+		selfMessages: make(map[uint64]map[roundPhase][]*gpbft.GMessage),
 	}
 
 	// create a stopped timer to facilitate alerts requested from gpbft
@@ -82,12 +93,34 @@ func newRunner(
 	if !runner.alertTimer.Stop() {
 		<-runner.alertTimer.C
 	}
+
 	walEntries, err := wal.All()
 	if err != nil {
 		return nil, fmt.Errorf("reading WAL: %w", err)
 	}
+
+	var maxInstance uint64
 	for _, v := range walEntries {
 		runner.equivFilter.ProcessBroadcast(v.Message)
+		instance := v.Message.Vote.Instance
+		if runner.selfMessages[instance] == nil {
+			runner.selfMessages[instance] = make(map[roundPhase][]*gpbft.GMessage)
+		}
+		// WAL is dumb. To avoid relying on it returning sorted entries or making it
+		// searchable add all messages, then trim down to the last instance.
+		key := roundPhase{
+			round: v.Message.Vote.Round,
+			phase: v.Message.Vote.Phase,
+		}
+		runner.selfMessages[instance][key] = append(runner.selfMessages[instance][key], v.Message)
+		maxInstance = max(maxInstance, instance)
+	}
+
+	// Trim down to the largest instance.
+	for instance := range runner.selfMessages {
+		if instance < maxInstance {
+			delete(runner.selfMessages, instance)
+		}
 	}
 
 	log.Infof("Starting gpbft runner")
@@ -232,6 +265,13 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 						log.Errorw("failed to purge messages from WAL", "error", err)
 					}
 				}
+				h.msgsMutex.Lock()
+				for instance := range h.selfMessages {
+					if instance < cert.GPBFTInstance {
+						delete(h.selfMessages, instance)
+					}
+				}
+				h.msgsMutex.Unlock()
 			}
 		}
 		return nil
@@ -333,6 +373,17 @@ func (h *gpbftRunner) BroadcastMessage(msg *gpbft.GMessage) error {
 		log.Errorw("appending to WAL", "error", err)
 	}
 
+	h.msgsMutex.Lock()
+	if h.selfMessages[msg.Vote.Instance] == nil {
+		h.selfMessages[msg.Vote.Instance] = make(map[roundPhase][]*gpbft.GMessage)
+	}
+	key := roundPhase{
+		round: msg.Vote.Round,
+		phase: msg.Vote.Phase,
+	}
+	h.selfMessages[msg.Vote.Instance][key] = append(h.selfMessages[msg.Vote.Instance][key], msg)
+	h.msgsMutex.Unlock()
+
 	if h.topic == nil {
 		return pubsub.ErrTopicClosed
 	}
@@ -344,6 +395,24 @@ func (h *gpbftRunner) BroadcastMessage(msg *gpbft.GMessage) error {
 
 	err = h.topic.Publish(h.runningCtx, bw.Bytes())
 	if err != nil {
+		return fmt.Errorf("publishing message: %w", err)
+	}
+	return nil
+}
+
+func (h *gpbftRunner) rebroadcastMessage(msg *gpbft.GMessage) error {
+	if !h.equivFilter.ProcessBroadcast(msg) {
+		// equivocation filter does its own logging and this error just gets logged
+		return nil
+	}
+	if h.topic == nil {
+		return pubsub.ErrTopicClosed
+	}
+	var bw bytes.Buffer
+	if err := msg.MarshalCBOR(&bw); err != nil {
+		return fmt.Errorf("marshalling GMessage for broadcast: %w", err)
+	}
+	if err := h.topic.Publish(h.runningCtx, bw.Bytes()); err != nil {
 		return fmt.Errorf("publishing message: %w", err)
 	}
 	return nil
@@ -473,6 +542,25 @@ var (
 
 // gpbftHost is a newtype of gpbftRunner exposing APIs required by the gpbft.Participant
 type gpbftHost gpbftRunner
+
+func (h *gpbftHost) RequestRebroadcast(instance, round uint64, phase gpbft.Phase) error {
+	var rebroadcasts []*gpbft.GMessage
+	h.msgsMutex.Lock()
+	if roundPhaseMessages, found := h.selfMessages[instance]; found {
+		if messages, found := roundPhaseMessages[roundPhase{round: round, phase: phase}]; found {
+			rebroadcasts = slices.Clone(messages)
+		}
+	}
+	h.msgsMutex.Unlock()
+	var err error
+	if len(rebroadcasts) > 0 {
+		obfuscatedHost := (*gpbftRunner)(h)
+		for _, message := range rebroadcasts {
+			err = multierr.Append(err, obfuscatedHost.rebroadcastMessage(message))
+		}
+	}
+	return err
+}
 
 func (h *gpbftHost) collectChain(base ec.TipSet, head ec.TipSet) ([]ec.TipSet, error) {
 	// TODO: optimize when head is way beyond base

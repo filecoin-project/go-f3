@@ -182,7 +182,7 @@ func (s *Simulation) initParticipants() error {
 	var nextID gpbft.ActorID
 	for _, archetype := range s.honestParticipantArchetypes {
 		for i := 0; i < archetype.count; i++ {
-			host := newHost(nextID, s, archetype.ecChainGenerator, archetype.storagePowerGenerator)
+			host := newHost(nextID, s, archetype.ecChainGenerator, archetype.storagePowerGenerator, false)
 			pOpts := append(s.gpbftOptions, gpbft.WithTracer(host))
 			participant, err := newParticipant(nextID, host, pOpts...)
 			if err != nil {
@@ -197,7 +197,7 @@ func (s *Simulation) initParticipants() error {
 
 	// There is at most one adversary but with arbitrary power.
 	if s.adversaryGenerator != nil && s.adversaryCount == 1 {
-		host := newHost(nextID, s, NewFixedECChainGenerator(*s.baseChain), nil)
+		host := newHost(nextID, s, NewFixedECChainGenerator(*s.baseChain), nil, true)
 		// Adversary implementations currently ignore the canonical chain.
 		// Set to a fixed ec chain generator and expand later for possibility
 		// of implementing adversaries that adapt based on ec chain.

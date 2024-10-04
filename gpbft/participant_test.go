@@ -1153,7 +1153,7 @@ func TestParticipant_WithMisbehavingSigner(t *testing.T) {
 		// Panic at every signing operation.
 		driver.SetSigning(emulator.PanicSigning())
 
-		// Expect that instance does not start, capturs panic and returns an error.
+		// Expect that instance does not start, captures panic and returns an error.
 		require.ErrorContains(t, driver.StartInstance(instance.ID()), "participant panicked")
 		// Expect no broadcast as the instance is not started
 		driver.RequireNoBroadcast()
@@ -1182,12 +1182,12 @@ func TestParticipant_WithMisbehavingSigner(t *testing.T) {
 		driver.SetSigning(emulator.AdhocSigning())
 		// Trigger timeout at PREPARE to schedule re-broadcast.
 		driver.RequireDeliverAlarm()
-		// Trigger re-broadcast timeout to force broadcast attempt for QUALITY and
-		// PREPARE from round 0, which should have been scheduled regardless of signing
-		// panic.
+		// Trigger re-broadcast timeout to force broadcast attempt for QUALITY but not
+		// PREPARE. Because, signing of PREPARE from round 0 never actually happened due
+		// to panic and should be missing from the state (i.e. WAL in production code).
 		driver.RequireDeliverAlarm()
 		driver.RequireQuality()
-		driver.RequirePrepare(instance.Proposal().BaseChain())
+		driver.RequireNoBroadcast()
 	})
 }
 
