@@ -152,7 +152,7 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 			log.Errorf("error when receiving certificate: %+v", err)
 		}
 	default:
-		if err := h.participant.StartInstanceAt(h.manifest.InitialInstance, h.clock.Now()); err != nil {
+		if err := h.startInstanceAt(h.manifest.InitialInstance, h.clock.Now()); err != nil {
 			log.Errorf("error when starting instance %d: %+v", h.manifest.InitialInstance, err)
 		}
 	}
@@ -289,7 +289,58 @@ func (h *gpbftRunner) receiveCertificate(c *certs.FinalityCertificate) error {
 	log.Infow("skipping forwards based on cert", "from", currentInstance, "to", nextInstance)
 
 	nextInstanceStart := h.computeNextInstanceStart(c)
-	return h.participant.StartInstanceAt(nextInstance, nextInstanceStart)
+	return h.startInstanceAt(nextInstance, nextInstanceStart)
+}
+
+func (h *gpbftRunner) startInstanceAt(instance uint64, at time.Time) error {
+	// Look for any existing messages in WAL for the next instance, and if there is
+	// any replay them to self to aid the participant resume progress when possible.
+	//
+	// Collect the replay messages first then replay them to avid holding the lock
+	// for too long if for whatever reason validate/receive is slow.
+	var replay []*gpbft.GMessage
+	h.msgsMutex.Lock()
+	if messages, found := h.selfMessages[instance]; found {
+		replay = make([]*gpbft.GMessage, 0, len(messages))
+		for _, message := range messages {
+			replay = append(replay, message...)
+		}
+	}
+	h.msgsMutex.Unlock()
+
+	// Order of messages does not matter to GPBFT. But sort them in ascending order
+	// of instance, round, phase, sender for a more optimal resumption.
+	slices.SortFunc(replay, func(one *gpbft.GMessage, other *gpbft.GMessage) int {
+		switch {
+		case one.Vote.Instance < other.Vote.Instance:
+			return -1
+		case one.Vote.Instance > other.Vote.Instance:
+			return 1
+		case one.Vote.Round < other.Vote.Round:
+			return -1
+		case one.Vote.Round > other.Vote.Round:
+			return 1
+		case one.Vote.Phase < other.Vote.Phase:
+			return -1
+		case one.Vote.Phase > other.Vote.Phase:
+			return 1
+		case one.Sender < other.Sender:
+			return -1
+		case one.Sender > other.Sender:
+			return 1
+		default:
+			return 0
+		}
+	})
+
+	for _, message := range replay {
+		if validated, err := h.participant.ValidateMessage(message); err != nil {
+			log.Warnw("invalid self message", "message", message, "err", err)
+		} else if err := h.participant.ReceiveMessage(validated); err != nil {
+			log.Warnw("failed to send resumption message", "message", message, "err", err)
+		}
+	}
+	return h.participant.StartInstanceAt(instance, at)
 }
 
 func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) (_nextStart time.Time) {
