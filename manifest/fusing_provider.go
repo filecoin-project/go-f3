@@ -87,7 +87,7 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 		timer := m.clock.Timer(m.clock.Until(start))
 		defer timer.Stop()
 
-		for ctx.Err() == nil {
+		for m.runningCtx.Err() == nil {
 			select {
 			case <-timer.C:
 				log.Infow(
@@ -105,7 +105,7 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 				return nil
 			case update := <-dynamicUpdates:
 				m.updateManifest(update)
-			case <-ctx.Done():
+			case <-m.runningCtx.Done():
 			}
 		}
 		return m.dynamic.Stop(context.Background())
