@@ -82,3 +82,23 @@ func TestFusingManifestProvider(t *testing.T) {
 	case <-time.After(time.Second):
 	}
 }
+
+// Test that starting and stopping the fusing manifest provider works correctly, even if we never
+// "fuse".
+func TestFusingManifestProviderStop(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	ctx, _ = clock.WithMockClock(ctx)
+	t.Cleanup(cancel)
+
+	initialManifest := manifest.LocalDevnetManifest()
+	initialManifest.BootstrapEpoch = 1000
+
+	fakeEc := consensus.NewFakeEC(ctx)
+	manifestCh := make(chan *manifest.Manifest, 1)
+	prov, err := manifest.NewFusingManifestProvider(ctx,
+		fakeEc, (testManifestProvider)(manifestCh), initialManifest)
+	require.NoError(t, err)
+
+	require.NoError(t, prov.Start(ctx))
+	require.NoError(t, prov.Stop(ctx))
+}
