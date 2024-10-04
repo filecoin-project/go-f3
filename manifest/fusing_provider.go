@@ -90,10 +90,30 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 		for m.runningCtx.Err() == nil {
 			select {
 			case <-timer.C:
+				// Make sure we're actually at the target epoch. This shouldn't be
+				// an issue unless our clocks are really funky, the network is
+				// behind, or we're in a lotus integration test
+				// (https://github.com/filecoin-project/lotus/issues/12557).
+				head, err := m.ec.GetHead(m.runningCtx)
+				switch {
+				case err != nil:
+					log.Errorw("failed to get head in fusing manifest provider", "error", err)
+					fallthrough
+				case head.Epoch() < switchEpoch:
+					log.Infow("delaying fusing manifest switch-over because head is behind the target epoch",
+						"head", head.Epoch(),
+						"target epoch", switchEpoch,
+						"bootstrap epoch", m.static.BootstrapEpoch,
+					)
+					timer.Reset(m.static.EC.Period)
+					continue
+				}
+
 				log.Infow(
 					"fusing to the static manifest, stopping the dynamic manifest provider",
 					"network", m.static.NetworkName,
 					"bootstrap epoch", m.static.BootstrapEpoch,
+					"current epoch", head.Epoch(),
 				)
 				m.updateManifest(m.static)
 				// Log any errors and move on. We don't bubble it because we don't
