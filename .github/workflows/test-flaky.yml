@@ -58,4 +58,4 @@ jobs:
           go-version: ${{ matrix.go }}
           cache: false
       - name: Repeat ${{ matrix.test }}
-        run: go test -v -count 50 . --tags=theflakybunch
+        run: go test -v -timeout 30m -count 50 . --tags=theflakybunch
