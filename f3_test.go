@@ -46,7 +46,6 @@ func TestF3Simple(t *testing.T) {
 }
 
 func TestF3WithLookback(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2).withManifest(func(m *manifest.Manifest) {
 		m.EC.HeadLookback = 20
 	}).start()
@@ -92,7 +91,6 @@ func TestF3WithLookback(t *testing.T) {
 }
 
 func TestF3PauseResumeCatchup(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(3).start()
 
 	env.waitForInstanceNumber(1, 30*time.Second, true)
@@ -131,7 +129,6 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 }
 
 func TestF3FailRecover(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2)
 
 	// Make it possible to fail a single write for node 0.
@@ -245,7 +242,6 @@ func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 }
 
 func TestF3LateBootstrap(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2).start()
 
 	// Wait till we're "caught up".
@@ -307,12 +303,14 @@ type testNode struct {
 }
 
 func (n *testNode) currentGpbftInstance() uint64 {
-	c, err := n.f3.GetLatestCert(n.e.testCtx)
-	require.NoError(n.e.t, err)
-	if c == nil {
-		return n.e.manifest.InitialInstance
-	}
-	return c.GPBFTInstance + 1
+	instance, _, _ := n.f3.Progress()
+	return instance
+	//c, err := n.f3.GetLatestCert(n.e.testCtx)
+	//require.NoError(n.e.t, err)
+	//if c == nil {
+	//	return n.e.manifest.InitialInstance
+	//}
+	//return c.GPBFTInstance + 1
 }
 
 func (n *testNode) init() *f3.F3 {
