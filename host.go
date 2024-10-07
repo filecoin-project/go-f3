@@ -281,7 +281,7 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 
 func (h *gpbftRunner) receiveCertificate(c *certs.FinalityCertificate) error {
 	nextInstance := c.GPBFTInstance + 1
-	currentInstance, _, _ := h.participant.Progress()
+	currentInstance := h.participant.Progress().ID
 	if currentInstance >= nextInstance {
 		return nil
 	}
@@ -594,11 +594,11 @@ var (
 // gpbftHost is a newtype of gpbftRunner exposing APIs required by the gpbft.Participant
 type gpbftHost gpbftRunner
 
-func (h *gpbftHost) RequestRebroadcast(instance, round uint64, phase gpbft.Phase) error {
+func (h *gpbftHost) RequestRebroadcast(instant gpbft.Instant) error {
 	var rebroadcasts []*gpbft.GMessage
 	h.msgsMutex.Lock()
-	if roundPhaseMessages, found := h.selfMessages[instance]; found {
-		if messages, found := roundPhaseMessages[roundPhase{round: round, phase: phase}]; found {
+	if roundPhaseMessages, found := h.selfMessages[instant.ID]; found {
+		if messages, found := roundPhaseMessages[roundPhase{round: instant.Round, phase: instant.Phase}]; found {
 			rebroadcasts = slices.Clone(messages)
 		}
 	}
@@ -650,7 +650,7 @@ func (h *gpbftRunner) Stop(context.Context) error {
 // ID, round and phase.
 //
 // This API is safe for concurrent use.
-func (h *gpbftRunner) Progress() (instance, round uint64, phase gpbft.Phase) {
+func (h *gpbftRunner) Progress() gpbft.Instant {
 	return h.participant.Progress()
 }
 

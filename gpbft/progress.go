@@ -8,7 +8,7 @@ var (
 )
 
 // Progress gets the latest GPBFT instance progress.
-type Progress func() (instance, round uint64, phase Phase)
+type Progress func() (instant Instant)
 
 // ProgressObserver defines an interface for observing and being notified about
 // the progress of a GPBFT instance as it advances through different instance,
@@ -16,34 +16,24 @@ type Progress func() (instance, round uint64, phase Phase)
 type ProgressObserver interface {
 	// NotifyProgress is called to notify the observer about the progress of GPBFT
 	// instance, round or phase.
-	NotifyProgress(instance, round uint64, phase Phase)
+	NotifyProgress(instant Instant)
 }
 
 type atomicProgression struct {
-	progression atomic.Pointer[progress]
-}
-
-type progress struct {
-	instance uint64
-	round    uint64
-	phase    Phase
+	progression atomic.Pointer[Instant]
 }
 
 func newAtomicProgression() *atomicProgression {
 	return &atomicProgression{}
 }
 
-func (a *atomicProgression) NotifyProgress(instance, round uint64, phase Phase) {
-	a.progression.Store(&progress{
-		instance: instance,
-		round:    round,
-		phase:    phase,
-	})
+func (a *atomicProgression) NotifyProgress(instant Instant) {
+	a.progression.Store(&instant)
 }
 
-func (a *atomicProgression) Get() (instance, round uint64, phase Phase) {
+func (a *atomicProgression) Get() (instant Instant) {
 	if latest := a.progression.Load(); latest != nil {
-		instance, round, phase = latest.instance, latest.round, latest.phase
+		instant = *latest
 	}
 	return
 }

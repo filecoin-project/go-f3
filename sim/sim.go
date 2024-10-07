@@ -95,7 +95,7 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 			// certificates from future rounds, i.e. the instance that just completed in
 			// simulation, it signals the participant to skip ahead.
 			for _, p := range s.participants {
-				if instance, _, _ := p.Progress(); instance < currentInstance.Instance {
+				if instance := p.Progress().ID; instance < currentInstance.Instance {
 					// TODO: enhance control over propagation of finality certificates
 					//       See: https://github.com/filecoin-project/go-f3/issues/327
 					if err := p.StartInstanceAt(currentInstance.Instance, s.network.Time()); err != nil {
@@ -236,9 +236,9 @@ func (s *Simulation) GetInstance(i uint64) *ECInstance {
 func (s *Simulation) getMaxRound() uint64 {
 	var maxRound uint64
 	for _, participant := range s.participants {
-		_, currentRound, _ := participant.Progress()
-		if currentRound > maxRound {
-			maxRound = currentRound
+		current := participant.Progress()
+		if current.Round > maxRound {
+			maxRound = current.Round
 		}
 	}
 	return maxRound

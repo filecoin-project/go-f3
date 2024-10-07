@@ -48,16 +48,16 @@ func (v *cachingValidator) ValidateMessage(msg *GMessage) (valid ValidatedMessag
 	}
 
 	// Infer whether to proceed validating the message relative to the current instance.
-	switch currentInstance, currentRound, currentPhase := v.progress(); {
-	case msg.Vote.Instance >= currentInstance+v.committeeLookback:
+	switch current := v.progress(); {
+	case msg.Vote.Instance >= current.ID+v.committeeLookback:
 		// Message is beyond current + committee lookback.
 		return nil, ErrValidationNoCommittee
-	case msg.Vote.Instance > currentInstance,
-		msg.Vote.Instance+1 == currentInstance && msg.Vote.Phase == DECIDE_PHASE:
+	case msg.Vote.Instance > current.ID,
+		msg.Vote.Instance+1 == current.ID && msg.Vote.Phase == DECIDE_PHASE:
 		// Only proceed to validate the message if it:
 		//  * belongs to an instance within the range of current to current + committee lookback, or
 		//  * is a DECIDE message belonging to previous instance.
-	case msg.Vote.Instance == currentInstance:
+	case msg.Vote.Instance == current.ID:
 		// Message belongs to current instance. Only validate messages that are relevant,
 		// i.e.:
 		//   * When current instance is at DECIDE phase only validate DECIDE messages.
@@ -65,15 +65,15 @@ func (v *cachingValidator) ValidateMessage(msg *GMessage) (valid ValidatedMessag
 		//     DECIDE, messages from previous round, and messages from current round.
 		// Anything else is not relevant.
 		switch {
-		case currentPhase == DECIDE_PHASE && msg.Vote.Phase != DECIDE_PHASE:
+		case current.Phase == DECIDE_PHASE && msg.Vote.Phase != DECIDE_PHASE:
 			return nil, ErrValidationNotRelevant
 		case msg.Vote.Phase == QUALITY_PHASE,
 			msg.Vote.Phase == DECIDE_PHASE,
 			// Check if message round is larger than or equal to current round.
-			msg.Vote.Round >= currentRound,
+			msg.Vote.Round >= current.Round,
 			// Check if message round is equal to previous round. Note that we increment the
 			// message round to check this in order to avoid unit64 wrapping.
-			msg.Vote.Round+1 == currentRound:
+			msg.Vote.Round+1 == current.Round:
 			// Message is relevant. Progress to further validation.
 		default:
 			return nil, ErrValidationNotRelevant

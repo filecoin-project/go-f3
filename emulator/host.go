@@ -54,8 +54,8 @@ func (h *driverHost) RequestBroadcast(mb *gpbft.MessageBuilder) error {
 	return nil
 }
 
-func (h *driverHost) RequestRebroadcast(instance, round uint64, phase gpbft.Phase) error {
-	message, found := h.messages.Get(instance, round, phase)
+func (h *driverHost) RequestRebroadcast(instant gpbft.Instant) error {
+	message, found := h.messages.Get(instant)
 	if found {
 		h.receivedBroadcasts = append(h.receivedBroadcasts, message)
 	}

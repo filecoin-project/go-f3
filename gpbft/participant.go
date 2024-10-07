@@ -126,15 +126,8 @@ func (p *Participant) StartInstanceAt(instance uint64, when time.Time) (err erro
 // instance ID, round and phase.
 //
 // This API is safe for concurrent use.
-func (p *Participant) Progress() (instance, round uint64, phase Phase) {
+func (p *Participant) Progress() Instant {
 	return p.progression.Get()
-}
-
-// currentInstance is a convenient wrapper around Participant.Progress that returns the
-// current GPBFT instance ID for internal use.
-func (p *Participant) currentInstance() uint64 {
-	currentInstance, _, _ := p.Progress()
-	return currentInstance
 }
 
 // ValidateMessage checks if the given message is valid. If invalid, an error is
@@ -170,7 +163,7 @@ func (p *Participant) ReceiveMessage(vmsg ValidatedMessage) (err error) {
 	}()
 	msg := vmsg.Message()
 
-	currentInstance := p.currentInstance()
+	currentInstance := p.Progress().ID
 	// Drop messages for past instances.
 	if msg.Vote.Instance < currentInstance {
 		p.trace("dropping message from old instance %d while received in instance %d",
@@ -217,7 +210,7 @@ func (p *Participant) ReceiveAlarm() (err error) {
 }
 
 func (p *Participant) beginInstance() error {
-	currentInstance := p.currentInstance()
+	currentInstance := p.Progress().ID
 	data, chain, err := p.host.GetProposal(currentInstance)
 	if err != nil {
 		return fmt.Errorf("failed fetching chain for instance %d: %w", currentInstance, err)
@@ -242,10 +235,10 @@ func (p *Participant) beginInstance() error {
 		return fmt.Errorf("failed starting gpbft instance: %w", err)
 	}
 	// Deliver any queued messages for the new instance.
-	queued := p.mqueue.Drain(p.gpbft.instanceID)
+	queued := p.mqueue.Drain(p.gpbft.current.ID)
 	if p.tracingEnabled() {
 		for _, msg := range queued {
-			p.trace("Delivering queued {%d} ← P%d: %v", p.gpbft.instanceID, msg.Sender, msg)
+			p.trace("Delivering queued {%d} ← P%d: %v", p.gpbft.current.ID, msg.Sender, msg)
 		}
 	}
 	if err := p.gpbft.ReceiveMany(queued); err != nil {
@@ -265,7 +258,7 @@ func (p *Participant) handleDecision() {
 		p.trace("failed to receive decision: %+v", err)
 		p.host.SetAlarm(time.Time{})
 	} else {
-		p.beginNextInstance(p.currentInstance() + 1)
+		p.beginNextInstance(p.Progress().ID + 1)
 		p.host.SetAlarm(nextStart)
 	}
 }
@@ -276,7 +269,7 @@ func (p *Participant) finishCurrentInstance() *Justification {
 		decision = p.gpbft.terminationValue
 	}
 	p.gpbft = nil
-	if currentInstance := p.currentInstance(); currentInstance > 1 {
+	if currentInstance := p.Progress().ID; currentInstance > 1 {
 		// Remove all cached messages that are older than the previous instance
 		p.messageCache.RemoveGroupsLessThan(currentInstance - 1)
 	}
@@ -295,11 +288,11 @@ func (p *Participant) beginNextInstance(nextInstance uint64) {
 	if nextInstance > 0 {
 		p.committeeProvider.EvictCommitteesBefore(nextInstance - 1)
 	}
-	p.progression.NotifyProgress(nextInstance, 0, INITIAL_PHASE)
+	p.progression.NotifyProgress(Instant{ID: nextInstance, Round: 0, Phase: INITIAL_PHASE})
 }
 
 func (p *Participant) terminated() bool {
-	return p.gpbft != nil && p.gpbft.phase == TERMINATED_PHASE
+	return p.gpbft != nil && p.gpbft.current.Phase == TERMINATED_PHASE
 }
 
 func (p *Participant) Describe() string {

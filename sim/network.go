@@ -96,8 +96,8 @@ func (nf *networkFor) Log(format string, args ...any) {
 func (nf *networkFor) RequestBroadcast(mb *gpbft.MessageBuilder) error {
 	return nf.requestBroadcast(mb, false)
 }
-func (nf *networkFor) RequestRebroadcast(instance, round uint64, phase gpbft.Phase) error {
-	if msg, found := nf.messages.Get(instance, round, phase); found {
+func (nf *networkFor) RequestRebroadcast(instant gpbft.Instant) error {
+	if msg, found := nf.messages.Get(instant); found {
 		nf.broadcast(msg, true)
 	}
 	return nil

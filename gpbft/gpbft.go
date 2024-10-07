@@ -151,7 +151,6 @@ func (m GMessage) String() string {
 // A single Granite consensus instance.
 type instance struct {
 	participant *Participant
-	instanceID  uint64
 	// The EC chain input to this instance.
 	input ECChain
 	// The power table for the base chain, used for power in this instance.
@@ -160,10 +159,9 @@ type instance struct {
 	aggregateVerifier Aggregate
 	// The beacon value from the base chain, used for tickets in this instance.
 	beacon []byte
-	// Current round number.
-	round uint64
-	// Current phase in the round.
-	phase Phase
+	// current stores information about the current GPBFT instant in terms of
+	// instance ID, round and phase.
+	current Instant
 	// Time at which the current phase can or must end.
 	// For QUALITY, PREPARE, and COMMIT, this is the latest time (the phase can end sooner).
 	// For CONVERGE, this is the exact time (the timeout solely defines the phase end).
@@ -227,16 +225,18 @@ func newInstance(
 
 	return &instance{
 		participant:       participant,
-		instanceID:        instanceID,
 		input:             input,
 		powerTable:        powerTable,
 		aggregateVerifier: aggregateVerifier,
 		beacon:            beacon,
-		round:             0,
-		phase:             INITIAL_PHASE,
-		supplementalData:  data,
-		proposal:          input,
-		value:             ECChain{},
+		current: Instant{
+			ID:    instanceID,
+			Round: 0,
+			Phase: INITIAL_PHASE,
+		},
+		supplementalData: data,
+		proposal:         input,
+		value:            ECChain{},
 		candidates: map[ChainKey]struct{}{
 			input.BaseChain().Key(): {},
 		},
@@ -326,16 +326,16 @@ func (i *instance) ReceiveAlarm() error {
 }
 
 func (i *instance) Describe() string {
-	return fmt.Sprintf("{%d}, round %d, phase %s", i.instanceID, i.round, i.phase)
+	return fmt.Sprintf("{%d}, round %d, phase %s", i.current.ID, i.current.Round, i.current.Phase)
 }
 
 // Processes a single message.
 // Returns true if the message might have caused a change in state.
 func (i *instance) receiveOne(msg *GMessage) (bool, error) {
 	// Check the message is for this instance, to guard against programming error.
-	if msg.Vote.Instance != i.instanceID {
+	if msg.Vote.Instance != i.current.ID {
 		return false, fmt.Errorf("%w: message for instance %d, expected %d",
-			ErrReceivedWrongInstance, msg.Vote.Instance, i.instanceID)
+			ErrReceivedWrongInstance, msg.Vote.Instance, i.current.ID)
 	}
 	// Perform validation that could not be done until the instance started.
 	// Check supplemental data matches this instance's expectation.
@@ -349,11 +349,11 @@ func (i *instance) receiveOne(msg *GMessage) (bool, error) {
 			ErrValidationWrongBase, &msg.Vote.Value, i.input.Base())
 	}
 
-	if i.phase == TERMINATED_PHASE {
+	if i.current.Phase == TERMINATED_PHASE {
 		return false, nil // No-op
 	}
 	// Ignore CONVERGE and PREPARE messages for prior rounds.
-	forPriorRound := msg.Vote.Round < i.round
+	forPriorRound := msg.Vote.Round < i.current.Round
 	if (forPriorRound && msg.Vote.Phase == CONVERGE_PHASE) ||
 		(forPriorRound && msg.Vote.Phase == PREPARE_PHASE) {
 		return false, nil
@@ -362,7 +362,7 @@ func (i *instance) receiveOne(msg *GMessage) (bool, error) {
 	// Drop message that:
 	//  * belong to future rounds, beyond the configured max lookahead threshold, and
 	//  * carry no justification, i.e. are spammable.
-	beyondMaxLookaheadRounds := msg.Vote.Round > i.round+i.participant.maxLookaheadRounds
+	beyondMaxLookaheadRounds := msg.Vote.Round > i.current.Round+i.participant.maxLookaheadRounds
 	if beyondMaxLookaheadRounds && isSpammable(msg) {
 		return false, nil
 	}
@@ -377,7 +377,7 @@ func (i *instance) receiveOne(msg *GMessage) (bool, error) {
 		i.quality.ReceiveEachPrefix(msg.Sender, msg.Vote.Value)
 		// If the instance has surpassed QUALITY phase, update the candidates based
 		// on possible quorum of input prefixes.
-		if i.phase != QUALITY_PHASE {
+		if i.current.Phase != QUALITY_PHASE {
 			return true, i.updateCandidatesFromQuality()
 		}
 	case CONVERGE_PHASE:
@@ -398,12 +398,12 @@ func (i *instance) receiveOne(msg *GMessage) (bool, error) {
 		// to a new round. Late-arriving COMMITs can still (must) cause a local decision,
 		// *in that round*. Try to complete the COMMIT phase for the round specified by
 		// the message.
-		if i.phase != DECIDE_PHASE {
+		if i.current.Phase != DECIDE_PHASE {
 			return true, i.tryCommit(msg.Vote.Round)
 		}
 	case DECIDE_PHASE:
 		i.decision.Receive(msg.Sender, msg.Vote.Value, msg.Signature)
-		if i.phase != DECIDE_PHASE {
+		if i.current.Phase != DECIDE_PHASE {
 			i.skipToDecide(msg.Vote.Value, msg.Justification)
 		}
 	default:
@@ -434,7 +434,7 @@ func (i *instance) postReceive(roundsReceived ...uint64) {
 func (i *instance) shouldSkipToRound(round uint64, state *roundState) (ECChain, *Justification, bool) {
 	// Check if the given round is ahead of current round and this instance is not in
 	// DECIDE phase.
-	if round <= i.round || i.phase == DECIDE_PHASE {
+	if round <= i.current.Round || i.current.Phase == DECIDE_PHASE {
 		return nil, nil, false
 	}
 	if !state.prepared.ReceivedFromWeakQuorum() {
@@ -452,8 +452,8 @@ func (i *instance) shouldSkipToRound(round uint64, state *roundState) (ECChain, 
 
 // Attempts to complete the current phase and round.
 func (i *instance) tryCurrentPhase() error {
-	i.log("try phase %s", i.phase)
-	switch i.phase {
+	i.log("try phase %s", i.current.Phase)
+	switch i.current.Phase {
 	case QUALITY_PHASE:
 		return i.tryQuality()
 	case CONVERGE_PHASE:
@@ -461,27 +461,27 @@ func (i *instance) tryCurrentPhase() error {
 	case PREPARE_PHASE:
 		return i.tryPrepare()
 	case COMMIT_PHASE:
-		return i.tryCommit(i.round)
+		return i.tryCommit(i.current.Round)
 	case DECIDE_PHASE:
 		return i.tryDecide()
 	case TERMINATED_PHASE:
 		return nil // No-op
 	default:
-		return fmt.Errorf("unexpected phase %s", i.phase)
+		return fmt.Errorf("unexpected phase %s", i.current.Phase)
 	}
 }
 
 // Sends this node's QUALITY message and begins the QUALITY phase.
 func (i *instance) beginQuality() error {
-	if i.phase != INITIAL_PHASE {
-		return fmt.Errorf("cannot transition from %s to %s", i.phase, QUALITY_PHASE)
+	if i.current.Phase != INITIAL_PHASE {
+		return fmt.Errorf("cannot transition from %s to %s", i.current.Phase, QUALITY_PHASE)
 	}
 	// Broadcast input value and wait to receive from others.
-	i.phase = QUALITY_PHASE
-	i.participant.progression.NotifyProgress(i.instanceID, i.round, i.phase)
+	i.current.Phase = QUALITY_PHASE
+	i.participant.progression.NotifyProgress(i.current)
 	i.phaseTimeout = i.alarmAfterSynchrony()
 	i.resetRebroadcastParams()
-	i.broadcast(i.round, QUALITY_PHASE, i.proposal, false, nil)
+	i.broadcast(i.current.Round, QUALITY_PHASE, i.proposal, false, nil)
 	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrQualityPhase))
 	metrics.currentPhase.Record(context.TODO(), int64(QUALITY_PHASE))
 	return nil
@@ -489,8 +489,8 @@ func (i *instance) beginQuality() error {
 
 // Attempts to end the QUALITY phase and begin PREPARE based on current state.
 func (i *instance) tryQuality() error {
-	if i.phase != QUALITY_PHASE {
-		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, QUALITY_PHASE)
+	if i.current.Phase != QUALITY_PHASE {
+		return fmt.Errorf("unexpected phase %s, expected %s", i.current.Phase, QUALITY_PHASE)
 	}
 
 	// Wait either for a strong quorum that agree on our proposal, or for the timeout
@@ -527,37 +527,37 @@ func (i *instance) updateCandidatesFromQuality() error {
 
 // beginConverge initiates CONVERGE_PHASE justified by the given justification.
 func (i *instance) beginConverge(justification *Justification) {
-	if justification.Vote.Round != i.round-1 {
+	if justification.Vote.Round != i.current.Round-1 {
 		// For safety assert that the justification given belongs to the right round.
 		panic("justification for which to begin converge does not belong to expected round")
 	}
 
-	i.phase = CONVERGE_PHASE
-	i.participant.progression.NotifyProgress(i.instanceID, i.round, i.phase)
+	i.current.Phase = CONVERGE_PHASE
+	i.participant.progression.NotifyProgress(i.current)
 	i.phaseTimeout = i.alarmAfterSynchrony()
 	i.resetRebroadcastParams()
 
 	// Notify the round's convergeState that the self participant has begun the
 	// CONVERGE phase. Because, we cannot guarantee that the CONVERGE message
 	// broadcasts are delivered to self synchronously.
-	i.getRound(i.round).converged.SetSelfValue(i.proposal, justification)
+	i.getRound(i.current.Round).converged.SetSelfValue(i.proposal, justification)
 
-	i.broadcast(i.round, CONVERGE_PHASE, i.proposal, true, justification)
+	i.broadcast(i.current.Round, CONVERGE_PHASE, i.proposal, true, justification)
 	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrConvergePhase))
 	metrics.currentPhase.Record(context.TODO(), int64(CONVERGE_PHASE))
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
 func (i *instance) tryConverge() error {
-	if i.phase != CONVERGE_PHASE {
-		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, CONVERGE_PHASE)
+	if i.current.Phase != CONVERGE_PHASE {
+		return fmt.Errorf("unexpected phase %s, expected %s", i.current.Phase, CONVERGE_PHASE)
 	}
 	// The CONVERGE phase timeout doesn't wait to hear from >⅔ of power.
 	timeoutExpired := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
 	if !timeoutExpired {
 		return nil
 	}
-	commitRoundState := i.getRound(i.round - 1).committed
+	commitRoundState := i.getRound(i.current.Round - 1).committed
 
 	isValidConvergeValue := func(cv ConvergeValue) bool {
 		// If it is in candidate set
@@ -573,7 +573,7 @@ func (i *instance) tryConverge() error {
 		return possibleDecision
 	}
 
-	winner := i.getRound(i.round).converged.FindBestTicketProposal(isValidConvergeValue)
+	winner := i.getRound(i.current.Round).converged.FindBestTicketProposal(isValidConvergeValue)
 	if !winner.IsValid() {
 		return fmt.Errorf("no values at CONVERGE")
 	}
@@ -595,23 +595,23 @@ func (i *instance) tryConverge() error {
 // Sends this node's PREPARE message and begins the PREPARE phase.
 func (i *instance) beginPrepare(justification *Justification) {
 	// Broadcast preparation of value and wait for everyone to respond.
-	i.phase = PREPARE_PHASE
-	i.participant.progression.NotifyProgress(i.instanceID, i.round, i.phase)
+	i.current.Phase = PREPARE_PHASE
+	i.participant.progression.NotifyProgress(i.current)
 	i.phaseTimeout = i.alarmAfterSynchrony()
 	i.resetRebroadcastParams()
 
-	i.broadcast(i.round, PREPARE_PHASE, i.value, false, justification)
+	i.broadcast(i.current.Round, PREPARE_PHASE, i.value, false, justification)
 	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrPreparePhase))
 	metrics.currentPhase.Record(context.TODO(), int64(PREPARE_PHASE))
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
 func (i *instance) tryPrepare() error {
-	if i.phase != PREPARE_PHASE {
-		return fmt.Errorf("unexpected phase %s, expected %s", i.phase, PREPARE_PHASE)
+	if i.current.Phase != PREPARE_PHASE {
+		return fmt.Errorf("unexpected phase %s, expected %s", i.current.Phase, PREPARE_PHASE)
 	}
 
-	prepared := i.getRound(i.round).prepared
+	prepared := i.getRound(i.current.Round).prepared
 	proposalKey := i.proposal.Key()
 	foundQuorum := prepared.HasStrongQuorumFor(proposalKey)
 	timedOut := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
@@ -633,8 +633,8 @@ func (i *instance) tryPrepare() error {
 }
 
 func (i *instance) beginCommit() {
-	i.phase = COMMIT_PHASE
-	i.participant.progression.NotifyProgress(i.instanceID, i.round, i.phase)
+	i.current.Phase = COMMIT_PHASE
+	i.participant.progression.NotifyProgress(i.current)
 	i.phaseTimeout = i.alarmAfterSynchrony()
 	i.resetRebroadcastParams()
 
@@ -643,15 +643,15 @@ func (i *instance) beginCommit() {
 	// No justification is required for committing bottom.
 	var justification *Justification
 	if !i.value.IsZero() {
-		if quorum, ok := i.getRound(i.round).prepared.FindStrongQuorumFor(i.value.Key()); ok {
+		if quorum, ok := i.getRound(i.current.Round).prepared.FindStrongQuorumFor(i.value.Key()); ok {
 			// Found a strong quorum of PREPARE, build the justification for it.
-			justification = i.buildJustification(quorum, i.round, PREPARE_PHASE, i.value)
+			justification = i.buildJustification(quorum, i.current.Round, PREPARE_PHASE, i.value)
 		} else {
 			panic("beginCommit with no strong quorum for non-bottom value")
 		}
 	}
 
-	i.broadcast(i.round, COMMIT_PHASE, i.value, false, justification)
+	i.broadcast(i.current.Round, COMMIT_PHASE, i.value, false, justification)
 	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrCommitPhase))
 	metrics.currentPhase.Record(context.TODO(), int64(COMMIT_PHASE))
 }
@@ -673,7 +673,7 @@ func (i *instance) tryCommit(round uint64) error {
 		// influencing that decision against their interest, just accepting it.
 		i.value = quorumValue
 		i.beginDecide(round)
-	case i.round != round, i.phase != COMMIT_PHASE:
+	case i.current.Round != round, i.current.Phase != COMMIT_PHASE:
 		// We are at a phase other than COMMIT or round does not match the current one;
 		// nothing else to do.
 	case foundStrongQuorum:
@@ -708,8 +708,8 @@ func (i *instance) tryCommit(round uint64) error {
 }
 
 func (i *instance) beginDecide(round uint64) {
-	i.phase = DECIDE_PHASE
-	i.participant.progression.NotifyProgress(i.instanceID, i.round, i.phase)
+	i.current.Phase = DECIDE_PHASE
+	i.participant.progression.NotifyProgress(i.current)
 	i.resetRebroadcastParams()
 	var justification *Justification
 	// Value cannot be empty here.
@@ -734,8 +734,8 @@ func (i *instance) beginDecide(round uint64) {
 // without waiting for a strong quorum of COMMITs in any round.
 // The provided justification must justify the value being decided.
 func (i *instance) skipToDecide(value ECChain, justification *Justification) {
-	i.phase = DECIDE_PHASE
-	i.participant.progression.NotifyProgress(i.instanceID, i.round, i.phase)
+	i.current.Phase = DECIDE_PHASE
+	i.participant.progression.NotifyProgress(i.current)
 	i.proposal = value
 	i.value = i.proposal
 	i.resetRebroadcastParams()
@@ -771,18 +771,18 @@ func (i *instance) getRound(r uint64) *roundState {
 }
 
 func (i *instance) beginNextRound() {
-	i.log("moving to round %d with %s", i.round+1, i.proposal.String())
-	i.round += 1
-	metrics.currentRound.Record(context.TODO(), int64(i.round))
+	i.log("moving to round %d with %s", i.current.Round+1, i.proposal.String())
+	i.current.Round += 1
+	metrics.currentRound.Record(context.TODO(), int64(i.current.Round))
 
-	prevRound := i.getRound(i.round - 1)
+	prevRound := i.getRound(i.current.Round - 1)
 	// Proposal was updated at the end of COMMIT phase to be some value for which
 	// this node received a COMMIT message (bearing justification), if there were any.
 	// If there were none, there must have been a strong quorum for bottom instead.
 	var justification *Justification
 	if quorum, ok := prevRound.committed.FindStrongQuorumFor(""); ok {
 		// Build justification for strong quorum of COMMITs for bottom in the previous round.
-		justification = i.buildJustification(quorum, i.round-1, COMMIT_PHASE, ECChain{})
+		justification = i.buildJustification(quorum, i.current.Round-1, COMMIT_PHASE, ECChain{})
 	} else {
 		// Extract the justification received from some participant (possibly this node itself).
 		justification, ok = prevRound.committed.receivedJustification[i.proposal.Key()]
@@ -798,13 +798,13 @@ func (i *instance) beginNextRound() {
 //
 // See shouldSkipToRound.
 func (i *instance) skipToRound(round uint64, chain ECChain, justification *Justification) {
-	i.log("skipping from round %d to round %d with %s", i.round, round, i.proposal.String())
-	i.round = round
-	metrics.currentRound.Record(context.TODO(), int64(i.round))
+	i.log("skipping from round %d to round %d with %s", i.current.Round, round, i.proposal.String())
+	i.current.Round = round
+	metrics.currentRound.Record(context.TODO(), int64(i.current.Round))
 	metrics.skipCounter.Add(context.TODO(), 1, metric.WithAttributes(attrSkipToRound))
 
 	if justification.Vote.Phase == PREPARE_PHASE {
-		i.log("⚠️ swaying from %s to %s by skip to round %d", &i.proposal, chain, i.round)
+		i.log("⚠️ swaying from %s to %s by skip to round %d", &i.proposal, chain, i.current.Round)
 		i.addCandidate(chain)
 		i.proposal = chain
 	}
@@ -836,25 +836,25 @@ func (i *instance) addCandidate(c ECChain) bool {
 }
 
 func (i *instance) terminate(decision *Justification) {
-	i.log("✅ terminated %s during round %d", &i.value, i.round)
-	i.phase = TERMINATED_PHASE
-	i.participant.progression.NotifyProgress(i.instanceID, i.round, i.phase)
+	i.log("✅ terminated %s during round %d", &i.value, i.current.Round)
+	i.current.Phase = TERMINATED_PHASE
+	i.participant.progression.NotifyProgress(i.current)
 	i.value = decision.Vote.Value
 	i.terminationValue = decision
 	i.resetRebroadcastParams()
 
 	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrTerminatedPhase))
-	metrics.roundHistogram.Record(context.TODO(), int64(i.round))
+	metrics.roundHistogram.Record(context.TODO(), int64(i.current.Round))
 	metrics.currentPhase.Record(context.TODO(), int64(TERMINATED_PHASE))
 }
 
 func (i *instance) terminated() bool {
-	return i.phase == TERMINATED_PHASE
+	return i.current.Phase == TERMINATED_PHASE
 }
 
 func (i *instance) broadcast(round uint64, phase Phase, value ECChain, createTicket bool, justification *Justification) {
 	p := Payload{
-		Instance:         i.instanceID,
+		Instance:         i.current.ID,
 		Round:            round,
 		Phase:            phase,
 		SupplementalData: *i.supplementalData,
@@ -893,7 +893,7 @@ func (i *instance) tryRebroadcast() {
 		//    not have any phase timeout and may be too far in the past.
 		//  * Otherwise, use the phase timeout.
 		var rebroadcastTimeoutOffset time.Time
-		if i.phase == DECIDE_PHASE {
+		if i.current.Phase == DECIDE_PHASE {
 			rebroadcastTimeoutOffset = i.participant.host.Time()
 		} else {
 			rebroadcastTimeoutOffset = i.phaseTimeout
@@ -939,29 +939,30 @@ func (i *instance) rebroadcast() {
 	// Note that the implementation here rebroadcasts more messages than FIP-0086
 	// strictly requires. Because, the cost of rebroadcasting additional messages is
 	// small compared to the reduction in need for rebroadcast.
-	switch i.phase {
+	switch i.current.Phase {
 	case QUALITY_PHASE, CONVERGE_PHASE, PREPARE_PHASE, COMMIT_PHASE:
 		// Rebroadcast request for missing messages are silently ignored. Hence the
 		// simpler bulk rebroadcast if we are not in DECIDE phase.
 		i.rebroadcastQuietly(0, QUALITY_PHASE)
 
-		i.rebroadcastQuietly(i.round, COMMIT_PHASE)
-		i.rebroadcastQuietly(i.round, PREPARE_PHASE)
-		i.rebroadcastQuietly(i.round, CONVERGE_PHASE)
-		if i.round > 0 {
-			i.rebroadcastQuietly(i.round-1, COMMIT_PHASE)
-			i.rebroadcastQuietly(i.round-1, PREPARE_PHASE)
-			i.rebroadcastQuietly(i.round-1, CONVERGE_PHASE)
+		i.rebroadcastQuietly(i.current.Round, COMMIT_PHASE)
+		i.rebroadcastQuietly(i.current.Round, PREPARE_PHASE)
+		i.rebroadcastQuietly(i.current.Round, CONVERGE_PHASE)
+		if i.current.Round > 0 {
+			i.rebroadcastQuietly(i.current.Round-1, COMMIT_PHASE)
+			i.rebroadcastQuietly(i.current.Round-1, PREPARE_PHASE)
+			i.rebroadcastQuietly(i.current.Round-1, CONVERGE_PHASE)
 		}
 	case DECIDE_PHASE:
 		i.rebroadcastQuietly(0, DECIDE_PHASE)
 	default:
-		log.Errorw("rebroadcast attempted for unexpected phase", "round", i.round, "phase", i.phase)
+		log.Errorw("rebroadcast attempted for unexpected phase", "round", i.current.Round, "phase", i.current.Phase)
 	}
 }
 
 func (i *instance) rebroadcastQuietly(round uint64, phase Phase) {
-	if err := i.participant.host.RequestRebroadcast(i.instanceID, round, phase); err != nil {
+	instant := Instant{i.current.ID, round, phase}
+	if err := i.participant.host.RequestRebroadcast(instant); err != nil {
 		// Silently log the error and proceed. This is consistent with the behaviour of
 		// instance for regular broadcasts.
 		i.log("failed to request rebroadcast %s at round %d: %v", phase, round, err)
@@ -976,7 +977,7 @@ func (i *instance) rebroadcastQuietly(round uint64, phase Phase) {
 // Returns the absolute time at which the alarm will fire.
 func (i *instance) alarmAfterSynchrony() time.Time {
 	delta := time.Duration(float64(i.participant.delta) *
-		math.Pow(i.participant.deltaBackOffExponent, float64(i.round)))
+		math.Pow(i.participant.deltaBackOffExponent, float64(i.current.Round)))
 	timeout := i.participant.host.Time().Add(2 * delta)
 	i.participant.host.SetAlarm(timeout)
 	return timeout
@@ -990,7 +991,7 @@ func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase P
 	}
 	return &Justification{
 		Vote: Payload{
-			Instance:         i.instanceID,
+			Instance:         i.current.ID,
 			Round:            round,
 			Phase:            phase,
 			Value:            value,
@@ -1004,8 +1005,8 @@ func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase P
 func (i *instance) log(format string, args ...any) {
 	if i.tracer != nil {
 		msg := fmt.Sprintf(format, args...)
-		i.tracer.Log("{%d}: %s (round %d, phase %s, proposal %s, value %s)", i.instanceID, msg,
-			i.round, i.phase, &i.proposal, &i.value)
+		i.tracer.Log("{%d}: %s (round %d, phase %s, proposal %s, value %s)", i.current.ID, msg,
+			i.current.Round, i.current.Phase, &i.proposal, &i.value)
 	}
 }
 
