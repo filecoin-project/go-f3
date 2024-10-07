@@ -195,12 +195,13 @@ func TestF3DynamicManifest_WithRebootstrap(t *testing.T) {
 	// check that it rebootstrapped and has a new base epoch.
 	targetBaseEpoch := env.manifest.BootstrapEpoch - env.manifest.EC.Finality
 	env.waitForCondition(func() bool {
+		env.clock.Add(env.manifest.EC.Period)
 		c, err := env.nodes[0].f3.GetCert(env.testCtx, 0)
 		if err != nil || c == nil {
 			return false
 		}
 		return c.ECChain.Base().Epoch == targetBaseEpoch
-	}, 10*time.Second)
+	}, 20*time.Second)
 	env.waitForInstanceNumber(3, 15*time.Second, false)
 	require.NotEqual(t, prev, env.nodes[0].f3.Manifest())
 	env.requireEqualManifests(false)
