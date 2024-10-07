@@ -58,4 +58,4 @@ jobs:
           go-version: ${{ matrix.go }}
           cache: false
       - name: Repeat ${{ matrix.test }}
-        run: go test . -run=${{ matrix.test }} -count 50
+        run: go test -race . -run=${{ matrix.test }} -v -count 50
