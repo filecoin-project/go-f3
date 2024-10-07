@@ -128,7 +128,8 @@ func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCerti
 
 // Returns the time at which the F3 instance specified by the passed manifest should be started, or
 // 0 if the passed manifest is nil.
-func (m *F3) computeBootstrapDelay(manifest *manifest.Manifest) (time.Duration, error) {
+func (m *F3) computeBootstrapDelay() (time.Duration, error) {
+	manifest := m.manifest.Load()
 	if manifest == nil || manifest.Pause {
 		return 0, nil
 	}
@@ -162,14 +163,16 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 	}
 
 	// Try to get an initial manifest immediately if possible so uses can query it immediately.
-	var pendingManifest *manifest.Manifest
+	var hasPendingManifest bool
 	select {
-	case pendingManifest = <-m.manifestProvider.ManifestUpdates():
+	case pendingManifest := <-m.manifestProvider.ManifestUpdates():
+		metrics.manifestsReceived.Add(m.runningCtx, 1)
 		m.manifest.Store(pendingManifest)
+		hasPendingManifest = true
 	default:
 	}
 
-	initialDelay, err := m.computeBootstrapDelay(pendingManifest)
+	initialDelay, err := m.computeBootstrapDelay()
 	if err != nil {
 		return err
 	}
@@ -177,29 +180,29 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 	// Try to start immediately if we have a manifest available and don't have to wait to
 	// bootstrap. That way, we'll be fully started when we return from Start.
 	if initialDelay == 0 {
-		if err := m.reconfigure(startCtx, pendingManifest); err != nil {
-			log.Warnw("failed to reconfigure GPBFT", "error", err)
+		if err := m.startInternal(startCtx); err != nil {
+			log.Errorw("failed to reconfigure GPBFT", "error", err)
 		}
-		pendingManifest = nil
+		hasPendingManifest = false
 	}
 	{
 		var maybeNetworkName gpbft.NetworkName
-		if pendingManifest != nil {
-			maybeNetworkName = pendingManifest.NetworkName
+		if m := m.manifest.Load(); m != nil {
+			maybeNetworkName = m.NetworkName
 		}
 		log.Infow("F3 is starting", "initialDelay", initialDelay,
-			"hasPendingManifest", pendingManifest != nil, "NetworkName", maybeNetworkName)
+			"hasPendingManifest", hasPendingManifest, "NetworkName", maybeNetworkName)
 	}
 
 	m.errgrp.Go(func() (_err error) {
 		defer func() {
-			if err := m.Pause(context.Background()); err != nil {
+			if err := m.stopInternal(context.Background()); err != nil {
 				_err = multierr.Append(_err, err)
 			}
 		}()
 
 		manifestChangeTimer := m.clock.Timer(initialDelay)
-		if pendingManifest == nil && !manifestChangeTimer.Stop() {
+		if !hasPendingManifest && !manifestChangeTimer.Stop() {
 			<-manifestChangeTimer.C
 		}
 
@@ -208,25 +211,34 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 			select {
 			case update := <-m.manifestProvider.ManifestUpdates():
 				metrics.manifestsReceived.Add(m.runningCtx, 1)
-				if pendingManifest != nil && !manifestChangeTimer.Stop() {
+				if hasPendingManifest && !manifestChangeTimer.Stop() {
 					<-manifestChangeTimer.C
 				}
-				pendingManifest = update
+				if err := m.stopInternal(m.runningCtx); err != nil {
+					// Don't fail here, just log and move on.
+					log.Errorw("failed to stop running F3 instance", "error", err)
+				}
+				metrics.manifestsReceived.Add(m.runningCtx, 1)
+				m.manifest.Store(update)
 			case <-manifestChangeTimer.C:
 			case <-m.runningCtx.Done():
 				return nil
 			}
 
-			if delay, err := m.computeBootstrapDelay(pendingManifest); err != nil {
+			if delay, err := m.computeBootstrapDelay(); err != nil {
 				return err
 			} else if delay > 0 {
+				hasPendingManifest = true
 				manifestChangeTimer.Reset(delay)
 				log.Infow("waiting for bootstrap epoch", "duration", delay.String())
 			} else {
-				if err := m.reconfigure(m.runningCtx, pendingManifest); err != nil {
-					return fmt.Errorf("failed to reconfigure F3: %w", err)
+				if err := m.startInternal(m.runningCtx); err != nil {
+					// There's not much we can do here but complain and wait for
+					// a new manifest. This matches the behavior when we
+					// initially start as well.
+					log.Errorw("failed to start F3", "error", err)
 				}
-				pendingManifest = nil
+				hasPendingManifest = false
 			}
 		}
 		return nil
@@ -242,35 +254,6 @@ func (m *F3) Stop(stopCtx context.Context) (_err error) {
 		m.manifestProvider.Stop(stopCtx),
 		m.errgrp.Wait(),
 	)
-}
-
-func (m *F3) reconfigure(ctx context.Context, manif *manifest.Manifest) (_err error) {
-	log.Info("starting f3 reconfiguration")
-	metrics.manifestsReceived.Add(m.runningCtx, 1)
-
-	if err := m.Pause(ctx); err != nil {
-		// Log but don't abort.
-		log.Errorw("failed to properly stop F3 while reconfiguring", "error", err)
-	}
-
-	m.manifest.Store(manif)
-
-	// pause if new manifest is nil
-	if manif == nil {
-		return nil
-	}
-
-	// pause if we are not capable of supporting this version
-	if manif.ProtocolVersion > manifest.VersionCapability {
-		return nil
-	}
-
-	// Pause if explicitly paused.
-	if manif.Pause {
-		return nil
-	}
-
-	return m.Resume(m.runningCtx)
 }
 
 func (s *f3State) stop(ctx context.Context) (err error) {
@@ -306,7 +289,7 @@ func (s *f3State) start(ctx context.Context) error {
 	return nil
 }
 
-func (m *F3) Pause(ctx context.Context) error {
+func (m *F3) stopInternal(ctx context.Context) error {
 	if st := m.state.Swap(nil); st != nil {
 		if err := st.stop(ctx); err != nil {
 			return err
@@ -315,7 +298,7 @@ func (m *F3) Pause(ctx context.Context) error {
 	return nil
 }
 
-func (m *F3) Resume(ctx context.Context) error {
+func (m *F3) startInternal(ctx context.Context) error {
 	log.Info("resuming F3 internals")
 
 	var (
@@ -324,8 +307,12 @@ func (m *F3) Resume(ctx context.Context) error {
 	)
 
 	state.manifest = m.manifest.Load()
-	if state.manifest == nil {
-		return fmt.Errorf("cannot resume F3 without a manifest")
+	// Pause if we we have no manifest, the manifest is paused, and/or we don't meet the minimum
+	// version requirement.
+	if state.manifest == nil ||
+		state.manifest.Pause ||
+		state.manifest.ProtocolVersion > manifest.VersionCapability {
+		return nil
 	}
 
 	mPowerEc := ec.WithModifiedPower(m.ec, state.manifest.ExplicitPower, state.manifest.IgnoreECPower)
@@ -337,13 +324,13 @@ func (m *F3) Resume(ctx context.Context) error {
 		RequestTimeout: state.manifest.CertificateExchange.ClientRequestTimeout,
 	}
 	cds := measurements.NewMeteredDatastore(meter, "f3_certstore_datastore_", m.ds)
-	state.cs, err = openCertstore(m.runningCtx, mPowerEc, cds, state.manifest, certClient)
+	state.cs, err = openCertstore(ctx, mPowerEc, cds, state.manifest, certClient)
 	if err != nil {
 		return fmt.Errorf("failed to open certstore: %w", err)
 	}
 
 	pds := measurements.NewMeteredDatastore(meter, "f3_ohshitstore_datastore_", m.ds)
-	state.ps, err = powerstore.New(m.runningCtx, mPowerEc, pds, state.cs, state.manifest)
+	state.ps, err = powerstore.New(ctx, mPowerEc, pds, state.cs, state.manifest)
 	if err != nil {
 		return fmt.Errorf("failed to construct the oshitstore: %w", err)
 	}
