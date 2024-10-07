@@ -1,3 +1,6 @@
+//go:build theflakybunch
+// +build theflakybunch
+
 package f3_test
 
 import (

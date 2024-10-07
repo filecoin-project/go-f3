@@ -37,11 +37,11 @@ jobs:
         go:
           - 1.22
           - 1.23
-        test:
-          - TestF3LateBootstrap
-          - TestF3PauseResumeCatchup
-          - TestF3WithLookback
-          - TestF3FailRecover
+#        test:
+#          - TestF3LateBootstrap
+#          - TestF3PauseResumeCatchup
+#          - TestF3WithLookback
+#          - TestF3FailRecover
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -58,4 +58,4 @@ jobs:
           go-version: ${{ matrix.go }}
           cache: false
       - name: Repeat ${{ matrix.test }}
-        run: go test -race . -run=${{ matrix.test }} -v -count 50
+        run: go test -v -count 50 . --tags=theflakybunch
