@@ -400,17 +400,17 @@ func (_c *MockHost_RequestBroadcast_Call) RunAndReturn(run func(*MessageBuilder)
 	return _c
 }
 
-// RequestRebroadcast provides a mock function with given fields: instance, round, phase
-func (_m *MockHost) RequestRebroadcast(instance uint64, round uint64, phase Phase) error {
-	ret := _m.Called(instance, round, phase)
+// RequestRebroadcast provides a mock function with given fields: instant
+func (_m *MockHost) RequestRebroadcast(instant Instant) error {
+	ret := _m.Called(instant)
 
 	if len(ret) == 0 {
 		panic("no return value specified for RequestRebroadcast")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(uint64, uint64, Phase) error); ok {
-		r0 = rf(instance, round, phase)
+	if rf, ok := ret.Get(0).(func(Instant) error); ok {
+		r0 = rf(instant)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -424,16 +424,14 @@ type MockHost_RequestRebroadcast_Call struct {
 }
 
 // RequestRebroadcast is a helper method to define mock.On call
-//   - instance uint64
-//   - round uint64
-//   - phase Phase
-func (_e *MockHost_Expecter) RequestRebroadcast(instance interface{}, round interface{}, phase interface{}) *MockHost_RequestRebroadcast_Call {
-	return &MockHost_RequestRebroadcast_Call{Call: _e.mock.On("RequestRebroadcast", instance, round, phase)}
+//   - instant Instant
+func (_e *MockHost_Expecter) RequestRebroadcast(instant interface{}) *MockHost_RequestRebroadcast_Call {
+	return &MockHost_RequestRebroadcast_Call{Call: _e.mock.On("RequestRebroadcast", instant)}
 }
 
-func (_c *MockHost_RequestRebroadcast_Call) Run(run func(instance uint64, round uint64, phase Phase)) *MockHost_RequestRebroadcast_Call {
+func (_c *MockHost_RequestRebroadcast_Call) Run(run func(instant Instant)) *MockHost_RequestRebroadcast_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(uint64), args[1].(uint64), args[2].(Phase))
+		run(args[0].(Instant))
 	})
 	return _c
 }
@@ -443,7 +441,7 @@ func (_c *MockHost_RequestRebroadcast_Call) Return(_a0 error) *MockHost_RequestR
 	return _c
 }
 
-func (_c *MockHost_RequestRebroadcast_Call) RunAndReturn(run func(uint64, uint64, Phase) error) *MockHost_RequestRebroadcast_Call {
+func (_c *MockHost_RequestRebroadcast_Call) RunAndReturn(run func(Instant) error) *MockHost_RequestRebroadcast_Call {
 	_c.Call.Return(run)
 	return _c
 }

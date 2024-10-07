@@ -5,6 +5,14 @@ import (
 	"time"
 )
 
+// Instant represents a particular moment in the progress of GPBFT, captured by
+// instance ID, round and phase.
+type Instant struct {
+	ID    uint64
+	Round uint64
+	Phase Phase
+}
+
 type MessageValidator interface {
 	// Validates a Granite message.
 	// An invalid message can never become valid, so may be dropped.
@@ -97,7 +105,7 @@ type Network interface {
 	// RequestRebroadcast requests that a message at given instance, round and phase
 	// previously broadcasted via RequestBroadcast be rebroadcasted. Rebroadcast
 	// requests for messages that have not been broadcasted are silently ignored.
-	RequestRebroadcast(instance, round uint64, phase Phase) error
+	RequestRebroadcast(instant Instant) error
 }
 
 type Clock interface {
