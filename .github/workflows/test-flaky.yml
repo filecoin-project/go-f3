@@ -1,0 +1,54 @@
+name: Test Repeat Flaky
+
+on:
+  pull_request:
+
+jobs:
+  cache-test-bins:
+    name: Prepare go test cache
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go:
+          - 1.22
+          - 1.23
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Go ${{ matrix.go }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: false
+      - name: Compile tests
+        run: go test -c -o f3-tests
+      - name: Cache compiled tests
+        uses: actions/cache/save@v4
+        with:
+          path: './f3-tests'
+          key: f3-tests-flaky-${{ matrix.go }}
+  test:
+    name: ${{ matrix.test }} ${{ matrix.go }}
+    runs-on: ubuntu-latest
+    needs: cache-test-bins
+    strategy:
+      fail-fast: false
+      matrix:
+        go:
+          - 1.22
+          - 1.23
+        test:
+          - TestF3LateBootstrap
+          - TestF3PauseResumeCatchup
+          - TestF3WithLookback
+          - TestF3FailRecover
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Restore cached built F3 test binaries
+        uses: actions/cache/restore@v4
+        with:
+          path: './f3-tests'
+          key: f3-tests-flaky-${{ matrix.go }}
+      - name: Repeat ${{ matrix.test }}
+        run: ./f3-tests -test.run=${{ matrix.test }} -test.count 50
