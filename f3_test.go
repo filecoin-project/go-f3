@@ -303,14 +303,12 @@ type testNode struct {
 }
 
 func (n *testNode) currentGpbftInstance() uint64 {
-	instance, _, _ := n.f3.Progress()
-	return instance
-	//c, err := n.f3.GetLatestCert(n.e.testCtx)
-	//require.NoError(n.e.t, err)
-	//if c == nil {
-	//	return n.e.manifest.InitialInstance
-	//}
-	//return c.GPBFTInstance + 1
+	c, err := n.f3.GetLatestCert(n.e.testCtx)
+	require.NoError(n.e.t, err)
+	if c == nil {
+		return n.e.manifest.InitialInstance
+	}
+	return c.GPBFTInstance + 1
 }
 
 func (n *testNode) init() *f3.F3 {
