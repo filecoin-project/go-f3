@@ -51,4 +51,4 @@ jobs:
           path: './f3-tests'
           key: f3-tests-flaky-${{ matrix.go }}
       - name: Repeat ${{ matrix.test }}
-        run: ./f3-tests -test.run=${{ matrix.test }} -test.count 50
+        run: ./f3-tests -test.run=${{ matrix.test }} -test.count 100
