@@ -88,10 +88,6 @@ func (m *F3) MessagesToSign() <-chan *gpbft.MessageBuilder {
 	return m.outboundMessages
 }
 
-func (m *F3) Manifest() *manifest.Manifest {
-	return m.manifest.Load()
-}
-
 func (m *F3) Broadcast(ctx context.Context, signatureBuilder *gpbft.SignatureBuilder, msgSig []byte, vrf []byte) {
 	state := m.state.Load()
 	if state == nil {
@@ -402,9 +398,13 @@ func (m *F3) GetPowerTable(ctx context.Context, ts gpbft.TipSetKey) (gpbft.Power
 	return nil, fmt.Errorf("no known network manifest")
 }
 
-func (m *F3) Progress() (instant gpbft.Instant) {
-	if st := m.state.Load(); st != nil && st.runner != nil {
+// Status (atomically) returns the current network manifest and instant in that network.
+func (m *F3) Status() (manifest *manifest.Manifest, instant gpbft.Instant) {
+	if st := m.state.Load(); st != nil {
+		manifest = st.manifest
 		instant = st.runner.Progress()
+	} else {
+		manifest = m.manifest.Load()
 	}
 	return
 }

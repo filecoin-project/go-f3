@@ -163,11 +163,12 @@ func TestF3DynamicManifest_WithoutChanges(t *testing.T) {
 	env := newTestEnvironment(t).withNodes(2).withDynamicManifest()
 
 	env.start()
-	prev := env.nodes[0].f3.Manifest()
+	prev, _ := env.nodes[0].f3.Status()
 
 	env.waitForInstanceNumber(5, 10*time.Second, false)
 	// no changes in manifest
-	require.Equal(t, prev, env.nodes[0].f3.Manifest())
+	new, _ := env.nodes[0].f3.Status()
+	require.Equal(t, prev, new)
 	env.requireEqualManifests(false)
 }
 
@@ -175,7 +176,7 @@ func TestF3DynamicManifest_WithRebootstrap(t *testing.T) {
 	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2).withDynamicManifest().start()
 
-	prev := env.nodes[0].f3.Manifest()
+	prev, _ := env.nodes[0].f3.Status()
 	env.waitForInstanceNumber(3, 15*time.Second, true)
 
 	env.manifest.BootstrapEpoch = 1253
@@ -203,7 +204,8 @@ func TestF3DynamicManifest_WithRebootstrap(t *testing.T) {
 		return c.ECChain.Base().Epoch == targetBaseEpoch
 	}, 20*time.Second)
 	env.waitForInstanceNumber(3, 15*time.Second, false)
-	require.NotEqual(t, prev, env.nodes[0].f3.Manifest())
+	manifest, _ := env.nodes[0].f3.Status()
+	require.NotEqual(t, prev, manifest)
 	env.requireEqualManifests(false)
 
 	// check that the power table is updated
@@ -410,7 +412,7 @@ func (e *testEnv) waitForManifest() {
 				continue
 			}
 
-			m := n.f3.Manifest()
+			m, _ := n.f3.Status()
 			if m == nil {
 				return false
 			}
@@ -546,11 +548,12 @@ func (e *testEnv) addNode() *testNode {
 }
 
 func (e *testEnv) requireEqualManifests(strict bool) {
-	m := e.nodes[0].f3.Manifest()
+	m, _ := e.nodes[0].f3.Status()
 	for _, n := range e.nodes {
 		// only check running nodes
 		if (n.f3 != nil && n.f3.IsRunning()) || strict {
-			require.Equal(e.t, n.f3.Manifest(), m)
+			m2, _ := n.f3.Status()
+			require.True(e.t, m2.Equal(m))
 		}
 	}
 }
