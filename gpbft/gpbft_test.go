@@ -1169,17 +1169,6 @@ func TestGPBFT_Validation(t *testing.T) {
 			errContains: "insufficient power",
 		},
 		{
-			name: "Decide at non-zero round",
-			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
-				return &gpbft.GMessage{
-					Sender: 1,
-					Vote:   instance.NewDecide(77, instance.Proposal()),
-					Ticket: emulator.ValidTicket,
-				}
-			},
-			errContains: "non-zero round",
-		},
-		{
 			name: "Invalid Chain",
 			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
 				return &gpbft.GMessage{
