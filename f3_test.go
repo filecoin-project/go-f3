@@ -40,7 +40,6 @@ func init() {
 var manifestSenderTimeout = 10 * time.Second
 
 func TestF3Simple(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2).start()
 	env.waitForInstanceNumber(5, 10*time.Second, false)
 }
@@ -159,7 +158,6 @@ func TestF3FailRecover(t *testing.T) {
 }
 
 func TestF3DynamicManifest_WithoutChanges(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2).withDynamicManifest()
 
 	env.start()
@@ -172,7 +170,6 @@ func TestF3DynamicManifest_WithoutChanges(t *testing.T) {
 }
 
 func TestF3DynamicManifest_WithRebootstrap(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2).withDynamicManifest().start()
 
 	prev := env.nodes[0].f3.Manifest()
@@ -214,7 +211,6 @@ func TestF3DynamicManifest_WithRebootstrap(t *testing.T) {
 }
 
 func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2).withDynamicManifest().start()
 
 	env.waitForInstanceNumber(10, 30*time.Second, true)
