@@ -9,7 +9,7 @@ import (
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/sim/signing"
+	"github.com/filecoin-project/go-f3/internal/signing"
 )
 
 // Generate a justification from the given power table. This assumes the signing backend can sign for all keys.

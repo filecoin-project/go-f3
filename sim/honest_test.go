@@ -1,4 +1,4 @@
-package test
+package sim_test
 
 import (
 	"fmt"
@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/signing"
 	"github.com/filecoin-project/go-f3/sim"
-	"github.com/filecoin-project/go-f3/sim/signing"
 	"github.com/stretchr/testify/require"
 )
 

@@ -11,7 +11,7 @@ import (
 	"github.com/filecoin-project/go-f3/certexchange/polling"
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/internal/clock"
-	"github.com/filecoin-project/go-f3/sim/signing"
+	"github.com/filecoin-project/go-f3/internal/signing"
 
 	"github.com/ipfs/go-datastore"
 	ds_sync "github.com/ipfs/go-datastore/sync"

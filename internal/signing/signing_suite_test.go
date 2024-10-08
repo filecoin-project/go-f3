@@ -1,4 +1,4 @@
-package test
+package signing_test
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"github.com/filecoin-project/go-f3/blssig"
 	"github.com/filecoin-project/go-f3/gpbft"
 	bls12381 "github.com/filecoin-project/go-f3/internal/gnark"
-	"github.com/filecoin-project/go-f3/sim/signing"
+	"github.com/filecoin-project/go-f3/internal/signing"
 )
 
 type (
@@ -122,7 +122,7 @@ func (s *SigningTestSuite) TestAggregateAndVerify() {
 	require.Error(t, err)
 
 	_, err = aggregator.Aggregate(mask, [][]byte{sigs[0]})
-	require.Error(t, err, "Missmatched pubkeys and sigs lengths should fail")
+	require.Error(t, err, "mismatched pubkeys and sigs lengths should fail")
 
 	{
 		pubKeys2 := slices.Clone(pubKeys)

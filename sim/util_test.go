@@ -1,4 +1,4 @@
-package test
+package sim_test
 
 import (
 	"testing"

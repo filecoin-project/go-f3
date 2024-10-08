@@ -13,8 +13,8 @@ import (
 	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/internal/consensus"
 	"github.com/filecoin-project/go-f3/internal/psutil"
+	"github.com/filecoin-project/go-f3/internal/signing"
 	"github.com/filecoin-project/go-f3/manifest"
-	"github.com/filecoin-project/go-f3/sim/signing"
 
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/failstore"

@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/signing"
 	"github.com/filecoin-project/go-f3/sim/adversary"
 	"github.com/filecoin-project/go-f3/sim/latency"
-	"github.com/filecoin-project/go-f3/sim/signing"
 )
 
 const (

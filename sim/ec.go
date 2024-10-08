@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/sim/signing"
+	"github.com/filecoin-project/go-f3/internal/signing"
 	"github.com/filecoin-project/go-state-types/big"
 )
 
