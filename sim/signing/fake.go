@@ -141,7 +141,7 @@ func (f *fakeAggregate) Aggregate(signerMask []int, sigs [][]byte) ([]byte, erro
 		if bit >= len(f.keys) {
 			return nil, fmt.Errorf("signer %d out of range", bit)
 		}
-		binary.Write(hasher, binary.BigEndian, int64(bit))
+		_ = binary.Write(hasher, binary.BigEndian, int64(bit))
 		hasher.Write(f.keys[bit])
 		hasher.Write(sigs[i])
 	}
@@ -157,7 +157,7 @@ func (f *fakeAggregate) VerifyAggregate(signerMask []int, payload []byte, aggSig
 		if err != nil {
 			return err
 		}
-		binary.Write(hasher, binary.BigEndian, int64(bit))
+		_ = binary.Write(hasher, binary.BigEndian, int64(bit))
 		hasher.Write(signer)
 		hasher.Write(sig)
 	}
