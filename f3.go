@@ -106,7 +106,7 @@ func (m *F3) Broadcast(ctx context.Context, signatureBuilder *gpbft.SignatureBui
 	}
 
 	msg := signatureBuilder.Build(msgSig, vrf)
-	err := state.runner.BroadcastMessage(msg)
+	err := state.runner.BroadcastMessage(ctx, msg)
 	if err != nil {
 		log.Warnf("failed to broadcast message: %+v", err)
 	}

@@ -414,7 +414,7 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 
 // Sends a message to all other participants.
 // The message's sender must be one that the network interface can sign on behalf of.
-func (h *gpbftRunner) BroadcastMessage(msg *gpbft.GMessage) error {
+func (h *gpbftRunner) BroadcastMessage(ctx context.Context, msg *gpbft.GMessage) error {
 	if !h.equivFilter.ProcessBroadcast(msg) {
 		// equivocation filter does its own logging and this error just gets logged
 		return nil
@@ -444,7 +444,7 @@ func (h *gpbftRunner) BroadcastMessage(msg *gpbft.GMessage) error {
 		return fmt.Errorf("marshalling GMessage for broadcast: %w", err)
 	}
 
-	err = h.topic.Publish(h.runningCtx, bw.Bytes())
+	err = h.topic.Publish(ctx, bw.Bytes())
 	if err != nil {
 		return fmt.Errorf("publishing message: %w", err)
 	}
