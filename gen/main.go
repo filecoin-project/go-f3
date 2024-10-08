@@ -43,7 +43,7 @@ func main() {
 	eg.Go(func() error {
 		return gen.WriteTupleEncodersToFile("../cmd/f3/msgdump/cbor_gen.go", "msgdump",
 			msgdump.GMessageEnvelope{},
-			msgdump.GMessageEnvelopeDeffered{},
+			msgdump.GMessageEnvelopeDeferred{},
 		)
 	})
 	if err := eg.Wait(); err != nil {

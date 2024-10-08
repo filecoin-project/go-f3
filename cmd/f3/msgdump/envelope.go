@@ -5,11 +5,12 @@ import (
 	cbg "github.com/whyrusleeping/cbor-gen"
 )
 
-type GMessageEnvelopeDeffered struct {
+type GMessageEnvelopeDeferred struct {
 	UnixMicroTime int64
 	NetworkName   string
 	Message       cbg.Deferred
 }
+
 type GMessageEnvelope struct {
 	UnixMicroTime int64
 	NetworkName   string
