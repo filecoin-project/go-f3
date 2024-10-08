@@ -37,13 +37,11 @@ func init() {
 var manifestSenderTimeout = 10 * time.Second
 
 func TestF3Simple(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2).start()
 	env.waitForInstanceNumber(5, 10*time.Second, false)
 }
 
 func TestF3WithLookback(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2).withManifest(func(m *manifest.Manifest) {
 		m.EC.HeadLookback = 20
 	}).start()
@@ -89,7 +87,6 @@ func TestF3WithLookback(t *testing.T) {
 }
 
 func TestF3PauseResumeCatchup(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(3).start()
 
 	env.waitForInstanceNumber(1, 30*time.Second, true)
@@ -128,7 +125,6 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 }
 
 func TestF3FailRecover(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2)
 
 	// Make it possible to fail a single write for node 0.
@@ -159,7 +155,6 @@ func TestF3FailRecover(t *testing.T) {
 }
 
 func TestF3DynamicManifest_WithoutChanges(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2).withDynamicManifest()
 
 	env.start()
@@ -172,7 +167,6 @@ func TestF3DynamicManifest_WithoutChanges(t *testing.T) {
 }
 
 func TestF3DynamicManifest_WithRebootstrap(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2).withDynamicManifest().start()
 
 	prev := env.nodes[0].f3.Manifest()
@@ -215,7 +209,6 @@ func TestF3DynamicManifest_WithRebootstrap(t *testing.T) {
 }
 
 func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2).withDynamicManifest().start()
 
 	env.waitForInstanceNumber(10, 30*time.Second, true)
@@ -243,7 +236,6 @@ func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 }
 
 func TestF3LateBootstrap(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2).start()
 
 	// Wait till we're "caught up".
