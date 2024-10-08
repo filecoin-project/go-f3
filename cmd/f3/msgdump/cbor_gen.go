@@ -132,9 +132,9 @@ func (t *GMessageEnvelope) UnmarshalCBOR(r io.Reader) (err error) {
 	return nil
 }
 
-var lengthBufGMessageEnvelopeDeffered = []byte{131}
+var lengthBufGMessageEnvelopeDeferred = []byte{131}
 
-func (t *GMessageEnvelopeDeffered) MarshalCBOR(w io.Writer) error {
+func (t *GMessageEnvelopeDeferred) MarshalCBOR(w io.Writer) error {
 	if t == nil {
 		_, err := w.Write(cbg.CborNull)
 		return err
@@ -142,7 +142,7 @@ func (t *GMessageEnvelopeDeffered) MarshalCBOR(w io.Writer) error {
 
 	cw := cbg.NewCborWriter(w)
 
-	if _, err := cw.Write(lengthBufGMessageEnvelopeDeffered); err != nil {
+	if _, err := cw.Write(lengthBufGMessageEnvelopeDeferred); err != nil {
 		return err
 	}
 
@@ -176,8 +176,8 @@ func (t *GMessageEnvelopeDeffered) MarshalCBOR(w io.Writer) error {
 	return nil
 }
 
-func (t *GMessageEnvelopeDeffered) UnmarshalCBOR(r io.Reader) (err error) {
-	*t = GMessageEnvelopeDeffered{}
+func (t *GMessageEnvelopeDeferred) UnmarshalCBOR(r io.Reader) (err error) {
+	*t = GMessageEnvelopeDeferred{}
 
 	cr := cbg.NewCborReader(r)
 
