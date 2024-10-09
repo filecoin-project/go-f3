@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/circuitbreaker"
 	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/internal/writeaheadlog"
@@ -41,6 +42,7 @@ type gpbftRunner struct {
 
 	participant *gpbft.Participant
 	topic       *pubsub.Topic
+	cb          *circuitbreaker.CircuitBreaker
 
 	alertTimer *clock.Timer
 
@@ -86,6 +88,7 @@ func newRunner(
 		ctxCancel:    ctxCancel,
 		equivFilter:  newEquivocationFilter(pID),
 		selfMessages: make(map[uint64]map[roundPhase][]*gpbft.GMessage),
+		cb:           circuitbreaker.New(5, 3*time.Second),
 	}
 
 	// create a stopped timer to facilitate alerts requested from gpbft
@@ -444,7 +447,7 @@ func (h *gpbftRunner) BroadcastMessage(ctx context.Context, msg *gpbft.GMessage)
 		return fmt.Errorf("marshalling GMessage for broadcast: %w", err)
 	}
 
-	err = h.topic.Publish(ctx, bw.Bytes())
+	err = h.publishWithCircuitBreaker(ctx, bw.Bytes())
 	if err != nil {
 		return fmt.Errorf("publishing message: %w", err)
 	}
@@ -463,10 +466,19 @@ func (h *gpbftRunner) rebroadcastMessage(msg *gpbft.GMessage) error {
 	if err := msg.MarshalCBOR(&bw); err != nil {
 		return fmt.Errorf("marshalling GMessage for broadcast: %w", err)
 	}
-	if err := h.topic.Publish(h.runningCtx, bw.Bytes()); err != nil {
+	if err := h.publishWithCircuitBreaker(h.runningCtx, bw.Bytes()); err != nil {
 		return fmt.Errorf("publishing message: %w", err)
 	}
 	return nil
+}
+
+func (h *gpbftRunner) publishWithCircuitBreaker(ctx context.Context, msg []byte) error {
+	if h.topic == nil {
+		return nil
+	}
+	return h.cb.Run(func() error {
+		return h.topic.Publish(ctx, msg)
+	})
 }
 
 var _ pubsub.ValidatorEx = (*gpbftRunner)(nil).validatePubsubMessage
