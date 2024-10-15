@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/go-f3/internal/writeaheadlog"
 	"github.com/filecoin-project/go-f3/manifest"
 
+	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -187,11 +188,18 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 	}
 	{
 		var maybeNetworkName gpbft.NetworkName
+		var bootstrapEpoch int64
+		var finality int64
+		var initialPowerTable *cid.Cid
 		if m := m.manifest.Load(); m != nil {
 			maybeNetworkName = m.NetworkName
+			bootstrapEpoch = m.BootstrapEpoch
+			finality = m.EC.Finality
+			initialPowerTable = &m.InitialPowerTable
 		}
-		log.Infow("F3 is starting", "initialDelay", initialDelay,
-			"hasPendingManifest", hasPendingManifest, "NetworkName", maybeNetworkName)
+		log.Infow("F3 is starting", "initialDelay", initialDelay, "hasPendingManifest", hasPendingManifest,
+			"NetworkName", maybeNetworkName, "bootstrapEpoch", bootstrapEpoch, "finality", finality,
+			"initialPowerTable", initialPowerTable)
 	}
 
 	m.errgrp.Go(func() (_err error) {
