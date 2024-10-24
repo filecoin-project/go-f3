@@ -48,6 +48,9 @@ func loadInitialPowerTable(ctx context.Context, ec ec.Backend, m *manifest.Manif
 	} else {
 		if ptCid, err := certs.MakePowerTableCID(pt); err == nil {
 			log.Infof("loaded initial power table at epoch %d: %s", epoch, ptCid)
+			if m.InitialPowerTable.Defined() && m.InitialPowerTable != ptCid {
+				log.Warnf("initial power table mismatch, loaded from EC: %s, from manifest: %s", ptCid, m.InitialPowerTable)
+			}
 		}
 		return pt, nil
 	}

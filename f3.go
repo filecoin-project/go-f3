@@ -20,7 +20,6 @@ import (
 	"github.com/filecoin-project/go-f3/internal/writeaheadlog"
 	"github.com/filecoin-project/go-f3/manifest"
 
-	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -186,20 +185,13 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 		}
 		hasPendingManifest = false
 	}
-	{
-		var maybeNetworkName gpbft.NetworkName
-		var bootstrapEpoch int64
-		var finality int64
-		var initialPowerTable *cid.Cid
-		if m := m.manifest.Load(); m != nil {
-			maybeNetworkName = m.NetworkName
-			bootstrapEpoch = m.BootstrapEpoch
-			finality = m.EC.Finality
-			initialPowerTable = &m.InitialPowerTable
-		}
+
+	if m := m.manifest.Load(); m != nil {
 		log.Infow("F3 is starting", "initialDelay", initialDelay, "hasPendingManifest", hasPendingManifest,
-			"NetworkName", maybeNetworkName, "bootstrapEpoch", bootstrapEpoch, "finality", finality,
-			"initialPowerTable", initialPowerTable)
+			"NetworkName", m.NetworkName, "BootstrapEpoch", m.BootstrapEpoch, "Finality", m.EC.Finality,
+			"InitialPowerTable", m.InitialPowerTable, "CommitteeLookback", m.CommitteeLookback)
+	} else {
+		log.Infow("F3 is starting", "initialDelay", initialDelay, "hasPendingManifest", hasPendingManifest)
 	}
 
 	m.errgrp.Go(func() (_err error) {
