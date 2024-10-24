@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/filecoin-project/go-f3/certexchange"
+	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -45,6 +46,12 @@ func loadInitialPowerTable(ctx context.Context, ec ec.Backend, m *manifest.Manif
 	} else if pt, err := ec.GetPowerTable(ctx, ts.Key()); err != nil {
 		log.Debugw("failed to load the bootstrap power table for F3 from state", "error", err)
 	} else {
+		if ptCid, err := certs.MakePowerTableCID(pt); err == nil {
+			log.Infof("loaded initial power table at epoch %d: %s", epoch, ptCid)
+			if m.InitialPowerTable.Defined() && m.InitialPowerTable != ptCid {
+				log.Warnf("initial power table mismatch, loaded from EC: %s, from manifest: %s", ptCid, m.InitialPowerTable)
+			}
+		}
 		return pt, nil
 	}
 	if !m.InitialPowerTable.Defined() {

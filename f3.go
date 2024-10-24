@@ -185,13 +185,13 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 		}
 		hasPendingManifest = false
 	}
-	{
-		var maybeNetworkName gpbft.NetworkName
-		if m := m.manifest.Load(); m != nil {
-			maybeNetworkName = m.NetworkName
-		}
-		log.Infow("F3 is starting", "initialDelay", initialDelay,
-			"hasPendingManifest", hasPendingManifest, "NetworkName", maybeNetworkName)
+
+	if m := m.manifest.Load(); m != nil {
+		log.Infow("F3 is starting", "initialDelay", initialDelay, "hasPendingManifest", hasPendingManifest,
+			"NetworkName", m.NetworkName, "BootstrapEpoch", m.BootstrapEpoch, "Finality", m.EC.Finality,
+			"InitialPowerTable", m.InitialPowerTable, "CommitteeLookback", m.CommitteeLookback)
+	} else {
+		log.Infow("F3 is starting", "initialDelay", initialDelay, "hasPendingManifest", hasPendingManifest)
 	}
 
 	m.errgrp.Go(func() (_err error) {
