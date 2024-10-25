@@ -41,6 +41,10 @@ var observerCmd = cli.Command{
 			Name:  "manifestID",
 			Usage: "PeerID of the manifest server",
 		},
+		&cli.PathFlag{
+			Name:  "manifest",
+			Usage: "path to manifest file",
+		},
 		&cli.StringSliceFlag{
 			Name:  "listenAddr",
 			Usage: "The libp2p listen addrs.",
@@ -162,20 +166,39 @@ var observerCmd = cli.Command{
 			return fmt.Errorf("initialzing pubsub: %w", err)
 		}
 
-		manifestServerID, err := peer.Decode(c.String("manifestID"))
-		if err != nil {
-			return fmt.Errorf("decoding manifestServerID: %w", err)
-		}
-		manifestProvider, err := manifest.NewDynamicManifestProvider(
-			pubSub, manifestServerID,
-			manifest.DynamicManifestProviderWithDatastore(ds),
-		)
-		if err != nil {
-			return fmt.Errorf("initialzing manifest sender: %w", err)
-		}
-		err = manifestProvider.Start(c.Context)
-		if err != nil {
-			return fmt.Errorf("starting manifest provider: %w", err)
+		var manifestProvider manifest.ManifestProvider
+		if c.IsSet("manifest") {
+			manifestFile, err := os.Open(c.Path("manifest"))
+			if err != nil {
+				return fmt.Errorf("failed to open manifest file: %w", err)
+			}
+			var m manifest.Manifest
+			err = json.NewDecoder(manifestFile).Decode(&m)
+			if err != nil {
+				return fmt.Errorf("decoding manifest: %w", err)
+			}
+
+			manifestProvider, err = manifest.NewStaticManifestProvider(&m)
+			if err != nil {
+				return fmt.Errorf("decoding manifest: %w", err)
+			}
+			_ = manifestFile.Close()
+		} else {
+			manifestServerID, err := peer.Decode(c.String("manifestID"))
+			if err != nil {
+				return fmt.Errorf("decoding manifestServerID: %w", err)
+			}
+			manifestProvider, err = manifest.NewDynamicManifestProvider(
+				pubSub, manifestServerID,
+				manifest.DynamicManifestProviderWithDatastore(ds),
+			)
+			if err != nil {
+				return fmt.Errorf("initialzing manifest sender: %w", err)
+			}
+			err = manifestProvider.Start(c.Context)
+			if err != nil {
+				return fmt.Errorf("starting manifest provider: %w", err)
+			}
 		}
 
 		go func() {
