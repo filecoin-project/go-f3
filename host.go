@@ -346,14 +346,18 @@ func (h *gpbftRunner) startInstanceAt(instance uint64, at time.Time) error {
 func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) (_nextStart time.Time) {
 	ecDelay := time.Duration(h.manifest.EC.DelayMultiplier * float64(h.manifest.EC.Period))
 
-	ts, err := h.ec.GetTipset(h.runningCtx, cert.ECChain.Head().Key)
+	head, err := h.ec.GetHead(h.runningCtx)
 	if err != nil {
 		// this should not happen
-		log.Errorf("could not get timestamp of just finalized tipset: %+v", err)
+		log.Errorf("ec.GetHead returned error: %+v", err)
 		return h.clock.Now().Add(ecDelay)
 	}
 
-	base := ts.Timestamp()
+	// the head of the cert becomes the new base
+	baseTipSet := cert.ECChain.Head()
+	// we are not trying to fetch the new base tipset from EC as it might not be available
+	// instead we compute the relative time from the EC.Head
+	baseTimestamp := computeTipsetTimestampAtEpoch(head, baseTipSet.Epoch, h.manifest.EC.Period)
 
 	// Try to align instances while catching up, if configured.
 	if h.manifest.CatchUpAlignment > 0 {
@@ -364,11 +368,11 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 			// we're behind and try to align our start times. This helps keep nodes
 			// in-sync when bootstrapping and catching up.
 			if _nextStart.Before(now.Add(-h.manifest.CatchUpAlignment)) {
-				delay := now.Sub(base)
+				delay := now.Sub(baseTimestamp)
 				if offset := delay % h.manifest.CatchUpAlignment; offset > 0 {
 					delay += h.manifest.CatchUpAlignment - offset
 				}
-				_nextStart = base.Add(delay)
+				_nextStart = baseTimestamp.Add(delay)
 			}
 		}()
 	}
@@ -377,11 +381,11 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 
 	if cert.ECChain.HasSuffix() {
 		// we decided on something new, the tipset that got finalized can at minimum be 30-60s old.
-		return base.Add(ecDelay).Add(lookbackDelay)
+		return baseTimestamp.Add(ecDelay).Add(lookbackDelay)
 	}
 	if cert.GPBFTInstance == h.manifest.InitialInstance {
 		// if we are at initial instance, there is no history to look at
-		return base.Add(ecDelay).Add(lookbackDelay)
+		return baseTimestamp.Add(ecDelay).Add(lookbackDelay)
 	}
 	backoffTable := h.manifest.EC.BaseDecisionBackoffTable
 
@@ -409,7 +413,7 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 	backoff := time.Duration(float64(ecDelay) * backoffMultipler)
 	log.Infof("backing off for: %v", backoff)
 
-	return base.Add(backoff).Add(lookbackDelay)
+	return baseTimestamp.Add(backoff).Add(lookbackDelay)
 }
 
 // Sends a message to all other participants.
