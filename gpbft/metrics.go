@@ -51,7 +51,6 @@ var (
 		currentRound       metric.Int64Gauge
 		currentPhase       metric.Int64Gauge
 		skipCounter        metric.Int64Counter
-		epochsPerInstance  metric.Int64Gauge
 		validationCache    metric.Int64Counter
 	}{
 		phaseCounter: measurements.Must(meter.Int64Counter("f3_gpbft_phase_counter", metric.WithDescription("Number of times phases change"))),
@@ -69,8 +68,6 @@ var (
 				"0=INITIAL, 1=QUALITY, 2=CONVERGE, 3=PREPARE, 4=COMMIT, 5=DECIDE, and 6=TERMINATED"))),
 		skipCounter: measurements.Must(meter.Int64Counter("f3_gpbft_skip_counter",
 			metric.WithDescription("The number of times GPBFT skip either round or phase"))),
-		epochsPerInstance: measurements.Must(meter.Int64Gauge("f3_gpbft_epochs_per_instance",
-			metric.WithDescription("The number of epochs per finalized instance."))),
 		validationCache: measurements.Must(meter.Int64Counter("f3_gpbft_validation_cache",
 			metric.WithDescription("The number of times GPBFT validation cache resulted in hit or miss."))),
 	}
