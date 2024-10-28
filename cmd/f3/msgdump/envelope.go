@@ -2,14 +2,7 @@ package msgdump
 
 import (
 	"github.com/filecoin-project/go-f3/gpbft"
-	cbg "github.com/whyrusleeping/cbor-gen"
 )
-
-type GMessageEnvelopeDeferred struct {
-	UnixMicroTime int64
-	NetworkName   string
-	Message       cbg.Deferred
-}
 
 type GMessageEnvelope struct {
 	UnixMicroTime int64
