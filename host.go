@@ -286,7 +286,7 @@ func (h *gpbftRunner) receiveCertificate(c *certs.FinalityCertificate) error {
 		return nil
 	}
 
-	log.Infow("skipping forwards based on cert", "from", currentInstance, "to", nextInstance)
+	log.Debugw("skipping forwards based on cert", "from", currentInstance, "to", nextInstance)
 
 	nextInstanceStart := h.computeNextInstanceStart(c)
 	return h.startInstanceAt(nextInstance, nextInstanceStart)
