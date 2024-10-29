@@ -36,3 +36,27 @@ func TestOpenAndWriteParquetFile(t *testing.T) {
 		require.NoError(t, reader.Close())
 	}()
 }
+
+func TestZeroValueEnvelope(t *testing.T) {
+	pw, err := NewParquetWriter[ParquetEnvelope](t.TempDir())
+	require.NoError(t, err)
+
+	var gEnvelope GMessageEnvelope
+	row, err := ToParquet(gEnvelope)
+	require.NoError(t, err)
+	_, err = pw.Write(row)
+	require.NoError(t, err)
+	_, err = pw.Write(row)
+	require.NoError(t, err)
+	name := strings.ReplaceAll(pw.FileName(), ".partial", "")
+	require.NoError(t, pw.Close())
+
+	open, err := os.Open(name)
+	require.NoError(t, err)
+
+	reader := parquet.NewReader(open)
+	require.EqualValues(t, 2, reader.NumRows())
+	defer func() {
+		require.NoError(t, reader.Close())
+	}()
+}
