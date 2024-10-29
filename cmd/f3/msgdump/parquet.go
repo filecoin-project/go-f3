@@ -71,6 +71,13 @@ func (pw *ParquetWriter[T]) Close() error {
 	return pw.finalize()
 }
 
+func (pw *ParquetWriter[T]) FileName() string {
+	if pw.f != nil {
+		return pw.f.Name()
+	}
+	return ""
+}
+
 func (pw *ParquetWriter[T]) finalize() error {
 	err := pw.w.Close()
 	if err != nil {
