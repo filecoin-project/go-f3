@@ -26,6 +26,7 @@ func main() {
 			&manifestCmd,
 			&observerCmd,
 			&toolsCmd,
+			&certsCmd,
 		},
 	}
 
