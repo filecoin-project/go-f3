@@ -25,6 +25,7 @@ func main() {
 			&runCmd,
 			&manifestCmd,
 			&observerCmd,
+			&toolsCmd,
 		},
 	}
 
