@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -217,7 +218,7 @@ var manifestServeCmd = cli.Command{
 		pubSub, err := pubsub.NewGossipSub(c.Context, host,
 			pubsub.WithPeerExchange(true),
 			pubsub.WithFloodPublish(true),
-			pubsub.WithPeerScore(PubsubPeerScoreParams, PubsubPeerScoreThresholds),
+			pubsub.WithPeerScore(psutil.PubsubPeerScoreParams, psutil.PubsubPeerScoreThresholds),
 		)
 		if err != nil {
 			return fmt.Errorf("initialzing pubsub: %w", err)

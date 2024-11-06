@@ -1,28 +1,16 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
-	"os/signal"
-	"path/filepath"
-	"syscall"
+	"strings"
 	"time"
 
-	"github.com/filecoin-project/go-f3/cmd/f3/msgdump"
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/internal/psutil"
-	"github.com/filecoin-project/go-f3/manifest"
-	leveldb "github.com/ipfs/go-ds-leveldb"
-	logging "github.com/ipfs/go-log/v2"
+	"github.com/filecoin-project/go-f3/observer"
 	"github.com/libp2p/go-libp2p"
-	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/urfave/cli/v2"
@@ -34,28 +22,18 @@ var observerCmd = cli.Command{
 	Flags: []cli.Flag{
 		&cli.PathFlag{
 			Name:  "identity",
-			Usage: "The path to protobuf encoded libp2p identity of the server.",
+			Usage: "The path to protobuf encoded libp2p identity of the observer.",
 			Value: "./observer/identity",
 		},
 		&cli.StringFlag{
-			Name:  "manifestID",
-			Usage: "PeerID of the manifest server",
+			Name:    "manifestServerID",
+			Aliases: []string{"msid"},
+			Usage:   "The libp2p peer ID of the manifest server.",
 		},
-		&cli.PathFlag{
-			Name:  "manifest",
-			Usage: "path to manifest file",
-		},
-		&cli.StringSliceFlag{
-			Name:  "listenAddr",
-			Usage: "The libp2p listen addrs.",
-			Value: cli.NewStringSlice(
-				"/ip4/0.0.0.0/tcp/45002",
-				"/ip4/0.0.0.0/udp/45002/quic-v1",
-				"/ip4/0.0.0.0/udp/45002/quic-v1/webtransport",
-				"/ip6/::/tcp/45002",
-				"/ip6/::/udp/45002/quic-v1",
-				"/ip6/::/udp/45002/quic-v1/webtransport",
-			),
+		&cli.StringFlag{
+			Name:    "networkName",
+			Aliases: []string{"nn"},
+			Usage:   "The network name.",
 		},
 		&cli.StringSliceFlag{
 			Name:  "bootstrapAddr",
@@ -66,290 +44,103 @@ var observerCmd = cli.Command{
 			Usage: "The list of bootstrap addrs read from a file with one address per line. " +
 				"The entries are used in conjunction with any addresses specified via <bootstrapAddr>.",
 		},
+		&cli.StringFlag{
+			Name:  "queryServerListenAddr",
+			Usage: "The query server listen address.",
+			Value: ":42080",
+		},
+		&cli.StringFlag{
+			Name:  "rotatePath",
+			Usage: "The query server listen address.",
+			Value: ".",
+		},
+		&cli.DurationFlag{
+			Name:  "rotateInterval",
+			Usage: "The observed messages rotation interval.",
+			Value: 1 * time.Hour,
+		},
+		&cli.DurationFlag{
+			Name:  "retention",
+			Usage: "The maximum length of time to keep the rotated files.",
+			Value: 2 * 7 * 24 * time.Hour,
+		},
+		&cli.StringFlag{
+			Name:        "dataSourceName",
+			Usage:       "The observer database DSN",
+			DefaultText: "In memory",
+			Value:       "",
+		},
 	},
 
-	Action: func(c *cli.Context) error {
-		_ = logging.SetLogLevel("f3/cli", "debug")
-
-		ds, err := leveldb.NewDatastore("./observer/db", nil)
-		if err != nil {
-			return fmt.Errorf("opening datastore: %w", err)
+	Action: func(cctx *cli.Context) error {
+		opts := []observer.Option{
+			observer.WithQueryServerListenAddress(cctx.String("queryServerListenAddr")),
+			observer.WithRotatePath(cctx.String("rotatePath")),
+			observer.WithRotateInterval(cctx.Duration("rotateInterval")),
+			observer.WithRetention(cctx.Duration("retention")),
+			observer.WithDataSourceName(cctx.String("dataSourceName")),
 		}
-		defer ds.Close()
-
-		var id crypto.PrivKey
-
-		enId, err := os.ReadFile(c.String("identity"))
-		if errors.Is(err, fs.ErrNotExist) {
-			_, _ = fmt.Fprintln(c.App.Writer, "identity file does not exist, generating a new one")
-			var err error
-			id, _, err = crypto.GenerateEd25519Key(rand.Reader)
+		var identity crypto.PrivKey
+		if cctx.IsSet("identity") {
+			marshaledKey, err := os.ReadFile(cctx.String("identity"))
 			if err != nil {
-				return fmt.Errorf("generating random libp2p identity: %w", err)
+				return fmt.Errorf("failed to read libp2p identity: %w", err)
 			}
-			keyBytes, err := crypto.MarshalPrivateKey(id)
+			identity, err = crypto.UnmarshalPrivateKey(marshaledKey)
 			if err != nil {
-				return fmt.Errorf("marshalling key: %w", err)
+				return fmt.Errorf("failed to decode libp2p identity: %w", err)
 			}
-			enId = keyBytes
-
-			err = os.WriteFile(c.String("identity"), keyBytes, 0600)
-			if err != nil {
-				return fmt.Errorf("writing key: %w", err)
-			}
-		} else if err != nil {
-			return fmt.Errorf("reading libp2p identity file: %w", err)
-		}
-		id, err = crypto.UnmarshalPrivateKey(enId)
-		if err != nil {
-			return fmt.Errorf("unmarshalling libp2p identity: %w", err)
-		}
-
-		peerID, err := peer.IDFromPrivateKey(id)
-		if err != nil {
-			return fmt.Errorf("getting peer ID from libp2p identity: %w", err)
-		}
-
-		_, _ = fmt.Fprintf(c.App.Writer, "Observer peer ID: %s\n", peerID)
-
-		host, err := libp2p.New(
-			libp2p.Identity(id),
-			libp2p.ListenAddrStrings(c.StringSlice("listenAddr")...),
-			libp2p.UserAgent("f3-observer"),
-		)
-		if err != nil {
-			return fmt.Errorf("initializing libp2p host: %w", err)
-		}
-
-		defer func() { _ = host.Close() }()
-
-		connectToBootstrappers := func() {
-			bootstrappers := c.StringSlice("bootstrapAddr")
-			if c.IsSet("bootstrapAddrsFile") {
-				bootstrapersFile, err := os.Open(c.Path("bootstrapAddrsFile"))
-				if err != nil {
-					_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed to open bootstrapAddrsFile: %v\n", err)
-					return
-				}
-				defer func() {
-					_ = bootstrapersFile.Close()
-				}()
-				scanner := bufio.NewScanner(bootstrapersFile)
-				for scanner.Scan() {
-					bootstrappers = append(bootstrappers, scanner.Text())
-				}
-				if err := scanner.Err(); err != nil {
-					_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed to read bootstrapAddrsFile: %v\n", err)
-					return
-				}
-			}
-			for _, bootstrapper := range bootstrappers {
-				addr, err := peer.AddrInfoFromString(bootstrapper)
-				if err != nil {
-					_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed to parse to bootstrap address: %s %v\n", bootstrapper, err)
-				} else if err := host.Connect(c.Context, *addr); err != nil {
-					_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed to connect to bootstrap address: %v\n", err)
-				}
-			}
-			log.Infof("connected to boostrap")
-		}
-
-		// Connect to bootstrappers once as soon as we start.
-		connectToBootstrappers()
-
-		pubSub, err := pubsub.NewGossipSub(c.Context, host,
-			pubsub.WithPeerExchange(true),
-			pubsub.WithFloodPublish(true),
-			pubsub.WithPeerScore(PubsubPeerScoreParams, PubsubPeerScoreThresholds),
-		)
-		if err != nil {
-			return fmt.Errorf("initialzing pubsub: %w", err)
-		}
-
-		var manifestProvider manifest.ManifestProvider
-		if c.IsSet("manifest") {
-			manifestFile, err := os.Open(c.Path("manifest"))
-			if err != nil {
-				return fmt.Errorf("failed to open manifest file: %w", err)
-			}
-			var m manifest.Manifest
-			err = json.NewDecoder(manifestFile).Decode(&m)
-			if err != nil {
-				return fmt.Errorf("decoding manifest: %w", err)
-			}
-
-			manifestProvider, err = manifest.NewStaticManifestProvider(&m)
-			if err != nil {
-				return fmt.Errorf("decoding manifest: %w", err)
-			}
-			_ = manifestFile.Close()
 		} else {
-			manifestServerID, err := peer.Decode(c.String("manifestID"))
+			var err error
+			identity, _, err = crypto.GenerateEd25519Key(rand.Reader)
 			if err != nil {
-				return fmt.Errorf("decoding manifestServerID: %w", err)
-			}
-			manifestProvider, err = manifest.NewDynamicManifestProvider(
-				pubSub, manifestServerID,
-				manifest.DynamicManifestProviderWithDatastore(ds),
-			)
-			if err != nil {
-				return fmt.Errorf("initialzing manifest sender: %w", err)
-			}
-			err = manifestProvider.Start(c.Context)
-			if err != nil {
-				return fmt.Errorf("starting manifest provider: %w", err)
+				return fmt.Errorf("failed to generate libp2p identity: %w", err)
 			}
 		}
 
-		go func() {
-			ticker := time.NewTicker(15 * time.Second)
-			defer ticker.Stop()
-			for c.Context.Err() == nil {
-				select {
-				case <-ticker.C:
-					n := len(host.Network().Peers())
-					if n < 5 {
-						log.Infow("low peers, bootstrapping again", "NPeers", n)
-						connectToBootstrappers()
-					}
-				case <-c.Context.Done():
-				}
+		if cctx.IsSet("manifestServerID") {
+			id, err := peer.Decode(cctx.String("manifestServerID"))
+			if err != nil {
+				return fmt.Errorf("failed to decode manifest server ID: %w", err)
 			}
-		}()
-
-		var closer func()
-		var runningNetwork gpbft.NetworkName
-		for c.Context.Err() == nil {
-			select {
-			case manif := <-manifestProvider.ManifestUpdates():
-				log.Infof("Got manifest for network %s\n", manif.NetworkName)
-				if runningNetwork == manif.NetworkName {
-					log.Infof("same network, continuing")
-					continue
-				}
-				runningNetwork = manif.NetworkName
-
-				if closer != nil {
-					closer()
-				}
-
-				networkCtx, c := context.WithCancel(c.Context)
-				closer = c
-				err := observeManifest(networkCtx, manif, pubSub)
-				if err != nil {
-					log.Errorw("starting manifest observer", "error", err, "networkName", manif.NetworkName)
-				}
-			case <-c.Context.Done():
-			}
+			opts = append(opts, observer.WithDynamicNetworkNameFromManifestProvider(id))
 		}
-		return nil
+		if cctx.IsSet("networkName") {
+			opts = append(opts, observer.WithStaticNetworkName(gpbft.NetworkName(cctx.String("networkName"))))
+		}
+		if cctx.IsSet("bootstrapAddr") {
+			opts = append(opts, observer.WithBootstrapAddrsFromString(cctx.StringSlice("bootstrapAddr")...))
+		}
+		if cctx.IsSet("bootstrapAddrsFile") {
+			baf, err := os.ReadFile(cctx.Path("bootstrapAddrsFile"))
+			if err != nil {
+				return fmt.Errorf("failed to read bootstrap addrs file: %w", err)
+			}
+			bootstrapAddrs := strings.Split(strings.TrimSpace(string(baf)), "\n")
+			opts = append(opts, observer.WithBootstrapAddrsFromString(bootstrapAddrs...))
+		}
+		if observerID, err := peer.IDFromPrivateKey(identity); err != nil {
+			return fmt.Errorf("failed to get peer ID from libp2p identity: %w", err)
+		} else {
+			_, _ = fmt.Fprintf(cctx.App.Writer, "Observer peer ID: %s\n", observerID)
+		}
+
+		host, err := libp2p.New(libp2p.Identity(identity), libp2p.UserAgent("f3-observer"))
+		if err != nil {
+			return fmt.Errorf("failed to create libp2p host: %w", err)
+		}
+		opts = append(opts, observer.WithHost(host))
+
+		o, err := observer.New(opts...)
+		if err != nil {
+			return fmt.Errorf("failed to instantiate observer: %w", err)
+		}
+		if err := o.Start(cctx.Context); err != nil {
+			return fmt.Errorf("failed to start observer: %w", err)
+		}
+
+		<-cctx.Context.Done()
+		_, _ = fmt.Fprintf(cctx.App.Writer, "Stopping observer\n")
+		return o.Stop(context.Background())
 	},
-}
-
-func observeManifest(ctx context.Context, manif *manifest.Manifest, pubSub *pubsub.PubSub) error {
-	dir := msgdump.DirForNetwork("./observer", manif.NetworkName)
-	parquetWriter, err := msgdump.NewParquetWriter[msgdump.ParquetEnvelope](dir)
-	if err != nil {
-		return fmt.Errorf("creating parquet file: %w", err)
-	}
-	logFileName := filepath.Join(dir, "msgs.ndjson")
-	msgLogFile, err := os.OpenFile(logFileName, os.O_WRONLY|os.O_CREATE|os.O_CREATE, 0660)
-	if err != nil {
-		return fmt.Errorf("creating msg log file: %w", err)
-	}
-	jsonWriter := json.NewEncoder(msgLogFile)
-
-	err = pubSub.RegisterTopicValidator(manif.PubSubTopic(), func(_ context.Context, _ peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
-		var gmsg gpbft.GMessage
-		if err := gmsg.UnmarshalCBOR(bytes.NewReader(msg.Data)); err != nil {
-			return pubsub.ValidationReject
-		}
-		msg.ValidatorData = gmsg
-
-		return pubsub.ValidationAccept
-	})
-	if err != nil {
-		return fmt.Errorf("registering topic validator: %w", err)
-	}
-
-	topic, err := pubSub.Join(manif.PubSubTopic(), pubsub.WithTopicMessageIdFn(psutil.GPBFTMessageIdFn))
-	if err != nil {
-		return fmt.Errorf("joining topic: %w", err)
-	}
-	if err := topic.SetScoreParams(psutil.PubsubTopicScoreParams); err != nil {
-		return fmt.Errorf("failed to set topic params: %w", err)
-	}
-
-	sub, err := topic.Subscribe()
-	if err != nil {
-		return fmt.Errorf("subscribing to topic: %w", err)
-	}
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGUSR1)
-
-	messageCh := make(chan msgdump.GMessageEnvelope, 50)
-
-	// log writing goroutine
-	go func() {
-		defer msgLogFile.Close()
-		defer parquetWriter.Close()
-		defer signal.Stop(sigCh)
-
-		for ctx.Err() == nil {
-			select {
-			case <-ctx.Done():
-				return
-			case <-sigCh:
-				// rotate parquet
-				err := parquetWriter.Rotate()
-				log.Infof("rotating parquet file")
-				if err != nil {
-					log.Errorf("rotating parquet file: %v", err)
-				}
-			case msg := <-messageCh:
-				err = jsonWriter.Encode(msg)
-				if err != nil {
-					log.Errorf("writing to logfile: %v", err)
-					continue
-				}
-				parquetEnvelope, err := msgdump.ToParquet(msg)
-				if err != nil {
-					log.Errorf("converting envelope to parquet: %v", err)
-					continue
-				}
-				_, err = parquetWriter.Write(parquetEnvelope)
-				if err != nil {
-					log.Errorf("writing to parquet: %v", err)
-					continue
-				}
-			}
-		}
-	}()
-
-	// gossip goroutine
-	go func() {
-		for ctx.Err() == nil {
-			msg, err := sub.Next(ctx)
-			if err != nil {
-				if ctx.Err() != nil {
-					return
-				}
-				log.Errorf("got error from sub.Next(): %v", err)
-				return
-			}
-
-			envelope := msgdump.GMessageEnvelope{
-				UnixMicroTime: time.Now().UnixNano() / 1000,
-				NetworkName:   string(manif.NetworkName),
-				Message:       msg.ValidatorData.(gpbft.GMessage),
-			}
-			select {
-			case messageCh <- envelope:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	return nil
 }
