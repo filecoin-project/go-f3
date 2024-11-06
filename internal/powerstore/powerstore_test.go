@@ -2,6 +2,7 @@ package powerstore_test
 
 import (
 	"context"
+	"math/rand/v2"
 	"slices"
 	"testing"
 	"time"
@@ -200,12 +201,12 @@ func advanceF3(t *testing.T, m *manifest.Manifest, ps *powerstore.Store, cs *cer
 	basePt, err := cs.GetPowerTable(ctx, instance)
 	require.NoError(t, err)
 	for len(gpbftChain) > 1 {
-		count := min(len(gpbftChain), 1+epochsPerCert, gpbft.ChainMaxLen)
+		count := min(len(gpbftChain), rand.IntN(epochsPerCert+1)+1, gpbft.ChainMaxLen)
 		newChain := gpbftChain[:count]
 
 		nextPt := basePt
-		if instance >= m.InitialInstance+m.CommitteeLookback {
-			ptCert, err := cs.Get(ctx, instance-m.CommitteeLookback)
+		if instance+1 >= m.InitialInstance+m.CommitteeLookback {
+			ptCert, err := cs.Get(ctx, instance+1-m.CommitteeLookback)
 			require.NoError(t, err)
 			nextPt, err = ps.GetPowerTable(ctx, ptCert.ECChain.Head().Key)
 			require.NoError(t, err)

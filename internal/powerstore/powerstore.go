@@ -125,8 +125,8 @@ func (ps *Store) f3PowerBase(ctx context.Context) (int64, uint64, error) {
 	baseInstance := ps.manifest.InitialInstance
 	if lastCert := ps.cs.Latest(); lastCert != nil {
 		baseInstance = lastCert.GPBFTInstance + 1
-		if lastCert.GPBFTInstance > ps.manifest.InitialInstance+ps.manifest.CommitteeLookback {
-			baseCert, err := ps.cs.Get(ctx, lastCert.GPBFTInstance-ps.manifest.CommitteeLookback)
+		if baseInstance >= ps.manifest.InitialInstance+ps.manifest.CommitteeLookback {
+			baseCert, err := ps.cs.Get(ctx, baseInstance-ps.manifest.CommitteeLookback)
 			if err != nil {
 				return 0, 0, err
 			}
