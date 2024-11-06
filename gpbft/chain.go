@@ -83,7 +83,7 @@ func (ts *TipSet) Equal(b *TipSet) bool {
 	}
 	return ts.Epoch == b.Epoch &&
 		bytes.Equal(ts.Key, b.Key) &&
-		ts.PowerTable == b.PowerTable &&
+		ts.PowerTable.Equals(b.PowerTable) &&
 		ts.Commitments == b.Commitments
 }
 
@@ -216,7 +216,9 @@ func (c ECChain) Eq(other ECChain) bool {
 		return false
 	}
 	for i := range c {
-		c[i].Equal(&other[i])
+		if !c[i].Equal(&other[i]) {
+			return false
+		}
 	}
 	return true
 }
