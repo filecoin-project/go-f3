@@ -22,7 +22,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var log = logging.Logger("f3/ohshitstore")
+var log = logging.Logger("f3/powerstore")
 
 var _ ec.Backend = (*Store)(nil)
 
@@ -50,7 +50,7 @@ func New(ctx context.Context, ec ec.Backend, ds datastore.Datastore, cs *certsto
 	return &Store{
 		Backend: ec,
 
-		ds:         namespace.Wrap(ds, datastore.NewKey("/ohshitstore")),
+		ds:         namespace.Wrap(ds, datastore.NewKey("/powerstore")),
 		cs:         cs,
 		manifest:   manifest,
 		clock:      clock.GetClock(ctx),
@@ -236,7 +236,7 @@ func (ps *Store) run(ctx context.Context) error {
 
 		if !initialized && f3Base > ecHead-stopThreshold {
 			initialized = true
-			log.Debugw("Clearing the OhShitStore on initialization because we're caught-up.")
+			log.Debugw("Clearing the powerstore on initialization because we're caught-up.")
 			ps.deleteAll(ctx)
 			ps.lastStoredEpoch = -1
 			ps.lastStoredPt = nil
@@ -249,14 +249,14 @@ func (ps *Store) run(ctx context.Context) error {
 				log.Debugw("skipping catch-up because we're within the start threshold")
 				continue
 			}
-			log.Warnf("Uh-oh, F3 has fallen behind EC by more than %d epochs! Engaging the OhShitStore™.", startThreshold)
+			log.Warnf("Uh-oh, F3 has fallen behind EC by more than %d epochs! Engaging the powerstore™.", startThreshold)
 			ps.lastStoredEpoch, ps.lastStoredPt, err = ps.mostRecentPowerTable(ctx)
 			if err != nil {
 				log.Errorw("failed to lookup most recent power table", "error", err)
 				continue
 			}
 		} else if f3Base > ecHead-stopThreshold {
-			log.Infow("Stopping the OhShitStore™ because we're caught-up")
+			log.Infow("Stopping the powerstore because we're caught-up")
 			ps.deleteAll(ctx)
 			ps.lastStoredEpoch = -1
 			ps.lastStoredPt = nil
