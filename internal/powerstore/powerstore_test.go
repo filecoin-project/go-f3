@@ -113,7 +113,7 @@ func TestPowerStore(t *testing.T) {
 	// Ok, now we're going to try falling behind and catching up a few times.
 
 	isDsEmpty := func() bool {
-		res, err := ds.Query(ctx, query.Query{Prefix: "/powerstore"})
+		res, err := ds.Query(ctx, query.Query{Prefix: "/ohshitstore"})
 		require.NoError(t, err)
 		defer res.Close()
 		_, ok := res.NextSync()
