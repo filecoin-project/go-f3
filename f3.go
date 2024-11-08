@@ -259,7 +259,7 @@ func (m *F3) Stop(stopCtx context.Context) (_err error) {
 func (s *f3State) stop(ctx context.Context) (err error) {
 	log.Info("stopping F3 internals")
 	if serr := s.ps.Stop(ctx); serr != nil {
-		err = multierr.Append(err, fmt.Errorf("failed to stop ohshitstore: %w", serr))
+		err = multierr.Append(err, fmt.Errorf("failed to stop powerstore: %w", serr))
 	}
 	if serr := s.runner.Stop(ctx); serr != nil {
 		err = multierr.Append(err, fmt.Errorf("failed to stop gpbft: %w", serr))
@@ -275,7 +275,7 @@ func (s *f3State) stop(ctx context.Context) (err error) {
 
 func (s *f3State) start(ctx context.Context) error {
 	if err := s.ps.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start the ohshitstore: %w", err)
+		return fmt.Errorf("failed to start the powerstore: %w", err)
 	}
 	if err := s.certsub.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start the certificate subscriber: %w", err)
@@ -329,7 +329,7 @@ func (m *F3) startInternal(ctx context.Context) error {
 		return fmt.Errorf("failed to open certstore: %w", err)
 	}
 
-	pds := measurements.NewMeteredDatastore(meter, "f3_ohshitstore_datastore_", m.ds)
+	pds := measurements.NewMeteredDatastore(meter, "f3_powerstore_datastore_", m.ds)
 	state.ps, err = powerstore.New(ctx, mPowerEc, pds, state.cs, state.manifest)
 	if err != nil {
 		return fmt.Errorf("failed to construct the oshitstore: %w", err)
