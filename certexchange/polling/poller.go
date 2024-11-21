@@ -135,7 +135,7 @@ func (p *Poller) Poll(ctx context.Context, peer peer.ID) (*PollResult, error) {
 			// TODO: consider batching verification, it's slightly faster.
 			next, _, pt, err := certs.ValidateFinalityCertificates(
 				p.SignatureVerifier, p.NetworkName, p.PowerTable, p.NextInstance, nil,
-				*cert,
+				cert,
 			)
 			if err != nil {
 				res.Status = PollIllegal

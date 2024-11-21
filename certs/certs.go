@@ -89,7 +89,7 @@ func NewFinalityCertificate(powerDelta PowerTableDiff, justification *gpbft.Just
 // finalized, the instance of the first invalid finality certificate, and the power table that
 // should be used to validate that finality certificate, along with the error encountered.
 func ValidateFinalityCertificates(verifier gpbft.Verifier, network gpbft.NetworkName, prevPowerTable gpbft.PowerEntries, nextInstance uint64, base *gpbft.TipSet,
-	certs ...FinalityCertificate) (_nextInstance uint64, chain gpbft.ECChain, newPowerTable gpbft.PowerEntries, err error) {
+	certs ...*FinalityCertificate) (_nextInstance uint64, chain gpbft.ECChain, newPowerTable gpbft.PowerEntries, err error) {
 	for _, cert := range certs {
 		if cert.GPBFTInstance != nextInstance {
 			return nextInstance, chain, prevPowerTable, fmt.Errorf("expected instance %d, found instance %d", nextInstance, cert.GPBFTInstance)
@@ -144,7 +144,7 @@ func ValidateFinalityCertificates(verifier gpbft.Verifier, network gpbft.Network
 // Verify the signature of the given finality certificate. This doesn't validate the power delta, or
 // any other parts of the certificate, just that the _value_ has been signed by a majority of the
 // power.
-func verifyFinalityCertificateSignature(verifier gpbft.Verifier, powerTable gpbft.PowerEntries, nn gpbft.NetworkName, cert FinalityCertificate) error {
+func verifyFinalityCertificateSignature(verifier gpbft.Verifier, powerTable gpbft.PowerEntries, nn gpbft.NetworkName, cert *FinalityCertificate) error {
 	scaled, totalScaled, err := powerTable.Scaled()
 	if err != nil {
 		return fmt.Errorf("failed to scale power table: %w", err)

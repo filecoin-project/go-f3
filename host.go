@@ -909,7 +909,7 @@ func (h *gpbftHost) saveDecision(decision *gpbft.Justification) (*certs.Finality
 	if err != nil {
 		return nil, fmt.Errorf("forming certificate out of decision: %w", err)
 	}
-	_, _, _, err = certs.ValidateFinalityCertificates(h, h.NetworkName(), current.PowerTable.Entries, decision.Vote.Instance, nil, *cert)
+	_, _, _, err = certs.ValidateFinalityCertificates(h, h.NetworkName(), current.PowerTable.Entries, decision.Vote.Instance, nil, cert)
 	if err != nil {
 		return nil, fmt.Errorf("certificate is invalid: %w", err)
 	}

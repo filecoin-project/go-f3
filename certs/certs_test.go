@@ -214,7 +214,7 @@ func TestFinalityCertificates(t *testing.T) {
 	tsg := sim.NewTipSetGenerator(rng.Uint64())
 	base := gpbft.TipSet{Epoch: 0, Key: tsg.Sample(), PowerTable: tableCid}
 
-	certificates := make([]certs.FinalityCertificate, 10)
+	certificates := make([]*certs.FinalityCertificate, 10)
 	powerTables := make([]gpbft.PowerEntries, 10)
 	var removedPowerEntries []gpbft.PowerEntry
 	for i := range certificates {
@@ -223,7 +223,7 @@ func TestFinalityCertificates(t *testing.T) {
 		justification := makeJustification(t, rng, tsg, backend, base, uint64(i), powerTables[i], powerTable)
 		cert, err := certs.NewFinalityCertificate(certs.MakePowerTableDiff(powerTables[i], powerTable), justification)
 		require.NoError(t, err)
-		certificates[i] = *cert
+		certificates[i] = cert
 		base = *justification.Vote.Value.Head()
 	}
 
@@ -291,7 +291,7 @@ func TestBadFinalityCertificates(t *testing.T) {
 
 	// Unexpected instance number
 	{
-		nextInstance, chain, newPowerTable, err := certs.ValidateFinalityCertificates(backend, networkName, powerTable, 0, nil, *certificate)
+		nextInstance, chain, newPowerTable, err := certs.ValidateFinalityCertificates(backend, networkName, powerTable, 0, nil, certificate)
 		require.ErrorContains(t, err, "expected instance 0, found instance 1")
 		require.EqualValues(t, 0, nextInstance)
 		require.Equal(t, powerTable, newPowerTable)
@@ -299,7 +299,7 @@ func TestBadFinalityCertificates(t *testing.T) {
 	}
 	// Wrong base.
 	{
-		nextInstance, chain, newPowerTable, err := certs.ValidateFinalityCertificates(backend, networkName, powerTable, 1, certificate.ECChain.Head(), *certificate)
+		nextInstance, chain, newPowerTable, err := certs.ValidateFinalityCertificates(backend, networkName, powerTable, 1, certificate.ECChain.Head(), certificate)
 		require.ErrorContains(t, err, "base tipset does not match finalized chain")
 		require.EqualValues(t, 1, nextInstance)
 		require.Equal(t, powerTable, newPowerTable)
@@ -309,7 +309,7 @@ func TestBadFinalityCertificates(t *testing.T) {
 	// Discard most of the power table. Given the initial power distribution, we can guarantee
 	// that we require more than 10 participants.
 	{
-		nextInstance, chain, newPowerTable, err := certs.ValidateFinalityCertificates(backend, networkName, powerTable[:10], 1, nil, *certificate)
+		nextInstance, chain, newPowerTable, err := certs.ValidateFinalityCertificates(backend, networkName, powerTable[:10], 1, nil, certificate)
 		require.ErrorContains(t, err, "but we only have 10 entries in the power table")
 		require.EqualValues(t, 1, nextInstance)
 		require.Equal(t, powerTable[:10], newPowerTable)
@@ -322,7 +322,7 @@ func TestBadFinalityCertificates(t *testing.T) {
 		require.NoError(t, err)
 		powerTableCpy := slices.Clone(powerTable)
 		powerTableCpy[firstSigner].PubKey = powerTableCpy[(int(firstSigner)+1)%len(powerTableCpy)].PubKey
-		nextInstance, chain, _, err := certs.ValidateFinalityCertificates(backend, networkName, powerTableCpy, 1, nil, *certificate)
+		nextInstance, chain, _, err := certs.ValidateFinalityCertificates(backend, networkName, powerTableCpy, 1, nil, certificate)
 		require.ErrorContains(t, err, "invalid signature on finality certificate")
 		require.EqualValues(t, 1, nextInstance)
 		require.Empty(t, chain)
@@ -335,7 +335,7 @@ func TestBadFinalityCertificates(t *testing.T) {
 		powerTableCpy := slices.Clone(powerTable)
 		// increase so we definitely have enough power
 		powerTableCpy[firstSigner].Power = big.Add(powerTableCpy[firstSigner].Power, gpbft.NewStoragePower(1))
-		nextInstance, chain, _, err := certs.ValidateFinalityCertificates(backend, networkName, powerTableCpy, 1, nil, *certificate)
+		nextInstance, chain, _, err := certs.ValidateFinalityCertificates(backend, networkName, powerTableCpy, 1, nil, certificate)
 		require.ErrorContains(t, err, "incorrect power diff")
 		require.EqualValues(t, 1, nextInstance)
 		require.Empty(t, chain)
@@ -352,7 +352,7 @@ func TestBadFinalityCertificates(t *testing.T) {
 		require.NoError(t, err)
 		powerTableCpy[firstSigner].Power = gpbft.NewStoragePower(0xffff)
 
-		nextInstance, chain, _, err := certs.ValidateFinalityCertificates(backend, networkName, powerTableCpy, 1, nil, *certificate)
+		nextInstance, chain, _, err := certs.ValidateFinalityCertificates(backend, networkName, powerTableCpy, 1, nil, certificate)
 		require.ErrorContains(t, err, "no effective power after scaling")
 		require.EqualValues(t, 1, nextInstance)
 		require.Empty(t, chain)
@@ -373,7 +373,7 @@ func TestBadFinalityCertificates(t *testing.T) {
 			return nil
 		}))
 
-		nextInstance, chain, _, err := certs.ValidateFinalityCertificates(backend, networkName, powerTableCpy, 1, nil, *certificate)
+		nextInstance, chain, _, err := certs.ValidateFinalityCertificates(backend, networkName, powerTableCpy, 1, nil, certificate)
 		require.ErrorContains(t, err, fmt.Sprintf("has insufficient power: %d < 2/3 %d", activePower, totalPower))
 		require.EqualValues(t, 1, nextInstance)
 		require.Empty(t, chain)
@@ -383,7 +383,7 @@ func TestBadFinalityCertificates(t *testing.T) {
 	{
 		certCpy := *certificate
 		certCpy.ECChain = nil
-		nextInstance, chain, newPowerTable, err := certs.ValidateFinalityCertificates(backend, networkName, powerTable, 1, nil, certCpy)
+		nextInstance, chain, newPowerTable, err := certs.ValidateFinalityCertificates(backend, networkName, powerTable, 1, nil, &certCpy)
 		require.ErrorContains(t, err, "empty finality certificate")
 		require.EqualValues(t, 1, nextInstance)
 		require.Equal(t, powerTable, newPowerTable)
@@ -395,7 +395,7 @@ func TestBadFinalityCertificates(t *testing.T) {
 		certCpy := *certificate
 		certCpy.ECChain = slices.Clone(certCpy.ECChain)
 		slices.Reverse(certCpy.ECChain)
-		nextInstance, chain, newPowerTable, err := certs.ValidateFinalityCertificates(backend, networkName, powerTable, 1, nil, certCpy)
+		nextInstance, chain, newPowerTable, err := certs.ValidateFinalityCertificates(backend, networkName, powerTable, 1, nil, &certCpy)
 		require.ErrorContains(t, err, "chain must have increasing epochs")
 		require.EqualValues(t, 1, nextInstance)
 		require.Equal(t, powerTable, newPowerTable)
@@ -411,7 +411,7 @@ func TestBadFinalityCertificates(t *testing.T) {
 		certCpy.PowerTableDelta[0].PowerDelta = gpbft.NewStoragePower(0)
 		certCpy.PowerTableDelta[0].SigningKey = nil
 
-		nextInstance, chain, newPowerTable, err := certs.ValidateFinalityCertificates(backend, networkName, powerTable, 1, nil, certCpy)
+		nextInstance, chain, newPowerTable, err := certs.ValidateFinalityCertificates(backend, networkName, powerTable, 1, nil, &certCpy)
 		require.ErrorContains(t, err, "failed to apply power table delta")
 		require.EqualValues(t, 1, nextInstance)
 		require.Equal(t, powerTable, newPowerTable)
