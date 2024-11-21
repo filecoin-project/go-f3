@@ -41,27 +41,13 @@ type tipset struct {
 	tsk       []byte
 	epoch     int64
 	timestamp time.Time
+	beacon    []byte
 }
 
-func (ts *tipset) Key() gpbft.TipSetKey {
-	return ts.tsk
-}
-
-func (ts *tipset) Epoch() int64 {
-	return ts.epoch
-}
-func (ts *tipset) Beacon() []byte {
-	h, err := blake2b.New256([]byte("beacon"))
-	if err != nil {
-		panic(err)
-	}
-	h.Write(ts.tsk)
-	return h.Sum(nil)
-}
-
-func (ts *tipset) Timestamp() time.Time {
-	return ts.timestamp
-}
+func (ts *tipset) Key() gpbft.TipSetKey { return ts.tsk }
+func (ts *tipset) Epoch() int64         { return ts.epoch }
+func (ts *tipset) Beacon() []byte       { return ts.beacon }
+func (ts *tipset) Timestamp() time.Time { return ts.timestamp }
 
 func (ts *tipset) String() string {
 	res, _ := mbase.Encode(mbase.Base32, ts.tsk[:gpbft.CidMaxLen])
@@ -159,15 +145,22 @@ func (ec *FakeEC) genTipset(epoch int64) *tipset {
 		tsk = append(tsk, cidPrefixBytes...)
 		tsk = append(tsk, digest...)
 	}
+
+	h.Reset()
+	h.Write([]byte(fmt.Sprintf("beacon %d", epoch)))
+	beacon := h.Sum(nil)
+
 	return &tipset{
 		tsk:       tsk,
 		epoch:     epoch,
 		timestamp: ec.ecStart.Add(time.Duration(epoch) * ec.ecPeriod),
+		beacon:    beacon,
 	}
 }
 
-// GetTipsetByHeight should return a tipset or nil/empty byte array if it does not exists
-func (ec *FakeEC) GetTipsetByEpoch(ctx context.Context, epoch int64) (ec.TipSet, error) {
+// GetTipsetByEpoch returns the tipset at a given epoch. If the epoch does not
+// yet exist, it returns an error.
+func (ec *FakeEC) GetTipsetByEpoch(_ context.Context, epoch int64) (ec.TipSet, error) {
 	if ec.GetCurrentHead() < epoch {
 		return nil, fmt.Errorf("does not yet exist")
 	}
@@ -223,7 +216,7 @@ func (ec *FakeEC) GetHead(ctx context.Context) (ec.TipSet, error) {
 	return ec.GetTipsetByEpoch(ctx, ec.GetCurrentHead())
 }
 
-func (ec *FakeEC) GetPowerTable(ctx context.Context, tsk gpbft.TipSetKey) (gpbft.PowerEntries, error) {
+func (ec *FakeEC) GetPowerTable(_ context.Context, tsk gpbft.TipSetKey) (gpbft.PowerEntries, error) {
 	targetEpoch := ec.epochFromTsk(tsk)
 	headEpoch := ec.GetCurrentHead()
 
