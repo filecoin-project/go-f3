@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base32"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -54,6 +55,29 @@ type TipSet struct {
 	PowerTable cid.Cid
 	// Keccak256 root hash of the commitments merkle tree.
 	Commitments [32]byte
+}
+
+func cidsFromTipSetKey(encoded []byte) ([]cid.Cid, error) {
+	var cids []cid.Cid
+	for nextIdx := 0; nextIdx < len(encoded); {
+		nr, c, err := cid.CidFromBytes(encoded[nextIdx:])
+		if err != nil {
+			return nil, err
+		}
+		cids = append(cids, c)
+		nextIdx += nr
+	}
+	return cids, nil
+}
+
+func tipSetKeyFromCids(cids []cid.Cid) (TipSetKey, error) {
+	var buf bytes.Buffer
+	for _, c := range cids {
+		if _, err := buf.Write(c.Bytes()); err != nil {
+			return nil, err
+		}
+	}
+	return buf.Bytes(), nil
 }
 
 // Validates a tipset.
@@ -109,6 +133,42 @@ func (ts *TipSet) String() string {
 	encTs := base32.StdEncoding.EncodeToString(ts.Key)
 
 	return fmt.Sprintf("%s@%d", encTs[:min(16, len(encTs))], ts.Epoch)
+}
+
+// Custom JSON marshalling for TipSet to achieve a standard TipSetKey
+// representation that presents an array of dag-json CIDs.
+
+func (ts TipSet) MarshalJSON() ([]byte, error) {
+	type TipSetSub TipSet
+	cids, err := cidsFromTipSetKey(ts.Key)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(&struct {
+		Key []cid.Cid
+		TipSetSub
+	}{
+		Key:       cids,
+		TipSetSub: (TipSetSub)(ts),
+	})
+}
+
+func (ts *TipSet) UnmarshalJSON(data []byte) error {
+	type TipSetSub TipSet
+	aux := &struct {
+		Key []cid.Cid
+		*TipSetSub
+	}{
+		TipSetSub: (*TipSetSub)(ts),
+	}
+	var err error
+	if err = json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if ts.Key, err = tipSetKeyFromCids(aux.Key); err != nil {
+		return err
+	}
+	return nil
 }
 
 // A chain of tipsets comprising a base (the last finalised tipset from which the chain extends).
