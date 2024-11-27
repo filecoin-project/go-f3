@@ -188,7 +188,7 @@ func TestECChain_Eq(t *testing.T) {
 	}
 }
 
-func TestTipSetKeySerialization(t *testing.T) {
+func TestTipSetSerialization(t *testing.T) {
 	t.Parallel()
 	var (
 		c1        = gpbft.MakeCid([]byte("barreleye1"))
@@ -268,6 +268,11 @@ func TestTipSetKeySerialization(t *testing.T) {
 			for j, c := range []cid.Cid{c1, c2, c3}[:len(ts.Key)/38] {
 				req.Equal(map[string]any{"/": c.String()}, keyField[j])
 			}
+
+			// check that the supplemental data is a base64 string
+			commitField, ok := bareMap["Commitments"].(string)
+			req.True(ok)
+			req.Len(commitField, 44)
 		}
 	})
 

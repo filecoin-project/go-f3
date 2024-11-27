@@ -46,7 +46,7 @@ type FinalityCertificate struct {
 	Signature []byte
 	// Changes between the power table used to validate this finality certificate and the power
 	// used to validate the next finality certificate. Sorted by ParticipantID, ascending.
-	PowerTableDelta PowerTableDiff `json:"omitempty"`
+	PowerTableDelta PowerTableDiff `json:"PowerTableDelta,omitempty"`
 }
 
 // NewFinalityCertificate constructs a new finality certificate from the given power delta (from
