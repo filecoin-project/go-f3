@@ -191,26 +191,55 @@ func TestECChain_Eq(t *testing.T) {
 func TestTipSetKeySerialization(t *testing.T) {
 	t.Parallel()
 	var (
-		c1  = gpbft.MakeCid([]byte("barreleye1"))
-		c2  = gpbft.MakeCid([]byte("barreleye2"))
-		c3  = gpbft.MakeCid([]byte("barreleye3"))
-		ts1 = gpbft.TipSet{
-			Epoch:       1,
-			Key:         append(append(c1.Bytes(), c2.Bytes()...), c3.Bytes()...),
-			PowerTable:  gpbft.MakeCid([]byte("fish")),
-			Commitments: [32]byte{0x01},
+		c1        = gpbft.MakeCid([]byte("barreleye1"))
+		c2        = gpbft.MakeCid([]byte("barreleye2"))
+		c3        = gpbft.MakeCid([]byte("barreleye3"))
+		testCases = []gpbft.TipSet{
+			{
+				Epoch:       1,
+				Key:         append(append(c1.Bytes(), c2.Bytes()...), c3.Bytes()...),
+				PowerTable:  gpbft.MakeCid([]byte("fish")),
+				Commitments: [32]byte{0x01},
+			},
+			{
+				Epoch:       101,
+				Key:         c1.Bytes(),
+				PowerTable:  gpbft.MakeCid([]byte("lobster")),
+				Commitments: [32]byte{0x02},
+			},
 		}
-		ts2 = gpbft.TipSet{
-			Epoch:       101,
-			Key:         c1.Bytes(),
-			PowerTable:  gpbft.MakeCid([]byte("lobster")),
-			Commitments: [32]byte{0x02},
+		badJsonEncodable = []struct {
+			ts  gpbft.TipSet
+			err string
+		}{
+			{
+				ts: gpbft.TipSet{
+					Epoch:       1,
+					Key:         []byte("nope"),
+					PowerTable:  gpbft.MakeCid([]byte("fish")),
+					Commitments: [32]byte{0x01},
+				},
+				err: "invalid cid",
+			},
+		}
+		badJsonDecodable = []struct {
+			json string
+			err  string
+		}{
+			{
+				json: `{"Key":["nope"],"Commitments":"AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","Epoch":101,"PowerTable":{"/":"bafy2bzaced5zqzzbxzyzuq2tcxhuclnvdn3y6ijhurgaapnbayul2dd5gspc4"}}`,
+				err:  "invalid cid",
+			},
+			{
+				json: `{"Key":[{"/":"bafy2bzacecp4qqs334yrvzxsnlolskbtvyc3ub7k5tzx4s2m77vimzzkduj3g"}],"Commitments":"bm9wZQ==","Epoch":101,"PowerTable":{"/":"bafy2bzaced5zqzzbxzyzuq2tcxhuclnvdn3y6ijhurgaapnbayul2dd5gspc4"}}`,
+				err:  "32 bytes",
+			},
 		}
 	)
 
 	t.Run("cbor round trip", func(t *testing.T) {
 		req := require.New(t)
-		for _, ts := range []gpbft.TipSet{ts1, ts2} {
+		for _, ts := range testCases {
 			var buf bytes.Buffer
 			req.NoError(ts.MarshalCBOR(&buf))
 			t.Logf("cbor: %x", buf.Bytes())
@@ -222,7 +251,7 @@ func TestTipSetKeySerialization(t *testing.T) {
 
 	t.Run("json round trip", func(t *testing.T) {
 		req := require.New(t)
-		for _, ts := range []gpbft.TipSet{ts1, ts2} {
+		for _, ts := range testCases {
 			data, err := ts.MarshalJSON()
 			req.NoError(err)
 			t.Logf("json: %s", data)
@@ -231,14 +260,27 @@ func TestTipSetKeySerialization(t *testing.T) {
 			req.Equal(ts, rt)
 
 			// check that we serialized the CIDs in the standard dag-json form
-			var bareMap map[string]interface{}
+			var bareMap map[string]any
 			req.NoError(json.Unmarshal(data, &bareMap))
-			keyField, ok := bareMap["Key"].([]interface{})
+			keyField, ok := bareMap["Key"].([]any)
 			req.True(ok)
 			req.Len(keyField, len(ts.Key)/38)
 			for j, c := range []cid.Cid{c1, c2, c3}[:len(ts.Key)/38] {
-				req.Equal(map[string]interface{}{"/": c.String()}, keyField[j])
+				req.Equal(map[string]any{"/": c.String()}, keyField[j])
 			}
+		}
+	})
+
+	t.Run("json error cases", func(t *testing.T) {
+		req := require.New(t)
+		for i, tc := range badJsonEncodable {
+			_, err := tc.ts.MarshalJSON()
+			req.ErrorContains(err, tc.err, "expected error for test case %d", i)
+		}
+		for i, tc := range badJsonDecodable {
+			var ts gpbft.TipSet
+			err := ts.UnmarshalJSON([]byte(tc.json))
+			req.ErrorContains(err, tc.err, "expected error for test case %d", i)
 		}
 	})
 }
