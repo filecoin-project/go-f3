@@ -3,6 +3,7 @@ package gpbft_test
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/json"
 	"io"
 	"testing"
 
@@ -1732,5 +1733,59 @@ func TestGPBFT_Sway(t *testing.T) {
 			}
 		}
 		require.Fail(t, "after 10 tries did not swayed to proposals 1 and 2 at CONVERGE and COMMIT, respectively.")
+	})
+}
+
+func TestSupplementalDataSerialization(t *testing.T) {
+	t.Parallel()
+	var (
+		testCases = []gpbft.SupplementalData{
+			{
+				PowerTable:  gpbft.MakeCid([]byte("fish")),
+				Commitments: [32]byte{0x01},
+			},
+			{
+				PowerTable:  gpbft.MakeCid([]byte("lobster")),
+				Commitments: [32]byte{0x02},
+			},
+		}
+	)
+
+	t.Run("cbor round trip", func(t *testing.T) {
+		req := require.New(t)
+		for _, ts := range testCases {
+			var buf bytes.Buffer
+			req.NoError(ts.MarshalCBOR(&buf))
+			t.Logf("cbor: %x", buf.Bytes())
+			var rt gpbft.SupplementalData
+			req.NoError(rt.UnmarshalCBOR(&buf))
+			req.Equal(ts, rt)
+		}
+	})
+
+	t.Run("json round trip", func(t *testing.T) {
+		req := require.New(t)
+		for _, ts := range testCases {
+			data, err := ts.MarshalJSON()
+			req.NoError(err)
+			t.Logf("json: %s", data)
+			var rt gpbft.SupplementalData
+			req.NoError(rt.UnmarshalJSON(data))
+			req.Equal(ts, rt)
+
+			// check that the supplemental data is a base64 string
+			var bareMap map[string]any
+			req.NoError(json.Unmarshal(data, &bareMap))
+			commitField, ok := bareMap["Commitments"].(string)
+			req.True(ok)
+			req.Len(commitField, 44)
+		}
+	})
+
+	t.Run("json error cases", func(t *testing.T) {
+		req := require.New(t)
+		var ts gpbft.SupplementalData
+		err := ts.UnmarshalJSON([]byte(`{"Commitments":"bm9wZQ==","PowerTable":{"/":"bafy2bzaced5zqzzbxzyzuq2tcxhuclnvdn3y6ijhurgaapnbayul2dd5gspc4"}}`))
+		req.ErrorContains(err, "32 bytes")
 	})
 }

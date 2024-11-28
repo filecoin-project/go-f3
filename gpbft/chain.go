@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base32"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -109,6 +110,68 @@ func (ts *TipSet) String() string {
 	encTs := base32.StdEncoding.EncodeToString(ts.Key)
 
 	return fmt.Sprintf("%s@%d", encTs[:min(16, len(encTs))], ts.Epoch)
+}
+
+// Custom JSON marshalling for TipSet to achieve:
+// 1. a standard TipSetKey representation that presents an array of dag-json CIDs.
+// 2. a commitment field that is a base64-encoded string.
+
+type tipSetSub TipSet
+type tipSetJson struct {
+	Key         []cid.Cid
+	Commitments []byte
+	*tipSetSub
+}
+
+func (ts TipSet) MarshalJSON() ([]byte, error) {
+	cids, err := cidsFromTipSetKey(ts.Key)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(&tipSetJson{
+		Key:         cids,
+		Commitments: ts.Commitments[:],
+		tipSetSub:   (*tipSetSub)(&ts),
+	})
+}
+
+func (ts *TipSet) UnmarshalJSON(b []byte) error {
+	aux := &tipSetJson{tipSetSub: (*tipSetSub)(ts)}
+	var err error
+	if err = json.Unmarshal(b, &aux); err != nil {
+		return err
+	}
+	if ts.Key, err = tipSetKeyFromCids(aux.Key); err != nil {
+		return err
+	}
+	if len(aux.Commitments) != 32 {
+		return errors.New("commitments must be 32 bytes")
+	}
+	copy(ts.Commitments[:], aux.Commitments)
+	return nil
+}
+
+func cidsFromTipSetKey(encoded []byte) ([]cid.Cid, error) {
+	var cids []cid.Cid
+	for nextIdx := 0; nextIdx < len(encoded); {
+		nr, c, err := cid.CidFromBytes(encoded[nextIdx:])
+		if err != nil {
+			return nil, err
+		}
+		cids = append(cids, c)
+		nextIdx += nr
+	}
+	return cids, nil
+}
+
+func tipSetKeyFromCids(cids []cid.Cid) (TipSetKey, error) {
+	var buf bytes.Buffer
+	for _, c := range cids {
+		if _, err := buf.Write(c.Bytes()); err != nil {
+			return nil, err
+		}
+	}
+	return buf.Bytes(), nil
 }
 
 // A chain of tipsets comprising a base (the last finalised tipset from which the chain extends).

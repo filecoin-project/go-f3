@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -92,6 +93,35 @@ type SupplementalData struct {
 
 func (d *SupplementalData) Eq(other *SupplementalData) bool {
 	return d.Commitments == other.Commitments && d.PowerTable == other.PowerTable
+}
+
+// Custom JSON marshalling for SupplementalData to achieve a commitment field
+// that is a base64-encoded string.
+
+type supplementalDataSub SupplementalData
+type supplementalDataJson struct {
+	Commitments []byte
+	*supplementalDataSub
+}
+
+func (sd SupplementalData) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&supplementalDataJson{
+		Commitments:         sd.Commitments[:],
+		supplementalDataSub: (*supplementalDataSub)(&sd),
+	})
+}
+
+func (sd *SupplementalData) UnmarshalJSON(b []byte) error {
+	aux := &supplementalDataJson{supplementalDataSub: (*supplementalDataSub)(sd)}
+	var err error
+	if err = json.Unmarshal(b, &aux); err != nil {
+		return err
+	}
+	if len(aux.Commitments) != 32 {
+		return errors.New("commitments must be 32 bytes")
+	}
+	copy(sd.Commitments[:], aux.Commitments)
+	return nil
 }
 
 // Fields of the message that make up the signature payload.
