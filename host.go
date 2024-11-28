@@ -211,7 +211,6 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 			case <-h.runningCtx.Done():
 				return nil
 			}
-
 		}
 		return nil
 	})
@@ -553,12 +552,16 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 		return nil, err
 	}
 
-	sub, err := h.topic.Subscribe()
+	const (
+		subBufferSize      = 128
+		msgQueueBufferSize = 128
+	)
+	sub, err := h.topic.Subscribe(pubsub.WithBufferSize(subBufferSize))
 	if err != nil {
 		return nil, fmt.Errorf("could not subscribe to pubsub topic: %s: %w", sub.Topic(), err)
 	}
 
-	messageQueue := make(chan gpbft.ValidatedMessage, 20)
+	messageQueue := make(chan gpbft.ValidatedMessage, msgQueueBufferSize)
 	h.errgrp.Go(func() error {
 		defer func() {
 			sub.Cancel()
