@@ -86,6 +86,8 @@ func metricAttributeFromError(err error) attribute.KeyValue {
 		v = "invalid_wrong_base"
 	case errors.Is(err, ErrValidationWrongSupplement):
 		v = "invalid_wrong_supp"
+	case errors.Is(err, ErrValidationNotRelevant):
+		v = "invalid_not_relevant"
 	case errors.As(err, &ValidationError{}):
 		v = "type_invalid"
 	case errors.Is(err, ErrReceivedWrongInstance):
