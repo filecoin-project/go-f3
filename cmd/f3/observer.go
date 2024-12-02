@@ -13,6 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	"github.com/urfave/cli/v2"
 )
 
@@ -70,6 +71,16 @@ var observerCmd = cli.Command{
 			DefaultText: "In memory",
 			Value:       "",
 		},
+		&cli.IntFlag{
+			Name:  "connLo",
+			Usage: "The lower connection manager watermark.",
+			Value: 160,
+		},
+		&cli.IntFlag{
+			Name:  "connHi",
+			Usage: "The higher connection manager watermark.",
+			Value: 192,
+		},
 	},
 
 	Action: func(cctx *cli.Context) error {
@@ -125,7 +136,15 @@ var observerCmd = cli.Command{
 			_, _ = fmt.Fprintf(cctx.App.Writer, "Observer peer ID: %s\n", observerID)
 		}
 
-		host, err := libp2p.New(libp2p.Identity(identity), libp2p.UserAgent("f3-observer"))
+		connMngr, err := connmgr.NewConnManager(cctx.Int("connLo"), cctx.Int("connHi"))
+		if err != nil {
+			return err
+		}
+		host, err := libp2p.New(
+			libp2p.Identity(identity),
+			libp2p.UserAgent("f3-observer"),
+			libp2p.ConnectionManager(connMngr),
+		)
 		if err != nil {
 			return fmt.Errorf("failed to create libp2p host: %w", err)
 		}
