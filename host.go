@@ -411,7 +411,7 @@ func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) 
 	}
 
 	backoff := time.Duration(float64(ecDelay) * backoffMultipler)
-	log.Infof("backing off for: %v", backoff)
+	log.Debugf("backing off for: %v", backoff)
 
 	return baseTimestamp.Add(backoff).Add(lookbackDelay)
 }
