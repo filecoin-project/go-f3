@@ -77,6 +77,7 @@ func (o *Observer) initialize(ctx context.Context) error {
 	if o.pubSub, err = pubsub.NewGossipSub(ctx, o.host,
 		pubsub.WithPeerExchange(true),
 		pubsub.WithFloodPublish(true),
+		pubsub.WithMessageIdFn(psutil.GPBFTMessageIdFn),
 		pubsub.WithPeerScore(psutil.PubsubPeerScoreParams, psutil.PubsubPeerScoreThresholds),
 	); err != nil {
 		return fmt.Errorf("failed to initialise pubsub: %w", err)
