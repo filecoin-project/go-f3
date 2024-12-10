@@ -13,6 +13,8 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/manifest"
+	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/ipfs/go-cid"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -22,13 +24,47 @@ type gpbftInputs struct {
 	ec        ec.Backend
 	verifier  gpbft.Verifier
 	clock     clock.Clock
+
+	ptCache *lru.Cache[string, cid.Cid]
 }
 
-//ptCache lru.Cache[string, cid.Cid]
-//}
-//func (h *gpbftInputs) getPowerTableCIDForTipset(ctx context.Context, tsk gpbft.TipSetKey) {
+func newInputs(manifest *manifest.Manifest, certStore *certstore.Store, ec ec.Backend,
+	verifier gpbft.Verifier, clk clock.Clock) gpbftInputs {
+	cache, err := lru.New[string, cid.Cid](256) // keep a bit more than 2x max ECChain size
+	if err != nil {
+		// panic as it only depends on the size
+		panic(fmt.Errorf("could not create cache: %w", err))
+	}
 
-//}
+	return gpbftInputs{
+		manifest:  manifest,
+		certStore: certStore,
+		ec:        ec,
+		verifier:  verifier,
+		clock:     clk,
+		ptCache:   cache,
+	}
+}
+
+func (h *gpbftInputs) getPowerTableCIDForTipset(ctx context.Context, tsk gpbft.TipSetKey) (cid.Cid, error) {
+	sTSK := string(tsk)
+	ptCid, ok := h.ptCache.Get(sTSK)
+	if ok {
+		return ptCid, nil
+	}
+
+	pt, err := h.ec.GetPowerTable(ctx, tsk)
+	if err != nil {
+		return cid.Undef, fmt.Errorf("getting power table to compute CID: %w", err)
+	}
+	ptCid, err = certs.MakePowerTableCID(pt)
+	if err != nil {
+		return cid.Undef, fmt.Errorf("computing power table CID: %w", err)
+	}
+
+	h.ptCache.Add(sTSK, ptCid)
+	return ptCid, nil
+}
 
 func (h *gpbftInputs) collectChain(ctx context.Context, base ec.TipSet, head ec.TipSet) ([]ec.TipSet, error) {
 	// TODO: optimize when head is way beyond base
@@ -110,11 +146,7 @@ func (h *gpbftInputs) GetProposal(ctx context.Context, instance uint64) (_ *gpbf
 		Epoch: baseTs.Epoch(),
 		Key:   baseTs.Key(),
 	}
-	pte, err := h.ec.GetPowerTable(ctx, baseTs.Key())
-	if err != nil {
-		return nil, nil, fmt.Errorf("getting power table for base: %w", err)
-	}
-	base.PowerTable, err = certs.MakePowerTableCID(pte)
+	base.PowerTable, err = h.getPowerTableCIDForTipset(ctx, baseTs.Key())
 	if err != nil {
 		return nil, nil, fmt.Errorf("computing powertable CID for base: %w", err)
 	}
@@ -124,13 +156,9 @@ func (h *gpbftInputs) GetProposal(ctx context.Context, instance uint64) (_ *gpbf
 		suffix[i].Key = collectedChain[i].Key()
 		suffix[i].Epoch = collectedChain[i].Epoch()
 
-		pte, err = h.ec.GetPowerTable(ctx, suffix[i].Key)
+		suffix[i].PowerTable, err = h.getPowerTableCIDForTipset(ctx, suffix[i].Key)
 		if err != nil {
-			return nil, nil, fmt.Errorf("getting power table for suffix %d: %w", i, err)
-		}
-		suffix[i].PowerTable, err = certs.MakePowerTableCID(pte)
-		if err != nil {
-			return nil, nil, fmt.Errorf("computing powertable CID for base: %w", err)
+			return nil, nil, fmt.Errorf("computing powertable CID for suffix %d: %w", i, err)
 		}
 	}
 	chain, err := gpbft.NewChain(base, suffix...)

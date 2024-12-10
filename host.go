@@ -87,13 +87,7 @@ func newRunner(
 		ctxCancel:    ctxCancel,
 		equivFilter:  newEquivocationFilter(pID),
 		selfMessages: make(map[uint64]map[roundPhase][]*gpbft.GMessage),
-		inputs: gpbftInputs{
-			manifest:  m,
-			certStore: cs,
-			ec:        ec,
-			verifier:  verifier,
-			clock:     clock.GetClock(ctx),
-		},
+		inputs:       newInputs(m, cs, ec, verifier, clock.GetClock(ctx)),
 	}
 
 	// create a stopped timer to facilitate alerts requested from gpbft
