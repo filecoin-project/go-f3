@@ -99,7 +99,7 @@ func (h *gpbftInputs) collectChain(ctx context.Context, base ec.TipSet, head ec.
 // ReceiveDecision (or known to be final via some other channel).
 func (h *gpbftInputs) GetProposal(ctx context.Context, instance uint64) (_ *gpbft.SupplementalData, _ gpbft.ECChain, _err error) {
 	defer func(start time.Time) {
-		metrics.proposalFetchTime.Record(context.TODO(), time.Since(start).Seconds(), metric.WithAttributes(attrStatusFromErr(_err)))
+		metrics.proposalFetchTime.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(attrStatusFromErr(_err)))
 	}(time.Now())
 
 	var baseTsk gpbft.TipSetKey
