@@ -31,6 +31,7 @@ var base = manifest.Manifest{
 		Delta:                      10,
 		DeltaBackOffExponent:       1.2,
 		MaxLookaheadRounds:         5,
+		ChainProposedLength:        gpbft.ChainDefaultLen,
 		RebroadcastBackoffBase:     10,
 		RebroadcastBackoffExponent: 1.3,
 		RebroadcastBackoffMax:      30,
