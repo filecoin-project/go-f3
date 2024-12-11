@@ -34,6 +34,7 @@ var (
 		Delta:                      6 * time.Second,
 		DeltaBackOffExponent:       2.0,
 		MaxLookaheadRounds:         5,
+		ProposedChainLength:        100,
 		RebroadcastBackoffBase:     6 * time.Second,
 		RebroadcastBackoffSpread:   0.1,
 		RebroadcastBackoffExponent: 1.3,
@@ -93,6 +94,8 @@ type GpbftConfig struct {
 	DeltaBackOffExponent float64
 	MaxLookaheadRounds   uint64
 
+	ProposedChainLength int
+
 	RebroadcastBackoffBase     time.Duration
 	RebroadcastBackoffExponent float64
 	RebroadcastBackoffSpread   float64
@@ -106,6 +109,11 @@ func (g *GpbftConfig) Validate() error {
 	if g.DeltaBackOffExponent < 1.0 {
 		return fmt.Errorf("GPBFT backoff exponent must be at least 1.0, was %f", g.DeltaBackOffExponent)
 	}
+
+	if g.ProposedChainLength < 1 {
+		return fmt.Errorf("GPBFT proposed chain length cannot be less than 1")
+	}
+	// not checking against gpbft.ChainMaxLen, it is handled gracefully
 
 	if g.RebroadcastBackoffBase <= 0 {
 		return fmt.Errorf("GPBFT rebroadcast backoff base must be greater than 0, was %s",
