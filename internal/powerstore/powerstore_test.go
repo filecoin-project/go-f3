@@ -201,7 +201,7 @@ func advanceF3(t *testing.T, m *manifest.Manifest, ps *powerstore.Store, cs *cer
 	basePt, err := cs.GetPowerTable(ctx, instance)
 	require.NoError(t, err)
 	for len(gpbftChain) > 1 {
-		count := min(len(gpbftChain), rand.IntN(epochsPerCert+1)+1, gpbft.ChainMaxLen)
+		count := min(len(gpbftChain), rand.IntN(epochsPerCert+1)+1, gpbft.ChainDefaultLen)
 		newChain := gpbftChain[:count]
 
 		nextPt := basePt

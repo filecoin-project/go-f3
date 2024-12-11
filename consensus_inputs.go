@@ -151,7 +151,7 @@ func (h *gpbftInputs) GetProposal(ctx context.Context, instance uint64) (_ *gpbf
 		return nil, nil, fmt.Errorf("computing powertable CID for base: %w", err)
 	}
 
-	suffixLen := min(gpbft.ChainMaxLen, h.manifest.Gpbft.ProposedChainLength) - 1 // -1 because of base
+	suffixLen := min(gpbft.ChainMaxLen, h.manifest.Gpbft.ChainProposedLength) - 1 // -1 because of base
 	suffix := make([]gpbft.TipSet, min(suffixLen, len(collectedChain)))
 	for i := range suffix {
 		suffix[i].Key = collectedChain[i].Key()
