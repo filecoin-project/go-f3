@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/ipfs/go-log/v2"
+	"github.com/klauspost/compress/zstd"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
 	_ "github.com/marcboeker/go-duckdb"
@@ -343,6 +345,12 @@ func (o *Observer) startObserverFor(ctx context.Context, networkName gpbft.Netwo
 			wg.Done()
 		}()
 
+		var uncompressed, compressed bytes.Buffer
+		minGain, maxGain, totalGain := math.MaxFloat64, 0.0, 0.0
+		var count int
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
 		for ctx.Err() == nil {
 			msg, err := subscription.Next(ctx)
 			if err != nil && !errors.Is(err, context.Canceled) {
@@ -353,7 +361,44 @@ func (o *Observer) startObserverFor(ctx context.Context, networkName gpbft.Netwo
 				continue
 			}
 
-			om, err := newMessage(time.Now().UTC(), string(networkName), msg.ValidatorData.(gpbft.GMessage))
+			gMessage := msg.ValidatorData.(gpbft.GMessage)
+			{
+				err = gMessage.MarshalCBOR(&uncompressed)
+				if err != nil {
+					panic(err)
+				}
+
+				compressor, err := zstd.NewWriter(&compressed)
+				if err != nil {
+					panic(err)
+				}
+				_, err = compressor.Write(uncompressed.Bytes())
+				if err != nil {
+					panic(err)
+				}
+				err = compressor.Flush()
+				if err != nil {
+					panic(err)
+				}
+				compression := float64(uncompressed.Len()-compressed.Len()) / float64(uncompressed.Len())
+				count++
+				minGain = min(minGain, compression)
+				maxGain = max(maxGain, compression)
+				totalGain += compression
+				uncompressed.Reset()
+				compressed.Reset()
+
+				select {
+				case <-ticker.C:
+					fmt.Printf("messages observed so far: %d \n", count)
+					fmt.Printf("Min compression gain: %.1f %%\n", minGain*100)
+					fmt.Printf("Max compression gain: %.1f %%\n", maxGain*100)
+					fmt.Printf("Avg compression gain: %.1f %%\n", totalGain/float64(count)*100)
+				default:
+				}
+			}
+
+			om, err := newMessage(time.Now().UTC(), string(networkName), gMessage)
 			if err != nil {
 				logger.Errorw("Failed to instantiate observation message", "err", err)
 				continue
