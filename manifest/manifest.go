@@ -48,6 +48,10 @@ var (
 		MaximumPollInterval:  4 * DefaultEcConfig.Period,
 	}
 
+	DefaultPubSubConfig = PubSubConfig{
+		CompressionEnabled: false,
+	}
+
 	// Default instance alignment when catching up.
 	DefaultCatchUpAlignment = DefaultEcConfig.Period / 2
 )
@@ -190,6 +194,12 @@ func (e *EcConfig) Validate() error {
 	return nil
 }
 
+type PubSubConfig struct {
+	CompressionEnabled bool
+}
+
+func (p *PubSubConfig) Validate() error { return nil }
+
 // Manifest identifies the specific configuration for the F3 instance currently running.
 type Manifest struct {
 	// Pause stops the participation in F3.
@@ -223,6 +233,8 @@ type Manifest struct {
 	EC EcConfig
 	// Certificate Exchange specific parameters
 	CertificateExchange CxConfig
+	// PubSubConfig specifies the pubsub related configuration.
+	PubSub PubSubConfig
 }
 
 func (m *Manifest) Equal(o *Manifest) bool {
@@ -285,6 +297,9 @@ func (m *Manifest) Validate() error {
 	if err := m.CertificateExchange.Validate(); err != nil {
 		return fmt.Errorf("invalid manifest: invalid certificate exchange config: %w", err)
 	}
+	if err := m.PubSub.Validate(); err != nil {
+		return fmt.Errorf("invalid manifest: invalid pubsub config: %w", err)
+	}
 
 	return nil
 }
@@ -301,6 +316,7 @@ func LocalDevnetManifest() *Manifest {
 		Gpbft:               DefaultGpbftConfig,
 		CertificateExchange: DefaultCxConfig,
 		CatchUpAlignment:    DefaultCatchUpAlignment,
+		PubSub:              DefaultPubSubConfig,
 	}
 	return m
 }
