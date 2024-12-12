@@ -21,7 +21,9 @@ const (
 	// CidMaxLen specifies the maximum length of a CID.
 	CidMaxLen = 38
 	// ChainMaxLen specifies the maximum length of a chain value.
-	ChainMaxLen = 100
+	ChainMaxLen = 128
+	// ChainDefaultLen specifies the default length of chain value.
+	ChainDefaultLen = 100
 	// TipsetKeyMaxLen specifies the maximum length of a tipset. The max size is
 	// chosen such that it allows ample space for an impossibly-unlikely number of
 	// blocks in a tipset, while maintaining a practical limit to prevent abuse.
