@@ -11,6 +11,11 @@ on:
       types:
         - completed
   pull_request:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Commit SHA to publish'
+        required: true
 
 jobs:
   prepare-checkout:
@@ -18,7 +23,7 @@ jobs:
     name: Prepare ref
     runs-on: ubuntu-latest
     outputs:
-      ref: ${{ github.event_name != 'workflow_run' && github.ref || steps.releaser.outputs.version }}
+      ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.sha || github.event_name != 'workflow_run' && github.ref || steps.releaser.outputs.version }}
     steps:
       - name: Get version tag from releaser
         id: releaser
