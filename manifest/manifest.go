@@ -104,27 +104,27 @@ type GpbftConfig struct {
 
 func (g *GpbftConfig) Validate() error {
 	if g.Delta <= 0 {
-		return fmt.Errorf("GPBFT delta must be positive, was %s", g.Delta)
+		return fmt.Errorf("gpbft delta must be positive, was %s", g.Delta)
 	}
 	if g.DeltaBackOffExponent < 1.0 {
-		return fmt.Errorf("GPBFT backoff exponent must be at least 1.0, was %f", g.DeltaBackOffExponent)
+		return fmt.Errorf("gpbft backoff exponent must be at least 1.0, was %f", g.DeltaBackOffExponent)
 	}
 
 	if g.ChainProposedLength < 1 {
-		return fmt.Errorf("GPBFT proposed chain length cannot be less than 1")
+		return fmt.Errorf("gpbft proposed chain length cannot be less than 1")
 	}
 	// not checking against gpbft.ChainMaxLen, it is handled gracefully
 
 	if g.RebroadcastBackoffBase <= 0 {
-		return fmt.Errorf("GPBFT rebroadcast backoff base must be greater than 0, was %s",
+		return fmt.Errorf("gpbft rebroadcast backoff base must be greater than 0, was %s",
 			g.RebroadcastBackoffBase)
 	}
 	if g.RebroadcastBackoffExponent < 1.0 {
-		return fmt.Errorf("GPBFT rebroadcast backoff exponent must be at least 1.0, was %f",
+		return fmt.Errorf("gpbft rebroadcast backoff exponent must be at least 1.0, was %f",
 			g.RebroadcastBackoffExponent)
 	}
 	if g.RebroadcastBackoffMax < g.RebroadcastBackoffBase {
-		return fmt.Errorf("GPBFT rebroadcast backoff max (%s) must be at least the backoff base (%s)",
+		return fmt.Errorf("gpbft rebroadcast backoff max (%s) must be at least the backoff base (%s)",
 			g.RebroadcastBackoffMax, g.RebroadcastBackoffBase)
 	}
 	return nil
@@ -171,20 +171,20 @@ func (e *EcConfig) Equal(o *EcConfig) bool {
 func (e *EcConfig) Validate() error {
 	switch {
 	case e.HeadLookback < 0:
-		return fmt.Errorf("EC head lookback must be non-negative, was %d", e.HeadLookback)
+		return fmt.Errorf("ec head lookback must be non-negative, was %d", e.HeadLookback)
 	case e.Period <= 0:
-		return fmt.Errorf("EC period must be positive, was %s", e.Period)
+		return fmt.Errorf("ec period must be positive, was %s", e.Period)
 	case e.Finality < 0:
-		return fmt.Errorf("EC finality must be non-negative, was %d", e.Finality)
+		return fmt.Errorf("ec finality must be non-negative, was %d", e.Finality)
 	case e.DelayMultiplier <= 0.0:
-		return fmt.Errorf("EC delay multiplier must positive, was %f", e.DelayMultiplier)
+		return fmt.Errorf("ec delay multiplier must positive, was %f", e.DelayMultiplier)
 	case len(e.BaseDecisionBackoffTable) == 0:
-		return fmt.Errorf("EC backoff table must have at least one element")
+		return fmt.Errorf("ec backoff table must have at least one element")
 	}
 
 	for i, b := range e.BaseDecisionBackoffTable {
 		if b < 0.0 {
-			return fmt.Errorf("EC backoff table element %d is negative (%f)", i, b)
+			return fmt.Errorf("ec backoff table element %d is negative (%f)", i, b)
 		}
 	}
 	return nil

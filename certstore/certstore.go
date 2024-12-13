@@ -18,7 +18,7 @@ import (
 )
 
 var ErrCertNotFound = errors.New("certificate not found")
-var ErrNotInitialized = errors.New("CertStore is not initialized")
+var ErrNotInitialized = errors.New("certstore is not initialized")
 
 const defaultPowerTableFrequency = 60 * 24 // expected twice a day for Filecoin
 

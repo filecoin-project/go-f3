@@ -1355,7 +1355,7 @@ func (c *convergeState) Receive(sender ActorID, table *PowerTable, value ECChain
 		return fmt.Errorf("bottom cannot be justified for CONVERGE")
 	}
 	if justification == nil {
-		return fmt.Errorf("CONVERGE message cannot carry nil-justification")
+		return fmt.Errorf("converge message cannot carry nil-justification")
 	}
 
 	if _, ok := c.senders[sender]; ok {

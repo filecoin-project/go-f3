@@ -64,7 +64,7 @@ func (ps *Store) Start(ctx context.Context) error {
 	ps.errgrp.Go(func() (_err error) {
 		defer func() {
 			if err := recover(); err != nil {
-				_err = fmt.Errorf("PANIC in power store: %+v", err)
+				_err = fmt.Errorf("panic in power store: %+v", err)
 				log.Errorw("PANIC in power store", "error", _err)
 			} else if _err != nil && ps.runningCtx.Err() == nil {
 				log.Errorw("power store exited early", "error", _err)
