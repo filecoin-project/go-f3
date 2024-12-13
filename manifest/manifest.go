@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -13,6 +14,9 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 )
+
+// ErrNoManifest is returned when no manifest is known.
+var ErrNoManifest = errors.New("no known manifest")
 
 const VersionCapability = 4
 
