@@ -116,14 +116,14 @@ func (m *F3) GetLatestCert(ctx context.Context) (*certs.FinalityCertificate, err
 	if state := m.state.Load(); state != nil {
 		return state.cs.Latest(), nil
 	}
-	return nil, fmt.Errorf("F3 is not running")
+	return nil, fmt.Errorf("f3 is not running")
 }
 
 func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCertificate, error) {
 	if state := m.state.Load(); state != nil {
 		return state.cs.Get(ctx, instance)
 	}
-	return nil, fmt.Errorf("F3 is not running")
+	return nil, fmt.Errorf("f3 is not running")
 }
 
 // Returns the time at which the F3 instance specified by the passed manifest should be started, or
