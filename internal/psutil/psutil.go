@@ -28,8 +28,10 @@ func pubsubMsgIdHashData(m *pubsub_pb.Message) string {
 	if _, err := hasher.Write(topic); err != nil {
 		panic(err)
 	}
-
-	hash := blake2b.Sum256(m.Data)
+	if _, err := hasher.Write(m.Data); err != nil {
+		panic(err)
+	}
+	hash := hasher.Sum(nil)
 	return string(hash[:])
 }
 
@@ -53,8 +55,10 @@ func pubsubMsgIdHashDataAndSender(m *pubsub_pb.Message) string {
 	if _, err := hasher.Write(m.From); err != nil {
 		panic(err)
 	}
-
-	hash := blake2b.Sum256(m.Data)
+	if _, err := hasher.Write(m.Data); err != nil {
+		panic(err)
+	}
+	hash := hasher.Sum(nil)
 	return string(hash[:])
 }
 
