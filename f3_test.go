@@ -235,6 +235,31 @@ func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
 	require.Equal(t, env.manifest.BootstrapEpoch-env.manifest.EC.Finality, cert0.ECChain.Base().Epoch)
 }
 
+func TestF3DynamicManifest_RebootstrapWithCompression(t *testing.T) {
+	env := newTestEnvironment(t).withNodes(2).withDynamicManifest().start()
+	env.waitForInstanceNumber(10, 30*time.Second, true)
+
+	env.manifest.Pause = true
+	env.updateManifest()
+
+	env.waitForNodesStopped()
+
+	env.manifest.BootstrapEpoch = 956
+	env.manifest.PubSub.CompressionEnabled = true
+	env.manifest.Pause = false
+	env.updateManifest()
+	env.waitForManifest()
+
+	env.clock.Add(1 * time.Minute)
+
+	env.waitForInstanceNumber(3, 30*time.Second, true)
+	env.requireEqualManifests(true)
+
+	cert0, err := env.nodes[0].f3.GetCert(env.testCtx, 0)
+	require.NoError(t, err)
+	require.Equal(t, env.manifest.BootstrapEpoch-env.manifest.EC.Finality, cert0.ECChain.Base().Epoch)
+}
+
 func TestF3LateBootstrap(t *testing.T) {
 	env := newTestEnvironment(t).withNodes(2).start()
 
@@ -286,6 +311,7 @@ var base = manifest.Manifest{
 	EC:                  manifest.DefaultEcConfig,
 	CertificateExchange: manifest.DefaultCxConfig,
 	CatchUpAlignment:    manifest.DefaultCatchUpAlignment,
+	PubSub:              manifest.DefaultPubSubConfig,
 }
 
 type testNode struct {

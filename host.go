@@ -1,7 +1,6 @@
 package f3
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -51,7 +50,8 @@ type gpbftRunner struct {
 	msgsMutex    sync.Mutex
 	selfMessages map[uint64]map[roundPhase][]*gpbft.GMessage
 
-	inputs gpbftInputs
+	inputs      gpbftInputs
+	msgEncoding gMessageEncoding
 }
 
 type roundPhase struct {
@@ -132,6 +132,15 @@ func newRunner(
 		return nil, fmt.Errorf("creating participant: %w", err)
 	}
 	runner.participant = p
+
+	if runner.manifest.PubSub.CompressionEnabled {
+		runner.msgEncoding, err = newZstdGMessageEncoding()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		runner.msgEncoding = &cborGMessageEncoding{}
+	}
 	return runner, nil
 }
 
@@ -443,13 +452,12 @@ func (h *gpbftRunner) BroadcastMessage(ctx context.Context, msg *gpbft.GMessage)
 	if h.topic == nil {
 		return pubsub.ErrTopicClosed
 	}
-	var bw bytes.Buffer
-	err = msg.MarshalCBOR(&bw)
+	encoded, err := h.msgEncoding.Encode(msg)
 	if err != nil {
-		return fmt.Errorf("marshalling GMessage for broadcast: %w", err)
+		return fmt.Errorf("encoding GMessage for broadcast: %w", err)
 	}
 
-	err = h.topic.Publish(ctx, bw.Bytes())
+	err = h.topic.Publish(ctx, encoded)
 	if err != nil {
 		return fmt.Errorf("publishing message: %w", err)
 	}
@@ -464,11 +472,11 @@ func (h *gpbftRunner) rebroadcastMessage(msg *gpbft.GMessage) error {
 	if h.topic == nil {
 		return pubsub.ErrTopicClosed
 	}
-	var bw bytes.Buffer
-	if err := msg.MarshalCBOR(&bw); err != nil {
-		return fmt.Errorf("marshalling GMessage for broadcast: %w", err)
+	encoded, err := h.msgEncoding.Encode(msg)
+	if err != nil {
+		return fmt.Errorf("encoding GMessage for broadcast: %w", err)
 	}
-	if err := h.topic.Publish(h.runningCtx, bw.Bytes()); err != nil {
+	if err := h.topic.Publish(h.runningCtx, encoded); err != nil {
 		return fmt.Errorf("publishing message: %w", err)
 	}
 	return nil
@@ -481,12 +489,13 @@ func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, _ peer.ID, msg 
 		recordValidationTime(ctx, start, _result)
 	}(time.Now())
 
-	var gmsg gpbft.GMessage
-	if err := gmsg.UnmarshalCBOR(bytes.NewReader(msg.Data)); err != nil {
+	gmsg, err := h.msgEncoding.Decode(msg.Data)
+	if err != nil {
+		log.Debugw("failed to decode message", "from", msg.GetFrom(), "err", err)
 		return pubsub.ValidationReject
 	}
 
-	switch validatedMessage, err := h.participant.ValidateMessage(&gmsg); {
+	switch validatedMessage, err := h.participant.ValidateMessage(gmsg); {
 	case errors.Is(err, gpbft.ErrValidationInvalid):
 		log.Debugf("validation error during validation: %+v", err)
 		return pubsub.ValidationReject
