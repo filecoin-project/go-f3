@@ -2,6 +2,7 @@ package f3
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,10 @@ import (
 	"go.uber.org/multierr"
 	"golang.org/x/sync/errgroup"
 )
+
+// ErrF3NotRunning is returned when an operation is attempted on a non-running F3
+// instance.
+var ErrF3NotRunning = errors.New("f3 is not running")
 
 type f3State struct {
 	cs       *certstore.Store
@@ -112,18 +117,18 @@ func (m *F3) Broadcast(ctx context.Context, signatureBuilder *gpbft.SignatureBui
 	}
 }
 
-func (m *F3) GetLatestCert(ctx context.Context) (*certs.FinalityCertificate, error) {
+func (m *F3) GetLatestCert(context.Context) (*certs.FinalityCertificate, error) {
 	if state := m.state.Load(); state != nil {
 		return state.cs.Latest(), nil
 	}
-	return nil, fmt.Errorf("f3 is not running")
+	return nil, ErrF3NotRunning
 }
 
 func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCertificate, error) {
 	if state := m.state.Load(); state != nil {
 		return state.cs.Get(ctx, instance)
 	}
-	return nil, fmt.Errorf("f3 is not running")
+	return nil, ErrF3NotRunning
 }
 
 // Returns the time at which the F3 instance specified by the passed manifest should be started, or
@@ -399,7 +404,7 @@ func (m *F3) GetPowerTable(ctx context.Context, ts gpbft.TipSetKey) (gpbft.Power
 		return ec.WithModifiedPower(m.ec, manif.ExplicitPower, manif.IgnoreECPower).
 			GetPowerTable(ctx, ts)
 	}
-	return nil, fmt.Errorf("no known network manifest")
+	return nil, manifest.ErrNoManifest
 }
 
 func (m *F3) Progress() (instant gpbft.Instant) {
