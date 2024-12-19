@@ -6,6 +6,7 @@ import (
 
 	"github.com/filecoin-project/go-f3/certexchange"
 	"github.com/filecoin-project/go-f3/certs"
+	"github.com/filecoin-project/go-f3/chainexchange"
 	"github.com/filecoin-project/go-f3/gpbft"
 	gen "github.com/whyrusleeping/cbor-gen"
 	"golang.org/x/sync/errgroup"
@@ -37,6 +38,11 @@ func main() {
 		return gen.WriteTupleEncodersToFile("../certexchange/cbor_gen.go", "certexchange",
 			certexchange.Request{},
 			certexchange.ResponseHeader{},
+		)
+	})
+	eg.Go(func() error {
+		return gen.WriteTupleEncodersToFile("../chainexchange/cbor_gen.go", "chainexchange",
+			chainexchange.Message{},
 		)
 	})
 	if err := eg.Wait(); err != nil {

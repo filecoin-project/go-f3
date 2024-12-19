@@ -13,6 +13,7 @@ import (
 
 var ManifestMessageIdFn = pubsubMsgIdHashDataAndSender
 var GPBFTMessageIdFn = pubsubMsgIdHashData
+var ChainExchangeMessageIdFn = pubsubMsgIdHashData
 
 // Generate a pubsub ID from the message topic + data.
 func pubsubMsgIdHashData(m *pubsub_pb.Message) string {
