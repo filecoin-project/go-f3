@@ -50,6 +50,8 @@ var base = manifest.Manifest{
 		MinimumPollInterval:  30 * time.Second,
 		MaximumPollInterval:  2 * time.Minute,
 	},
+	PubSub:           manifest.DefaultPubSubConfig,
+	ChainExchange:    manifest.DefaultChainExchangeConfig,
 	CatchUpAlignment: 0,
 }
 
