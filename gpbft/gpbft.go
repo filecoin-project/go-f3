@@ -509,7 +509,7 @@ func (i *instance) beginQuality() error {
 	// Broadcast input value and wait to receive from others.
 	i.current.Phase = QUALITY_PHASE
 	i.participant.progression.NotifyProgress(i.current)
-	i.phaseTimeout = i.alarmAfterSynchrony()
+	i.phaseTimeout = i.alarmAfterSynchronyWithMulti(i.participant.qualityDeltaMulti)
 	i.resetRebroadcastParams()
 	i.broadcast(i.current.Round, QUALITY_PHASE, i.proposal, false, nil)
 	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrQualityPhase))
@@ -1006,7 +1006,14 @@ func (i *instance) rebroadcastQuietly(round uint64, phase Phase) {
 // The delay duration increases with each round.
 // Returns the absolute time at which the alarm will fire.
 func (i *instance) alarmAfterSynchrony() time.Time {
-	delta := time.Duration(float64(i.participant.delta) *
+	return i.alarmAfterSynchronyWithMulti(1)
+}
+
+// Sets an alarm to be delivered after a synchrony delay including a multiplier on the duration.
+// The delay duration increases with each round.
+// Returns the absolute time at which the alarm will fire.
+func (i *instance) alarmAfterSynchronyWithMulti(multi float64) time.Time {
+	delta := time.Duration(float64(i.participant.delta) * multi *
 		math.Pow(i.participant.deltaBackOffExponent, float64(i.current.Round)))
 	timeout := i.participant.host.Time().Add(2 * delta)
 	i.participant.host.SetAlarm(timeout)

@@ -23,6 +23,8 @@ type options struct {
 	delta                time.Duration
 	deltaBackOffExponent float64
 
+	qualityDeltaMulti float64
+
 	committeeLookback  uint64
 	maxLookaheadRounds uint64
 	rebroadcastAfter   func(int) time.Duration
@@ -38,6 +40,7 @@ func newOptions(o ...Option) (*options, error) {
 	opts := &options{
 		delta:                        defaultDelta,
 		deltaBackOffExponent:         defaultDeltaBackOffExponent,
+		qualityDeltaMulti:            1.0,
 		committeeLookback:            defaultCommitteeLookback,
 		rebroadcastAfter:             defaultRebroadcastAfter,
 		maxCachedInstances:           defaultMaxCachedInstances,
@@ -78,6 +81,16 @@ func WithDeltaBackOffExponent(e float64) Option {
 			return errors.New("delta backoff exponent cannot be less than zero")
 		}
 		o.deltaBackOffExponent = e
+		return nil
+	}
+}
+
+func WithQualityDeltaMultiplier(m float64) Option {
+	return func(o *options) error {
+		if m < 0 {
+			return errors.New("quality duration multiplier cannot be less than zero")
+		}
+		o.qualityDeltaMulti = m
 		return nil
 	}
 }

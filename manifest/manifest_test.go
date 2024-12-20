@@ -30,6 +30,7 @@ var base = manifest.Manifest{
 	Gpbft: manifest.GpbftConfig{
 		Delta:                      10,
 		DeltaBackOffExponent:       1.2,
+		QualityDeltaMultiplier:     1.0,
 		MaxLookaheadRounds:         5,
 		ChainProposedLength:        gpbft.ChainDefaultLen,
 		RebroadcastBackoffBase:     10,
