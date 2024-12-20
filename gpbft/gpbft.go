@@ -509,7 +509,7 @@ func (i *instance) beginQuality() error {
 	// Broadcast input value and wait to receive from others.
 	i.current.Phase = QUALITY_PHASE
 	i.participant.progression.NotifyProgress(i.current)
-	i.phaseTimeout = i.alarmAfterSynchronyWithMulti(i.participant.qualityDurationMulti)
+	i.phaseTimeout = i.alarmAfterSynchronyWithMulti(i.participant.qualityDeltaMulti)
 	i.resetRebroadcastParams()
 	i.broadcast(i.current.Round, QUALITY_PHASE, i.proposal, false, nil)
 	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrQualityPhase))
