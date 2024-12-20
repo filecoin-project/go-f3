@@ -21,6 +21,7 @@ type options struct {
 	maxInstanceLookahead           uint64
 	maxDiscoveredChainsPerInstance int
 	maxWantedChainsPerInstance     int
+	listener                       Listener
 }
 
 func newOptions(o ...Option) (*options, error) {
@@ -129,6 +130,16 @@ func WithMaxWantedChainsPerInstance(max int) Option {
 			return errors.New("max wanted chains per instance must be at least 1")
 		}
 		o.maxWantedChainsPerInstance = max
+		return nil
+	}
+}
+
+func WithListener(listener Listener) Option {
+	return func(o *options) error {
+		if listener == nil {
+			return errors.New("listener cannot be nil")
+		}
+		o.listener = listener
 		return nil
 	}
 }
