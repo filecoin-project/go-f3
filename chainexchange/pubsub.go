@@ -109,7 +109,7 @@ func (p *PubSubChainExchange) Key(chain gpbft.ECChain) Key {
 	return rootDigest[:]
 }
 
-func (p *PubSubChainExchange) GetChainByInstance(_ context.Context, instance uint64, key Key) (gpbft.ECChain, bool) {
+func (p *PubSubChainExchange) GetChainByInstance(ctx context.Context, instance uint64, key Key) (gpbft.ECChain, bool) {
 
 	// We do not have to take instance as input, and instead we can just search
 	// through all the instance as they are not expected to be more than 10. The
@@ -140,8 +140,12 @@ func (p *PubSubChainExchange) GetChainByInstance(_ context.Context, instance uin
 		// Add it to the wanted cache and remove it from the discovered cache.
 		wanted.Add(cacheKey, portion)
 		discovered.Remove(cacheKey)
+		chain := portion.Get()
+		if p.listener != nil {
+			p.listener.NotifyChainDiscovered(ctx, key, instance, chain)
+		}
 		// TODO: Do we want to pull all the suffixes of the chain into wanted cache?
-		return portion.Get(), true
+		return chain, true
 	}
 	// Otherwise, add a placeholder for the wanted key as a way to prioritise its
 	// retention via LRU recent-ness.
@@ -270,6 +274,9 @@ func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Messa
 				fullChain: &cmsg.Chain,
 				offset:    offset,
 			})
+			if p.listener != nil {
+				p.listener.NotifyChainDiscovered(ctx, key, cmsg.Instance, prefix)
+			}
 		}
 		// Continue with the remaining prefix keys as we do not know if any of them have
 		// been evicted from the cache or not. This should be cheap enough considering the
