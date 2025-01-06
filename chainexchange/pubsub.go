@@ -107,7 +107,7 @@ func (p *PubSubChainExchange) Key(chain gpbft.ECChain) Key {
 	return rootDigest[:]
 }
 
-func (p *PubSubChainExchange) GetChainByInstance(_ context.Context, instance uint64, key Key) (gpbft.ECChain, bool) {
+func (p *PubSubChainExchange) GetChainByInstance(ctx context.Context, instance uint64, key Key) (gpbft.ECChain, bool) {
 
 	// We do not have to take instance as input, and instead we can just search
 	// through all the instance as they are not expected to be more than 10. The
@@ -121,26 +121,34 @@ func (p *PubSubChainExchange) GetChainByInstance(_ context.Context, instance uin
 		return nil, false
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	cacheKey := string(key)
 
 	// Check wanted keys first.
+	p.mu.Lock()
 	wanted := p.getChainsWantedAt(instance)
+	p.mu.Unlock()
 	if portion, found := wanted.Get(cacheKey); found && !portion.IsPlaceholder() {
-		// Found and is not a placeholder.
 		return portion.chain, true
 	}
+
 	// Check if the chain for the key is discovered.
+	p.mu.Lock()
 	discovered := p.getChainsDiscoveredAt(instance)
 	if portion, found := discovered.Get(cacheKey); found {
 		// Add it to the wanted cache and remove it from the discovered cache.
 		wanted.Add(cacheKey, portion)
 		discovered.Remove(cacheKey)
+		p.mu.Unlock()
+
+		chain := portion.chain
+		if p.listener != nil {
+			p.listener.NotifyChainDiscovered(ctx, key, instance, chain)
+		}
 		// TODO: Do we want to pull all the suffixes of the chain into wanted cache?
-		return portion.chain, true
+		return chain, true
 	}
+	p.mu.Unlock()
+
 	// Otherwise, add a placeholder for the wanted key as a way to prioritise its
 	// retention via LRU recent-ness.
 	wanted.ContainsOrAdd(cacheKey, chainPortionPlaceHolder)
@@ -250,10 +258,15 @@ func (p *PubSubChainExchange) Broadcast(ctx context.Context, msg Message) error 
 	return nil
 }
 
-func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Message) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+type discovery struct {
+	key      Key
+	instance uint64
+	chain    gpbft.ECChain
+}
 
+func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Message) {
+	var notifications []discovery
+	p.mu.Lock()
 	wanted := p.getChainsWantedAt(cmsg.Instance)
 	for offset := len(cmsg.Chain); offset >= 0 && ctx.Err() == nil; offset-- {
 		// TODO: Expose internals of merkle.go so that keys can be generated
@@ -265,10 +278,25 @@ func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Messa
 			wanted.Add(cacheKey, &chainPortion{
 				chain: prefix,
 			})
+			if p.listener != nil {
+				notifications = append(notifications, discovery{
+					key:      key,
+					instance: cmsg.Instance,
+					chain:    prefix,
+				})
+			}
 		}
 		// Continue with the remaining prefix keys as we do not know if any of them have
 		// been evicted from the cache or not. This should be cheap enough considering the
 		// added complexity of tracking evictions relative to chain prefixes.
+	}
+	p.mu.Unlock()
+
+	// Notify the listener outside the lock.
+	if p.listener != nil {
+		for _, notification := range notifications {
+			p.listener.NotifyChainDiscovered(ctx, notification.key, notification.instance, notification.chain)
+		}
 	}
 }
 

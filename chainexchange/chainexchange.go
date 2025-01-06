@@ -24,4 +24,8 @@ type ChainExchange interface {
 	RemoveChainsByInstance(context.Context, uint64) error
 }
 
+type Listener interface {
+	NotifyChainDiscovered(ctx context.Context, key Key, instance uint64, chain gpbft.ECChain)
+}
+
 func (k Key) IsZero() bool { return len(k) == 0 }
