@@ -312,6 +312,7 @@ var base = manifest.Manifest{
 	CertificateExchange: manifest.DefaultCxConfig,
 	CatchUpAlignment:    manifest.DefaultCatchUpAlignment,
 	PubSub:              manifest.DefaultPubSubConfig,
+	ChainExchange:       manifest.DefaultChainExchangeConfig,
 }
 
 type testNode struct {

@@ -57,6 +57,14 @@ var (
 		CompressionEnabled: false,
 	}
 
+	DefaultChainExchangeConfig = ChainExchangeConfig{
+		SubscriptionBufferSize:         32,
+		MaxChainLength:                 gpbft.ChainDefaultLen,
+		MaxInstanceLookahead:           DefaultCommitteeLookback,
+		MaxDiscoveredChainsPerInstance: 1_000,
+		MaxWantedChainsPerInstance:     1_000,
+	}
+
 	// Default instance alignment when catching up.
 	DefaultCatchUpAlignment = DefaultEcConfig.Period / 2
 )
@@ -171,7 +179,7 @@ type EcConfig struct {
 	BaseDecisionBackoffTable []float64
 	// HeadLookback number of unfinalized tipsets to remove from the head
 	HeadLookback int
-	// Finalize indicates whether or not F3 should finalize tipsets as F3 agrees on them.
+	// Finalize indicates whether F3 should finalize tipsets as F3 agrees on them.
 	Finalize bool
 }
 
@@ -211,6 +219,31 @@ type PubSubConfig struct {
 
 func (p *PubSubConfig) Validate() error { return nil }
 
+type ChainExchangeConfig struct {
+	SubscriptionBufferSize         int
+	MaxChainLength                 int
+	MaxInstanceLookahead           uint64
+	MaxDiscoveredChainsPerInstance int
+	MaxWantedChainsPerInstance     int
+}
+
+func (cx *ChainExchangeConfig) Validate() error {
+	// Note that MaxInstanceLookahead may be zero, which indicates that the chain
+	// exchange will only accept discovery of chains from current instance.
+	switch {
+	case cx.SubscriptionBufferSize < 1:
+		return fmt.Errorf("chain exchange subscription buffer size must be at least 1, got: %d", cx.SubscriptionBufferSize)
+	case cx.MaxChainLength < 1:
+		return fmt.Errorf("chain exchange max chain length must be at least 1, got: %d", cx.MaxChainLength)
+	case cx.MaxDiscoveredChainsPerInstance < 1:
+		return fmt.Errorf("chain exchange max discovered chains per instance must be at least 1, got: %d", cx.MaxDiscoveredChainsPerInstance)
+	case cx.MaxWantedChainsPerInstance < 1:
+		return fmt.Errorf("chain exchange max wanted chains per instance must be at least 1, got: %d", cx.MaxWantedChainsPerInstance)
+	default:
+		return nil
+	}
+}
+
 // Manifest identifies the specific configuration for the F3 instance currently running.
 type Manifest struct {
 	// Pause stops the participation in F3.
@@ -246,6 +279,8 @@ type Manifest struct {
 	CertificateExchange CxConfig
 	// PubSubConfig specifies the pubsub related configuration.
 	PubSub PubSubConfig
+	// ChainExchange specifies the chain exchange configuration parameters.
+	ChainExchange ChainExchangeConfig
 }
 
 func (m *Manifest) Equal(o *Manifest) bool {
@@ -311,6 +346,15 @@ func (m *Manifest) Validate() error {
 	if err := m.PubSub.Validate(); err != nil {
 		return fmt.Errorf("invalid manifest: invalid pubsub config: %w", err)
 	}
+	if err := m.ChainExchange.Validate(); err != nil {
+		return fmt.Errorf("invalid manifest: invalid chain exchange config: %w", err)
+	}
+	if m.ChainExchange.MaxChainLength > m.Gpbft.ChainProposedLength {
+		return fmt.Errorf("invalid manifest: chain exchange max chain length %d exceeds gpbft proposed chain length %d", m.ChainExchange.MaxChainLength, m.Gpbft.ChainProposedLength)
+	}
+	if m.ChainExchange.MaxInstanceLookahead > m.CommitteeLookback {
+		return fmt.Errorf("invalid manifest: chain exchange max instance lookahead %d exceeds committee lookback %d", m.ChainExchange.MaxInstanceLookahead, m.CommitteeLookback)
+	}
 
 	return nil
 }
@@ -328,6 +372,7 @@ func LocalDevnetManifest() *Manifest {
 		CertificateExchange: DefaultCxConfig,
 		CatchUpAlignment:    DefaultCatchUpAlignment,
 		PubSub:              DefaultPubSubConfig,
+		ChainExchange:       DefaultChainExchangeConfig,
 	}
 	return m
 }
@@ -361,6 +406,10 @@ func (m *Manifest) PubSubTopic() string {
 
 func PubSubTopicFromNetworkName(nn gpbft.NetworkName) string {
 	return "/f3/granite/0.0.2/" + string(nn)
+}
+
+func ChainExchangeTopicFromNetworkName(nn gpbft.NetworkName) string {
+	return "/f3/chainexchange/0.0.1/" + string(nn)
 }
 
 func (m *Manifest) GpbftOptions() []gpbft.Option {
