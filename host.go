@@ -52,6 +52,7 @@ type gpbftRunner struct {
 
 	inputs      gpbftInputs
 	msgEncoding gMessageEncoding
+	pmm         *partialMessageManager
 }
 
 type roundPhase struct {
@@ -141,6 +142,12 @@ func newRunner(
 	} else {
 		runner.msgEncoding = &cborGMessageEncoding{}
 	}
+
+	runner.pmm, err = newPartialMessageManager(runner.Progress, ps, m)
+	if err != nil {
+		return nil, fmt.Errorf("creating partial message manager: %w", err)
+	}
+
 	return runner, nil
 }
 
@@ -152,6 +159,11 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 	}()
 
 	messageQueue, err := h.startPubsub()
+	if err != nil {
+		return err
+	}
+
+	completedMessageQueue, err := h.pmm.Start(ctx)
 	if err != nil {
 		return err
 	}
@@ -193,7 +205,7 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 			default:
 			}
 
-			// Handle messages, finality certificates, and alarms
+			// Handle messages, completed messages, finality certificates, and alarms
 			select {
 			case c := <-finalityCertificates:
 				if err := h.receiveCertificate(c); err != nil {
@@ -218,6 +230,29 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 					// "non-fatal" errors here. Ideally only returning "real"
 					// errors.
 					log.Errorf("error when processing message: %+v", err)
+				}
+			case gmsg, ok := <-completedMessageQueue:
+				if !ok {
+					return fmt.Errorf("incoming completed message queue closed")
+				}
+				switch validatedMessage, err := h.participant.ValidateMessage(gmsg); {
+				case errors.Is(err, gpbft.ErrValidationInvalid):
+					log.Debugw("validation error while validating completed message", "err", err)
+					// TODO: Signal partial message manager to penalise sender,
+					//       e.g. reduce the total number of messages stroed from sender?
+				case errors.Is(err, gpbft.ErrValidationTooOld):
+					// TODO: Signal partial message manager to drop the instance?
+				case errors.Is(err, gpbft.ErrValidationNotRelevant):
+					// TODO: Signal partial message manager to drop irrelevant messages?
+				case errors.Is(err, gpbft.ErrValidationNoCommittee):
+					log.Debugw("committee error while validating completed message", "err", err)
+				case err != nil:
+					log.Errorw("unknown error while validating completed message", "err", err)
+				default:
+					recordValidatedMessage(ctx, validatedMessage)
+					if err := h.participant.ReceiveMessage(validatedMessage); err != nil {
+						log.Errorw("error while processing completed message", "err", err)
+					}
 				}
 			case <-h.runningCtx.Done():
 				return nil
@@ -452,7 +487,17 @@ func (h *gpbftRunner) BroadcastMessage(ctx context.Context, msg *gpbft.GMessage)
 	if h.topic == nil {
 		return pubsub.ErrTopicClosed
 	}
-	encoded, err := h.msgEncoding.Encode(msg)
+
+	if err := h.pmm.BroadcastChain(ctx, msg.Vote.Instance, msg.Vote.Value); err != nil {
+		// Silently log the error and continue. Partial message manager should take care of re-broadcast.
+		log.Warnw("failed to broadcast chain", "instance", msg.Vote.Instance, "error", err)
+	}
+
+	pmsg, err := h.pmm.toPartialGMessage(msg)
+	if err != nil {
+		return err
+	}
+	encoded, err := h.msgEncoding.Encode(pmsg)
 	if err != nil {
 		return fmt.Errorf("encoding GMessage for broadcast: %w", err)
 	}
@@ -472,7 +517,17 @@ func (h *gpbftRunner) rebroadcastMessage(msg *gpbft.GMessage) error {
 	if h.topic == nil {
 		return pubsub.ErrTopicClosed
 	}
-	encoded, err := h.msgEncoding.Encode(msg)
+
+	if err := h.pmm.BroadcastChain(h.runningCtx, msg.Vote.Instance, msg.Vote.Value); err != nil {
+		// Silently log the error and continue. Partial message manager should take care of re-broadcast.
+		log.Warnw("failed to rebroadcast chain", "instance", msg.Vote.Instance, "error", err)
+	}
+
+	pmsg, err := h.pmm.toPartialGMessage(msg)
+	if err != nil {
+		return err
+	}
+	encoded, err := h.msgEncoding.Encode(pmsg)
 	if err != nil {
 		return fmt.Errorf("encoding GMessage for broadcast: %w", err)
 	}
@@ -489,10 +544,26 @@ func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, _ peer.ID, msg 
 		recordValidationTime(ctx, start, _result)
 	}(time.Now())
 
-	gmsg, err := h.msgEncoding.Decode(msg.Data)
+	pgmsg, err := h.msgEncoding.Decode(msg.Data)
 	if err != nil {
 		log.Debugw("failed to decode message", "from", msg.GetFrom(), "err", err)
 		return pubsub.ValidationReject
+	}
+
+	gmsg, completed := h.pmm.CompleteMessage(ctx, pgmsg)
+	if !completed {
+		// TODO: Partially validate the message because we can. To do this, however,
+		//       message validator needs to be refactored to tolerate partial data.
+		//       Hence, for now validation is postponed entirely until that refactor
+		//       is done to accommodate partial messages.
+		//       See: https://github.com/filecoin-project/go-f3/issues/813
+
+		// FIXME: must verify signature before buffering otherwise nodes can spoof the
+		//        buffer with invalid messages on behalf of other peers as censorship
+		//       attack.
+
+		msg.ValidatorData = pgmsg
+		return pubsub.ValidationAccept
 	}
 
 	switch validatedMessage, err := h.participant.ValidateMessage(gmsg); {
@@ -588,15 +659,18 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 				}
 				return fmt.Errorf("pubsub message subscription returned an error: %w", err)
 			}
-			gmsg, ok := msg.ValidatorData.(gpbft.ValidatedMessage)
-			if !ok {
+
+			switch gmsg := msg.ValidatorData.(type) {
+			case gpbft.ValidatedMessage:
+				select {
+				case messageQueue <- gmsg:
+				case <-h.runningCtx.Done():
+					return nil
+				}
+			case *PartialGMessage:
+				h.pmm.bufferPartialMessage(h.runningCtx, gmsg)
+			default:
 				log.Errorf("invalid msgValidatorData: %+v", msg.ValidatorData)
-				continue
-			}
-			select {
-			case messageQueue <- gmsg:
-			case <-h.runningCtx.Done():
-				return nil
 			}
 		}
 		return nil
@@ -632,18 +706,25 @@ func (h *gpbftHost) RequestRebroadcast(instant gpbft.Instant) error {
 }
 
 func (h *gpbftHost) GetProposal(instance uint64) (*gpbft.SupplementalData, gpbft.ECChain, error) {
-	return h.inputs.GetProposal(h.runningCtx, instance)
+	proposal, chain, err := h.inputs.GetProposal(h.runningCtx, instance)
+	if err == nil {
+		if err := h.pmm.BroadcastChain(h.runningCtx, instance, chain); err != nil {
+			log.Warnw("failed to broadcast chain", "instance", instance, "error", err)
+		}
+	}
+	return proposal, chain, err
 }
 
 func (h *gpbftHost) GetCommittee(instance uint64) (*gpbft.Committee, error) {
 	return h.inputs.GetCommittee(h.runningCtx, instance)
 }
 
-func (h *gpbftRunner) Stop(context.Context) error {
+func (h *gpbftRunner) Stop(ctx context.Context) error {
 	h.ctxCancel()
 	return multierr.Combine(
 		h.wal.Close(),
 		h.errgrp.Wait(),
+		h.pmm.Shutdown(ctx),
 		h.teardownPubsub(),
 	)
 }

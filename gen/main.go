@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/certexchange"
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/chainexchange"
@@ -43,6 +44,11 @@ func main() {
 	eg.Go(func() error {
 		return gen.WriteTupleEncodersToFile("../chainexchange/cbor_gen.go", "chainexchange",
 			chainexchange.Message{},
+		)
+	})
+	eg.Go(func() error {
+		return gen.WriteTupleEncodersToFile("../cbor_gen.go", "f3",
+			f3.PartialGMessage{},
 		)
 	})
 	if err := eg.Wait(); err != nil {
