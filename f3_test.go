@@ -3,12 +3,15 @@ package f3_test
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/filecoin-project/go-f3"
+	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/internal/consensus"
@@ -89,6 +92,10 @@ func TestF3WithLookback(t *testing.T) {
 func TestF3PauseResumeCatchup(t *testing.T) {
 	env := newTestEnvironment(t).withNodes(3).start()
 
+	if _, set := os.LookupEnv("GO_TEST_DEBUG"); set {
+		env.logStatus()
+	}
+
 	env.waitForInstanceNumber(1, 30*time.Second, true)
 
 	// Pausing two nodes should pause the network.
@@ -96,7 +103,6 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 	env.pauseNode(2)
 
 	// Wait until node 0 stops receiving new instances
-	env.clock.Add(1 * time.Second)
 	env.waitForCondition(func() bool {
 		oldInstance := env.nodes[0].currentGpbftInstance()
 		env.clock.Add(10 * env.manifest.EC.Period)
@@ -324,12 +330,8 @@ type testNode struct {
 }
 
 func (n *testNode) currentGpbftInstance() uint64 {
-	c, err := n.f3.GetLatestCert(n.e.testCtx)
-	require.NoError(n.e.t, err)
-	if c == nil {
-		return n.e.manifest.InitialInstance
-	}
-	return c.GPBFTInstance + 1
+	require.NotNil(n.e.t, n.f3)
+	return n.f3.Progress().ID
 }
 
 func (n *testNode) init() *f3.F3 {
@@ -383,6 +385,43 @@ func (n *testNode) pause() {
 
 func (n *testNode) resume() {
 	require.NoError(n.e.t, n.f3.Resume(n.e.testCtx))
+}
+
+type testNodeStatus struct {
+	id          int
+	initialised bool
+	running     bool
+	progress    gpbft.Instant
+	latestCert  *certs.FinalityCertificate
+}
+
+func (s testNodeStatus) String() string {
+	switch {
+	case !s.initialised:
+		return fmt.Sprint("node ", s.id, ": uninitialised")
+	case !s.running:
+		return fmt.Sprint("node ", s.id, ": paused")
+	case s.latestCert == nil:
+		return fmt.Sprint("node ", s.id, ": at", s.progress, " with no finality certs")
+	default:
+		return fmt.Sprint("node ", s.id, ": at ", s.progress, ", finalized epoch ", s.latestCert.ECChain.Head().Epoch, " {", s.latestCert.GPBFTInstance, "}")
+	}
+}
+
+func (n *testNode) status() testNodeStatus {
+	var current testNodeStatus
+	current.id = n.id
+	if n.f3 != nil {
+		current.initialised = true
+		current.running = n.f3.IsRunning()
+		current.progress = n.f3.Progress()
+		if current.running {
+			cert, err := n.f3.GetLatestCert(n.e.testCtx)
+			require.NoError(n.e.t, err)
+			current.latestCert = cert
+		}
+	}
+	return current
 }
 
 type testEnv struct {
@@ -689,6 +728,30 @@ func (e *testEnv) withDynamicManifest() *testEnv {
 
 func (e *testEnv) injectDatastoreFailures(i int, fn func(op string) error) {
 	e.nodes[i].dsErrFunc = fn
+}
+
+func (e *testEnv) logStatus() {
+	e.t.Helper()
+
+	ctx, cancel := context.WithCancel(e.testCtx)
+	e.t.Cleanup(cancel)
+
+	go func() {
+		latest := make([]testNodeStatus, len(e.nodes))
+		for ctx.Err() == nil {
+			for i, n := range e.nodes {
+				current := n.status()
+				if len(latest) == i {
+					latest = append(latest, testNodeStatus{})
+				}
+				if !reflect.DeepEqual(current, latest[i]) {
+					latest[i] = current
+					e.t.Log(current.String())
+				}
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}()
 }
 
 // TODO: This code is copy-pasta from cmd/f3/run.go, consider taking it out into a shared testing lib.
