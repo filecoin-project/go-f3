@@ -34,12 +34,12 @@ type partialMessageManager struct {
 
 	// pmByInstance is a map of instance to a buffer of partial messages that are
 	// keyed by sender+instance+round+phase.
-	pmByInstance map[uint64]*lru.Cache[partialMessageKey, *PartialGMessage]
+	pmByInstance map[uint64]*lru.Cache[partialMessageKey, *PartiallyValidatedMessage]
 	// pmkByInstanceByChainKey is used for an auxiliary lookup of all partial
 	// messages for a given vote value at an instance.
 	pmkByInstanceByChainKey map[uint64]map[string][]partialMessageKey
 	// pendingPartialMessages is a channel of partial messages that are pending to be buffered.
-	pendingPartialMessages chan *PartialGMessage
+	pendingPartialMessages chan *PartiallyValidatedMessage
 	// pendingDiscoveredChains is a channel of chains discovered by chainexchange
 	// that are pending to be processed.
 	pendingDiscoveredChains chan *discoveredChain
@@ -49,10 +49,10 @@ type partialMessageManager struct {
 
 func newPartialMessageManager(progress gpbft.Progress, ps *pubsub.PubSub, m *manifest.Manifest) (*partialMessageManager, error) {
 	pmm := &partialMessageManager{
-		pmByInstance:            make(map[uint64]*lru.Cache[partialMessageKey, *PartialGMessage]),
+		pmByInstance:            make(map[uint64]*lru.Cache[partialMessageKey, *PartiallyValidatedMessage]),
 		pmkByInstanceByChainKey: make(map[uint64]map[string][]partialMessageKey),
-		pendingDiscoveredChains: make(chan *discoveredChain, 100), // TODO: parameterize buffer size.
-		pendingPartialMessages:  make(chan *PartialGMessage, 100), // TODO: parameterize buffer size.
+		pendingDiscoveredChains: make(chan *discoveredChain, 100),           // TODO: parameterize buffer size.
+		pendingPartialMessages:  make(chan *PartiallyValidatedMessage, 100), // TODO: parameterize buffer size.
 	}
 	var err error
 	pmm.chainex, err = chainexchange.NewPubSubChainExchange(
@@ -72,12 +72,12 @@ func newPartialMessageManager(progress gpbft.Progress, ps *pubsub.PubSub, m *man
 	return pmm, nil
 }
 
-func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *gpbft.GMessage, error) {
+func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyValidatedMessage, error) {
 	if err := pmm.chainex.Start(ctx); err != nil {
 		return nil, fmt.Errorf("starting chain exchange: %w", err)
 	}
 
-	completedMessages := make(chan *gpbft.GMessage, 100) // TODO: parameterize buffer size.
+	completedMessages := make(chan *PartiallyValidatedMessage, 100) // TODO: parameterize buffer size.
 	ctx, pmm.stop = context.WithCancel(context.Background())
 	go func() {
 		defer func() {
@@ -111,11 +111,11 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *gpbft.GMes
 				for _, messageKey := range partialMessageKeys {
 					if pgmsg, found := buffer.Get(messageKey); found {
 						pgmsg.Vote.Value = discovered.chain
-						inferJustificationVoteValue(pgmsg)
+						inferJustificationVoteValue(pgmsg.PartialGMessage)
 						select {
 						case <-ctx.Done():
 							return
-						case completedMessages <- pgmsg.GMessage:
+						case completedMessages <- pgmsg:
 						default:
 							log.Warnw("Dropped completed message as the gpbft runner is too slow to consume them.", "msg", pgmsg.GMessage)
 						}
@@ -214,7 +214,7 @@ func (pmm *partialMessageManager) NotifyChainDiscovered(ctx context.Context, key
 	}
 }
 
-func (pmm *partialMessageManager) bufferPartialMessage(ctx context.Context, msg *PartialGMessage) {
+func (pmm *partialMessageManager) bufferPartialMessage(ctx context.Context, msg *PartiallyValidatedMessage) {
 	select {
 	case <-ctx.Done():
 		return
@@ -229,14 +229,14 @@ func (pmm *partialMessageManager) bufferPartialMessage(ctx context.Context, msg 
 	}
 }
 
-func (pmm *partialMessageManager) getOrInitPartialMessageBuffer(instance uint64) *lru.Cache[partialMessageKey, *PartialGMessage] {
+func (pmm *partialMessageManager) getOrInitPartialMessageBuffer(instance uint64) *lru.Cache[partialMessageKey, *PartiallyValidatedMessage] {
 	buffer, found := pmm.pmByInstance[instance]
 	if !found {
 		// TODO: parameterize this in the manifest?
 		// Based on 5 phases, 2K network size at a couple of rounds plus some headroom.
 		const maxBufferedMessagesPerInstance = 25_000
 		var err error
-		buffer, err = lru.New[partialMessageKey, *PartialGMessage](maxBufferedMessagesPerInstance)
+		buffer, err = lru.New[partialMessageKey, *PartiallyValidatedMessage](maxBufferedMessagesPerInstance)
 		if err != nil {
 			log.Fatalf("Failed to create buffer for instance %d: %s", instance, err)
 			panic(err)

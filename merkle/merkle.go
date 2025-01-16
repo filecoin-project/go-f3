@@ -8,8 +8,11 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
+// DigestLength is the length of a Digest in number of bytes.
+const DigestLength = 32
+
 // Digest is a 32-byte hash digest.
-type Digest = [32]byte
+type Digest = [DigestLength]byte
 
 // TreeWithProofs returns a the root of the merkle-tree of the given values, along with merkle-proofs for
 // each leaf.
