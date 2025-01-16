@@ -3,7 +3,6 @@ package f3
 import (
 	"bytes"
 
-	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -13,13 +12,13 @@ var (
 )
 
 type gMessageEncoding interface {
-	Encode(*gpbft.GMessage) ([]byte, error)
-	Decode([]byte) (*gpbft.GMessage, error)
+	Encode(message *PartialGMessage) ([]byte, error)
+	Decode([]byte) (*PartialGMessage, error)
 }
 
 type cborGMessageEncoding struct{}
 
-func (c *cborGMessageEncoding) Encode(m *gpbft.GMessage) ([]byte, error) {
+func (c *cborGMessageEncoding) Encode(m *PartialGMessage) ([]byte, error) {
 	var buf bytes.Buffer
 	if err := m.MarshalCBOR(&buf); err != nil {
 		return nil, err
@@ -27,9 +26,9 @@ func (c *cborGMessageEncoding) Encode(m *gpbft.GMessage) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func (c *cborGMessageEncoding) Decode(v []byte) (*gpbft.GMessage, error) {
+func (c *cborGMessageEncoding) Decode(v []byte) (*PartialGMessage, error) {
 	r := bytes.NewReader(v)
-	var msg gpbft.GMessage
+	var msg PartialGMessage
 	if err := msg.UnmarshalCBOR(r); err != nil {
 		return nil, err
 	}
@@ -57,7 +56,7 @@ func newZstdGMessageEncoding() (*zstdGMessageEncoding, error) {
 	}, nil
 }
 
-func (c *zstdGMessageEncoding) Encode(m *gpbft.GMessage) ([]byte, error) {
+func (c *zstdGMessageEncoding) Encode(m *PartialGMessage) ([]byte, error) {
 	cborEncoded, err := c.cborEncoding.Encode(m)
 	if err != nil {
 		return nil, err
@@ -66,7 +65,7 @@ func (c *zstdGMessageEncoding) Encode(m *gpbft.GMessage) ([]byte, error) {
 	return compressed, err
 }
 
-func (c *zstdGMessageEncoding) Decode(v []byte) (*gpbft.GMessage, error) {
+func (c *zstdGMessageEncoding) Decode(v []byte) (*PartialGMessage, error) {
 	cborEncoded, err := c.decompressor.DecodeAll(v, make([]byte, 0, len(v)))
 	if err != nil {
 		return nil, err

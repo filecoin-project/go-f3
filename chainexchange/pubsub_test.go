@@ -2,6 +2,8 @@ package chainexchange_test
 
 import (
 	"context"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -52,32 +54,38 @@ func TestPubSubChainExchange_Broadcast(t *testing.T) {
 	chain, found := subject.GetChainByInstance(ctx, instance, key)
 	require.False(t, found)
 	require.Nil(t, chain)
-	require.Empty(t, testListener.notifications)
+	require.Empty(t, testListener.getNotifications())
 
 	require.NoError(t, subject.Broadcast(ctx, chainexchange.Message{
 		Instance: instance,
 		Chain:    ecChain,
 	}))
 
-	chain, found = subject.GetChainByInstance(ctx, instance, key)
-	require.True(t, found)
+	require.Eventually(t, func() bool {
+		chain, found = subject.GetChainByInstance(ctx, instance, key)
+		return found
+	}, time.Second, 100*time.Millisecond)
 	require.Equal(t, ecChain, chain)
 
 	baseChain := ecChain.BaseChain()
 	baseKey := subject.Key(baseChain)
-	chain, found = subject.GetChainByInstance(ctx, instance, baseKey)
-	require.True(t, found)
+	require.Eventually(t, func() bool {
+		chain, found = subject.GetChainByInstance(ctx, instance, baseKey)
+		return found
+	}, time.Second, 100*time.Millisecond)
 	require.Equal(t, baseChain, chain)
 
 	// Assert that we have received 2 notifications, because ecChain has 2 tipsets.
 	// First should be the ecChain, second should be the baseChain.
-	require.Len(t, testListener.notifications, 2)
-	require.Equal(t, instance, testListener.notifications[1].instance)
-	require.Equal(t, baseKey, testListener.notifications[1].key)
-	require.Equal(t, baseChain, testListener.notifications[1].chain)
-	require.Equal(t, instance, testListener.notifications[0].instance)
-	require.Equal(t, key, testListener.notifications[0].key)
-	require.Equal(t, ecChain, testListener.notifications[0].chain)
+
+	notifications := testListener.getNotifications()
+	require.Len(t, notifications, 2)
+	require.Equal(t, instance, notifications[1].instance)
+	require.Equal(t, baseKey, notifications[1].key)
+	require.Equal(t, baseChain, notifications[1].chain)
+	require.Equal(t, instance, notifications[0].instance)
+	require.Equal(t, key, notifications[0].key)
+	require.Equal(t, ecChain, notifications[0].chain)
 
 	require.NoError(t, subject.Shutdown(ctx))
 }
@@ -88,11 +96,20 @@ type notification struct {
 	chain    gpbft.ECChain
 }
 type listener struct {
+	mu            sync.Mutex
 	notifications []notification
 }
 
 func (l *listener) NotifyChainDiscovered(_ context.Context, key chainexchange.Key, instance uint64, chain gpbft.ECChain) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.notifications = append(l.notifications, notification{key: key, instance: instance, chain: chain})
+}
+
+func (l *listener) getNotifications() []notification {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.notifications)
 }
 
 // TODO: Add more tests, specifically:

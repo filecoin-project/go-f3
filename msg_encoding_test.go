@@ -16,7 +16,7 @@ const seed = 1413
 func BenchmarkCborEncoding(b *testing.B) {
 	rng := rand.New(rand.NewSource(seed))
 	encoder := &cborGMessageEncoding{}
-	msg := generateRandomGMessage(b, rng)
+	msg := generateRandomPartialGMessage(b, rng)
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -32,7 +32,7 @@ func BenchmarkCborEncoding(b *testing.B) {
 func BenchmarkCborDecoding(b *testing.B) {
 	rng := rand.New(rand.NewSource(seed))
 	encoder := &cborGMessageEncoding{}
-	msg := generateRandomGMessage(b, rng)
+	msg := generateRandomPartialGMessage(b, rng)
 	data, err := encoder.Encode(msg)
 	require.NoError(b, err)
 
@@ -52,7 +52,7 @@ func BenchmarkZstdEncoding(b *testing.B) {
 	rng := rand.New(rand.NewSource(seed))
 	encoder, err := newZstdGMessageEncoding()
 	require.NoError(b, err)
-	msg := generateRandomGMessage(b, rng)
+	msg := generateRandomPartialGMessage(b, rng)
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -69,7 +69,7 @@ func BenchmarkZstdDecoding(b *testing.B) {
 	rng := rand.New(rand.NewSource(seed))
 	encoder, err := newZstdGMessageEncoding()
 	require.NoError(b, err)
-	msg := generateRandomGMessage(b, rng)
+	msg := generateRandomPartialGMessage(b, rng)
 	data, err := encoder.Encode(msg)
 	require.NoError(b, err)
 
@@ -83,6 +83,17 @@ func BenchmarkZstdDecoding(b *testing.B) {
 			}
 		}
 	})
+}
+
+func generateRandomPartialGMessage(b *testing.B, rng *rand.Rand) *PartialGMessage {
+	var pgmsg PartialGMessage
+	pgmsg.GMessage = generateRandomGMessage(b, rng)
+	pgmsg.GMessage.Vote.Value = nil
+	if pgmsg.Justification != nil {
+		pgmsg.GMessage.Justification.Vote.Value = nil
+	}
+	pgmsg.VoteValueKey = generateRandomBytes(b, rng, 32)
+	return &pgmsg
 }
 
 func generateRandomGMessage(b *testing.B, rng *rand.Rand) *gpbft.GMessage {

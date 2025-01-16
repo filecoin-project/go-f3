@@ -32,11 +32,12 @@ type PubSubChainExchange struct {
 	*options
 
 	// mu guards access to chains and API calls.
-	mu               sync.Mutex
-	chainsWanted     map[uint64]*lru.Cache[string, *chainPortion]
-	chainsDiscovered map[uint64]*lru.Cache[string, *chainPortion]
-	topic            *pubsub.Topic
-	stop             func() error
+	mu                   sync.Mutex
+	chainsWanted         map[uint64]*lru.Cache[string, *chainPortion]
+	chainsDiscovered     map[uint64]*lru.Cache[string, *chainPortion]
+	pendingCacheAsWanted chan Message
+	topic                *pubsub.Topic
+	stop                 func() error
 }
 
 func NewPubSubChainExchange(o ...Option) (*PubSubChainExchange, error) {
@@ -45,9 +46,10 @@ func NewPubSubChainExchange(o ...Option) (*PubSubChainExchange, error) {
 		return nil, err
 	}
 	return &PubSubChainExchange{
-		options:          opts,
-		chainsWanted:     map[uint64]*lru.Cache[string, *chainPortion]{},
-		chainsDiscovered: map[uint64]*lru.Cache[string, *chainPortion]{},
+		options:              opts,
+		chainsWanted:         map[uint64]*lru.Cache[string, *chainPortion]{},
+		chainsDiscovered:     map[uint64]*lru.Cache[string, *chainPortion]{},
+		pendingCacheAsWanted: make(chan Message, 100), // TODO: parameterise.
 	}, nil
 }
 
@@ -64,7 +66,9 @@ func (p *PubSubChainExchange) Start(ctx context.Context) error {
 	}
 	if p.topicScoreParams != nil {
 		if err := p.topic.SetScoreParams(p.topicScoreParams); err != nil {
-			return fmt.Errorf("failed to set score params: %w", err)
+			// This can happen most likely due to router not supporting peer scoring. It's
+			// non-critical. Hence, the warning log.
+			log.Warnw("failed to set topic score params", "err", err)
 		}
 	}
 	subscription, err := p.topic.Subscribe(pubsub.WithBufferSize(p.subscriptionBufferSize))
@@ -79,17 +83,31 @@ func (p *PubSubChainExchange) Start(ctx context.Context) error {
 		for ctx.Err() == nil {
 			msg, err := subscription.Next(ctx)
 			if err != nil {
-				log.Debugw("failed to read nex message from subscription", "err", err)
+				log.Debugw("failed to read next message from subscription", "err", err)
 				continue
 			}
 			cmsg := msg.ValidatorData.(Message)
 			p.cacheAsDiscoveredChain(ctx, cmsg)
 		}
+		log.Debug("Stopped reading messages from chainexchange subscription.")
+	}()
+	go func() {
+		for ctx.Err() == nil {
+			select {
+			case <-ctx.Done():
+				return
+			case cmsg := <-p.pendingCacheAsWanted:
+				p.cacheAsWantedChain(ctx, cmsg)
+			}
+		}
+		log.Debug("Stopped caching chains as wanted.")
 	}()
 	p.stop = func() error {
 		cancel()
 		subscription.Cancel()
-		return p.topic.Close()
+		_ = p.pubsub.UnregisterTopicValidator(p.topicName)
+		_ = p.topic.Close()
+		return nil
 	}
 	return nil
 }
@@ -124,21 +142,18 @@ func (p *PubSubChainExchange) GetChainByInstance(ctx context.Context, instance u
 	cacheKey := string(key)
 
 	// Check wanted keys first.
-	p.mu.Lock()
+
 	wanted := p.getChainsWantedAt(instance)
-	p.mu.Unlock()
 	if portion, found := wanted.Get(cacheKey); found && !portion.IsPlaceholder() {
 		return portion.chain, true
 	}
 
 	// Check if the chain for the key is discovered.
-	p.mu.Lock()
 	discovered := p.getChainsDiscoveredAt(instance)
 	if portion, found := discovered.Get(cacheKey); found {
 		// Add it to the wanted cache and remove it from the discovered cache.
 		wanted.Add(cacheKey, portion)
 		discovered.Remove(cacheKey)
-		p.mu.Unlock()
 
 		chain := portion.chain
 		if p.listener != nil {
@@ -147,7 +162,6 @@ func (p *PubSubChainExchange) GetChainByInstance(ctx context.Context, instance u
 		// TODO: Do we want to pull all the suffixes of the chain into wanted cache?
 		return chain, true
 	}
-	p.mu.Unlock()
 
 	// Otherwise, add a placeholder for the wanted key as a way to prioritise its
 	// retention via LRU recent-ness.
@@ -156,6 +170,8 @@ func (p *PubSubChainExchange) GetChainByInstance(ctx context.Context, instance u
 }
 
 func (p *PubSubChainExchange) getChainsWantedAt(instance uint64) *lru.Cache[string, *chainPortion] {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	wanted, exists := p.chainsWanted[instance]
 	if !exists {
 		wanted = p.newChainPortionCache(p.maxWantedChainsPerInstance)
@@ -165,6 +181,8 @@ func (p *PubSubChainExchange) getChainsWantedAt(instance uint64) *lru.Cache[stri
 }
 
 func (p *PubSubChainExchange) getChainsDiscoveredAt(instance uint64) *lru.Cache[string, *chainPortion] {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	discovered, exists := p.chainsDiscovered[instance]
 	if !exists {
 		discovered = p.newChainPortionCache(p.maxDiscoveredChainsPerInstance)
@@ -208,8 +226,6 @@ func (p *PubSubChainExchange) validatePubSubMessage(_ context.Context, _ peer.ID
 }
 
 func (p *PubSubChainExchange) cacheAsDiscoveredChain(ctx context.Context, cmsg Message) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
 
 	wanted := p.getChainsDiscoveredAt(cmsg.Instance)
 	discovered := p.getChainsDiscoveredAt(cmsg.Instance)
@@ -245,7 +261,13 @@ func (p *PubSubChainExchange) cacheAsDiscoveredChain(ctx context.Context, cmsg M
 func (p *PubSubChainExchange) Broadcast(ctx context.Context, msg Message) error {
 
 	// Optimistically cache the broadcast chain and all of its prefixes as wanted.
-	p.cacheAsWantedChain(ctx, msg)
+	select {
+	case p.pendingCacheAsWanted <- msg:
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		log.Warnw("Dropping wanted cache entry. Chain exchange is too slow to process chains as wanted", "msg", msg)
+	}
 
 	// TODO: integrate zstd compression.
 	var buf bytes.Buffer
@@ -266,7 +288,6 @@ type discovery struct {
 
 func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Message) {
 	var notifications []discovery
-	p.mu.Lock()
 	wanted := p.getChainsWantedAt(cmsg.Instance)
 	for offset := len(cmsg.Chain); offset >= 0 && ctx.Err() == nil; offset-- {
 		// TODO: Expose internals of merkle.go so that keys can be generated
@@ -290,7 +311,6 @@ func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Messa
 		// been evicted from the cache or not. This should be cheap enough considering the
 		// added complexity of tracking evictions relative to chain prefixes.
 	}
-	p.mu.Unlock()
 
 	// Notify the listener outside the lock.
 	if p.listener != nil {
