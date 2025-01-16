@@ -288,53 +288,11 @@ func (c ECChain) Eq(other ECChain) bool {
 	return true
 }
 
-// Checks whether two chains have the same base.
-//
-// Always false for a zero value.
-func (c ECChain) SameBase(other ECChain) bool {
-	if c.IsZero() || other.IsZero() {
-		return false
-	}
-	return c.Base().Equal(other.Base())
-}
-
 // Check whether a chain has a specific base tipset.
 //
 // Always false for a zero value.
 func (c ECChain) HasBase(t *TipSet) bool {
 	return t != nil && !c.IsZero() && c.Base().Equal(t)
-}
-
-// Checks whether a chain has some prefix (including the base).
-//
-// Always false for a zero value.
-func (c ECChain) HasPrefix(other ECChain) bool {
-	if c.IsZero() || other.IsZero() {
-		return false
-	}
-	if len(other) > len(c) {
-		return false
-	}
-	for i := range other {
-		if !c[i].Equal(&other[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-// Checks whether a chain has some tipset (including as its base).
-func (c ECChain) HasTipset(t *TipSet) bool {
-	if t == nil {
-		// Chain can never contain zero-valued TipSet.
-		return false
-	}
-	for i := range c {
-		if c[i].Equal(t) {
-			return true
-		}
-	}
-	return false
 }
 
 // Validates a chain value, returning an error if it finds any issues.
