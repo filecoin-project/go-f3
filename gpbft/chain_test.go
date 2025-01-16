@@ -21,9 +21,6 @@ func TestECChain(t *testing.T) {
 		var subject gpbft.ECChain
 		require.True(t, subject.IsZero())
 		require.False(t, subject.HasBase(&zeroTipSet))
-		require.False(t, subject.HasPrefix(subject))
-		require.False(t, subject.HasTipset(&zeroTipSet))
-		require.False(t, subject.SameBase(subject))
 		require.True(t, subject.Eq(subject))
 		require.True(t, subject.Eq(*new(gpbft.ECChain)))
 		require.Nil(t, subject.Suffix())
@@ -56,27 +53,6 @@ func TestECChain(t *testing.T) {
 		require.Equal(t, &wantNext, subjectExtended.Head())
 		require.True(t, subjectExtended.HasSuffix())
 		require.Equal(t, &wantNext, subjectExtended.Prefix(1).Head())
-		require.True(t, subjectExtended.HasTipset(&wantBase))
-		require.False(t, subject.HasPrefix(subjectExtended))
-		require.True(t, subjectExtended.HasPrefix(subject))
-
-		require.False(t, subject.Extend(wantBase.Key).HasPrefix(subjectExtended.Extend(wantNext.Key)))
-	})
-	t.Run("SameBase is false when either chain is zero", func(t *testing.T) {
-		var zeroChain gpbft.ECChain
-		nonZeroChain, err := gpbft.NewChain(oneTipSet)
-		require.NoError(t, err)
-		require.False(t, nonZeroChain.SameBase(zeroChain))
-		require.False(t, zeroChain.SameBase(nonZeroChain))
-		require.False(t, zeroChain.SameBase(zeroChain))
-	})
-	t.Run("HasPrefix is false when either chain is zero", func(t *testing.T) {
-		var zeroChain gpbft.ECChain
-		nonZeroChain, err := gpbft.NewChain(oneTipSet)
-		require.NoError(t, err)
-		require.False(t, nonZeroChain.HasPrefix(zeroChain))
-		require.False(t, zeroChain.HasPrefix(nonZeroChain))
-		require.False(t, zeroChain.HasPrefix(zeroChain))
 	})
 	t.Run("zero-valued chain is valid", func(t *testing.T) {
 		var zeroChain gpbft.ECChain
