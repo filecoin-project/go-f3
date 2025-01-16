@@ -12,6 +12,7 @@ import (
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/caching"
 	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/internal/writeaheadlog"
@@ -53,6 +54,8 @@ type gpbftRunner struct {
 	inputs      gpbftInputs
 	msgEncoding gMessageEncoding
 	pmm         *partialMessageManager
+	pmv         *cachingPartialValidator
+	pmCache     *caching.GroupedSet
 }
 
 type roundPhase struct {
@@ -148,6 +151,10 @@ func newRunner(
 		return nil, fmt.Errorf("creating partial message manager: %w", err)
 	}
 
+	runner.pmCache = caching.NewGroupedSet(int(m.CommitteeLookback), 25_000)
+	obfuscatedHost := (*gpbftHost)(runner)
+	runner.pmv = newCachingPartialValidator(obfuscatedHost, runner.Progress, runner.pmCache, m.CommitteeLookback, runner.pmm.chainex)
+
 	return runner, nil
 }
 
@@ -231,23 +238,13 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 					// errors.
 					log.Errorf("error when processing message: %+v", err)
 				}
-			case gmsg, ok := <-completedMessageQueue:
+			case pvmsg, ok := <-completedMessageQueue:
 				if !ok {
 					return fmt.Errorf("incoming completed message queue closed")
 				}
-				switch validatedMessage, err := h.participant.ValidateMessage(gmsg); {
-				case errors.Is(err, gpbft.ErrValidationInvalid):
-					log.Debugw("validation error while validating completed message", "err", err)
-					// TODO: Signal partial message manager to penalise sender,
-					//       e.g. reduce the total number of messages stroed from sender?
-				case errors.Is(err, gpbft.ErrValidationTooOld):
-					// TODO: Signal partial message manager to drop the instance?
-				case errors.Is(err, gpbft.ErrValidationNotRelevant):
-					// TODO: Signal partial message manager to drop irrelevant messages?
-				case errors.Is(err, gpbft.ErrValidationNoCommittee):
-					log.Debugw("committee error while validating completed message", "err", err)
+				switch validatedMessage, err := h.pmv.ValidateMessage(pvmsg); {
 				case err != nil:
-					log.Errorw("unknown error while validating completed message", "err", err)
+					log.Debugw("Invalid partially validated message", "err", err)
 				default:
 					recordValidatedMessage(ctx, validatedMessage)
 					if err := h.participant.ReceiveMessage(validatedMessage); err != nil {
@@ -552,29 +549,33 @@ func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, _ peer.ID, msg 
 
 	gmsg, completed := h.pmm.CompleteMessage(ctx, pgmsg)
 	if !completed {
-		// TODO: Partially validate the message because we can. To do this, however,
-		//       message validator needs to be refactored to tolerate partial data.
-		//       Hence, for now validation is postponed entirely until that refactor
-		//       is done to accommodate partial messages.
-		//       See: https://github.com/filecoin-project/go-f3/issues/813
-
-		// FIXME: must verify signature before buffering otherwise nodes can spoof the
-		//        buffer with invalid messages on behalf of other peers as censorship
-		//       attack.
-
-		msg.ValidatorData = pgmsg
-		return pubsub.ValidationAccept
+		partiallyValidatedMessage, err := h.pmv.PartiallyValidateMessage(pgmsg)
+		result := pubsubValidationResultFromError(err)
+		if result == pubsub.ValidationAccept {
+			msg.ValidatorData = partiallyValidatedMessage
+		}
+		return result
 	}
 
-	switch validatedMessage, err := h.participant.ValidateMessage(gmsg); {
+	validatedMessage, err := h.participant.ValidateMessage(gmsg)
+	result := pubsubValidationResultFromError(err)
+	if result == pubsub.ValidationAccept {
+		recordValidatedMessage(ctx, validatedMessage)
+		msg.ValidatorData = validatedMessage
+	}
+	return result
+}
+
+func pubsubValidationResultFromError(err error) pubsub.ValidationResult {
+	switch {
 	case errors.Is(err, gpbft.ErrValidationInvalid):
 		log.Debugf("validation error during validation: %+v", err)
 		return pubsub.ValidationReject
 	case errors.Is(err, gpbft.ErrValidationTooOld):
-		// we got the message too late
+		// The message has arrived too late to be useful. Ignore it.
 		return pubsub.ValidationIgnore
 	case errors.Is(err, gpbft.ErrValidationNotRelevant):
-		// The message is valid but will not effectively aid progress of GPBFT. Ignore it
+		// The message is valid but won't effectively aid the progress of GPBFT. Ignore it
 		// to stop its further propagation across the network.
 		return pubsub.ValidationIgnore
 	case errors.Is(err, gpbft.ErrValidationNoCommittee):
@@ -584,8 +585,6 @@ func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, _ peer.ID, msg 
 		log.Infof("unknown error during validation: %+v", err)
 		return pubsub.ValidationIgnore
 	default:
-		recordValidatedMessage(ctx, validatedMessage)
-		msg.ValidatorData = validatedMessage
 		return pubsub.ValidationAccept
 	}
 }
@@ -667,7 +666,7 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 				case <-h.runningCtx.Done():
 					return nil
 				}
-			case *PartialGMessage:
+			case *PartiallyValidatedMessage:
 				h.pmm.bufferPartialMessage(h.runningCtx, gmsg)
 			default:
 				log.Errorf("invalid msgValidatorData: %+v", msg.ValidatorData)
@@ -787,6 +786,9 @@ func (h *gpbftHost) SetAlarm(at time.Time) {
 func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) (time.Time, error) {
 	log.Infow("reached a decision", "instance", decision.Vote.Instance,
 		"ecHeadEpoch", decision.Vote.Value.Head().Epoch)
+	if decision.Vote.Instance > 0 {
+		h.pmCache.RemoveGroupsLessThan(decision.Vote.Instance - 1)
+	}
 	cert, err := h.saveDecision(decision)
 	if err != nil {
 		err := fmt.Errorf("error while saving decision: %+v", err)
