@@ -63,7 +63,7 @@ func (t *TipSet) MarshalCBOR(w io.Writer) error {
 	}
 
 	// t.Commitments ([32]uint8) (array)
-	if len(t.Commitments) > 2097152 {
+	if len(t.Commitments) > 32 {
 		return xerrors.Errorf("Byte array in field t.Commitments was too long")
 	}
 
@@ -166,7 +166,7 @@ func (t *TipSet) UnmarshalCBOR(r io.Reader) (err error) {
 		return err
 	}
 
-	if extra > 2097152 {
+	if extra > 32 {
 		return fmt.Errorf("t.Commitments: byte array too large (%d)", extra)
 	}
 	if maj != cbg.MajByteString {
@@ -368,7 +368,7 @@ func (t *SupplementalData) MarshalCBOR(w io.Writer) error {
 	}
 
 	// t.Commitments ([32]uint8) (array)
-	if len(t.Commitments) > 2097152 {
+	if len(t.Commitments) > 32 {
 		return xerrors.Errorf("Byte array in field t.Commitments was too long")
 	}
 
@@ -419,7 +419,7 @@ func (t *SupplementalData) UnmarshalCBOR(r io.Reader) (err error) {
 		return err
 	}
 
-	if extra > 2097152 {
+	if extra > 32 {
 		return fmt.Errorf("t.Commitments: byte array too large (%d)", extra)
 	}
 	if maj != cbg.MajByteString {
