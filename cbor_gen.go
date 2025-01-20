@@ -38,7 +38,7 @@ func (t *PartialGMessage) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.VoteValueKey (chainexchange.Key) (slice)
+	// t.VoteValueKey (gpbft.ECChainKey) (array)
 	if len(t.VoteValueKey) > 32 {
 		return xerrors.Errorf("Byte array in field t.VoteValueKey was too long")
 	}
@@ -47,10 +47,9 @@ func (t *PartialGMessage) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	if _, err := cw.Write(t.VoteValueKey); err != nil {
+	if _, err := cw.Write(t.VoteValueKey[:]); err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -96,7 +95,7 @@ func (t *PartialGMessage) UnmarshalCBOR(r io.Reader) (err error) {
 		}
 
 	}
-	// t.VoteValueKey (chainexchange.Key) (slice)
+	// t.VoteValueKey (gpbft.ECChainKey) (array)
 
 	maj, extra, err = cr.ReadHeader()
 	if err != nil {
@@ -109,14 +108,13 @@ func (t *PartialGMessage) UnmarshalCBOR(r io.Reader) (err error) {
 	if maj != cbg.MajByteString {
 		return fmt.Errorf("expected byte array")
 	}
-
-	if extra > 0 {
-		t.VoteValueKey = make([]uint8, extra)
+	if extra != 32 {
+		return fmt.Errorf("expected array to have 32 elements")
 	}
 
-	if _, err := io.ReadFull(cr, t.VoteValueKey); err != nil {
+	t.VoteValueKey = [32]uint8{}
+	if _, err := io.ReadFull(cr, t.VoteValueKey[:]); err != nil {
 		return err
 	}
-
 	return nil
 }

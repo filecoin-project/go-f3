@@ -17,7 +17,7 @@ const TestNetworkName gpbft.NetworkName = "testnet"
 
 func MakeCertificate(t *testing.T, rng *rand.Rand, tsg *sim.TipSetGenerator, backend signing.Backend, base *gpbft.TipSet, instance uint64, powerTable, nextPowerTable gpbft.PowerEntries) *certs.FinalityCertificate {
 	chainLen := rng.Intn(23) + 1
-	chain, err := gpbft.NewChain(*base)
+	chain, err := gpbft.NewChain(base)
 	require.NoError(t, err)
 
 	for i := 0; i < chainLen; i++ {

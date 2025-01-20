@@ -185,13 +185,13 @@ func advanceF3(t *testing.T, m *manifest.Manifest, ps *powerstore.Store, cs *cer
 
 	require.Equal(t, base, chain[0].Epoch())
 
-	var gpbftChain gpbft.ECChain
+	gpbftChain := &gpbft.ECChain{}
 	for _, ts := range chain {
 		pt, err := ps.GetPowerTable(ctx, ts.Key())
 		require.NoError(t, err)
 		ptcid, err := certs.MakePowerTableCID(pt)
 		require.NoError(t, err)
-		gpbftChain = append(gpbftChain, gpbft.TipSet{
+		gpbftChain = gpbftChain.Append(&gpbft.TipSet{
 			Epoch:      ts.Epoch(),
 			Key:        ts.Key(),
 			PowerTable: ptcid,
@@ -200,9 +200,9 @@ func advanceF3(t *testing.T, m *manifest.Manifest, ps *powerstore.Store, cs *cer
 
 	basePt, err := cs.GetPowerTable(ctx, instance)
 	require.NoError(t, err)
-	for len(gpbftChain) > 1 {
-		count := min(len(gpbftChain), rand.IntN(epochsPerCert+1)+1, gpbft.ChainDefaultLen)
-		newChain := gpbftChain[:count]
+	for gpbftChain.Len() > 1 {
+		count := min(gpbftChain.Len(), rand.IntN(epochsPerCert+1)+1, gpbft.ChainDefaultLen)
+		newChain := gpbftChain.Prefix(count)
 
 		nextPt := basePt
 		if instance+1 >= m.InitialInstance+m.CommitteeLookback {
@@ -225,7 +225,7 @@ func advanceF3(t *testing.T, m *manifest.Manifest, ps *powerstore.Store, cs *cer
 		require.NoError(t, cs.Put(ctx, cert))
 
 		basePt = nextPt
-		gpbftChain = gpbftChain[count-1:]
+		gpbftChain = &gpbft.ECChain{TipSets: gpbftChain.TipSets[count-1:]}
 		instance++
 	}
 }

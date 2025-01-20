@@ -36,7 +36,7 @@ type participantTestSubject struct {
 	pubKey           gpbft.PubKey
 	instance         uint64
 	networkName      gpbft.NetworkName
-	canonicalChain   gpbft.ECChain
+	canonicalChain   *gpbft.ECChain
 	supplementalData *gpbft.SupplementalData
 	powerTable       *gpbft.PowerTable
 	beacon           []byte
@@ -47,7 +47,7 @@ type participantTestSubject struct {
 
 func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *participantTestSubject {
 	// Generate some canonical chain.
-	canonicalChain, err := gpbft.NewChain(gpbft.TipSet{Epoch: 0, Key: []byte("genesis"), PowerTable: ptCid})
+	canonicalChain, err := gpbft.NewChain(&gpbft.TipSet{Epoch: 0, Key: []byte("genesis"), PowerTable: ptCid})
 	require.NoError(t, err)
 
 	const (
@@ -318,14 +318,14 @@ func TestParticipant(t *testing.T) {
 				subject := newParticipantTestSubject(t, seed, 0)
 				var zeroChain gpbft.ECChain
 				emptySupplementalData := new(gpbft.SupplementalData)
-				subject.host.On("GetProposal", subject.instance).Return(emptySupplementalData, zeroChain, nil)
+				subject.host.On("GetProposal", subject.instance).Return(emptySupplementalData, &zeroChain, nil)
 				require.ErrorContains(t, subject.Start(), "cannot be zero-valued")
 				subject.assertHostExpectations()
 				subject.requireNotStarted()
 			})
 			t.Run("on invalid canonical chain", func(t *testing.T) {
 				subject := newParticipantTestSubject(t, seed, 0)
-				invalidChain := gpbft.ECChain{gpbft.TipSet{PowerTable: subject.supplementalData.PowerTable}}
+				invalidChain := &gpbft.ECChain{TipSets: []*gpbft.TipSet{{PowerTable: subject.supplementalData.PowerTable}}}
 				emptySupplementalData := new(gpbft.SupplementalData)
 				subject.host.On("GetProposal", subject.instance).Return(emptySupplementalData, invalidChain, nil)
 				require.ErrorContains(t, subject.Start(), "invalid canonical chain")
@@ -334,7 +334,7 @@ func TestParticipant(t *testing.T) {
 			})
 			t.Run("on failure to fetch chain", func(t *testing.T) {
 				subject := newParticipantTestSubject(t, seed, 0)
-				invalidChain := gpbft.ECChain{gpbft.TipSet{PowerTable: subject.supplementalData.PowerTable}}
+				invalidChain := &gpbft.ECChain{TipSets: []*gpbft.TipSet{{PowerTable: subject.supplementalData.PowerTable}}}
 				emptySupplementalData := new(gpbft.SupplementalData)
 				subject.host.On("GetProposal", subject.instance).Return(emptySupplementalData, invalidChain, errors.New("fish"))
 				require.ErrorContains(t, subject.Start(), "fish")
@@ -343,14 +343,14 @@ func TestParticipant(t *testing.T) {
 			})
 			t.Run("on failure to fetch committee", func(t *testing.T) {
 				subject := newParticipantTestSubject(t, seed, 0)
-				chain := gpbft.ECChain{gpbft.TipSet{
+				chain := &gpbft.ECChain{TipSets: []*gpbft.TipSet{{
 					Epoch:       0,
 					Key:         []byte("key"),
 					PowerTable:  ptCid,
 					Commitments: [32]byte{},
-				}}
+				}}}
 				supplementalData := &gpbft.SupplementalData{
-					PowerTable: chain[0].PowerTable,
+					PowerTable: chain.TipSets[0].PowerTable,
 				}
 				subject.host.On("GetProposal", subject.instance).Return(supplementalData, chain, nil)
 				subject.host.On("GetCommittee", subject.instance).Return(nil, errors.New("fish"))
@@ -391,7 +391,7 @@ func TestParticipant(t *testing.T) {
 								Instance:         initialInstance,
 								Phase:            gpbft.QUALITY_PHASE,
 								SupplementalData: *subject.supplementalData,
-								Value:            gpbft.ECChain{gpbft.TipSet{Epoch: 0, Key: []byte("wrong"), PowerTable: subject.supplementalData.PowerTable}},
+								Value:            &gpbft.ECChain{TipSets: []*gpbft.TipSet{{Epoch: 0, Key: []byte("wrong"), PowerTable: subject.supplementalData.PowerTable}}},
 							},
 							Signature: signature,
 						}
@@ -429,7 +429,7 @@ func TestParticipant(t *testing.T) {
 								Instance:         initialInstance + 1,
 								Phase:            gpbft.QUALITY_PHASE,
 								SupplementalData: *subject.supplementalData,
-								Value:            gpbft.ECChain{gpbft.TipSet{Epoch: 0, Key: []byte("wrong"), PowerTable: subject.supplementalData.PowerTable}},
+								Value:            &gpbft.ECChain{TipSets: []*gpbft.TipSet{{Epoch: 0, Key: []byte("wrong"), PowerTable: subject.supplementalData.PowerTable}}},
 							},
 							Signature: signature,
 						}
@@ -568,9 +568,11 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 				return &gpbft.GMessage{
 					Sender: somePowerEntry.ID,
 					Vote: gpbft.Payload{
-						Instance:         initialInstanceNumber,
-						Phase:            gpbft.QUALITY_PHASE,
-						Value:            gpbft.ECChain{*subject.canonicalChain.Base(), gpbft.TipSet{PowerTable: subject.supplementalData.PowerTable}},
+						Instance: initialInstanceNumber,
+						Phase:    gpbft.QUALITY_PHASE,
+						Value: &gpbft.ECChain{TipSets: []*gpbft.TipSet{
+							subject.canonicalChain.Base(),
+							{PowerTable: subject.supplementalData.PowerTable}}},
 						SupplementalData: *subject.supplementalData,
 					},
 				}
@@ -671,7 +673,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 						Instance:         initialInstanceNumber,
 						Phase:            gpbft.CONVERGE_PHASE,
 						Round:            42,
-						Value:            gpbft.ECChain{*subject.canonicalChain.Base(), gpbft.TipSet{PowerTable: subject.supplementalData.PowerTable}},
+						Value:            &gpbft.ECChain{TipSets: []*gpbft.TipSet{subject.canonicalChain.Base(), {PowerTable: subject.supplementalData.PowerTable}}},
 						SupplementalData: *subject.supplementalData,
 					},
 				}
@@ -996,7 +998,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Justification: &gpbft.Justification{
 						Vote: gpbft.Payload{
 							Instance:         initialInstanceNumber,
-							Value:            gpbft.ECChain{*subject.canonicalChain.Base(), gpbft.TipSet{PowerTable: subject.supplementalData.PowerTable}},
+							Value:            &gpbft.ECChain{TipSets: []*gpbft.TipSet{subject.canonicalChain.Base(), {PowerTable: subject.supplementalData.PowerTable}}},
 							SupplementalData: *subject.supplementalData,
 						},
 					},

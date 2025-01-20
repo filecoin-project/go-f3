@@ -13,7 +13,7 @@ import (
 )
 
 // Generate a justification from the given power table. This assumes the signing backend can sign for all keys.
-func MakeJustification(backend signing.Backend, nn gpbft.NetworkName, chain gpbft.ECChain, instance uint64, powerTable, nextPowerTable gpbft.PowerEntries) (*gpbft.Justification, error) {
+func MakeJustification(backend signing.Backend, nn gpbft.NetworkName, chain *gpbft.ECChain, instance uint64, powerTable, nextPowerTable gpbft.PowerEntries) (*gpbft.Justification, error) {
 
 	scaledPowerTable, totalPower, err := powerTable.Scaled()
 	if err != nil {

@@ -55,11 +55,23 @@ func TestClientServer(t *testing.T) {
 	cs, err := certstore.CreateStore(ctx, ds, 0, pt)
 	require.NoError(t, err)
 
-	cert := &certs.FinalityCertificate{GPBFTInstance: 0, SupplementalData: supp, ECChain: gpbft.ECChain{{Epoch: 0, Key: gpbft.TipSetKey("tsk0"), PowerTable: pcid}}}
+	cert := &certs.FinalityCertificate{GPBFTInstance: 0, SupplementalData: supp,
+		ECChain: &gpbft.ECChain{
+			TipSets: []*gpbft.TipSet{
+				{Epoch: 0, Key: gpbft.TipSetKey("tsk0"), PowerTable: pcid},
+			},
+		},
+	}
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
-	cert = &certs.FinalityCertificate{GPBFTInstance: 1, SupplementalData: supp, ECChain: gpbft.ECChain{{Epoch: 0, Key: gpbft.TipSetKey("tsk0"), PowerTable: pcid}}}
+	cert = &certs.FinalityCertificate{GPBFTInstance: 1, SupplementalData: supp,
+		ECChain: &gpbft.ECChain{
+			TipSets: []*gpbft.TipSet{
+				{Epoch: 0, Key: gpbft.TipSetKey("tsk0"), PowerTable: pcid},
+			},
+		},
+	}
 	err = cs.Put(ctx, cert)
 	require.NoError(t, err)
 
@@ -149,7 +161,13 @@ func TestClientServer(t *testing.T) {
 	}
 
 	// Until we've added a new certificate.
-	cert = &certs.FinalityCertificate{GPBFTInstance: 2, SupplementalData: supp, ECChain: gpbft.ECChain{{Epoch: 0, Key: gpbft.TipSetKey("tsk0"), PowerTable: pcid}}}
+	cert = &certs.FinalityCertificate{GPBFTInstance: 2, SupplementalData: supp,
+		ECChain: &gpbft.ECChain{
+			TipSets: []*gpbft.TipSet{
+				{Epoch: 0, Key: gpbft.TipSetKey("tsk0"), PowerTable: pcid},
+			},
+		},
+	}
 	require.NoError(t, cs.Put(ctx, cert))
 
 	{

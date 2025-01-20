@@ -19,7 +19,11 @@ func makeCert(instance uint64, supp gpbft.SupplementalData) *certs.FinalityCerti
 	return &certs.FinalityCertificate{
 		GPBFTInstance:    instance,
 		SupplementalData: supp,
-		ECChain:          gpbft.ECChain{{Epoch: 0, Key: gpbft.TipSetKey("tsk0"), PowerTable: supp.PowerTable}},
+		ECChain: &gpbft.ECChain{
+			TipSets: []*gpbft.TipSet{
+				{Epoch: 0, Key: gpbft.TipSetKey("tsk0"), PowerTable: supp.PowerTable},
+			},
+		},
 	}
 }
 

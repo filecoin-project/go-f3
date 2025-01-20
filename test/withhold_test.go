@@ -52,7 +52,7 @@ func TestWitholdCommitAdversary(t *testing.T) {
 				sim.WithECEpochDuration(EcEpochDuration),
 				sim.WitECStabilisationDelay(EcStabilisationDelay),
 				sim.WithGpbftOptions(testGpbftOptions...),
-				sim.WithBaseChain(&baseChain),
+				sim.WithBaseChain(baseChain),
 				sim.AddHonestParticipants(4, sim.NewFixedECChainGenerator(a), uniformOneStoragePower),
 				sim.AddHonestParticipants(3, sim.NewFixedECChainGenerator(b), uniformOneStoragePower),
 				sim.WithGlobalStabilizationTime(test.gst),
@@ -76,7 +76,7 @@ func TestWitholdCommitAdversary(t *testing.T) {
 			for _, victim := range victims {
 				decision := sm.GetInstance(0).GetDecision(victim)
 				require.NotNil(t, decision)
-				require.Equal(t, &a, decision)
+				require.Equal(t, a, decision)
 			}
 		})
 	}

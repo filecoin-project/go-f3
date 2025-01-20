@@ -58,11 +58,11 @@ func TestPayloadMarshalForSigning(t *testing.T) {
 
 func BenchmarkPayloadMarshalForSigning(b *testing.B) {
 	nn := gpbft.NetworkName("filecoin")
-	maxChain := make([]gpbft.TipSet, gpbft.ChainMaxLen)
+	maxChain := make([]*gpbft.TipSet, gpbft.ChainMaxLen)
 	for i := range maxChain {
 		ts := make([]byte, 38*5)
 		binary.BigEndian.PutUint64(ts, uint64(i))
-		maxChain[i] = gpbft.TipSet{
+		maxChain[i] = &gpbft.TipSet{
 			Epoch:      int64(i),
 			Key:        ts,
 			PowerTable: ptCid,
@@ -72,7 +72,7 @@ func BenchmarkPayloadMarshalForSigning(b *testing.B) {
 		Instance: 1,
 		Round:    2,
 		Phase:    3,
-		Value:    maxChain,
+		Value:    &gpbft.ECChain{TipSets: maxChain},
 	}
 	for i := 0; i < b.N; i++ {
 		payload.MarshalForSigning(nn)

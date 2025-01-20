@@ -61,14 +61,14 @@ func FuzzHonestMultiInstance_AsyncDisagreement(f *testing.F) {
 		tsg := sim.NewTipSetGenerator(tipSetGeneratorSeed)
 		baseChain := generateECChain(t, tsg)
 		sm, err := sim.NewSimulation(asyncOptions(seed,
-			sim.WithBaseChain(&baseChain),
+			sim.WithBaseChain(baseChain),
 			sim.AddHonestParticipants(honestCount/2, sim.NewUniformECChainGenerator(rand.Uint64(), 1, 3), uniformOneStoragePower),
 			sim.AddHonestParticipants(honestCount/2, sim.NewUniformECChainGenerator(rand.Uint64(), 2, 4), uniformOneStoragePower),
 		)...)
 		require.NoError(t, err)
 		require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
 		// Insufficient majority means all should decide on base
-		requireConsensusAtFirstInstance(t, sm, *baseChain.Base())
+		requireConsensusAtFirstInstance(t, sm, baseChain.Base())
 	})
 }
 
@@ -114,5 +114,5 @@ func multiAgreementTest(t *testing.T, seed int, honestCount int, instanceCount u
 	// Assert that the network reaches a decision at last completed instance, and the
 	// decision always matches the head of instance after it, which is initialised
 	// but not executed by the simulation due to hitting the instanceCount limit.
-	requireConsensusAtInstance(t, sm, instanceCount-1, *expected.Head())
+	requireConsensusAtInstance(t, sm, instanceCount-1, expected.Head())
 }

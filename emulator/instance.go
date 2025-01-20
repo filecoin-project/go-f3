@@ -17,7 +17,7 @@ type Instance struct {
 	t                 *testing.T
 	id                uint64
 	supplementalData  gpbft.SupplementalData
-	proposal          gpbft.ECChain
+	proposal          *gpbft.ECChain
 	powerTable        *gpbft.PowerTable
 	beacon            []byte
 	decision          *gpbft.Justification
@@ -31,7 +31,7 @@ type Instance struct {
 // must contain at least one tipset.
 //
 // See Driver.RequireStartInstance.
-func NewInstance(t *testing.T, id uint64, powerEntries gpbft.PowerEntries, proposal ...gpbft.TipSet) *Instance {
+func NewInstance(t *testing.T, id uint64, powerEntries gpbft.PowerEntries, proposal ...*gpbft.TipSet) *Instance {
 	// UX of the gpbft API is pretty painful; encapsulate the pain of getting an
 	// instance going here at the price of accepting partial data and implicitly
 	// filling what's missing.
@@ -82,32 +82,32 @@ func (i *Instance) SetSigning(signing Signing) {
 	i.aggregateVerifier, err = signing.Aggregate(i.powerTable.Entries.PublicKeys())
 	require.NoError(i.t, err)
 }
-func (i *Instance) Proposal() gpbft.ECChain                  { return i.proposal }
+func (i *Instance) Proposal() *gpbft.ECChain                 { return i.proposal }
 func (i *Instance) GetDecision() *gpbft.Justification        { return i.decision }
 func (i *Instance) ID() uint64                               { return i.id }
 func (i *Instance) SupplementalData() gpbft.SupplementalData { return i.supplementalData }
 
-func (i *Instance) NewQuality(proposal gpbft.ECChain) gpbft.Payload {
+func (i *Instance) NewQuality(proposal *gpbft.ECChain) gpbft.Payload {
 	return i.NewPayload(0, gpbft.QUALITY_PHASE, proposal)
 }
 
-func (i *Instance) NewPrepare(round uint64, proposal gpbft.ECChain) gpbft.Payload {
+func (i *Instance) NewPrepare(round uint64, proposal *gpbft.ECChain) gpbft.Payload {
 	return i.NewPayload(round, gpbft.PREPARE_PHASE, proposal)
 }
 
-func (i *Instance) NewCommit(round uint64, proposal gpbft.ECChain) gpbft.Payload {
+func (i *Instance) NewCommit(round uint64, proposal *gpbft.ECChain) gpbft.Payload {
 	return i.NewPayload(round, gpbft.COMMIT_PHASE, proposal)
 }
 
-func (i *Instance) NewConverge(round uint64, proposal gpbft.ECChain) gpbft.Payload {
+func (i *Instance) NewConverge(round uint64, proposal *gpbft.ECChain) gpbft.Payload {
 	return i.NewPayload(round, gpbft.CONVERGE_PHASE, proposal)
 }
 
-func (i *Instance) NewDecide(round uint64, proposal gpbft.ECChain) gpbft.Payload {
+func (i *Instance) NewDecide(round uint64, proposal *gpbft.ECChain) gpbft.Payload {
 	return i.NewPayload(round, gpbft.DECIDE_PHASE, proposal)
 }
 
-func (i *Instance) NewPayload(round uint64, phase gpbft.Phase, value gpbft.ECChain) gpbft.Payload {
+func (i *Instance) NewPayload(round uint64, phase gpbft.Phase, value *gpbft.ECChain) gpbft.Payload {
 	return gpbft.Payload{
 		Instance:         i.id,
 		Round:            round,
@@ -134,7 +134,7 @@ func (i *Instance) NewMessageBuilder(payload gpbft.Payload, justification *gpbft
 	return mb
 }
 
-func (i *Instance) NewJustification(round uint64, phase gpbft.Phase, vote gpbft.ECChain, from ...gpbft.ActorID) *gpbft.Justification {
+func (i *Instance) NewJustification(round uint64, phase gpbft.Phase, vote *gpbft.ECChain, from ...gpbft.ActorID) *gpbft.Justification {
 	payload := gpbft.Payload{
 		Instance:         i.id,
 		Round:            round,

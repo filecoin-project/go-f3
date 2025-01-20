@@ -31,8 +31,8 @@ func TestDeny_SkipsToFuture(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
-	chain := ecChainGenerator.GenerateECChain(instanceCount-1, gpbft.TipSet{}, math.MaxUint64)
-	requireConsensusAtInstance(t, sm, instanceCount-1, chain...)
+	chain := ecChainGenerator.GenerateECChain(instanceCount-1, &gpbft.TipSet{}, math.MaxUint64)
+	requireConsensusAtInstance(t, sm, instanceCount-1, chain.TipSets...)
 }
 
 func TestDenyPhase(t *testing.T) {
@@ -64,8 +64,8 @@ func TestDenyPhase(t *testing.T) {
 				)
 				require.NoError(t, err)
 				require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
-				chain := ecGen.GenerateECChain(instanceCount-1, gpbft.TipSet{}, math.MaxUint64)
-				requireConsensusAtInstance(t, sm, instanceCount-1, chain...)
+				chain := ecGen.GenerateECChain(instanceCount-1, &gpbft.TipSet{}, math.MaxUint64)
+				requireConsensusAtInstance(t, sm, instanceCount-1, chain.TipSets...)
 			})
 		}
 	}

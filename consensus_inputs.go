@@ -97,7 +97,7 @@ func (h *gpbftInputs) collectChain(ctx context.Context, base ec.TipSet, head ec.
 // These will be used as input to a subsequent instance of the protocol.
 // The chain should be a suffix of the last chain notified to the host via
 // ReceiveDecision (or known to be final via some other channel).
-func (h *gpbftInputs) GetProposal(ctx context.Context, instance uint64) (_ *gpbft.SupplementalData, _ gpbft.ECChain, _err error) {
+func (h *gpbftInputs) GetProposal(ctx context.Context, instance uint64) (_ *gpbft.SupplementalData, _ *gpbft.ECChain, _err error) {
 	defer func(start time.Time) {
 		metrics.proposalFetchTime.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(attrStatusFromErr(_err)))
 	}(time.Now())
@@ -142,7 +142,7 @@ func (h *gpbftInputs) GetProposal(ctx context.Context, instance uint64) (_ *gpbf
 		collectedChain = collectedChain[:len(collectedChain)-1]
 	}
 
-	base := gpbft.TipSet{
+	base := &gpbft.TipSet{
 		Epoch: baseTs.Epoch(),
 		Key:   baseTs.Key(),
 	}
@@ -152,10 +152,12 @@ func (h *gpbftInputs) GetProposal(ctx context.Context, instance uint64) (_ *gpbf
 	}
 
 	suffixLen := min(gpbft.ChainMaxLen, h.manifest.Gpbft.ChainProposedLength) - 1 // -1 because of base
-	suffix := make([]gpbft.TipSet, min(suffixLen, len(collectedChain)))
+	suffix := make([]*gpbft.TipSet, min(suffixLen, len(collectedChain)))
 	for i := range suffix {
-		suffix[i].Key = collectedChain[i].Key()
-		suffix[i].Epoch = collectedChain[i].Epoch()
+		suffix[i] = &gpbft.TipSet{
+			Epoch: collectedChain[i].Epoch(),
+			Key:   collectedChain[i].Key(),
+		}
 
 		suffix[i].PowerTable, err = h.getPowerTableCIDForTipset(ctx, suffix[i].Key)
 		if err != nil {

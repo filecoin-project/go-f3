@@ -14,7 +14,6 @@ import (
 
 	"github.com/filecoin-project/go-bitfield"
 	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
-	"github.com/filecoin-project/go-f3/merkle"
 	"github.com/ipfs/go-cid"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -135,7 +134,7 @@ type Payload struct {
 	// The common data.
 	SupplementalData SupplementalData
 	// The value agreed-upon in a single instance.
-	Value ECChain
+	Value *ECChain
 }
 
 func (p *Payload) Eq(other *Payload) bool {
@@ -153,12 +152,6 @@ func (p *Payload) Eq(other *Payload) bool {
 }
 
 func (p *Payload) MarshalForSigning(nn NetworkName) []byte {
-	values := make([][]byte, len(p.Value))
-	for i := range p.Value {
-		values[i] = p.Value[i].MarshalForSigning()
-	}
-	root := merkle.Tree(values)
-
 	var buf bytes.Buffer
 	buf.WriteString(DomainSeparationTag)
 	buf.WriteString(":")
@@ -169,20 +162,21 @@ func (p *Payload) MarshalForSigning(nn NetworkName) []byte {
 	_ = binary.Write(&buf, binary.BigEndian, p.Round)
 	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
 	_, _ = buf.Write(p.SupplementalData.Commitments[:])
-	_, _ = buf.Write(root[:])
+	key := p.Value.Key()
+	_, _ = buf.Write(key[:])
 	_, _ = buf.Write(p.SupplementalData.PowerTable.Bytes())
 	return buf.Bytes()
 }
 
 func (m GMessage) String() string {
-	return fmt.Sprintf("%s{%d}(%d %s)", m.Vote.Phase, m.Vote.Instance, m.Vote.Round, &m.Vote.Value)
+	return fmt.Sprintf("%s{%d}(%d %s)", m.Vote.Phase, m.Vote.Instance, m.Vote.Round, m.Vote.Value)
 }
 
 // A single Granite consensus instance.
 type instance struct {
 	participant *Participant
 	// The EC chain input to this instance.
-	input ECChain
+	input *ECChain
 	// The power table for the base chain, used for power in this instance.
 	powerTable *PowerTable
 	// The aggregate signature verifier/aggregator.
@@ -211,16 +205,16 @@ type instance struct {
 	supplementalData *SupplementalData
 	// This instance's proposal for the current round. Never bottom.
 	// This is set after the QUALITY phase, and changes only at the end of a full round.
-	proposal ECChain
+	proposal *ECChain
 	// The value to be transmitted at the next phase, which may be bottom.
 	// This value may change away from the proposal between phases.
-	value ECChain
-	// candidates contains a set of values that are acceptable candidates to this
+	value *ECChain
+	// candidates contain a set of values that are acceptable candidates to this
 	// instance. This includes the base chain, all prefixes of proposal that found a
 	// strong quorum of support in the QUALITY phase or late arriving quality
 	// messages, including any chains that could possibly have been decided by
 	// another participant.
-	candidates map[ChainKey]struct{}
+	candidates map[ECChainKey]struct{}
 	// The final termination value of the instance, for communication to the participant.
 	// This field is an alternative to plumbing an optional decision value out through
 	// all the method calls, or holding a callback handle to receive it here.
@@ -240,7 +234,7 @@ type instance struct {
 func newInstance(
 	participant *Participant,
 	instanceID uint64,
-	input ECChain,
+	input *ECChain,
 	data *SupplementalData,
 	powerTable *PowerTable,
 	aggregateVerifier Aggregate,
@@ -266,8 +260,8 @@ func newInstance(
 		},
 		supplementalData: data,
 		proposal:         input,
-		value:            ECChain{},
-		candidates: map[ChainKey]struct{}{
+		value:            &ECChain{},
+		candidates: map[ECChainKey]struct{}{
 			input.BaseChain().Key(): {},
 		},
 		quality: newQuorumState(powerTable),
@@ -376,7 +370,7 @@ func (i *instance) receiveOne(msg *GMessage) (bool, error) {
 	// Check proposal has the expected base chain.
 	if !(msg.Vote.Value.IsZero() || msg.Vote.Value.HasBase(i.input.Base())) {
 		return false, fmt.Errorf("%w: message base %s, expected %s",
-			ErrValidationWrongBase, &msg.Vote.Value, i.input.Base())
+			ErrValidationWrongBase, msg.Vote.Value, i.input.Base())
 	}
 
 	if i.current.Phase == TERMINATED_PHASE {
@@ -461,7 +455,7 @@ func (i *instance) postReceive(roundsReceived ...uint64) {
 // proposal. Otherwise, it returns nil chain, nil justification and false.
 //
 // See: skipToRound.
-func (i *instance) shouldSkipToRound(round uint64, state *roundState) (ECChain, *Justification, bool) {
+func (i *instance) shouldSkipToRound(round uint64, state *roundState) (*ECChain, *Justification, bool) {
 	// Check if the given round is ahead of current round and this instance is not in
 	// DECIDE phase.
 	if round <= i.current.Round || i.current.Phase == DECIDE_PHASE {
@@ -536,7 +530,7 @@ func (i *instance) tryQuality() error {
 		// Add prefixes with quorum to candidates.
 		i.addCandidatePrefixes(i.proposal)
 		i.value = i.proposal
-		i.log("adopting proposal/value %s", &i.proposal)
+		i.log("adopting proposal/value %s", i.proposal)
 		i.beginPrepare(nil)
 	}
 	return nil
@@ -550,7 +544,7 @@ func (i *instance) updateCandidatesFromQuality() error {
 	// prefixes.
 	longestPrefix := i.quality.FindStrongQuorumValueForLongestPrefixOf(i.input)
 	if i.addCandidatePrefixes(longestPrefix) {
-		i.log("expanded candidates for proposal %s from QUALITY quorum of %s", i.proposal, &longestPrefix)
+		i.log("expanded candidates for proposal %s from QUALITY quorum of %s", i.proposal, longestPrefix)
 	}
 	return nil
 }
@@ -651,7 +645,7 @@ func (i *instance) tryPrepare() error {
 	if foundQuorum {
 		i.value = i.proposal
 	} else if quorumNotPossible || phaseComplete {
-		i.value = ECChain{}
+		i.value = &ECChain{}
 	}
 
 	if foundQuorum || quorumNotPossible || phaseComplete {
@@ -719,12 +713,12 @@ func (i *instance) tryCommit(round uint64) error {
 		for _, v := range committed.ListAllValues() {
 			if !v.IsZero() {
 				if !i.isCandidate(v) {
-					i.log("⚠️ swaying from %s to %s by COMMIT", &i.input, &v)
+					i.log("⚠️ swaying from %s to %s by COMMIT", i.input, v)
 					i.addCandidate(v)
 				}
 				if !v.Eq(i.proposal) {
 					i.proposal = v
-					i.log("adopting proposal %s after commit", &i.proposal)
+					i.log("adopting proposal %s after commit", i.proposal)
 				}
 				break
 			}
@@ -763,7 +757,7 @@ func (i *instance) beginDecide(round uint64) {
 // Skips immediately to the DECIDE phase and sends a DECIDE message
 // without waiting for a strong quorum of COMMITs in any round.
 // The provided justification must justify the value being decided.
-func (i *instance) skipToDecide(value ECChain, justification *Justification) {
+func (i *instance) skipToDecide(value *ECChain, justification *Justification) {
 	i.current.Phase = DECIDE_PHASE
 	i.participant.progression.NotifyProgress(i.current)
 	i.proposal = value
@@ -800,6 +794,8 @@ func (i *instance) getRound(r uint64) *roundState {
 	return round
 }
 
+var bottomECChain = &ECChain{}
+
 func (i *instance) beginNextRound() {
 	i.log("moving to round %d with %s", i.current.Round+1, i.proposal.String())
 	i.current.Round += 1
@@ -810,9 +806,9 @@ func (i *instance) beginNextRound() {
 	// this node received a COMMIT message (bearing justification), if there were any.
 	// If there were none, there must have been a strong quorum for bottom instead.
 	var justification *Justification
-	if quorum, ok := prevRound.committed.FindStrongQuorumFor(""); ok {
+	if quorum, ok := prevRound.committed.FindStrongQuorumFor(bottomECChain.Key()); ok {
 		// Build justification for strong quorum of COMMITs for bottom in the previous round.
-		justification = i.buildJustification(quorum, i.current.Round-1, COMMIT_PHASE, ECChain{})
+		justification = i.buildJustification(quorum, i.current.Round-1, COMMIT_PHASE, nil)
 	} else {
 		// Extract the justification received from some participant (possibly this node itself).
 		justification, ok = prevRound.committed.receivedJustification[i.proposal.Key()]
@@ -827,14 +823,14 @@ func (i *instance) beginNextRound() {
 // skipToRound jumps ahead to the given round by initiating CONVERGE with the given justification.
 //
 // See shouldSkipToRound.
-func (i *instance) skipToRound(round uint64, chain ECChain, justification *Justification) {
+func (i *instance) skipToRound(round uint64, chain *ECChain, justification *Justification) {
 	i.log("skipping from round %d to round %d with %s", i.current.Round, round, i.proposal.String())
 	i.current.Round = round
 	metrics.currentRound.Record(context.TODO(), int64(i.current.Round))
 	metrics.skipCounter.Add(context.TODO(), 1, metric.WithAttributes(attrSkipToRound))
 
 	if justification.Vote.Phase == PREPARE_PHASE {
-		i.log("⚠️ swaying from %s to %s by skip to round %d", &i.proposal, chain, i.current.Round)
+		i.log("⚠️ swaying from %s to %s by skip to round %d", i.proposal, chain, i.current.Round)
 		i.addCandidate(chain)
 		i.proposal = chain
 	}
@@ -843,20 +839,20 @@ func (i *instance) skipToRound(round uint64, chain ECChain, justification *Justi
 
 // Returns whether a chain is acceptable as a proposal for this instance to vote for.
 // This is "EC Compatible" in the pseudocode.
-func (i *instance) isCandidate(c ECChain) bool {
+func (i *instance) isCandidate(c *ECChain) bool {
 	_, exists := i.candidates[c.Key()]
 	return exists
 }
 
-func (i *instance) addCandidatePrefixes(c ECChain) bool {
+func (i *instance) addCandidatePrefixes(c *ECChain) bool {
 	var addedAny bool
-	for l := len(c) - 1; l > 0 && !addedAny; l-- {
+	for l := c.Len() - 1; l > 0 && !addedAny; l-- {
 		addedAny = i.addCandidate(c.Prefix(l))
 	}
 	return addedAny
 }
 
-func (i *instance) addCandidate(c ECChain) bool {
+func (i *instance) addCandidate(c *ECChain) bool {
 	key := c.Key()
 	if _, exists := i.candidates[key]; !exists {
 		i.candidates[key] = struct{}{}
@@ -866,7 +862,7 @@ func (i *instance) addCandidate(c ECChain) bool {
 }
 
 func (i *instance) terminate(decision *Justification) {
-	i.log("✅ terminated %s during round %d", &i.value, i.current.Round)
+	i.log("✅ terminated %s during round %d", i.value, i.current.Round)
 	i.current.Phase = TERMINATED_PHASE
 	i.participant.progression.NotifyProgress(i.current)
 	i.value = decision.Vote.Value
@@ -882,7 +878,7 @@ func (i *instance) terminated() bool {
 	return i.current.Phase == TERMINATED_PHASE
 }
 
-func (i *instance) broadcast(round uint64, phase Phase, value ECChain, createTicket bool, justification *Justification) {
+func (i *instance) broadcast(round uint64, phase Phase, value *ECChain, createTicket bool, justification *Justification) {
 	p := Payload{
 		Instance:         i.current.ID,
 		Round:            round,
@@ -1021,7 +1017,7 @@ func (i *instance) alarmAfterSynchronyWithMulti(multi float64) time.Time {
 }
 
 // Builds a justification for a value from a quorum result.
-func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase Phase, value ECChain) *Justification {
+func (i *instance) buildJustification(quorum QuorumResult, round uint64, phase Phase, value *ECChain) *Justification {
 	aggSignature, err := quorum.Aggregate(i.aggregateVerifier)
 	if err != nil {
 		panic(fmt.Errorf("aggregating for phase %v: %v", phase, err))
@@ -1059,16 +1055,16 @@ type quorumState struct {
 	// Total power of all distinct senders from which some chain has been received so far.
 	sendersTotalPower int64
 	// The power supporting each chain so far.
-	chainSupport map[ChainKey]chainSupport
+	chainSupport map[ECChainKey]chainSupport
 	// Table of senders' power.
 	powerTable *PowerTable
 	// Stores justifications received for some value.
-	receivedJustification map[ChainKey]*Justification
+	receivedJustification map[ECChainKey]*Justification
 }
 
 // A chain value and the total power supporting it
 type chainSupport struct {
-	chain           ECChain
+	chain           *ECChain
 	power           int64
 	signatures      map[ActorID][]byte
 	hasStrongQuorum bool
@@ -1078,15 +1074,15 @@ type chainSupport struct {
 func newQuorumState(powerTable *PowerTable) *quorumState {
 	return &quorumState{
 		senders:               map[ActorID]struct{}{},
-		chainSupport:          map[ChainKey]chainSupport{},
+		chainSupport:          map[ECChainKey]chainSupport{},
 		powerTable:            powerTable,
-		receivedJustification: map[ChainKey]*Justification{},
+		receivedJustification: map[ECChainKey]*Justification{},
 	}
 }
 
 // Receives a chain from a sender.
 // Ignores any subsequent value from a sender from which a value has already been received.
-func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte) {
+func (q *quorumState) Receive(sender ActorID, value *ECChain, signature []byte) {
 	senderPower, ok := q.receiveSender(sender)
 	if !ok {
 		return
@@ -1099,7 +1095,7 @@ func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte) {
 // create an aggregate for these prefixes.
 // This is intended for use in the QUALITY phase.
 // Ignores any subsequent values from a sender from which a value has already been received.
-func (q *quorumState) ReceiveEachPrefix(sender ActorID, values ECChain) {
+func (q *quorumState) ReceiveEachPrefix(sender ActorID, values *ECChain) {
 	senderPower, ok := q.receiveSender(sender)
 	if !ok {
 		return
@@ -1123,7 +1119,7 @@ func (q *quorumState) receiveSender(sender ActorID) (int64, bool) {
 }
 
 // Receives a chain from a sender.
-func (q *quorumState) receiveInner(sender ActorID, value ECChain, power int64, signature []byte) {
+func (q *quorumState) receiveInner(sender ActorID, value *ECChain, power int64, signature []byte) {
 	key := value.Key()
 	candidate, ok := q.chainSupport[key]
 	if !ok {
@@ -1144,7 +1140,7 @@ func (q *quorumState) receiveInner(sender ActorID, value ECChain, power int64, s
 }
 
 // Receives and stores justification for a value from another participant.
-func (q *quorumState) ReceiveJustification(value ECChain, justification *Justification) {
+func (q *quorumState) ReceiveJustification(value *ECChain, justification *Justification) {
 	if justification == nil {
 		panic("nil justification")
 	}
@@ -1157,8 +1153,8 @@ func (q *quorumState) ReceiveJustification(value ECChain, justification *Justifi
 
 // Lists all values that have been senders from any sender.
 // The order of returned values is not defined.
-func (q *quorumState) ListAllValues() []ECChain {
-	var chains []ECChain
+func (q *quorumState) ListAllValues() []*ECChain {
+	var chains []*ECChain
 	for _, cp := range q.chainSupport {
 		chains = append(chains, cp.chain)
 	}
@@ -1177,7 +1173,7 @@ func (q *quorumState) ReceivedFromWeakQuorum() bool {
 }
 
 // Checks whether a chain has reached a strong quorum.
-func (q *quorumState) HasStrongQuorumFor(key ChainKey) bool {
+func (q *quorumState) HasStrongQuorumFor(key ECChainKey) bool {
 	supportForChain, ok := q.chainSupport[key]
 	return ok && supportForChain.hasStrongQuorum
 }
@@ -1187,7 +1183,7 @@ func (q *quorumState) HasStrongQuorumFor(key ChainKey) bool {
 // If withAdversary is true, an additional ⅓ of total power is added to the possible support,
 // representing an equivocating adversary. This is appropriate for testing whether
 // any other participant could have observed a strong quorum in the presence of such adversary.
-func (q *quorumState) CouldReachStrongQuorumFor(key ChainKey, withAdversary bool) bool {
+func (q *quorumState) CouldReachStrongQuorumFor(key ECChainKey, withAdversary bool) bool {
 	var supportingPower int64
 	if supportForChain, found := q.chainSupport[key]; found {
 		supportingPower = supportForChain.power
@@ -1229,7 +1225,7 @@ func (q QuorumResult) SignersBitfield() bitfield.BitField {
 
 // Checks whether a chain has reached a strong quorum.
 // If so returns a set of signers and signatures for the value that form a strong quorum.
-func (q *quorumState) FindStrongQuorumFor(key ChainKey) (QuorumResult, bool) {
+func (q *quorumState) FindStrongQuorumFor(key ECChainKey) (QuorumResult, bool) {
 	chainSupport, ok := q.chainSupport[key]
 	if !ok || !chainSupport.hasStrongQuorum {
 		return QuorumResult{}, false
@@ -1276,11 +1272,11 @@ func (q *quorumState) FindStrongQuorumFor(key ChainKey) (QuorumResult, bool) {
 // FindStrongQuorumValueForLongestPrefixOf finds the longest prefix of preferred
 // chain which has strong quorum, or the base of preferred if no such prefix
 // exists.
-func (q *quorumState) FindStrongQuorumValueForLongestPrefixOf(preferred ECChain) ECChain {
+func (q *quorumState) FindStrongQuorumValueForLongestPrefixOf(preferred *ECChain) *ECChain {
 	if q.HasStrongQuorumFor(preferred.Key()) {
 		return preferred
 	}
-	for i := len(preferred) - 1; i >= 0; i-- {
+	for i := preferred.Len() - 1; i >= 0; i-- {
 		longestPrefix := preferred.Prefix(i)
 		if q.HasStrongQuorumFor(longestPrefix.Key()) {
 			return longestPrefix
@@ -1294,7 +1290,7 @@ func (q *quorumState) FindStrongQuorumValueForLongestPrefixOf(preferred ECChain)
 // casts a single vote.
 // Panics if there are multiple chains with strong quorum
 // (signalling a violation of assumptions about the adversary).
-func (q *quorumState) FindStrongQuorumValue() (quorumValue ECChain, foundQuorum bool) {
+func (q *quorumState) FindStrongQuorumValue() (quorumValue *ECChain, foundQuorum bool) {
 	for key, cp := range q.chainSupport {
 		if cp.hasStrongQuorum {
 			if foundQuorum {
@@ -1313,12 +1309,12 @@ type convergeState struct {
 	// Participants from which a message has been received.
 	senders map[ActorID]struct{}
 	// Chains indexed by key.
-	values map[ChainKey]ConvergeValue
+	values map[ECChainKey]ConvergeValue
 }
 
 // ConvergeValue is valid when the Chain is non-zero and Justification is non-nil
 type ConvergeValue struct {
-	Chain         ECChain
+	Chain         *ECChain
 	Justification *Justification
 	Rank          float64
 }
@@ -1335,14 +1331,14 @@ func (cv *ConvergeValue) IsValid() bool {
 func newConvergeState() *convergeState {
 	return &convergeState{
 		senders: map[ActorID]struct{}{},
-		values:  map[ChainKey]ConvergeValue{},
+		values:  map[ECChainKey]ConvergeValue{},
 	}
 }
 
 // SetSelfValue sets the participant's locally-proposed converge value. This
 // means the participant need not to rely on messages broadcast to be received by
 // itself.
-func (c *convergeState) SetSelfValue(value ECChain, justification *Justification) {
+func (c *convergeState) SetSelfValue(value *ECChain, justification *Justification) {
 	// any converge for the given value is better than self-reported
 	// as self-reported has no ticket
 	key := value.Key()
@@ -1357,7 +1353,7 @@ func (c *convergeState) SetSelfValue(value ECChain, justification *Justification
 
 // Receives a new CONVERGE value from a sender.
 // Ignores any subsequent value from a sender from which a value has already been received.
-func (c *convergeState) Receive(sender ActorID, table *PowerTable, value ECChain, ticket Ticket, justification *Justification) error {
+func (c *convergeState) Receive(sender ActorID, table *PowerTable, value *ECChain, ticket Ticket, justification *Justification) error {
 	if value.IsZero() {
 		return fmt.Errorf("bottom cannot be justified for CONVERGE")
 	}
@@ -1413,7 +1409,7 @@ func (c *convergeState) FindBestTicketProposal(filter func(ConvergeValue) bool) 
 // Finds some proposal which matches a specific value.
 // This searches values received in messages first, falling back to the participant's self value
 // only if necessary.
-func (c *convergeState) FindProposalFor(chain ECChain) ConvergeValue {
+func (c *convergeState) FindProposalFor(chain *ECChain) ConvergeValue {
 	for _, value := range c.values {
 		if value.Chain.Eq(chain) {
 			return value

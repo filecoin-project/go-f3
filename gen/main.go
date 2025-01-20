@@ -20,6 +20,7 @@ func main() {
 	eg.Go(func() error {
 		return gen.WriteTupleEncodersToFile("../gpbft/cbor_gen.go", "gpbft",
 			gpbft.TipSet{},
+			gpbft.LegacyECChain{},
 			gpbft.GMessage{},
 			gpbft.SupplementalData{},
 			gpbft.Payload{},

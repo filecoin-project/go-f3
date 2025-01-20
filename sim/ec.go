@@ -28,7 +28,7 @@ type simEC struct {
 type ECInstance struct {
 	Instance uint64
 	// The base of all chains, which participants must agree on.
-	BaseChain gpbft.ECChain
+	BaseChain *gpbft.ECChain
 	// The power table to be used for this instance.
 	PowerTable *gpbft.PowerTable
 	// The beacon value to use for this instance.
@@ -60,7 +60,7 @@ func newEC(opts *options) *simEC {
 	}
 }
 
-func (ec *simEC) BeginInstance(baseChain gpbft.ECChain, pt *gpbft.PowerTable) *ECInstance {
+func (ec *simEC) BeginInstance(baseChain *gpbft.ECChain, pt *gpbft.PowerTable) *ECInstance {
 	// Take beacon value from the head of the base chain.
 	// Note a real beacon value will come from a finalised chain with some lookback.
 	beacon := baseChain.Head().Key
@@ -180,9 +180,9 @@ func (eci *ECInstance) HasReachedConsensus(exclude ...gpbft.ActorID) (*gpbft.ECC
 			return nil, false
 		}
 		if consensus == nil {
-			consensus = &decision.Vote.Value
+			consensus = decision.Vote.Value
 		}
-		if !decision.Vote.Value.Eq(*consensus) {
+		if !decision.Vote.Value.Eq(consensus) {
 			return nil, false
 		}
 	}
@@ -213,7 +213,7 @@ func (eci *ECInstance) GetDecision(participant gpbft.ActorID) *gpbft.ECChain {
 	if !ok {
 		return nil
 	}
-	return &justification.Vote.Value
+	return justification.Vote.Value
 }
 
 func (ec *simEC) HasInstance(instance uint64) bool {
@@ -227,8 +227,8 @@ func (eci *ECInstance) Print() {
 		case !ok:
 			fmt.Printf("‼️ Participant %d did not decide\n", powerEntry.ID)
 		case first == nil:
-			first = &decision.Vote.Value
-		case !decision.Vote.Value.Eq(*first):
+			first = decision.Vote.Value
+		case !decision.Vote.Value.Eq(first):
 			fmt.Printf("‼️ Participant %d decided %v, but %d decided %v\n",
 				powerEntry.ID, decision.Vote, eci.PowerTable.Entries[0].ID, first)
 		}

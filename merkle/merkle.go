@@ -14,6 +14,8 @@ const DigestLength = 32
 // Digest is a 32-byte hash digest.
 type Digest = [DigestLength]byte
 
+var ZeroDigest Digest
+
 // TreeWithProofs returns a the root of the merkle-tree of the given values, along with merkle-proofs for
 // each leaf.
 func TreeWithProofs(values [][]byte) (Digest, [][]Digest) {

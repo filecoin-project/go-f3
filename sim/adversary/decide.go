@@ -19,7 +19,7 @@ func ImmediateDecideWithNthParticipant(n uint64) ImmediateDecideOption {
 }
 
 // Immediately decide with a value that may or may not match the justification.
-func ImmediateDecideWithJustifiedValue(value gpbft.ECChain) ImmediateDecideOption {
+func ImmediateDecideWithJustifiedValue(value *gpbft.ECChain) ImmediateDecideOption {
 	return func(i *ImmediateDecide) {
 		i.jValue = value
 	}
@@ -36,13 +36,13 @@ func ImmediateDecideWithJustifiedSupplementalData(data gpbft.SupplementalData) I
 type ImmediateDecide struct {
 	id            gpbft.ActorID
 	host          Host
-	value, jValue gpbft.ECChain
+	value, jValue *gpbft.ECChain
 
 	additionalParticipant *uint64
 	supplementalData      *gpbft.SupplementalData
 }
 
-func NewImmediateDecide(id gpbft.ActorID, host Host, value gpbft.ECChain, opts ...ImmediateDecideOption) *ImmediateDecide {
+func NewImmediateDecide(id gpbft.ActorID, host Host, value *gpbft.ECChain, opts ...ImmediateDecideOption) *ImmediateDecide {
 	i := &ImmediateDecide{
 		id:     id,
 		host:   host,
@@ -55,7 +55,7 @@ func NewImmediateDecide(id gpbft.ActorID, host Host, value gpbft.ECChain, opts .
 	return i
 }
 
-func NewImmediateDecideGenerator(value gpbft.ECChain, power gpbft.StoragePower, opts ...ImmediateDecideOption) Generator {
+func NewImmediateDecideGenerator(value *gpbft.ECChain, power gpbft.StoragePower, opts ...ImmediateDecideOption) Generator {
 	return func(id gpbft.ActorID, host Host) *Adversary {
 		return &Adversary{
 			Receiver: NewImmediateDecide(id, host, value, opts...),

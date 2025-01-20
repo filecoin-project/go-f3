@@ -138,7 +138,7 @@ func (_c *MockHost_GetCommittee_Call) RunAndReturn(run func(uint64) (*Committee,
 }
 
 // GetProposal provides a mock function with given fields: instance
-func (_m *MockHost) GetProposal(instance uint64) (*SupplementalData, ECChain, error) {
+func (_m *MockHost) GetProposal(instance uint64) (*SupplementalData, *ECChain, error) {
 	ret := _m.Called(instance)
 
 	if len(ret) == 0 {
@@ -146,9 +146,9 @@ func (_m *MockHost) GetProposal(instance uint64) (*SupplementalData, ECChain, er
 	}
 
 	var r0 *SupplementalData
-	var r1 ECChain
+	var r1 *ECChain
 	var r2 error
-	if rf, ok := ret.Get(0).(func(uint64) (*SupplementalData, ECChain, error)); ok {
+	if rf, ok := ret.Get(0).(func(uint64) (*SupplementalData, *ECChain, error)); ok {
 		return rf(instance)
 	}
 	if rf, ok := ret.Get(0).(func(uint64) *SupplementalData); ok {
@@ -159,11 +159,11 @@ func (_m *MockHost) GetProposal(instance uint64) (*SupplementalData, ECChain, er
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(uint64) ECChain); ok {
+	if rf, ok := ret.Get(1).(func(uint64) *ECChain); ok {
 		r1 = rf(instance)
 	} else {
 		if ret.Get(1) != nil {
-			r1 = ret.Get(1).(ECChain)
+			r1 = ret.Get(1).(*ECChain)
 		}
 	}
 
@@ -194,12 +194,12 @@ func (_c *MockHost_GetProposal_Call) Run(run func(instance uint64)) *MockHost_Ge
 	return _c
 }
 
-func (_c *MockHost_GetProposal_Call) Return(data *SupplementalData, chain ECChain, err error) *MockHost_GetProposal_Call {
+func (_c *MockHost_GetProposal_Call) Return(data *SupplementalData, chain *ECChain, err error) *MockHost_GetProposal_Call {
 	_c.Call.Return(data, chain, err)
 	return _c
 }
 
-func (_c *MockHost_GetProposal_Call) RunAndReturn(run func(uint64) (*SupplementalData, ECChain, error)) *MockHost_GetProposal_Call {
+func (_c *MockHost_GetProposal_Call) RunAndReturn(run func(uint64) (*SupplementalData, *ECChain, error)) *MockHost_GetProposal_Call {
 	_c.Call.Return(run)
 	return _c
 }

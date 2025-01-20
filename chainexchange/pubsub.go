@@ -9,7 +9,6 @@ import (
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/psutil"
-	"github.com/filecoin-project/go-f3/merkle"
 	lru "github.com/hashicorp/golang-lru/v2"
 	logging "github.com/ipfs/go-log/v2"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -26,7 +25,7 @@ var (
 )
 
 type chainPortion struct {
-	chain gpbft.ECChain
+	chain *gpbft.ECChain
 }
 
 type PubSubChainExchange struct {
@@ -34,8 +33,8 @@ type PubSubChainExchange struct {
 
 	// mu guards access to chains and API calls.
 	mu                   sync.Mutex
-	chainsWanted         map[uint64]*lru.Cache[string, *chainPortion]
-	chainsDiscovered     map[uint64]*lru.Cache[string, *chainPortion]
+	chainsWanted         map[uint64]*lru.Cache[gpbft.ECChainKey, *chainPortion]
+	chainsDiscovered     map[uint64]*lru.Cache[gpbft.ECChainKey, *chainPortion]
 	pendingCacheAsWanted chan Message
 	topic                *pubsub.Topic
 	stop                 func() error
@@ -48,8 +47,8 @@ func NewPubSubChainExchange(o ...Option) (*PubSubChainExchange, error) {
 	}
 	return &PubSubChainExchange{
 		options:              opts,
-		chainsWanted:         map[uint64]*lru.Cache[string, *chainPortion]{},
-		chainsDiscovered:     map[uint64]*lru.Cache[string, *chainPortion]{},
+		chainsWanted:         map[uint64]*lru.Cache[gpbft.ECChainKey, *chainPortion]{},
+		chainsDiscovered:     map[uint64]*lru.Cache[gpbft.ECChainKey, *chainPortion]{},
 		pendingCacheAsWanted: make(chan Message, 100), // TODO: parameterise.
 	}, nil
 }
@@ -113,20 +112,7 @@ func (p *PubSubChainExchange) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *PubSubChainExchange) Key(chain gpbft.ECChain) Key {
-	if chain.IsZero() {
-		return nil
-	}
-	length := len(chain)
-	values := make([][]byte, length)
-	for i := range length {
-		values[i] = chain[i].MarshalForSigning()
-	}
-	rootDigest := merkle.Tree(values)
-	return rootDigest[:]
-}
-
-func (p *PubSubChainExchange) GetChainByInstance(ctx context.Context, instance uint64, key Key) (gpbft.ECChain, bool) {
+func (p *PubSubChainExchange) GetChainByInstance(ctx context.Context, instance uint64, key gpbft.ECChainKey) (*gpbft.ECChain, bool) {
 
 	// We do not have to take instance as input, and instead we can just search
 	// through all the instance as they are not expected to be more than 10. The
@@ -140,25 +126,23 @@ func (p *PubSubChainExchange) GetChainByInstance(ctx context.Context, instance u
 		return nil, false
 	}
 
-	cacheKey := string(key)
-
 	// Check wanted keys first.
 
 	wanted := p.getChainsWantedAt(instance)
-	if portion, found := wanted.Get(cacheKey); found && !portion.IsPlaceholder() {
+	if portion, found := wanted.Get(key); found && !portion.IsPlaceholder() {
 		return portion.chain, true
 	}
 
 	// Check if the chain for the key is discovered.
 	discovered := p.getChainsDiscoveredAt(instance)
-	if portion, found := discovered.Get(cacheKey); found {
+	if portion, found := discovered.Get(key); found {
 		// Add it to the wanted cache and remove it from the discovered cache.
-		wanted.Add(cacheKey, portion)
-		discovered.Remove(cacheKey)
+		wanted.Add(key, portion)
+		discovered.Remove(key)
 
 		chain := portion.chain
 		if p.listener != nil {
-			p.listener.NotifyChainDiscovered(ctx, key, instance, chain)
+			p.listener.NotifyChainDiscovered(ctx, instance, chain)
 		}
 		// TODO: Do we want to pull all the suffixes of the chain into wanted cache?
 		return chain, true
@@ -166,11 +150,11 @@ func (p *PubSubChainExchange) GetChainByInstance(ctx context.Context, instance u
 
 	// Otherwise, add a placeholder for the wanted key as a way to prioritise its
 	// retention via LRU recent-ness.
-	wanted.ContainsOrAdd(cacheKey, chainPortionPlaceHolder)
+	wanted.ContainsOrAdd(key, chainPortionPlaceHolder)
 	return nil, false
 }
 
-func (p *PubSubChainExchange) getChainsWantedAt(instance uint64) *lru.Cache[string, *chainPortion] {
+func (p *PubSubChainExchange) getChainsWantedAt(instance uint64) *lru.Cache[gpbft.ECChainKey, *chainPortion] {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	wanted, exists := p.chainsWanted[instance]
@@ -181,7 +165,7 @@ func (p *PubSubChainExchange) getChainsWantedAt(instance uint64) *lru.Cache[stri
 	return wanted
 }
 
-func (p *PubSubChainExchange) getChainsDiscoveredAt(instance uint64) *lru.Cache[string, *chainPortion] {
+func (p *PubSubChainExchange) getChainsDiscoveredAt(instance uint64) *lru.Cache[gpbft.ECChainKey, *chainPortion] {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	discovered, exists := p.chainsDiscovered[instance]
@@ -192,8 +176,8 @@ func (p *PubSubChainExchange) getChainsDiscoveredAt(instance uint64) *lru.Cache[
 	return discovered
 }
 
-func (p *PubSubChainExchange) newChainPortionCache(capacity int) *lru.Cache[string, *chainPortion] {
-	cache, err := lru.New[string, *chainPortion](capacity)
+func (p *PubSubChainExchange) newChainPortionCache(capacity int) *lru.Cache[gpbft.ECChainKey, *chainPortion] {
+	cache, err := lru.New[gpbft.ECChainKey, *chainPortion](capacity)
 	if err != nil {
 		// This can only happen if the cache size is negative, which is validated via
 		// options. Its occurrence for the purposes of chain exchange indicates a
@@ -244,22 +228,21 @@ func (p *PubSubChainExchange) cacheAsDiscoveredChain(ctx context.Context, cmsg M
 	wanted := p.getChainsDiscoveredAt(cmsg.Instance)
 	discovered := p.getChainsDiscoveredAt(cmsg.Instance)
 
-	for offset := len(cmsg.Chain); offset >= 0 && ctx.Err() == nil; offset-- {
+	for offset := cmsg.Chain.Len(); offset >= 0 && ctx.Err() == nil; offset-- {
 		// TODO: Expose internals of merkle.go so that keys can be generated
 		//       cumulatively for a more efficient prefix chain key generation.
 		prefix := cmsg.Chain.Prefix(offset)
-		key := p.Key(prefix)
-		cacheKey := string(key)
-		if portion, found := wanted.Peek(cacheKey); !found {
+		key := prefix.Key()
+		if portion, found := wanted.Peek(key); !found {
 			// Not a wanted key; add it to discovered chains if they are not there already,
 			// i.e. without modifying the recent-ness of any of the discovered values.
-			discovered.ContainsOrAdd(cacheKey, &chainPortion{
+			discovered.ContainsOrAdd(key, &chainPortion{
 				chain: prefix,
 			})
 		} else if portion.IsPlaceholder() {
 			// It is a wanted key with a placeholder; replace the placeholder with the actual
 			// discovery.
-			wanted.Add(cacheKey, &chainPortion{
+			wanted.Add(key, &chainPortion{
 				chain: prefix,
 			})
 		}
@@ -295,27 +278,24 @@ func (p *PubSubChainExchange) Broadcast(ctx context.Context, msg Message) error 
 }
 
 type discovery struct {
-	key      Key
 	instance uint64
-	chain    gpbft.ECChain
+	chain    *gpbft.ECChain
 }
 
 func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Message) {
 	var notifications []discovery
 	wanted := p.getChainsWantedAt(cmsg.Instance)
-	for offset := len(cmsg.Chain); offset >= 0 && ctx.Err() == nil; offset-- {
+	for offset := cmsg.Chain.Len(); offset >= 0 && ctx.Err() == nil; offset-- {
 		// TODO: Expose internals of merkle.go so that keys can be generated
 		//       cumulatively for a more efficient prefix chain key generation.
 		prefix := cmsg.Chain.Prefix(offset)
-		key := p.Key(prefix)
-		cacheKey := string(key)
-		if portion, found := wanted.Peek(cacheKey); !found || portion.IsPlaceholder() {
-			wanted.Add(cacheKey, &chainPortion{
+		key := prefix.Key()
+		if portion, found := wanted.Peek(key); !found || portion.IsPlaceholder() {
+			wanted.Add(key, &chainPortion{
 				chain: prefix,
 			})
 			if p.listener != nil {
 				notifications = append(notifications, discovery{
-					key:      key,
 					instance: cmsg.Instance,
 					chain:    prefix,
 				})
@@ -329,7 +309,7 @@ func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Messa
 	// Notify the listener outside the lock.
 	if p.listener != nil {
 		for _, notification := range notifications {
-			p.listener.NotifyChainDiscovered(ctx, notification.key, notification.instance, notification.chain)
+			p.listener.NotifyChainDiscovered(ctx, notification.instance, notification.chain)
 		}
 	}
 }

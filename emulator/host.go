@@ -79,7 +79,7 @@ func (h *driverHost) maybeReceiveDecision(decision *gpbft.Justification) error {
 	}
 }
 
-func (h *driverHost) GetProposal(id uint64) (*gpbft.SupplementalData, gpbft.ECChain, error) {
+func (h *driverHost) GetProposal(id uint64) (*gpbft.SupplementalData, *gpbft.ECChain, error) {
 	instance := h.chain[id]
 	if instance == nil {
 		return nil, nil, fmt.Errorf("instance ID %d not found", id)

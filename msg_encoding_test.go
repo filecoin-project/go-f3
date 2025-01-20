@@ -92,7 +92,7 @@ func generateRandomPartialGMessage(b *testing.B, rng *rand.Rand) *PartialGMessag
 	if pgmsg.Justification != nil {
 		pgmsg.GMessage.Justification.Vote.Value = nil
 	}
-	pgmsg.VoteValueKey = generateRandomBytes(b, rng, 32)
+	pgmsg.VoteValueKey = gpbft.ECChainKey(generateRandomBytes(b, rng, 32))
 	return &pgmsg
 }
 
@@ -146,17 +146,19 @@ func generateRandomBitfield(rng *rand.Rand) bitfield.BitField {
 	return bitfield.NewFromSet(ids)
 }
 
-func generateRandomECChain(b *testing.B, rng *rand.Rand, length int) gpbft.ECChain {
-	chain := make(gpbft.ECChain, length)
+func generateRandomECChain(b *testing.B, rng *rand.Rand, length int) *gpbft.ECChain {
+	chain := &gpbft.ECChain{
+		TipSets: make([]*gpbft.TipSet, length),
+	}
 	epoch := int64(rng.Uint64())
 	for i := range length {
-		chain[i] = generateRandomTipSet(b, rng, epoch+int64(i))
+		chain.TipSets[i] = generateRandomTipSet(b, rng, epoch+int64(i))
 	}
 	return chain
 }
 
-func generateRandomTipSet(b *testing.B, rng *rand.Rand, epoch int64) gpbft.TipSet {
-	return gpbft.TipSet{
+func generateRandomTipSet(b *testing.B, rng *rand.Rand, epoch int64) *gpbft.TipSet {
+	return &gpbft.TipSet{
 		Epoch:      epoch,
 		Key:        generateRandomTipSetKey(b, rng),
 		PowerTable: generateRandomCID(b, rng),

@@ -11,20 +11,20 @@ import (
 // attempt to reach consensus on at the given GPBFT instance. The return chain
 // must have the given TipSet as its base.
 type ECChainGenerator interface {
-	GenerateECChain(instance uint64, base gpbft.TipSet, id gpbft.ActorID) gpbft.ECChain
+	GenerateECChain(instance uint64, base *gpbft.TipSet, id gpbft.ActorID) *gpbft.ECChain
 }
 
 var _ ECChainGenerator = (*FixedECChainGenerator)(nil)
 
 type FixedECChainGenerator struct {
-	chain gpbft.ECChain
+	chain *gpbft.ECChain
 }
 
-func NewFixedECChainGenerator(chain gpbft.ECChain) *FixedECChainGenerator {
+func NewFixedECChainGenerator(chain *gpbft.ECChain) *FixedECChainGenerator {
 	return &FixedECChainGenerator{chain: chain}
 }
 
-func (f *FixedECChainGenerator) GenerateECChain(uint64, gpbft.TipSet, gpbft.ActorID) gpbft.ECChain {
+func (f *FixedECChainGenerator) GenerateECChain(uint64, *gpbft.TipSet, gpbft.ActorID) *gpbft.ECChain {
 	return f.chain
 }
 
@@ -36,7 +36,7 @@ type UniformECChainGenerator struct {
 	rng                    *rand.Rand
 	tsg                    *TipSetGenerator
 	minTipSets, maxTipSets uint64
-	chainsByInstance       map[uint64]gpbft.ECChain
+	chainsByInstance       map[uint64]*gpbft.ECChain
 }
 
 func NewUniformECChainGenerator(seed, minTipSets, maxTipSets uint64) *UniformECChainGenerator {
@@ -45,11 +45,11 @@ func NewUniformECChainGenerator(seed, minTipSets, maxTipSets uint64) *UniformECC
 		tsg:              NewTipSetGenerator(seed),
 		minTipSets:       minTipSets,
 		maxTipSets:       maxTipSets,
-		chainsByInstance: make(map[uint64]gpbft.ECChain),
+		chainsByInstance: make(map[uint64]*gpbft.ECChain),
 	}
 }
 
-func (u *UniformECChainGenerator) GenerateECChain(instance uint64, base gpbft.TipSet, _ gpbft.ActorID) gpbft.ECChain {
+func (u *UniformECChainGenerator) GenerateECChain(instance uint64, base *gpbft.TipSet, _ gpbft.ActorID) *gpbft.ECChain {
 	chain, found := u.chainsByInstance[instance]
 	if !found {
 		var err error
@@ -77,7 +77,7 @@ type RandomECChainGenerator struct {
 	rng                           *rand.Rand
 	tsg                           *TipSetGenerator
 	minTipSets, maxTipSets        uint64
-	chainsByInstanceByParticipant map[uint64]map[gpbft.ActorID]gpbft.ECChain
+	chainsByInstanceByParticipant map[uint64]map[gpbft.ActorID]*gpbft.ECChain
 }
 
 func NewRandomECChainGenerator(seed, minTipSets, maxTipSets uint64) *RandomECChainGenerator {
@@ -86,14 +86,14 @@ func NewRandomECChainGenerator(seed, minTipSets, maxTipSets uint64) *RandomECCha
 		tsg:                           NewTipSetGenerator(seed),
 		minTipSets:                    minTipSets,
 		maxTipSets:                    maxTipSets,
-		chainsByInstanceByParticipant: make(map[uint64]map[gpbft.ActorID]gpbft.ECChain),
+		chainsByInstanceByParticipant: make(map[uint64]map[gpbft.ActorID]*gpbft.ECChain),
 	}
 }
 
-func (u *RandomECChainGenerator) GenerateECChain(instance uint64, base gpbft.TipSet, participant gpbft.ActorID) gpbft.ECChain {
+func (u *RandomECChainGenerator) GenerateECChain(instance uint64, base *gpbft.TipSet, participant gpbft.ActorID) *gpbft.ECChain {
 	chainsByParticipant, found := u.chainsByInstanceByParticipant[instance]
 	if !found {
-		chainsByParticipant = make(map[gpbft.ActorID]gpbft.ECChain)
+		chainsByParticipant = make(map[gpbft.ActorID]*gpbft.ECChain)
 		u.chainsByInstanceByParticipant[instance] = chainsByParticipant
 	}
 	chain, found := chainsByParticipant[participant]
@@ -138,10 +138,10 @@ func NewAppendingECChainGenerator(g ...ECChainGenerator) *AggregateECChainGenera
 	}
 }
 
-func (u *AggregateECChainGenerator) GenerateECChain(instance uint64, base gpbft.TipSet, participant gpbft.ActorID) gpbft.ECChain {
-	chain := gpbft.ECChain{base}
+func (u *AggregateECChainGenerator) GenerateECChain(instance uint64, base *gpbft.TipSet, participant gpbft.ActorID) *gpbft.ECChain {
+	chain := &gpbft.ECChain{TipSets: []*gpbft.TipSet{base}}
 	for _, generator := range u.generators {
-		chain = append(chain, generator.GenerateECChain(instance, *chain.Head(), participant).Suffix()...)
+		chain = chain.Append(generator.GenerateECChain(instance, chain.Head(), participant).Suffix()...)
 	}
 	return chain
 }
@@ -153,6 +153,6 @@ type BaseECChainGenerator struct{}
 
 func NewBaseECChainGenerator() *BaseECChainGenerator { return &BaseECChainGenerator{} }
 
-func (u *BaseECChainGenerator) GenerateECChain(_ uint64, base gpbft.TipSet, _ gpbft.ActorID) gpbft.ECChain {
-	return gpbft.ECChain{base}
+func (u *BaseECChainGenerator) GenerateECChain(_ uint64, base *gpbft.TipSet, _ gpbft.ActorID) *gpbft.ECChain {
+	return &gpbft.ECChain{TipSets: []*gpbft.TipSet{base}}
 }
