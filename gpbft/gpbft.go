@@ -85,7 +85,7 @@ type Justification struct {
 type SupplementalData struct {
 	// Merkle-tree of instance-specific commitments. Currently empty but this will eventually
 	// include things like snark-friendly power-table commitments.
-	Commitments [32]byte
+	Commitments [32]byte `cborgen:"maxlen=32"`
 	// The DagCBOR-blake2b256 CID of the power table used to validate the next instance, taking
 	// lookback into account.
 	PowerTable cid.Cid // []PowerEntry

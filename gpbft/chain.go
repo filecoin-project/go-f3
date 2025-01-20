@@ -56,7 +56,7 @@ type TipSet struct {
 	// Blake2b256-32 CID of the CBOR-encoded power table.
 	PowerTable cid.Cid
 	// Keccak256 root hash of the commitments merkle tree.
-	Commitments [32]byte
+	Commitments [32]byte `cborgen:"maxlen=32"`
 }
 
 // Validates a tipset.
