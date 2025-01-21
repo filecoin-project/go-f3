@@ -209,15 +209,21 @@ func (p *PubSubChainExchange) validatePubSubMessage(_ context.Context, _ peer.ID
 		log.Debugw("failed to decode message", "from", msg.GetFrom(), "err", err)
 		return pubsub.ValidationReject
 	}
+	if cmsg.Chain.IsZero() {
+		// No peer should broadcast a zero-length chain.
+		return pubsub.ValidationReject
+	}
+	if err := cmsg.Chain.Validate(); err != nil {
+		// Invalid chain.
+		log.Debugw("Invalid chain", "from", msg.GetFrom(), "err", err)
+		return pubsub.ValidationReject
+	}
 	switch current := p.progress(); {
 	case
 		cmsg.Instance < current.ID,
 		cmsg.Instance > current.ID+p.maxInstanceLookahead:
 		// Too far ahead or too far behind.
 		return pubsub.ValidationIgnore
-	case cmsg.Chain.IsZero():
-		// No peer should broadcast a zero-length chain.
-		return pubsub.ValidationReject
 	}
 	// TODO: wire in the current base chain from an on-going instance to further
 	//       tighten up validation.
