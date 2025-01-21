@@ -13,8 +13,9 @@ type Keyer interface {
 }
 
 type Message struct {
-	Instance uint64
-	Chain    gpbft.ECChain
+	Instance  uint64
+	Chain     gpbft.ECChain
+	Timestamp int64
 }
 
 type ChainExchange interface {

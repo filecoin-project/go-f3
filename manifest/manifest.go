@@ -63,6 +63,8 @@ var (
 		MaxInstanceLookahead:           DefaultCommitteeLookback,
 		MaxDiscoveredChainsPerInstance: 1_000,
 		MaxWantedChainsPerInstance:     1_000,
+		RebroadcastInterval:            2 * time.Second,
+		MaxTimestampAge:                8 * time.Second,
 	}
 
 	// Default instance alignment when catching up.
@@ -225,6 +227,8 @@ type ChainExchangeConfig struct {
 	MaxInstanceLookahead           uint64
 	MaxDiscoveredChainsPerInstance int
 	MaxWantedChainsPerInstance     int
+	RebroadcastInterval            time.Duration
+	MaxTimestampAge                time.Duration
 }
 
 func (cx *ChainExchangeConfig) Validate() error {
@@ -239,6 +243,8 @@ func (cx *ChainExchangeConfig) Validate() error {
 		return fmt.Errorf("chain exchange max discovered chains per instance must be at least 1, got: %d", cx.MaxDiscoveredChainsPerInstance)
 	case cx.MaxWantedChainsPerInstance < 1:
 		return fmt.Errorf("chain exchange max wanted chains per instance must be at least 1, got: %d", cx.MaxWantedChainsPerInstance)
+	case cx.RebroadcastInterval < 1*time.Millisecond: // 1 ms is a made-up minimum to avoid accidental hot-loop of chain rebroadcast.
+		return fmt.Errorf("chain exchange rebroadcast interval cannot be less than 1ms, got: %s", cx.RebroadcastInterval)
 	default:
 		return nil
 	}

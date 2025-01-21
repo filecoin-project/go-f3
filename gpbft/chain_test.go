@@ -53,6 +53,8 @@ func TestECChain(t *testing.T) {
 		require.Equal(t, &wantNext, subjectExtended.Head())
 		require.True(t, subjectExtended.HasSuffix())
 		require.Equal(t, &wantNext, subjectExtended.Prefix(1).Head())
+		require.True(t, subjectExtended.HasPrefix(subject))
+		require.False(t, subject.Extend(wantBase.Key).HasPrefix(subjectExtended.Extend(wantNext.Key)))
 	})
 	t.Run("zero-valued chain is valid", func(t *testing.T) {
 		var zeroChain gpbft.ECChain

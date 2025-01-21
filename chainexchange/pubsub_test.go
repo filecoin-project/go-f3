@@ -57,8 +57,9 @@ func TestPubSubChainExchange_Broadcast(t *testing.T) {
 	require.Empty(t, testListener.getNotifications())
 
 	require.NoError(t, subject.Broadcast(ctx, chainexchange.Message{
-		Instance: instance,
-		Chain:    ecChain,
+		Instance:  instance,
+		Chain:     ecChain,
+		Timestamp: time.Now().Unix(),
 	}))
 
 	require.Eventually(t, func() bool {

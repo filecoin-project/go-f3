@@ -2,6 +2,7 @@ package chainexchange
 
 import (
 	"errors"
+	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/psutil"
@@ -22,6 +23,7 @@ type options struct {
 	maxDiscoveredChainsPerInstance int
 	maxWantedChainsPerInstance     int
 	listener                       Listener
+	maxTimestampAge                time.Duration
 }
 
 func newOptions(o ...Option) (*options, error) {
@@ -140,6 +142,16 @@ func WithListener(listener Listener) Option {
 			return errors.New("listener cannot be nil")
 		}
 		o.listener = listener
+		return nil
+	}
+}
+
+func WithMaxTimestampAge(max time.Duration) Option {
+	return func(o *options) error {
+		if max < 0 {
+			return errors.New("max timestamp age cannot be negative")
+		}
+		o.maxTimestampAge = max
 		return nil
 	}
 }
