@@ -14,6 +14,7 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/caching"
 	"github.com/filecoin-project/go-f3/internal/clock"
+	"github.com/filecoin-project/go-f3/internal/encoding"
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/internal/writeaheadlog"
 	"github.com/filecoin-project/go-f3/manifest"
@@ -52,7 +53,7 @@ type gpbftRunner struct {
 	selfMessages map[uint64]map[roundPhase][]*gpbft.GMessage
 
 	inputs      gpbftInputs
-	msgEncoding gMessageEncoding
+	msgEncoding encoding.EncodeDecoder[*PartialGMessage]
 	pmm         *partialMessageManager
 	pmv         *cachingPartialValidator
 	pmCache     *caching.GroupedSet
@@ -138,12 +139,12 @@ func newRunner(
 	runner.participant = p
 
 	if runner.manifest.PubSub.CompressionEnabled {
-		runner.msgEncoding, err = newZstdGMessageEncoding()
+		runner.msgEncoding, err = encoding.NewZSTD[*PartialGMessage]()
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		runner.msgEncoding = &cborGMessageEncoding{}
+		runner.msgEncoding = encoding.NewCBOR[*PartialGMessage]()
 	}
 
 	runner.pmm, err = newPartialMessageManager(runner.Progress, ps, m)
@@ -541,15 +542,15 @@ func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, _ peer.ID, msg 
 		recordValidationTime(ctx, start, _result)
 	}(time.Now())
 
-	pgmsg, err := h.msgEncoding.Decode(msg.Data)
-	if err != nil {
+	var pgmsg PartialGMessage
+	if err := h.msgEncoding.Decode(msg.Data, &pgmsg); err != nil {
 		log.Debugw("failed to decode message", "from", msg.GetFrom(), "err", err)
 		return pubsub.ValidationReject
 	}
 
-	gmsg, completed := h.pmm.CompleteMessage(ctx, pgmsg)
+	gmsg, completed := h.pmm.CompleteMessage(ctx, &pgmsg)
 	if !completed {
-		partiallyValidatedMessage, err := h.pmv.PartiallyValidateMessage(pgmsg)
+		partiallyValidatedMessage, err := h.pmv.PartiallyValidateMessage(&pgmsg)
 		result := pubsubValidationResultFromError(err)
 		if result == pubsub.ValidationAccept {
 			msg.ValidatorData = partiallyValidatedMessage
