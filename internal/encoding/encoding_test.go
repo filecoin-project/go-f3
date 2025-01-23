@@ -1,10 +1,12 @@
 package encoding_test
 
 import (
+	"bytes"
 	"io"
 	"testing"
 
 	"github.com/filecoin-project/go-f3/internal/encoding"
+	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/require"
 	cbg "github.com/whyrusleeping/cbor-gen"
 )
@@ -52,4 +54,26 @@ func TestZSTD(t *testing.T) {
 	err = encoder.Decode(encoded, decoded)
 	require.NoError(t, err)
 	require.Equal(t, data.Value, decoded.Value)
+}
+
+func TestZSTDLimits(t *testing.T) {
+	subject, err := encoding.NewZSTD[*testValue]()
+	require.NoError(t, err)
+
+	writer, err := zstd.NewWriter(nil)
+	require.NoError(t, err)
+
+	var v testValue
+	v.Value = string(make([]byte, cbg.ByteArrayMaxLen*2))
+
+	var buf bytes.Buffer
+	require.NoError(t, v.MarshalCBOR(&buf))
+
+	tooLargeACompression := writer.EncodeAll(buf.Bytes(), nil)
+	// Assert the compressed size is less than 1MiB, in other words, transportable by
+	// the default GossipSub message size limit.
+	require.Less(t, len(tooLargeACompression), 1<<20)
+
+	var dest testValue
+	require.ErrorContains(t, subject.Decode(tooLargeACompression, &dest), "decompressed size exceeds configured limit")
 }

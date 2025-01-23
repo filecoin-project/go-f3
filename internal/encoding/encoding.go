@@ -2,10 +2,16 @@ package encoding
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/klauspost/compress/zstd"
 	cbg "github.com/whyrusleeping/cbor-gen"
 )
+
+// maxDecompressedSize is the default maximum amount of memory allocated by the
+// zstd decoder. The limit of 1MiB is chosen based on the default maximum message
+// size in GossipSub.
+const maxDecompressedSize = 1 << 20
 
 type CBORMarshalUnmarshaler interface {
 	cbg.CBORMarshaler
@@ -47,7 +53,7 @@ func NewZSTD[T CBORMarshalUnmarshaler]() (*ZSTD[T], error) {
 	if err != nil {
 		return nil, err
 	}
-	reader, err := zstd.NewReader(nil)
+	reader, err := zstd.NewReader(nil, zstd.WithDecoderMaxMemory(maxDecompressedSize))
 	if err != nil {
 		return nil, err
 	}
@@ -60,6 +66,10 @@ func NewZSTD[T CBORMarshalUnmarshaler]() (*ZSTD[T], error) {
 
 func (c *ZSTD[T]) Encode(m T) ([]byte, error) {
 	cborEncoded, err := c.cborEncoding.Encode(m)
+	if len(cborEncoded) > maxDecompressedSize {
+		// Error out early if the encoded value is too large to be decompressed.
+		return nil, fmt.Errorf("encoded value cannot exceed maximum size: %d > %d", len(cborEncoded), maxDecompressedSize)
+	}
 	if err != nil {
 		return nil, err
 	}
