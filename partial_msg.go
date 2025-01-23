@@ -3,6 +3,7 @@ package f3
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/filecoin-project/go-f3/chainexchange"
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -43,6 +44,10 @@ type partialMessageManager struct {
 	// pendingDiscoveredChains is a channel of chains discovered by chainexchange
 	// that are pending to be processed.
 	pendingDiscoveredChains chan *discoveredChain
+	// pendingChainBroadcasts is a channel of chains that are pending to be broadcasted.
+	pendingChainBroadcasts chan chainexchange.Message
+	// rebroadcastInterval is the interval at which chains are re-broadcasted.
+	rebroadcastInterval time.Duration
 
 	stop func()
 }
@@ -53,6 +58,8 @@ func newPartialMessageManager(progress gpbft.Progress, ps *pubsub.PubSub, m *man
 		pmkByInstanceByChainKey: make(map[uint64]map[string][]partialMessageKey),
 		pendingDiscoveredChains: make(chan *discoveredChain, 100),           // TODO: parameterize buffer size.
 		pendingPartialMessages:  make(chan *PartiallyValidatedMessage, 100), // TODO: parameterize buffer size.
+		pendingChainBroadcasts:  make(chan chainexchange.Message, 100),      // TODO: parameterize buffer size.
+		rebroadcastInterval:     m.ChainExchange.RebroadcastInterval,
 	}
 	var err error
 	pmm.chainex, err = chainexchange.NewPubSubChainExchange(
@@ -63,6 +70,7 @@ func newPartialMessageManager(progress gpbft.Progress, ps *pubsub.PubSub, m *man
 		chainexchange.WithMaxDiscoveredChainsPerInstance(m.ChainExchange.MaxDiscoveredChainsPerInstance),
 		chainexchange.WithMaxInstanceLookahead(m.ChainExchange.MaxInstanceLookahead),
 		chainexchange.WithMaxWantedChainsPerInstance(m.ChainExchange.MaxWantedChainsPerInstance),
+		chainexchange.WithMaxTimestampAge(m.ChainExchange.MaxTimestampAge),
 		chainexchange.WithSubscriptionBufferSize(m.ChainExchange.SubscriptionBufferSize),
 		chainexchange.WithTopicName(manifest.ChainExchangeTopicFromNetworkName(m.NetworkName)),
 	)
@@ -147,22 +155,82 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyV
 			}
 		}
 	}()
+
+	// Use a dedicated goroutine for chain broadcast to avoid any delay in
+	// broadcasting chains as it can fundamentally affect progress across the system.
+	go func() {
+		ticker := time.NewTicker(pmm.rebroadcastInterval)
+		defer func() {
+			ticker.Stop()
+			log.Debugw("Partial message manager rebroadcast stopped.")
+		}()
+
+		var current *chainexchange.Message
+		for ctx.Err() == nil {
+			select {
+			case <-ctx.Done():
+				return
+			case t := <-ticker.C:
+				if current != nil {
+					current.Timestamp = roundDownToUnixTime(t, pmm.rebroadcastInterval)
+					if err := pmm.chainex.Broadcast(ctx, *current); err != nil {
+						log.Errorw("Failed to re-broadcast chain.", "instance", current.Instance, "chain", current.Chain, "error", err)
+					}
+				}
+			case pending, ok := <-pmm.pendingChainBroadcasts:
+				if !ok {
+					return
+				}
+				switch {
+				case current == nil, pending.Instance > current.Instance:
+					// Either there's no prior chain broadcast or a new instance has started.
+					// Broadcast immediately and reset the timer to tick from now onwards. This is to
+					// re-align the chain rebroadcast relative to instance start.
+					current = &pending
+					current.Timestamp = roundDownToUnixTime(time.Now(), pmm.rebroadcastInterval)
+					if err := pmm.chainex.Broadcast(ctx, *current); err != nil {
+						log.Errorw("Failed to immediately re-broadcast chain.", "instance", current.Instance, "chain", current.Chain, "error", err)
+					}
+					ticker.Reset(pmm.rebroadcastInterval)
+				case pending.Instance == current.Instance:
+					// When the instance is the same as the current instance, only switch if the
+					// current chain doesn't contain the pending chain as a prefix. Because,
+					// broadcasting the longer chain offers more information to the network and
+					// improves the chances of consensus on a longer chain at the price of slightly
+					// higher bandwidth usage.
+					if !current.Chain.HasPrefix(pending.Chain) {
+						current = &pending
+					}
+					// TODO: Maybe parameterise this in manifest in case we need to save as much
+					//       bandwidth as possible?
+				case pending.Instance < current.Instance:
+					log.Debugw("Dropped chain broadcast message as it's too old.", "messageInstance", pending.Instance, "latestInstance", current.Instance)
+					continue
+				}
+			}
+		}
+	}()
+
 	return completedMessages, nil
+}
+
+func roundDownToUnixTime(t time.Time, interval time.Duration) int64 {
+	return (t.Unix() / int64(interval)) * int64(interval)
 }
 
 func (pmm *partialMessageManager) BroadcastChain(ctx context.Context, instance uint64, chain gpbft.ECChain) error {
 	if chain.IsZero() {
 		return nil
 	}
-
-	// TODO: Implement an independent chain broadcast and rebroadcast heuristic.
-	//       See: https://github.com/filecoin-project/go-f3/issues/814
-
-	cmsg := chainexchange.Message{Instance: instance, Chain: chain}
-	if err := pmm.chainex.Broadcast(ctx, cmsg); err != nil {
-		return fmt.Errorf("broadcasting chain: %w", err)
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case pmm.pendingChainBroadcasts <- chainexchange.Message{Instance: instance, Chain: chain}:
+	default:
+		// The chain broadcast is too slow. Drop the request and rely on GPBFT
+		// re-broadcast to request chain broadcast again instead of blocking.
+		log.Debugw("Dropped chain broadcast as chain rebroadcast is too slow.", "instance", instance, "chain", chain)
 	}
-	log.Debugw("broadcasted chain", "instance", instance, "chain", chain)
 	return nil
 }
 

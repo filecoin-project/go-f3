@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/psutil"
@@ -223,6 +224,13 @@ func (p *PubSubChainExchange) validatePubSubMessage(_ context.Context, _ peer.ID
 		cmsg.Instance < current.ID,
 		cmsg.Instance > current.ID+p.maxInstanceLookahead:
 		// Too far ahead or too far behind.
+		return pubsub.ValidationIgnore
+	}
+	now := time.Now().Unix()
+	lowerBound := now - int64(p.maxTimestampAge.Seconds())
+	if lowerBound > cmsg.Timestamp || cmsg.Timestamp > now {
+		// The timestamp is too old or too far ahead. Ignore the message to avoid
+		// affecting peer scores.
 		return pubsub.ValidationIgnore
 	}
 	// TODO: wire in the current base chain from an on-going instance to further

@@ -322,6 +322,23 @@ func (c ECChain) Validate() error {
 	return nil
 }
 
+// HasPrefix checks whether a chain has the given chain as a prefix, including
+// base. This function always returns if either chain is zero.
+func (c ECChain) HasPrefix(other ECChain) bool {
+	if c.IsZero() || other.IsZero() {
+		return false
+	}
+	if len(other) > len(c) {
+		return false
+	}
+	for i := range other {
+		if !c[i].Equal(&other[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 // Returns an identifier for the chain suitable for use as a map key.
 // This must completely determine the sequence of tipsets in the chain.
 func (c ECChain) Key() ChainKey {
