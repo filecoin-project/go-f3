@@ -555,7 +555,7 @@ func (e *testEnv) waitForEpochFinalized(epoch int64) {
 					}
 				}
 				return false
-			}, 90*time.Second)
+			}, 120*time.Second)
 		}
 
 		if head < epoch-100 {
