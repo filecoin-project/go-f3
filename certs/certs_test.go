@@ -212,7 +212,7 @@ func TestFinalityCertificates(t *testing.T) {
 
 	rng := rand.New(rand.NewSource(1234))
 	tsg := sim.NewTipSetGenerator(rng.Uint64())
-	base := gpbft.TipSet{Epoch: 0, Key: tsg.Sample(), PowerTable: tableCid}
+	base := &gpbft.TipSet{Epoch: 0, Key: tsg.Sample(), PowerTable: tableCid}
 
 	certificates := make([]*certs.FinalityCertificate, 10)
 	powerTables := make([]gpbft.PowerEntries, 10)
@@ -224,14 +224,14 @@ func TestFinalityCertificates(t *testing.T) {
 		cert, err := certs.NewFinalityCertificate(certs.MakePowerTableDiff(powerTables[i], powerTable), justification)
 		require.NoError(t, err)
 		certificates[i] = cert
-		base = *justification.Vote.Value.Head()
+		base = justification.Vote.Value.Head()
 	}
 
 	// Validate one.
 	nextInstance, chain, newPowerTable, err := certs.ValidateFinalityCertificates(backend, networkName, powerTables[0], 0, certificates[0].ECChain.Base(), certificates[0])
 	require.NoError(t, err)
 	require.EqualValues(t, 1, nextInstance)
-	require.True(t, chain.Eq(certificates[0].ECChain.Suffix()))
+	require.Equal(t, chain.TipSets, certificates[0].ECChain.Suffix())
 	require.Equal(t, powerTables[1], newPowerTable)
 
 	// Validate multiple
@@ -240,14 +240,14 @@ func TestFinalityCertificates(t *testing.T) {
 	require.EqualValues(t, 4, nextInstance)
 	require.Equal(t, powerTables[4], newPowerTable)
 	require.True(t, certificates[3].ECChain.Head().Equal(chain.Head()))
-	require.True(t, certificates[0].ECChain[1].Equal(chain.Base()))
+	require.True(t, certificates[0].ECChain.TipSets[1].Equal(chain.Base()))
 
 	nextInstance, chain, newPowerTable, err = certs.ValidateFinalityCertificates(backend, networkName, powerTables[nextInstance], nextInstance, nil, certificates[nextInstance:]...)
 	require.NoError(t, err)
 	require.EqualValues(t, len(certificates), nextInstance)
 	require.Equal(t, powerTable, newPowerTable)
 	require.True(t, certificates[len(certificates)-1].ECChain.Head().Equal(chain.Head()))
-	require.True(t, certificates[4].ECChain[1].Equal(chain.Base()))
+	require.True(t, certificates[4].ECChain.TipSets[1].Equal(chain.Base()))
 }
 
 func TestBadFinalityCertificates(t *testing.T) {
@@ -257,7 +257,7 @@ func TestBadFinalityCertificates(t *testing.T) {
 	tsg := sim.NewTipSetGenerator(rng.Uint64())
 	tableCid, err := certs.MakePowerTableCID(powerTable)
 	require.NoError(t, err)
-	base := gpbft.TipSet{Epoch: 0, Key: tsg.Sample(), PowerTable: tableCid}
+	base := &gpbft.TipSet{Epoch: 0, Key: tsg.Sample(), PowerTable: tableCid}
 
 	nextPowerTable, _ := randomizePowerTable(rng, backend, 200, powerTable, nil)
 
@@ -393,8 +393,10 @@ func TestBadFinalityCertificates(t *testing.T) {
 	// Chain is invalid.
 	{
 		certCpy := *certificate
-		certCpy.ECChain = slices.Clone(certCpy.ECChain)
-		slices.Reverse(certCpy.ECChain)
+		certCpy.ECChain = &gpbft.ECChain{
+			TipSets: slices.Clone(certificate.ECChain.TipSets),
+		}
+		slices.Reverse(certCpy.ECChain.TipSets)
 		nextInstance, chain, newPowerTable, err := certs.ValidateFinalityCertificates(backend, networkName, powerTable, 1, nil, &certCpy)
 		require.ErrorContains(t, err, "chain must have increasing epochs")
 		require.EqualValues(t, 1, nextInstance)
@@ -476,7 +478,7 @@ func randomPowerTable(backend signing.Backend, entries int64) gpbft.PowerEntries
 	return powerTable
 }
 
-func makeJustification(t *testing.T, rng *rand.Rand, tsg *sim.TipSetGenerator, backend signing.Backend, base gpbft.TipSet, instance uint64, powerTable, nextPowerTable gpbft.PowerEntries) *gpbft.Justification {
+func makeJustification(t *testing.T, rng *rand.Rand, tsg *sim.TipSetGenerator, backend signing.Backend, base *gpbft.TipSet, instance uint64, powerTable, nextPowerTable gpbft.PowerEntries) *gpbft.Justification {
 	chainLen := rng.Intn(23) + 1
 	chain, err := gpbft.NewChain(base)
 	require.NoError(t, err)

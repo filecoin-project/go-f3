@@ -14,11 +14,11 @@ import (
 )
 
 var (
-	tipset0 = gpbft.TipSet{Epoch: 0, Key: []byte("bigbang")}
-	tipSet1 = gpbft.TipSet{Epoch: 1, Key: []byte("fish")}
-	tipSet2 = gpbft.TipSet{Epoch: 2, Key: []byte("lobster")}
-	tipSet3 = gpbft.TipSet{Epoch: 3, Key: []byte("fisherman")}
-	tipSet4 = gpbft.TipSet{Epoch: 4, Key: []byte("lobstermucher")}
+	tipset0 = &gpbft.TipSet{Epoch: 0, Key: []byte("bigbang"), PowerTable: ptCid}
+	tipSet1 = &gpbft.TipSet{Epoch: 1, Key: []byte("fish"), PowerTable: ptCid}
+	tipSet2 = &gpbft.TipSet{Epoch: 2, Key: []byte("lobster"), PowerTable: ptCid}
+	tipSet3 = &gpbft.TipSet{Epoch: 3, Key: []byte("fisherman"), PowerTable: ptCid}
+	tipSet4 = &gpbft.TipSet{Epoch: 4, Key: []byte("lobstermucher"), PowerTable: ptCid}
 )
 
 func TestGPBFT_UnevenPowerDistribution(t *testing.T) {
@@ -221,10 +221,10 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 		driver.RequireCommitForBottom(0)
 		driver.RequireDeliverMessage(&gpbft.GMessage{
 			Sender: 1,
-			Vote:   instance.NewCommit(0, gpbft.ECChain{}),
+			Vote:   instance.NewCommit(0, &gpbft.ECChain{}),
 		})
 
-		evidenceOfCommitForBottom := instance.NewJustification(0, gpbft.COMMIT_PHASE, gpbft.ECChain{}, 0, 1)
+		evidenceOfCommitForBottom := instance.NewJustification(0, gpbft.COMMIT_PHASE, &gpbft.ECChain{}, 0, 1)
 
 		driver.RequireConverge(1, baseChain, evidenceOfCommitForBottom)
 		driver.RequireDeliverMessage(&gpbft.GMessage{
@@ -400,7 +400,7 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 		// Deliver COMMIT for bottom to facilitate progress to CONVERGE.
 		driver.RequireDeliverMessage(&gpbft.GMessage{
 			Sender: 1,
-			Vote:   instance.NewCommit(0, gpbft.ECChain{}),
+			Vote:   instance.NewCommit(0, &gpbft.ECChain{}),
 		})
 
 		// Expect Converge with evidence of COMMIT for bottom.
@@ -926,7 +926,7 @@ func TestGPBFT_Equivocations(t *testing.T) {
 	t.Run("Decides on proposal at instance", func(t *testing.T) {
 		instance, driver := newInstanceAndDriver(t)
 
-		equivocations := []gpbft.ECChain{
+		equivocations := []*gpbft.ECChain{
 			instance.Proposal().Extend(tipSet3.Key),
 			instance.Proposal().Extend(tipSet4.Key),
 		}
@@ -1014,7 +1014,7 @@ func TestGPBFT_Equivocations(t *testing.T) {
 
 		instance, driver := newInstanceAndDriver(t)
 
-		equivocations := []gpbft.ECChain{
+		equivocations := []*gpbft.ECChain{
 			instance.Proposal().Extend(tipSet3.Key),
 			instance.Proposal().Extend(tipSet4.Key),
 		}
@@ -1174,10 +1174,10 @@ func TestGPBFT_Validation(t *testing.T) {
 			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
 				return &gpbft.GMessage{
 					Sender: 1,
-					Vote: instance.NewQuality(gpbft.ECChain{gpbft.TipSet{
+					Vote: instance.NewQuality(&gpbft.ECChain{TipSets: []*gpbft.TipSet{{
 						Epoch:      -1,
 						PowerTable: instance.SupplementalData().PowerTable,
-					}}),
+					}}}),
 				}
 			},
 			errContains: "invalid message vote value",
@@ -1224,10 +1224,10 @@ func TestGPBFT_Validation(t *testing.T) {
 						Value:            instance.Proposal(),
 						SupplementalData: instance.SupplementalData(),
 					},
-					Justification: instance.NewJustification(55, gpbft.COMMIT_PHASE, gpbft.ECChain{gpbft.TipSet{
+					Justification: instance.NewJustification(55, gpbft.COMMIT_PHASE, &gpbft.ECChain{TipSets: []*gpbft.TipSet{{
 						Epoch:      -2,
 						PowerTable: instance.SupplementalData().PowerTable,
-					}}, 0, 1),
+					}}}, 0, 1),
 				}
 			},
 			errContains: "invalid justification vote value",
@@ -1235,7 +1235,7 @@ func TestGPBFT_Validation(t *testing.T) {
 		{
 			name: "justification for different instance",
 			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
-				newInstance := emulator.NewInstance(t, instance.ID()+1, instance.PowerTable().Entries, instance.Proposal()...)
+				newInstance := emulator.NewInstance(t, instance.ID()+1, instance.PowerTable().Entries, instance.Proposal().TipSets...)
 				return &gpbft.GMessage{
 					Sender: 1,
 					Vote: gpbft.Payload{
@@ -1264,9 +1264,9 @@ func TestGPBFT_Validation(t *testing.T) {
 			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
 				return &gpbft.GMessage{
 					Sender:        1,
-					Vote:          instance.NewConverge(12, gpbft.ECChain{}),
+					Vote:          instance.NewConverge(12, &gpbft.ECChain{}),
 					Ticket:        emulator.ValidTicket,
-					Justification: instance.NewJustification(11, gpbft.PREPARE_PHASE, gpbft.ECChain{}, 0, 1),
+					Justification: instance.NewJustification(11, gpbft.PREPARE_PHASE, &gpbft.ECChain{}, 0, 1),
 				}
 			},
 			errContains: "unexpected zero value for converge phase",
@@ -1300,9 +1300,9 @@ func TestGPBFT_Validation(t *testing.T) {
 			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
 				return &gpbft.GMessage{
 					Sender:        1,
-					Vote:          instance.NewPrepare(3, gpbft.ECChain{}),
+					Vote:          instance.NewPrepare(3, &gpbft.ECChain{}),
 					Ticket:        emulator.ValidTicket,
-					Justification: instance.NewJustification(2, gpbft.COMMIT_PHASE, gpbft.ECChain{}, 0),
+					Justification: instance.NewJustification(2, gpbft.COMMIT_PHASE, &gpbft.ECChain{}, 0),
 				}
 			},
 			errContains: "has justification with insufficient power",
@@ -1317,14 +1317,14 @@ func TestGPBFT_Validation(t *testing.T) {
 
 				return &gpbft.GMessage{
 					Sender: 1,
-					Vote:   instance.NewPrepare(3, gpbft.ECChain{}),
+					Vote:   instance.NewPrepare(3, &gpbft.ECChain{}),
 					Ticket: emulator.ValidTicket,
 					Justification: otherInstance.NewJustificationWithPayload(gpbft.Payload{
 						Instance:         instance.ID(),
 						Round:            2,
 						Phase:            gpbft.COMMIT_PHASE,
 						SupplementalData: instance.SupplementalData(),
-						Value:            gpbft.ECChain{},
+						Value:            &gpbft.ECChain{},
 					}, 0, 1, 2, 42),
 				}
 			},
@@ -1333,12 +1333,12 @@ func TestGPBFT_Validation(t *testing.T) {
 		{
 			name: "justification for another instance",
 			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
-				otherInstance := emulator.NewInstance(t, 33, participants, instance.Proposal()...)
+				otherInstance := emulator.NewInstance(t, 33, participants, instance.Proposal().TipSets...)
 				return &gpbft.GMessage{
 					Sender:        1,
-					Vote:          instance.NewPrepare(3, gpbft.ECChain{}),
+					Vote:          instance.NewPrepare(3, &gpbft.ECChain{}),
 					Ticket:        emulator.ValidTicket,
-					Justification: otherInstance.NewJustification(0, gpbft.PREPARE_PHASE, gpbft.ECChain{}, 0, 1, 2),
+					Justification: otherInstance.NewJustification(0, gpbft.PREPARE_PHASE, &gpbft.ECChain{}, 0, 1, 2),
 				}
 			},
 			errContains: "message with instanceID 0 has evidence from instanceID: 33",
@@ -1351,7 +1351,7 @@ func TestGPBFT_Validation(t *testing.T) {
 				require.NotEqual(t, instance.SupplementalData().PowerTable, someCid)
 				return &gpbft.GMessage{
 					Sender: 1,
-					Vote:   instance.NewPrepare(3, gpbft.ECChain{}),
+					Vote:   instance.NewPrepare(3, &gpbft.ECChain{}),
 					Ticket: emulator.ValidTicket,
 					Justification: instance.NewJustificationWithPayload(gpbft.Payload{
 						Instance: instance.ID(),
@@ -1361,7 +1361,7 @@ func TestGPBFT_Validation(t *testing.T) {
 							Commitments: [32]byte{},
 							PowerTable:  someCid,
 						},
-						Value: gpbft.ECChain{},
+						Value: &gpbft.ECChain{},
 					}, 0, 1, 2),
 				}
 			},
@@ -1372,9 +1372,9 @@ func TestGPBFT_Validation(t *testing.T) {
 			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
 				return &gpbft.GMessage{
 					Sender:        1,
-					Vote:          instance.NewPrepare(3, gpbft.ECChain{}),
+					Vote:          instance.NewPrepare(3, &gpbft.ECChain{}),
 					Ticket:        emulator.ValidTicket,
-					Justification: instance.NewJustification(2, gpbft.COMMIT_PHASE, gpbft.ECChain{}, 0, 1, 2),
+					Justification: instance.NewJustification(2, gpbft.COMMIT_PHASE, &gpbft.ECChain{}, 0, 1, 2),
 				}
 			},
 			errContains: "invalid aggregate",
@@ -1383,7 +1383,7 @@ func TestGPBFT_Validation(t *testing.T) {
 			name: "out of order epochs",
 			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
 				proposal := instance.Proposal()
-				proposal[1], proposal[2] = proposal[2], proposal[1]
+				proposal.TipSets[1], proposal.TipSets[2] = proposal.TipSets[2], proposal.TipSets[1]
 				return &gpbft.GMessage{
 					Sender: 1,
 					Vote:   instance.NewQuality(proposal),
@@ -1395,7 +1395,7 @@ func TestGPBFT_Validation(t *testing.T) {
 			name: "repeated epochs",
 			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
 				proposal := instance.Proposal()
-				proposal[1] = proposal[2]
+				proposal.TipSets[1] = proposal.TipSets[2]
 				return &gpbft.GMessage{
 					Sender: 1,
 					Vote:   instance.NewQuality(proposal),
@@ -1408,7 +1408,7 @@ func TestGPBFT_Validation(t *testing.T) {
 			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
 				return &gpbft.GMessage{
 					Sender: 1,
-					Vote:   instance.NewQuality(gpbft.ECChain{}),
+					Vote:   instance.NewQuality(&gpbft.ECChain{}),
 				}
 			},
 			errContains: "unexpected zero value for quality phase",
@@ -1418,9 +1418,9 @@ func TestGPBFT_Validation(t *testing.T) {
 			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
 				return &gpbft.GMessage{
 					Sender:        1,
-					Vote:          instance.NewConverge(1, gpbft.ECChain{}),
+					Vote:          instance.NewConverge(1, &gpbft.ECChain{}),
 					Ticket:        emulator.ValidTicket,
-					Justification: instance.NewJustification(0, gpbft.PREPARE_PHASE, gpbft.ECChain{}, 0, 1),
+					Justification: instance.NewJustification(0, gpbft.PREPARE_PHASE, &gpbft.ECChain{}, 0, 1),
 				}
 			},
 			errContains: "unexpected zero value for converge phase",
@@ -1430,9 +1430,9 @@ func TestGPBFT_Validation(t *testing.T) {
 			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
 				return &gpbft.GMessage{
 					Sender:        1,
-					Vote:          instance.NewDecide(0, gpbft.ECChain{}),
+					Vote:          instance.NewDecide(0, &gpbft.ECChain{}),
 					Ticket:        emulator.ValidTicket,
-					Justification: instance.NewJustification(0, gpbft.COMMIT_PHASE, gpbft.ECChain{}, 0, 1),
+					Justification: instance.NewJustification(0, gpbft.COMMIT_PHASE, &gpbft.ECChain{}, 0, 1),
 				}
 			},
 			errContains: "unexpected zero value for decide phase",
@@ -1442,9 +1442,9 @@ func TestGPBFT_Validation(t *testing.T) {
 			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
 				return &gpbft.GMessage{
 					Sender:        1,
-					Vote:          instance.NewDecide(7, gpbft.ECChain{}),
+					Vote:          instance.NewDecide(7, &gpbft.ECChain{}),
 					Ticket:        emulator.ValidTicket,
-					Justification: instance.NewJustification(6, gpbft.COMMIT_PHASE, gpbft.ECChain{}, 0, 1),
+					Justification: instance.NewJustification(6, gpbft.COMMIT_PHASE, &gpbft.ECChain{}, 0, 1),
 				}
 			},
 			errContains: "unexpected non-zero round 7 for decide phase",
@@ -1452,11 +1452,13 @@ func TestGPBFT_Validation(t *testing.T) {
 		{
 			name: "QUALITY with too long a chain",
 			message: func(instance *emulator.Instance, driver *emulator.Driver) *gpbft.GMessage {
-				powerTableCid := instance.Proposal()[0].PowerTable
-				commitments := instance.Proposal()[0].Commitments
-				tooLongAChain := make(gpbft.ECChain, gpbft.ChainMaxLen+1)
-				for i := range tooLongAChain {
-					tooLongAChain[i] = gpbft.TipSet{
+				powerTableCid := instance.Proposal().TipSets[0].PowerTable
+				commitments := instance.Proposal().TipSets[0].Commitments
+				tooLongAChain := &gpbft.ECChain{
+					TipSets: make([]*gpbft.TipSet, gpbft.ChainMaxLen+1),
+				}
+				for i := range tooLongAChain.TipSets {
+					tooLongAChain.TipSets[i] = &gpbft.TipSet{
 						Epoch:       int64(i + 1),
 						Key:         nil,
 						PowerTable:  powerTableCid,
@@ -1490,7 +1492,11 @@ func TestGPBFT_Validation(t *testing.T) {
 				_, err := tooLongACid.ReadFrom(io.LimitReader(rand.Reader, gpbft.CidMaxLen+1))
 				require.NoError(t, err)
 				proposal := instance.Proposal()
-				proposal[1].PowerTable = cid.NewCidV1(cid.Raw, tooLongACid.Bytes())
+				proposal.TipSets[1] = &gpbft.TipSet{
+					Epoch:      proposal.TipSets[1].Epoch,
+					Key:        proposal.TipSets[1].Key,
+					PowerTable: cid.NewCidV1(cid.Raw, tooLongACid.Bytes()),
+				}
 				return &gpbft.GMessage{
 					Sender: 1,
 					Vote:   instance.NewQuality(proposal),
@@ -1670,7 +1676,7 @@ func TestGPBFT_Sway(t *testing.T) {
 			Sender: 2,
 			Vote:   instance.NewPrepare(0, proposal2),
 		})
-		driver.RequirePeekAtLastVote(gpbft.COMMIT_PHASE, 0, gpbft.ECChain{})
+		driver.RequirePeekAtLastVote(gpbft.COMMIT_PHASE, 0, &gpbft.ECChain{})
 
 		// Deliver COMMIT messages and trigger timeout to complete the phase but with no
 		// strong quorum. This should progress the instance to CONVERGE at round 1.
@@ -1681,7 +1687,7 @@ func TestGPBFT_Sway(t *testing.T) {
 		})
 		driver.RequireDeliverMessage(&gpbft.GMessage{
 			Sender: 0,
-			Vote:   instance.NewCommit(0, gpbft.ECChain{}),
+			Vote:   instance.NewCommit(0, &gpbft.ECChain{}),
 		})
 		driver.RequireDeliverMessage(&gpbft.GMessage{
 			Sender:        3,

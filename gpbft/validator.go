@@ -211,17 +211,17 @@ func (v *cachingValidator) validateJustification(msg *GMessage, comt *Committee)
 	// Anything else is disallowed.
 	expectations := map[Phase]map[Phase]struct {
 		Round uint64
-		Value ECChain
+		Value *ECChain
 	}{
 		// CONVERGE is justified by a strong quorum of COMMIT for bottom,
 		// or a strong quorum of PREPARE for the same value, from the previous round.
 		CONVERGE_PHASE: {
-			COMMIT_PHASE:  {msg.Vote.Round - 1, ECChain{}},
+			COMMIT_PHASE:  {msg.Vote.Round - 1, &ECChain{}},
 			PREPARE_PHASE: {msg.Vote.Round - 1, msg.Vote.Value},
 		},
 		// PREPARE is justified by the same rules as CONVERGE (in rounds > 0).
 		PREPARE_PHASE: {
-			COMMIT_PHASE:  {msg.Vote.Round - 1, ECChain{}},
+			COMMIT_PHASE:  {msg.Vote.Round - 1, &ECChain{}},
 			PREPARE_PHASE: {msg.Vote.Round - 1, msg.Vote.Value},
 		},
 		// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.

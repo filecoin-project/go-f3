@@ -153,7 +153,7 @@ func newRunner(
 
 	runner.pmCache = caching.NewGroupedSet(int(m.CommitteeLookback), 25_000)
 	obfuscatedHost := (*gpbftHost)(runner)
-	runner.pmv = newCachingPartialValidator(obfuscatedHost, runner.Progress, runner.pmCache, m.CommitteeLookback, runner.pmm.chainex)
+	runner.pmv = newCachingPartialValidator(obfuscatedHost, runner.Progress, runner.pmCache, m.CommitteeLookback)
 
 	return runner, nil
 }
@@ -704,7 +704,7 @@ func (h *gpbftHost) RequestRebroadcast(instant gpbft.Instant) error {
 	return err
 }
 
-func (h *gpbftHost) GetProposal(instance uint64) (*gpbft.SupplementalData, gpbft.ECChain, error) {
+func (h *gpbftHost) GetProposal(instance uint64) (*gpbft.SupplementalData, *gpbft.ECChain, error) {
 	proposal, chain, err := h.inputs.GetProposal(h.runningCtx, instance)
 	if err == nil {
 		if err := h.pmm.BroadcastChain(h.runningCtx, instance, chain); err != nil {

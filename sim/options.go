@@ -16,12 +16,12 @@ const (
 )
 
 var (
-	defaultBaseChain gpbft.ECChain
+	defaultBaseChain *gpbft.ECChain
 )
 
 func init() {
 	var err error
-	defaultBaseChain, err = gpbft.NewChain(gpbft.TipSet{
+	defaultBaseChain, err = gpbft.NewChain(&gpbft.TipSet{
 		Epoch:       0,
 		Key:         []byte("genesis"),
 		PowerTable:  gpbft.MakeCid([]byte("genesis-powertable")),
@@ -83,7 +83,7 @@ func newOptions(o ...Option) (*options, error) {
 		opts.networkName = defaultSimNetworkName
 	}
 	if opts.baseChain == nil {
-		opts.baseChain = &defaultBaseChain
+		opts.baseChain = defaultBaseChain
 	}
 	return &opts, nil
 }

@@ -20,7 +20,7 @@ type WithholdCommit struct {
 	host Host
 	// The first victim is the target, others are those who need to confirm.
 	victims     []gpbft.ActorID
-	victimValue gpbft.ECChain
+	victimValue *gpbft.ECChain
 }
 
 // A participant that never sends anything.
@@ -31,7 +31,7 @@ func NewWitholdCommit(id gpbft.ActorID, host Host) *WithholdCommit {
 	}
 }
 
-func NewWitholdCommitGenerator(power gpbft.StoragePower, victims []gpbft.ActorID, victimValue gpbft.ECChain) Generator {
+func NewWitholdCommitGenerator(power gpbft.StoragePower, victims []gpbft.ActorID, victimValue *gpbft.ECChain) Generator {
 	return func(id gpbft.ActorID, host Host) *Adversary {
 		wc := NewWitholdCommit(id, host)
 		wc.SetVictim(victims, victimValue)
@@ -42,7 +42,7 @@ func NewWitholdCommitGenerator(power gpbft.StoragePower, victims []gpbft.ActorID
 	}
 }
 
-func (w *WithholdCommit) SetVictim(victims []gpbft.ActorID, victimValue gpbft.ECChain) {
+func (w *WithholdCommit) SetVictim(victims []gpbft.ActorID, victimValue *gpbft.ECChain) {
 	w.victims = victims
 	w.victimValue = victimValue
 }

@@ -7,8 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
+	"sync"
 
+	"github.com/filecoin-project/go-f3/merkle"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
 	cbg "github.com/whyrusleeping/cbor-gen"
@@ -38,7 +41,6 @@ var CidPrefix = cid.Prefix{
 	MhLength: 32,
 }
 
-// Hashes the given data and returns a CBOR + blake2b-256 CID.
 func MakeCid(data []byte) cid.Cid {
 	k, err := CidPrefix.Sum(data)
 	if err != nil {
@@ -176,112 +178,174 @@ func tipSetKeyFromCids(cids []cid.Cid) (TipSetKey, error) {
 	return buf.Bytes(), nil
 }
 
+var (
+	_ json.Marshaler    = (*ECChain)(nil)
+	_ json.Unmarshaler  = (*ECChain)(nil)
+	_ cbg.CBORMarshaler = (*ECChain)(nil)
+	_ cbg.CBORMarshaler = (*ECChain)(nil)
+)
+
 // A chain of tipsets comprising a base (the last finalised tipset from which the chain extends).
 // and (possibly empty) suffix.
 // Tipsets are assumed to be built contiguously on each other,
 // though epochs may be missing due to null rounds.
 // The zero value is not a valid chain, and represents a "bottom" value
 // when used in a Granite message.
-type ECChain []TipSet
+type ECChain struct {
+	TipSets []*TipSet
+
+	key           ECChainKey `cborgen:"ignore"`
+	keyLazyLoader sync.Once  `cborgen:"ignore"`
+}
+
+func (c *ECChain) UnmarshalJSON(i []byte) error {
+	return json.Unmarshal(i, &c.TipSets)
+}
+
+func (c *ECChain) MarshalJSON() ([]byte, error) {
+	return json.Marshal(c.TipSets)
+}
+
+func (c *ECChain) UnmarshalCBOR(r io.Reader) error {
+	// Unmarshall as []TipSet for backward compatibility.
+	chain := LegacyECChain{}
+	if err := chain.UnmarshalCBOR(r); err != nil {
+		return err
+	}
+	if length := len(chain); length > 0 {
+		*c = ECChain{}
+		c.TipSets = make([]*TipSet, length)
+		for i := range length {
+			c.TipSets[i] = &chain[i]
+		}
+	}
+	return nil
+}
+
+func (c *ECChain) MarshalCBOR(w io.Writer) error {
+	// Marshall as []TipSet for backward compatibility.
+	chain := LegacyECChain{}
+	if length := c.Len(); length > 0 {
+		chain = make([]TipSet, length)
+		for i := range length {
+			chain[i] = *c.TipSets[i]
+		}
+	}
+	return chain.MarshalCBOR(w)
+}
 
 // A map key for a chain. The zero value means "bottom".
-type ChainKey string
+type ECChainKey merkle.Digest
+
+func (k ECChainKey) IsZero() bool { return k == merkle.ZeroDigest }
 
 // Creates a new chain.
-func NewChain(base TipSet, suffix ...TipSet) (ECChain, error) {
-	var chain ECChain = []TipSet{base}
-	chain = append(chain, suffix...)
+func NewChain(base *TipSet, suffix ...*TipSet) (*ECChain, error) {
+	var chain ECChain
+	chain.TipSets = append(make([]*TipSet, 0, len(suffix)+1), base)
+	chain.TipSets = append(chain.TipSets, suffix...)
 	if err := chain.Validate(); err != nil {
 		return nil, err
 	}
-	return chain, nil
+	return &chain, nil
 }
 
-func (c ECChain) IsZero() bool {
-	return len(c) == 0
+// IsZero checks whether the chain is zero. A chain is zero if it has no tipsets
+// or is nil.
+func (c *ECChain) IsZero() bool {
+	return c == nil || len(c.TipSets) == 0
 }
 
-func (c ECChain) HasSuffix() bool {
-	return len(c) > 1
+func (c *ECChain) HasSuffix() bool {
+	return c.Len() > 1
 }
 
 // Returns the base tipset, nil if the chain is zero.
-func (c ECChain) Base() *TipSet {
+func (c *ECChain) Base() *TipSet {
 	if c.IsZero() {
 		return nil
 	}
-	return &c[0]
+	return c.TipSets[0]
 }
 
 // Returns the suffix of the chain after the base.
 //
 // Returns nil if the chain is zero or base.
-func (c ECChain) Suffix() []TipSet {
+func (c *ECChain) Suffix() []*TipSet {
 	if c.IsZero() {
 		return nil
 	}
-	return c[1:]
+	return c.TipSets[1:]
 }
 
 // Returns the last tipset in the chain.
 // This could be the base tipset if there is no suffix.
 //
 // Returns nil if the chain is zero.
-func (c ECChain) Head() *TipSet {
+func (c *ECChain) Head() *TipSet {
 	if c.IsZero() {
 		return nil
 	}
-	return &c[len(c)-1]
+	return c.TipSets[c.Len()-1]
 }
 
 // Returns a new chain with the same base and no suffix.
 //
 // Returns nil if the chain is zero.
-func (c ECChain) BaseChain() ECChain {
+func (c *ECChain) BaseChain() *ECChain {
 	if c.IsZero() {
 		return nil
 	}
-	return ECChain{c[0]}
+	return &ECChain{
+		TipSets: []*TipSet{c.TipSets[0]},
+	}
 }
 
 // Extend the chain with the given tipsets, returning the new chain.
 //
 // Panics if the chain is zero.
-func (c ECChain) Extend(tips ...TipSetKey) ECChain {
-	// truncate capacity so appending to this chain won't modify the shared slice.
-	c = c[:len(c):len(c)]
+func (c *ECChain) Extend(tips ...TipSetKey) *ECChain {
 	offset := c.Head().Epoch + 1
 	pt := c.Head().PowerTable
+	var extended ECChain
+	extended.TipSets = make([]*TipSet, 0, c.Len()+len(tips))
+	extended.TipSets = append(extended.TipSets, c.TipSets...)
 	for i, tip := range tips {
-		c = append(c, TipSet{
+		extended.TipSets = append(extended.TipSets, &TipSet{
 			Epoch:      offset + int64(i),
 			Key:        tip,
 			PowerTable: pt,
 		})
 	}
-	return c
+	return &extended
 }
 
 // Returns a chain with suffix (after the base) truncated to a maximum length.
 // Prefix(0) returns the base chain.
 //
 // Returns the zero chain if the chain is zero.
-func (c ECChain) Prefix(to int) ECChain {
+func (c *ECChain) Prefix(to int) *ECChain {
 	if c.IsZero() {
 		return nil
 	}
-	length := min(to+1, len(c))
+	length := min(to+1, c.Len())
+	var prefix ECChain
 	// truncate capacity so appending to this chain won't modify the shared slice.
-	return c[:length:length]
+	prefix.TipSets = c.TipSets[:length:length]
+	return &prefix
 }
 
-// Compares two ECChains for equality.
-func (c ECChain) Eq(other ECChain) bool {
-	if len(c) != len(other) {
+// Eq Compares two ECChains for equality.
+// Note that two zero chains are considered equal. See IsZero.
+func (c *ECChain) Eq(other *ECChain) bool {
+	if oneZero, otherZero := c.IsZero(), other.IsZero(); oneZero || otherZero {
+		return oneZero == otherZero
+	}
+	if c.Len() != other.Len() {
 		return false
 	}
-	for i := range c {
-		if !c[i].Equal(&other[i]) {
+	for i := range c.TipSets {
+		if !c.TipSets[i].Equal(other.TipSets[i]) {
 			return false
 		}
 	}
@@ -291,7 +355,7 @@ func (c ECChain) Eq(other ECChain) bool {
 // Check whether a chain has a specific base tipset.
 //
 // Always false for a zero value.
-func (c ECChain) HasBase(t *TipSet) bool {
+func (c *ECChain) HasBase(t *TipSet) bool {
 	return t != nil && !c.IsZero() && c.Base().Equal(t)
 }
 
@@ -301,16 +365,15 @@ func (c ECChain) HasBase(t *TipSet) bool {
 // 2) All epochs are >= 0 and increasing.
 // 3) The chain is not longer than ChainMaxLen.
 // An entirely zero-valued chain itself is deemed valid. See ECChain.IsZero.
-func (c ECChain) Validate() error {
+func (c *ECChain) Validate() error {
 	if c.IsZero() {
 		return nil
 	}
-	if len(c) > ChainMaxLen {
+	if c.Len() > ChainMaxLen {
 		return errors.New("chain too long")
 	}
 	var lastEpoch int64 = -1
-	for i := range c {
-		ts := &c[i]
+	for i, ts := range c.TipSets {
 		if err := ts.Validate(); err != nil {
 			return fmt.Errorf("tipset %d: %w", i, err)
 		}
@@ -324,50 +387,55 @@ func (c ECChain) Validate() error {
 
 // HasPrefix checks whether a chain has the given chain as a prefix, including
 // base. This function always returns if either chain is zero.
-func (c ECChain) HasPrefix(other ECChain) bool {
+func (c *ECChain) HasPrefix(other *ECChain) bool {
 	if c.IsZero() || other.IsZero() {
 		return false
 	}
-	if len(other) > len(c) {
+	if other.Len() > c.Len() {
 		return false
 	}
-	for i := range other {
-		if !c[i].Equal(&other[i]) {
+	for i := range other.TipSets {
+		if !c.TipSets[i].Equal(other.TipSets[i]) {
 			return false
 		}
 	}
 	return true
 }
 
-// Returns an identifier for the chain suitable for use as a map key.
-// This must completely determine the sequence of tipsets in the chain.
-func (c ECChain) Key() ChainKey {
-	ln := len(c) * (8 + 32 + 4) // epoch + commitment + ts length
-	for i := range c {
-		ln += len(c[i].Key) + c[i].PowerTable.ByteLen()
+func (c *ECChain) Len() int {
+	if c == nil {
+		return 0
 	}
-	var buf bytes.Buffer
-	buf.Grow(ln)
-	for i := range c {
-		ts := &c[i]
-		_ = binary.Write(&buf, binary.BigEndian, ts.Epoch)
-		_, _ = buf.Write(ts.Commitments[:])
-		_ = binary.Write(&buf, binary.BigEndian, uint32(len(ts.Key)))
-		buf.Write(ts.Key)
-		_, _ = buf.Write(ts.PowerTable.Bytes())
-	}
-	return ChainKey(buf.String())
+	return len(c.TipSets)
 }
 
-func (c ECChain) String() string {
-	if len(c) == 0 {
+// Returns an identifier for the chain suitable for use as a map key.
+// This must completely determine the sequence of tipsets in the chain.
+func (c *ECChain) Key() ECChainKey {
+	if c.IsZero() {
+		return merkle.ZeroDigest
+	}
+	c.keyLazyLoader.Do(func() {
+		values := make([][]byte, c.Len())
+		for i, ts := range c.TipSets {
+			values[i] = ts.MarshalForSigning()
+		}
+		c.key = merkle.Tree(values)
+	})
+	return c.key
+}
+
+func (c *ECChain) String() string {
+	if c.IsZero() {
 		return "丄"
 	}
 	var b strings.Builder
 	b.WriteString("[")
-	for i := range c {
-		b.WriteString(c[i].String())
-		if i < len(c)-1 {
+
+	chainLength := c.Len()
+	for i, ts := range c.TipSets {
+		b.WriteString(ts.String())
+		if i < chainLength-1 {
 			b.WriteString(", ")
 		}
 		if b.Len() > 77 {
@@ -376,6 +444,16 @@ func (c ECChain) String() string {
 		}
 	}
 	b.WriteString("]")
-	b.WriteString(fmt.Sprintf("len(%d)", len(c)))
+	b.WriteString(fmt.Sprintf("len(%d)", chainLength))
 	return b.String()
+}
+
+func (c *ECChain) Append(suffix ...*TipSet) *ECChain {
+	var prefix []*TipSet
+	if c != nil {
+		prefix = c.TipSets
+	}
+	return &ECChain{
+		TipSets: append(prefix, suffix...),
+	}
 }

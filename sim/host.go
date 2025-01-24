@@ -27,7 +27,7 @@ type simHost struct {
 	sim    *Simulation
 	pubkey gpbft.PubKey
 
-	ecChain gpbft.ECChain
+	ecChain *gpbft.ECChain
 	ecg     ECChainGenerator
 	spg     StoragePowerGenerator
 }
@@ -55,14 +55,14 @@ func newHost(id gpbft.ActorID, sim *Simulation, ecg ECChainGenerator, spg Storag
 		ecg:              ecg,
 		spg:              spg,
 		pubkey:           pubKey,
-		ecChain:          *sim.baseChain,
+		ecChain:          sim.baseChain,
 	}
 }
 
-func (v *simHost) GetProposal(instance uint64) (*gpbft.SupplementalData, gpbft.ECChain, error) {
+func (v *simHost) GetProposal(instance uint64) (*gpbft.SupplementalData, *gpbft.ECChain, error) {
 	// Use the head of latest agreement chain as the base of next.
 	// TODO: use lookback to return the correct next power table commitment and commitments hash.
-	chain := v.ecg.GenerateECChain(instance, *v.ecChain.Head(), v.id)
+	chain := v.ecg.GenerateECChain(instance, v.ecChain.Head(), v.id)
 	i := v.sim.ec.GetInstance(instance)
 	if i == nil {
 		// It is possible for one node to start the next instance before others have

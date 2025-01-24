@@ -39,19 +39,9 @@ func (t *Message) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.Chain (gpbft.ECChain) (slice)
-	if len(t.Chain) > 8192 {
-		return xerrors.Errorf("Slice value in field t.Chain was too long")
-	}
-
-	if err := cw.WriteMajorTypeHeader(cbg.MajArray, uint64(len(t.Chain))); err != nil {
+	// t.Chain (gpbft.ECChain) (struct)
+	if err := t.Chain.MarshalCBOR(cw); err != nil {
 		return err
-	}
-	for _, v := range t.Chain {
-		if err := v.MarshalCBOR(cw); err != nil {
-			return err
-		}
-
 	}
 
 	// t.Timestamp (int64) (int64)
@@ -105,43 +95,24 @@ func (t *Message) UnmarshalCBOR(r io.Reader) (err error) {
 		t.Instance = uint64(extra)
 
 	}
-	// t.Chain (gpbft.ECChain) (slice)
+	// t.Chain (gpbft.ECChain) (struct)
 
-	maj, extra, err = cr.ReadHeader()
-	if err != nil {
-		return err
-	}
+	{
 
-	if extra > 8192 {
-		return fmt.Errorf("t.Chain: array too large (%d)", extra)
-	}
-
-	if maj != cbg.MajArray {
-		return fmt.Errorf("expected cbor array")
-	}
-
-	if extra > 0 {
-		t.Chain = make([]gpbft.TipSet, extra)
-	}
-
-	for i := 0; i < int(extra); i++ {
-		{
-			var maj byte
-			var extra uint64
-			var err error
-			_ = maj
-			_ = extra
-			_ = err
-
-			{
-
-				if err := t.Chain[i].UnmarshalCBOR(cr); err != nil {
-					return xerrors.Errorf("unmarshaling t.Chain[i]: %w", err)
-				}
-
-			}
-
+		b, err := cr.ReadByte()
+		if err != nil {
+			return err
 		}
+		if b != cbg.CborNull[0] {
+			if err := cr.UnreadByte(); err != nil {
+				return err
+			}
+			t.Chain = new(gpbft.ECChain)
+			if err := t.Chain.UnmarshalCBOR(cr); err != nil {
+				return xerrors.Errorf("unmarshaling t.Chain pointer: %w", err)
+			}
+		}
+
 	}
 	// t.Timestamp (int64) (int64)
 	{

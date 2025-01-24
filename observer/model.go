@@ -84,8 +84,8 @@ func newPayload(gp gpbft.Payload) payload {
 		commitments = gp.SupplementalData.Commitments[:]
 	}
 
-	value := make([]tipSet, len(gp.Value))
-	for i, v := range gp.Value {
+	value := make([]tipSet, gp.Value.Len())
+	for i, v := range gp.Value.TipSets {
 		value[i] = tipSet{
 			Epoch:      v.Epoch,
 			Key:        v.Key,

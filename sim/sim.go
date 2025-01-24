@@ -61,7 +61,7 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 	if err != nil {
 		return err
 	}
-	currentInstance := s.ec.BeginInstance(*s.baseChain, pt)
+	currentInstance := s.ec.BeginInstance(s.baseChain, pt)
 	s.startParticipants(initialInstance)
 
 	finalInstance := initialInstance + instanceCount - 1
@@ -116,8 +116,8 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 			if currentInstance == nil {
 				// Instantiate the next instance even if it goes beyond finalInstance.
 				// The last incomplete instance is used for testing assertions.
-				currentInstance = s.ec.BeginInstance(*decidedChain, pt)
-			} else if !currentInstance.BaseChain.Eq(*decidedChain) {
+				currentInstance = s.ec.BeginInstance(decidedChain, pt)
+			} else if !currentInstance.BaseChain.Eq(decidedChain) {
 				// Assert that the instance that has already started uses the same base chain as
 				// the one consistently decided among participants.
 				return fmt.Errorf("network is partitioned")
@@ -197,7 +197,7 @@ func (s *Simulation) initParticipants() error {
 
 	// There is at most one adversary but with arbitrary power.
 	if s.adversaryGenerator != nil && s.adversaryCount == 1 {
-		host := newHost(nextID, s, NewFixedECChainGenerator(*s.baseChain), nil, true)
+		host := newHost(nextID, s, NewFixedECChainGenerator(s.baseChain), nil, true)
 		// Adversary implementations currently ignore the canonical chain.
 		// Set to a fixed ec chain generator and expand later for possibility
 		// of implementing adversaries that adapt based on ec chain.

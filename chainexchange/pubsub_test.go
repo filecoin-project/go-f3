@@ -45,12 +45,14 @@ func TestPubSubChainExchange_Broadcast(t *testing.T) {
 	require.NoError(t, err)
 
 	instance := uint64(1)
-	ecChain := gpbft.ECChain{
-		{Epoch: 0, Key: []byte("lobster"), PowerTable: gpbft.MakeCid([]byte("pt"))},
-		{Epoch: 1, Key: []byte("barreleye"), PowerTable: gpbft.MakeCid([]byte("pt"))},
+	ecChain := &gpbft.ECChain{
+		TipSets: []*gpbft.TipSet{
+			{Epoch: 0, Key: []byte("lobster"), PowerTable: gpbft.MakeCid([]byte("pt"))},
+			{Epoch: 1, Key: []byte("barreleye"), PowerTable: gpbft.MakeCid([]byte("pt"))},
+		},
 	}
 
-	key := subject.Key(ecChain)
+	key := ecChain.Key()
 	chain, found := subject.GetChainByInstance(ctx, instance, key)
 	require.False(t, found)
 	require.Nil(t, chain)
@@ -69,7 +71,7 @@ func TestPubSubChainExchange_Broadcast(t *testing.T) {
 	require.Equal(t, ecChain, chain)
 
 	baseChain := ecChain.BaseChain()
-	baseKey := subject.Key(baseChain)
+	baseKey := baseChain.Key()
 	require.Eventually(t, func() bool {
 		chain, found = subject.GetChainByInstance(ctx, instance, baseKey)
 		return found
@@ -82,29 +84,26 @@ func TestPubSubChainExchange_Broadcast(t *testing.T) {
 	notifications := testListener.getNotifications()
 	require.Len(t, notifications, 2)
 	require.Equal(t, instance, notifications[1].instance)
-	require.Equal(t, baseKey, notifications[1].key)
 	require.Equal(t, baseChain, notifications[1].chain)
 	require.Equal(t, instance, notifications[0].instance)
-	require.Equal(t, key, notifications[0].key)
 	require.Equal(t, ecChain, notifications[0].chain)
 
 	require.NoError(t, subject.Shutdown(ctx))
 }
 
 type notification struct {
-	key      chainexchange.Key
 	instance uint64
-	chain    gpbft.ECChain
+	chain    *gpbft.ECChain
 }
 type listener struct {
 	mu            sync.Mutex
 	notifications []notification
 }
 
-func (l *listener) NotifyChainDiscovered(_ context.Context, key chainexchange.Key, instance uint64, chain gpbft.ECChain) {
+func (l *listener) NotifyChainDiscovered(_ context.Context, instance uint64, chain *gpbft.ECChain) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.notifications = append(l.notifications, notification{key: key, instance: instance, chain: chain})
+	l.notifications = append(l.notifications, notification{instance: instance, chain: chain})
 }
 
 func (l *listener) getNotifications() []notification {

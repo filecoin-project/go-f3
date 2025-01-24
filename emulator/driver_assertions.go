@@ -42,7 +42,7 @@ func (d *Driver) RequireQuality() {
 	d.require.NotNil(instance)
 	d.require.Equal(gpbft.QUALITY_PHASE, msg.Vote.Phase)
 	d.require.Zero(msg.Vote.Round)
-	d.require.Equal(instance.proposal, msg.Vote.Value)
+	d.require.True(instance.proposal.Eq(msg.Vote.Value))
 	d.require.Equal(instance.id, msg.Vote.Instance)
 	d.require.Equal(instance.supplementalData, msg.Vote.SupplementalData)
 	d.require.Nil(msg.Justification)
@@ -51,31 +51,31 @@ func (d *Driver) RequireQuality() {
 	d.require.NoError(d.deliverMessage(msg))
 }
 
-func (d *Driver) RequirePrepare(value gpbft.ECChain) {
+func (d *Driver) RequirePrepare(value *gpbft.ECChain) {
 	d.RequirePrepareAtRound(0, value, nil)
 }
 
-func (d *Driver) RequirePrepareAtRound(round uint64, value gpbft.ECChain, justification *gpbft.Justification) {
+func (d *Driver) RequirePrepareAtRound(round uint64, value *gpbft.ECChain, justification *gpbft.Justification) {
 	msg := d.host.popNextBroadcast()
 	d.require.NotNil(msg)
 	instance := d.host.getInstance(msg.Vote.Instance)
 	d.require.NotNil(instance)
 	d.require.Equal(gpbft.PREPARE_PHASE, msg.Vote.Phase)
 	d.require.Equal(round, msg.Vote.Round)
-	d.require.Equal(value, msg.Vote.Value)
+	d.require.True(value.Eq(msg.Vote.Value))
 	d.require.Equal(instance.id, msg.Vote.Instance)
 	d.require.Equal(instance.supplementalData, msg.Vote.SupplementalData)
-	d.require.Equal(justification, msg.Justification)
+	d.requireEqualJustification(justification, msg.Justification)
 	d.require.Empty(msg.Ticket)
 
 	d.require.NoError(d.deliverMessage(msg))
 }
 
 func (d *Driver) RequireCommitForBottom(round uint64) {
-	d.RequireCommit(round, gpbft.ECChain{}, nil)
+	d.RequireCommit(round, &gpbft.ECChain{}, nil)
 }
 
-func (d *Driver) RequireCommit(round uint64, vote gpbft.ECChain, justification *gpbft.Justification) {
+func (d *Driver) RequireCommit(round uint64, vote *gpbft.ECChain, justification *gpbft.Justification) {
 	msg := d.host.popNextBroadcast()
 	d.require.NotNil(msg)
 	instance := d.host.getInstance(msg.Vote.Instance)
@@ -84,58 +84,68 @@ func (d *Driver) RequireCommit(round uint64, vote gpbft.ECChain, justification *
 	d.require.Equal(round, msg.Vote.Round)
 	d.require.Equal(instance.supplementalData, msg.Vote.SupplementalData)
 	d.require.Equal(instance.id, msg.Vote.Instance)
-	d.require.Equal(vote, msg.Vote.Value)
-	d.require.Equal(justification, justification)
+	d.require.True(vote.Eq(msg.Vote.Value))
+	d.requireEqualJustification(justification, justification)
 	d.require.Empty(msg.Ticket)
 
 	d.require.NoError(d.deliverMessage(msg))
 }
 
-func (d *Driver) RequireConverge(round uint64, vote gpbft.ECChain, justification *gpbft.Justification) {
+func (d *Driver) RequireConverge(round uint64, vote *gpbft.ECChain, justification *gpbft.Justification) {
 	msg := d.host.popNextBroadcast()
 	d.require.NotNil(msg)
 	instance := d.host.getInstance(msg.Vote.Instance)
 	d.require.NotNil(instance)
 	d.require.Equal(gpbft.CONVERGE_PHASE, msg.Vote.Phase)
 	d.require.Equal(round, msg.Vote.Round)
-	d.require.Equal(vote, msg.Vote.Value)
+	d.require.True(vote.Eq(msg.Vote.Value))
 	d.require.Equal(instance.id, msg.Vote.Instance)
 	d.require.Equal(instance.supplementalData, msg.Vote.SupplementalData)
-	d.require.Equal(justification, msg.Justification)
+	d.requireEqualJustification(justification, msg.Justification)
 	d.require.NotEmpty(msg.Ticket)
 
 	d.require.NoError(d.deliverMessage(msg))
 }
 
-func (d *Driver) RequireDecide(vote gpbft.ECChain, justification *gpbft.Justification) {
+func (d *Driver) requireEqualJustification(one *gpbft.Justification, other *gpbft.Justification) {
+	if one == nil || other == nil {
+		d.require.Equal(one, other)
+	} else {
+		d.require.Equal(one.Signature, other.Signature)
+		d.require.Equal(one.Signers, other.Signers)
+		d.require.True(one.Vote.Eq(&other.Vote))
+	}
+}
+
+func (d *Driver) RequireDecide(vote *gpbft.ECChain, justification *gpbft.Justification) {
 	msg := d.host.popNextBroadcast()
 	d.require.NotNil(msg)
 	instance := d.host.getInstance(msg.Vote.Instance)
 	d.require.NotNil(instance)
 	d.require.Equal(gpbft.DECIDE_PHASE, msg.Vote.Phase)
 	d.require.Zero(msg.Vote.Round)
-	d.require.Equal(vote, msg.Vote.Value)
+	d.require.True(vote.Eq(msg.Vote.Value))
 	d.require.Equal(instance.id, msg.Vote.Instance)
 	d.require.Equal(instance.supplementalData, msg.Vote.SupplementalData)
-	d.require.Equal(justification, msg.Justification)
+	d.requireEqualJustification(justification, msg.Justification)
 	d.require.Empty(msg.Ticket)
 
 	d.require.NoError(d.deliverMessage(msg))
 }
 
-func (d *Driver) RequireDecision(instanceID uint64, expect gpbft.ECChain) {
+func (d *Driver) RequireDecision(instanceID uint64, expect *gpbft.ECChain) {
 	instance := d.host.getInstance(instanceID)
 	d.require.NotNil(instance)
 	decision := instance.GetDecision()
 	d.require.NotNil(decision)
-	d.require.Equal(expect, decision.Vote.Value)
+	d.require.True(expect.Eq(decision.Vote.Value))
 }
 
 // RequirePeekAtLastVote asserts that the last message broadcasted by the subject
 // participant was for the given phase, round and vote.
-func (d *Driver) RequirePeekAtLastVote(phase gpbft.Phase, round uint64, vote gpbft.ECChain) {
+func (d *Driver) RequirePeekAtLastVote(phase gpbft.Phase, round uint64, vote *gpbft.ECChain) {
 	last := d.host.peekLastBroadcast()
 	d.require.Equal(phase, last.Vote.Phase, "Expected last vote phase %s, but got %s", phase, last.Vote.Phase)
 	d.require.Equal(round, last.Vote.Round, "Expected last vote round %d, but got %d", round, last.Vote.Round)
-	d.require.Equal(vote, last.Vote.Value, "Expected last vote value %s, but got %s", vote, last.Vote.Value)
+	d.require.True(vote.Eq(last.Vote.Value), "Expected last vote value %s, but got %s", vote, last.Vote.Value)
 }

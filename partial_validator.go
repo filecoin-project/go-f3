@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/filecoin-project/go-f3/chainexchange"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/caching"
-	"github.com/filecoin-project/go-f3/merkle"
 )
 
 var (
@@ -44,10 +42,9 @@ type cachingPartialValidator struct {
 	networkName       gpbft.NetworkName
 	signing           gpbft.Signatures
 	progress          gpbft.Progress
-	keyer             chainexchange.Keyer
 }
 
-func newCachingPartialValidator(host gpbft.Host, progress gpbft.Progress, cache *caching.GroupedSet, committeeLookback uint64, keyer chainexchange.Keyer) *cachingPartialValidator {
+func newCachingPartialValidator(host gpbft.Host, progress gpbft.Progress, cache *caching.GroupedSet, committeeLookback uint64) *cachingPartialValidator {
 	return &cachingPartialValidator{
 		cache:             cache,
 		committeeProvider: host,
@@ -55,7 +52,6 @@ func newCachingPartialValidator(host gpbft.Host, progress gpbft.Progress, cache 
 		networkName:       host.NetworkName(),
 		signing:           host,
 		progress:          progress,
-		keyer:             keyer,
 	}
 }
 
@@ -135,18 +131,12 @@ func (v *cachingPartialValidator) PartiallyValidateMessage(msg *PartialGMessage)
 		if msg.VoteValueKey.IsZero() {
 			return nil, fmt.Errorf("unexpected zero value for quality phase: %w", gpbft.ErrValidationInvalid)
 		}
-		if len(msg.VoteValueKey) != merkle.DigestLength {
-			return nil, fmt.Errorf("invalid message vote value key: must be exactly %d bytes: %w", merkle.DigestLength, gpbft.ErrValidationInvalid)
-		}
 	case gpbft.CONVERGE_PHASE:
 		if msg.Vote.Round == 0 {
 			return nil, fmt.Errorf("unexpected round 0 for converge phase: %w", gpbft.ErrValidationInvalid)
 		}
 		if msg.VoteValueKey.IsZero() {
 			return nil, fmt.Errorf("unexpected zero value for converge phase: %w", gpbft.ErrValidationInvalid)
-		}
-		if len(msg.VoteValueKey) != merkle.DigestLength {
-			return nil, fmt.Errorf("invalid message vote value key: must be exactly %d bytes: %w", merkle.DigestLength, gpbft.ErrValidationInvalid)
 		}
 		if !gpbft.VerifyTicket(v.networkName, comt.Beacon, msg.Vote.Instance, msg.Vote.Round, senderPubKey, v.signing, msg.Ticket) {
 			return nil, fmt.Errorf("failed to verify ticket from %v: %w", msg.Sender, gpbft.ErrValidationInvalid)
@@ -158,15 +148,8 @@ func (v *cachingPartialValidator) PartiallyValidateMessage(msg *PartialGMessage)
 		if msg.VoteValueKey.IsZero() {
 			return nil, fmt.Errorf("unexpected zero value for decide phase: %w", gpbft.ErrValidationInvalid)
 		}
-		if len(msg.VoteValueKey) != merkle.DigestLength {
-			return nil, fmt.Errorf("invalid message vote value key: must be exactly %d bytes: %w", merkle.DigestLength, gpbft.ErrValidationInvalid)
-		}
 	case gpbft.PREPARE_PHASE, gpbft.COMMIT_PHASE:
-		// The vote value key must either be zero, that is, indicating zero vote value,
-		// or have the correct length.
-		if len(msg.VoteValueKey) != merkle.DigestLength || !msg.VoteValueKey.IsZero() {
-			return nil, fmt.Errorf("invalid message vote value key: must be exactly %d bytes: %w", merkle.DigestLength, gpbft.ErrValidationInvalid)
-		}
+		// No additional checks needed for these phases.
 	default:
 		return nil, fmt.Errorf("invalid vote phase: %d: %w", msg.Vote.Phase, gpbft.ErrValidationInvalid)
 	}
@@ -243,17 +226,17 @@ func (v *cachingPartialValidator) validateJustification(msg *PartialGMessage, co
 	// without having to know the vote value explicitly.
 	expectations := map[gpbft.Phase]map[gpbft.Phase]struct {
 		Round uint64
-		Value chainexchange.Key
+		Value gpbft.ECChainKey
 	}{
 		// CONVERGE is justified by a strong quorum of COMMIT for bottom,
 		// or a strong quorum of PREPARE for the same value, from the previous round.
 		gpbft.CONVERGE_PHASE: {
-			gpbft.COMMIT_PHASE:  {msg.Vote.Round - 1, chainexchange.Key{}},
+			gpbft.COMMIT_PHASE:  {msg.Vote.Round - 1, gpbft.ECChainKey{}},
 			gpbft.PREPARE_PHASE: {msg.Vote.Round - 1, msg.VoteValueKey},
 		},
 		// PREPARE is justified by the same rules as CONVERGE (in rounds > 0).
 		gpbft.PREPARE_PHASE: {
-			gpbft.COMMIT_PHASE:  {msg.Vote.Round - 1, chainexchange.Key{}},
+			gpbft.COMMIT_PHASE:  {msg.Vote.Round - 1, gpbft.ECChainKey{}},
 			gpbft.PREPARE_PHASE: {msg.Vote.Round - 1, msg.VoteValueKey},
 		},
 		// COMMIT is justified by strong quorum of PREPARE from the same round with the same value.
@@ -266,7 +249,7 @@ func (v *cachingPartialValidator) validateJustification(msg *PartialGMessage, co
 			gpbft.COMMIT_PHASE: {math.MaxUint64, msg.VoteValueKey},
 		},
 	}
-	var expectedJustificationVoteValueKey chainexchange.Key
+	var expectedJustificationVoteValueKey gpbft.ECChainKey
 	if expectedPhases, ok := expectations[msg.Vote.Phase]; ok {
 		if expected, ok := expectedPhases[msg.Justification.Vote.Phase]; ok {
 			if msg.Justification.Vote.Round != expected.Round && expected.Round != math.MaxUint64 {
@@ -335,7 +318,7 @@ func (v *cachingPartialValidator) ValidateMessage(pmsg *PartiallyValidatedMessag
 	}
 
 	// Check the consistency chain key with the vote value.
-	if !bytes.Equal(pmsg.VoteValueKey, v.keyer.Key(pmsg.Vote.Value)) {
+	if pmsg.VoteValueKey != pmsg.Vote.Value.Key() {
 		return nil, fmt.Errorf("vote value key does not match vote value: %w", gpbft.ErrValidationInvalid)
 	}
 
@@ -352,13 +335,13 @@ func (v *cachingPartialValidator) ValidateMessage(pmsg *PartiallyValidatedMessag
 	}
 	if justified {
 		// Abbreviated version of the expectation map from the full validator.
-		expectations := map[gpbft.Phase]map[gpbft.Phase]gpbft.ECChain{
+		expectations := map[gpbft.Phase]map[gpbft.Phase]*gpbft.ECChain{
 			gpbft.CONVERGE_PHASE: {
-				gpbft.COMMIT_PHASE:  gpbft.ECChain{},
+				gpbft.COMMIT_PHASE:  &gpbft.ECChain{},
 				gpbft.PREPARE_PHASE: pmsg.Vote.Value,
 			},
 			gpbft.PREPARE_PHASE: {
-				gpbft.COMMIT_PHASE:  gpbft.ECChain{},
+				gpbft.COMMIT_PHASE:  &gpbft.ECChain{},
 				gpbft.PREPARE_PHASE: pmsg.Vote.Value,
 			},
 			gpbft.COMMIT_PHASE: {
@@ -383,7 +366,7 @@ func (v *cachingPartialValidator) ValidateMessage(pmsg *PartiallyValidatedMessag
 	return &fullyValidatedMessage{GMessage: pmsg.GMessage}, nil
 }
 
-func (v *cachingPartialValidator) marshalPartialPayloadForSigning(nn gpbft.NetworkName, k chainexchange.Key, payload *gpbft.Payload) []byte {
+func (v *cachingPartialValidator) marshalPartialPayloadForSigning(nn gpbft.NetworkName, k gpbft.ECChainKey, payload *gpbft.Payload) []byte {
 
 	// Mostly copied from Payload.MarshalPayloadForSigning with the difference that
 	// chain key is taken as a pre-computed argument and written directly to the
@@ -398,7 +381,7 @@ func (v *cachingPartialValidator) marshalPartialPayloadForSigning(nn gpbft.Netwo
 	_ = binary.Write(&buf, binary.BigEndian, payload.Round)
 	_ = binary.Write(&buf, binary.BigEndian, payload.Instance)
 	_, _ = buf.Write(payload.SupplementalData.Commitments[:])
-	_, _ = buf.Write(k)
+	_, _ = buf.Write(k[:])
 	_, _ = buf.Write(payload.SupplementalData.PowerTable.Bytes())
 	return buf.Bytes()
 }

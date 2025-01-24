@@ -105,14 +105,14 @@ func testSpamAdversary(t *testing.T, seed int64, hc int, maxLookaheadRounds, spa
 	for i := uint64(0); i < instanceCount; i++ {
 		instance = sm.GetInstance(i + 1)
 		require.NotNil(t, instance, "instance %d", i)
-		wantDecision := ecChainGenerator.GenerateECChain(i, *latestBaseECChain.Head(), math.MaxUint64)
+		wantDecision := ecChainGenerator.GenerateECChain(i, latestBaseECChain.Head(), math.MaxUint64)
 
 		// Sanity check that the expected decision is progressed from the base chain
 		require.Equal(t, wantDecision.Base(), latestBaseECChain.Head())
 		require.NotEqual(t, wantDecision.Suffix(), latestBaseECChain.Suffix())
 
 		// Assert the consensus is reached at the head of expected chain despite the spam.
-		requireConsensusAtInstance(t, sm, i, wantDecision...)
+		requireConsensusAtInstance(t, sm, i, wantDecision.TipSets...)
 		latestBaseECChain = instance.BaseChain
 	}
 }

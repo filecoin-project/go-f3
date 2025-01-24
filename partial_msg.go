@@ -16,7 +16,7 @@ var _ chainexchange.Listener = (*partialMessageManager)(nil)
 
 type PartialGMessage struct {
 	*gpbft.GMessage
-	VoteValueKey chainexchange.Key `cborgen:"maxlen=32"`
+	VoteValueKey gpbft.ECChainKey `cborgen:"maxlen=32"`
 }
 
 type partialMessageKey struct {
@@ -25,9 +25,8 @@ type partialMessageKey struct {
 }
 
 type discoveredChain struct {
-	key      chainexchange.Key
 	instance uint64
-	chain    gpbft.ECChain
+	chain    *gpbft.ECChain
 }
 
 type partialMessageManager struct {
@@ -38,7 +37,7 @@ type partialMessageManager struct {
 	pmByInstance map[uint64]*lru.Cache[partialMessageKey, *PartiallyValidatedMessage]
 	// pmkByInstanceByChainKey is used for an auxiliary lookup of all partial
 	// messages for a given vote value at an instance.
-	pmkByInstanceByChainKey map[uint64]map[string][]partialMessageKey
+	pmkByInstanceByChainKey map[uint64]map[gpbft.ECChainKey][]partialMessageKey
 	// pendingPartialMessages is a channel of partial messages that are pending to be buffered.
 	pendingPartialMessages chan *PartiallyValidatedMessage
 	// pendingDiscoveredChains is a channel of chains discovered by chainexchange
@@ -55,7 +54,7 @@ type partialMessageManager struct {
 func newPartialMessageManager(progress gpbft.Progress, ps *pubsub.PubSub, m *manifest.Manifest) (*partialMessageManager, error) {
 	pmm := &partialMessageManager{
 		pmByInstance:            make(map[uint64]*lru.Cache[partialMessageKey, *PartiallyValidatedMessage]),
-		pmkByInstanceByChainKey: make(map[uint64]map[string][]partialMessageKey),
+		pmkByInstanceByChainKey: make(map[uint64]map[gpbft.ECChainKey][]partialMessageKey),
 		pendingDiscoveredChains: make(chan *discoveredChain, 100),           // TODO: parameterize buffer size.
 		pendingPartialMessages:  make(chan *PartiallyValidatedMessage, 100), // TODO: parameterize buffer size.
 		pendingChainBroadcasts:  make(chan chainexchange.Message, 100),      // TODO: parameterize buffer size.
@@ -108,7 +107,7 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyV
 					// does this with safe caps on max future instances.
 					continue
 				}
-				chainkey := string(discovered.key)
+				chainkey := discovered.chain.Key()
 				partialMessageKeys, found := partialMessageKeysAtInstance[chainkey]
 				if !found {
 					// There's no known partial message at the instance for the discovered chain.
@@ -146,8 +145,7 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyV
 				buffer := pmm.getOrInitPartialMessageBuffer(pgmsg.Vote.Instance)
 				if found, _ := buffer.ContainsOrAdd(key, pgmsg); !found {
 					pmkByChainKey := pmm.pmkByInstanceByChainKey[pgmsg.Vote.Instance]
-					chainKey := string(pgmsg.VoteValueKey)
-					pmkByChainKey[chainKey] = append(pmkByChainKey[chainKey], key)
+					pmkByChainKey[pgmsg.VoteValueKey] = append(pmkByChainKey[pgmsg.VoteValueKey], key)
 				}
 				// TODO: Add equivocation metrics: check if the message is different and if so
 				//       increment the equivocations counter tagged by phase.
@@ -218,7 +216,7 @@ func roundDownToUnixTime(t time.Time, interval time.Duration) int64 {
 	return (t.Unix() / int64(interval)) * int64(interval)
 }
 
-func (pmm *partialMessageManager) BroadcastChain(ctx context.Context, instance uint64, chain gpbft.ECChain) error {
+func (pmm *partialMessageManager) BroadcastChain(ctx context.Context, instance uint64, chain *gpbft.ECChain) error {
 	if chain.IsZero() {
 		return nil
 	}
@@ -240,8 +238,8 @@ func (pmm *partialMessageManager) toPartialGMessage(msg *gpbft.GMessage) (*Parti
 		GMessage: &msgCopy,
 	}
 	if !pmsg.Vote.Value.IsZero() {
-		pmsg.VoteValueKey = pmm.chainex.Key(pmsg.Vote.Value)
-		pmsg.Vote.Value = gpbft.ECChain{}
+		pmsg.VoteValueKey = pmsg.Vote.Value.Key()
+		pmsg.Vote.Value = &gpbft.ECChain{}
 	}
 	if msg.Justification != nil && !pmsg.Justification.Vote.Value.IsZero() {
 		justificationCopy := *(msg.Justification)
@@ -261,13 +259,13 @@ func (pmm *partialMessageManager) toPartialGMessage(msg *gpbft.GMessage) (*Parti
 		//
 		// In fact, it probably should have been omitted altogether at the time of
 		// protocol design.
-		pmsg.Justification.Vote.Value = gpbft.ECChain{}
+		pmsg.Justification.Vote.Value = &gpbft.ECChain{}
 	}
 	return pmsg, nil
 }
 
-func (pmm *partialMessageManager) NotifyChainDiscovered(ctx context.Context, key chainexchange.Key, instance uint64, chain gpbft.ECChain) {
-	discovery := &discoveredChain{key: key, instance: instance, chain: chain}
+func (pmm *partialMessageManager) NotifyChainDiscovered(ctx context.Context, instance uint64, chain *gpbft.ECChain) {
+	discovery := &discoveredChain{instance: instance, chain: chain}
 	select {
 	case <-ctx.Done():
 		return
@@ -312,7 +310,7 @@ func (pmm *partialMessageManager) getOrInitPartialMessageBuffer(instance uint64)
 		pmm.pmByInstance[instance] = buffer
 	}
 	if _, ok := pmm.pmkByInstanceByChainKey[instance]; !ok {
-		pmm.pmkByInstanceByChainKey[instance] = make(map[string][]partialMessageKey)
+		pmm.pmkByInstanceByChainKey[instance] = make(map[gpbft.ECChainKey][]partialMessageKey)
 	}
 	return buffer
 }

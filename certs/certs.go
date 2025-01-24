@@ -36,7 +36,7 @@ type FinalityCertificate struct {
 	GPBFTInstance uint64
 	// The ECChain finalized during this instance, starting with the last tipset finalized in
 	// the previous instance.
-	ECChain gpbft.ECChain
+	ECChain *gpbft.ECChain
 	// Additional data signed by the participants in this instance. Currently used to certify
 	// the power table used in the next instance.
 	SupplementalData gpbft.SupplementalData
@@ -89,7 +89,7 @@ func NewFinalityCertificate(powerDelta PowerTableDiff, justification *gpbft.Just
 // finalized, the instance of the first invalid finality certificate, and the power table that
 // should be used to validate that finality certificate, along with the error encountered.
 func ValidateFinalityCertificates(verifier gpbft.Verifier, network gpbft.NetworkName, prevPowerTable gpbft.PowerEntries, nextInstance uint64, base *gpbft.TipSet,
-	certs ...*FinalityCertificate) (_nextInstance uint64, chain gpbft.ECChain, newPowerTable gpbft.PowerEntries, err error) {
+	certs ...*FinalityCertificate) (_nextInstance uint64, chain *gpbft.ECChain, newPowerTable gpbft.PowerEntries, err error) {
 	for _, cert := range certs {
 		if cert.GPBFTInstance != nextInstance {
 			return nextInstance, chain, prevPowerTable, fmt.Errorf("expected instance %d, found instance %d", nextInstance, cert.GPBFTInstance)
@@ -133,7 +133,7 @@ func ValidateFinalityCertificates(verifier gpbft.Verifier, network gpbft.Network
 				cert.GPBFTInstance, cert.SupplementalData.PowerTable, powerTableCid)
 		}
 		nextInstance++
-		chain = append(chain, cert.ECChain.Suffix()...)
+		chain = chain.Append(cert.ECChain.Suffix()...)
 		prevPowerTable = newPowerTable
 		base = cert.ECChain.Head()
 	}

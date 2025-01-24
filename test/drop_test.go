@@ -49,8 +49,8 @@ func TestDrop_ReachesConsensusDespiteMessageLoss(t *testing.T) {
 				sm, err := sim.NewSimulation(opts...)
 				require.NoError(t, err)
 				require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
-				chain := ecChainGenerator.GenerateECChain(instanceCount-1, gpbft.TipSet{}, math.MaxUint64)
-				requireConsensusAtInstance(t, sm, instanceCount-1, *chain.Head())
+				chain := ecChainGenerator.GenerateECChain(instanceCount-1, &gpbft.TipSet{}, math.MaxUint64)
+				requireConsensusAtInstance(t, sm, instanceCount-1, chain.Head())
 			})
 		}
 	}

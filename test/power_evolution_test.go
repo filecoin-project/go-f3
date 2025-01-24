@@ -60,7 +60,7 @@ func storagePowerIncreaseMidSimulationTest(t *testing.T, seed int, instanceCount
 	groupTwoEcGenerator := sim.NewUniformECChainGenerator(rng.Uint64(), 1, 4)
 	sm, err := sim.NewSimulation(
 		append(o,
-			sim.WithBaseChain(&baseChain),
+			sim.WithBaseChain(baseChain),
 			// Group 1: 10 participants with fixed storage power throughout the simulation
 			sim.AddHonestParticipants(
 				10,
@@ -78,12 +78,12 @@ func storagePowerIncreaseMidSimulationTest(t *testing.T, seed int, instanceCount
 
 	// Assert that the chains agreed upon belong to group 1 before instance 4 and
 	// to group 2 after that.
-	base := *baseChain.Head()
+	base := baseChain.Head()
 	for i := uint64(0); i < instanceCount-1; i++ {
 		instance := sm.GetInstance(i + 1)
 		require.NotNil(t, instance, "instance %d", i)
 
-		var chainBackedByMostPower, chainBackedByLeastPower gpbft.ECChain
+		var chainBackedByMostPower, chainBackedByLeastPower *gpbft.ECChain
 		// UniformECChainGenerator caches the generated chains for each instance and disregards participant IDs.
 		if i < powerIncreaseAfterInstance {
 			chainBackedByMostPower = groupOneEcGenerator.GenerateECChain(i, base, math.MaxUint64)
@@ -99,8 +99,8 @@ func storagePowerIncreaseMidSimulationTest(t *testing.T, seed int, instanceCount
 		require.NotEqual(t, chainBackedByMostPower.Suffix(), chainBackedByLeastPower.Suffix())
 
 		// Assert the consensus is reached on the chain with most power.
-		requireConsensusAtInstance(t, sm, i, chainBackedByMostPower...)
-		base = *instance.BaseChain.Head()
+		requireConsensusAtInstance(t, sm, i, chainBackedByMostPower.TipSets...)
+		base = instance.BaseChain.Head()
 	}
 }
 
@@ -129,7 +129,7 @@ func storagePowerDecreaseRevertsToBaseTest(t *testing.T, seed int, instanceCount
 	baseChain := generateECChain(t, tsg)
 	sm, err := sim.NewSimulation(
 		append(o,
-			sim.WithBaseChain(&baseChain),
+			sim.WithBaseChain(baseChain),
 			// Group 1: 10 participants with fixed storage power of 2 per participant
 			// throughout the simulation.
 			sim.AddHonestParticipants(
@@ -164,10 +164,10 @@ func storagePowerDecreaseRevertsToBaseTest(t *testing.T, seed int, instanceCount
 
 		// Assert that the base chain only has one tipset, i.e. the chain proposed by
 		// group 1 is the dominant one.
-		require.Len(t, instance.BaseChain, 1)
+		require.Equal(t, instance.BaseChain.Len(), 1)
 
 		// Assert that the head tipset of all decisions made by participants is the base
 		// of instance's base-chain.
-		requireConsensusAtInstance(t, sm, i, *instance.BaseChain.Base())
+		requireConsensusAtInstance(t, sm, i, instance.BaseChain.Base())
 	}
 }

@@ -36,33 +36,33 @@ func TestHonest_Agreement(t *testing.T) {
 		options              []sim.Option
 		useBLS               bool
 		participantCounts    []int
-		wantConsensusOnAnyOf []gpbft.TipSet
+		wantConsensusOnAnyOf []*gpbft.TipSet
 	}{
 		{
 			name:                 "sync no signing",
 			options:              syncOptions(),
 			participantCounts:    participantCounts,
-			wantConsensusOnAnyOf: []gpbft.TipSet{*targetChain.Head()},
+			wantConsensusOnAnyOf: []*gpbft.TipSet{targetChain.Head()},
 		},
 		{
 			name:                 "sync bls",
 			options:              syncOptions(),
 			useBLS:               true,
 			participantCounts:    blsParticipantCount,
-			wantConsensusOnAnyOf: []gpbft.TipSet{*targetChain.Head()},
+			wantConsensusOnAnyOf: []*gpbft.TipSet{targetChain.Head()},
 		},
 		{
 			name:                 "async no signing",
 			options:              asyncOptions(21),
 			participantCounts:    participantCounts,
-			wantConsensusOnAnyOf: []gpbft.TipSet{*baseChain.Head(), *targetChain.Head()},
+			wantConsensusOnAnyOf: []*gpbft.TipSet{baseChain.Head(), targetChain.Head()},
 		},
 		{
 			name:                 "async pair bls",
 			options:              asyncOptions(1413),
 			useBLS:               true,
 			participantCounts:    blsParticipantCount,
-			wantConsensusOnAnyOf: []gpbft.TipSet{*baseChain.Head(), *targetChain.Head()},
+			wantConsensusOnAnyOf: []*gpbft.TipSet{baseChain.Head(), targetChain.Head()},
 		},
 	}
 	for _, test := range tests {
@@ -73,7 +73,7 @@ func TestHonest_Agreement(t *testing.T) {
 				var opts []sim.Option
 				opts = append(opts, test.options...)
 				opts = append(opts,
-					sim.WithBaseChain(&baseChain),
+					sim.WithBaseChain(baseChain),
 					sim.AddHonestParticipants(participantCount, sim.NewFixedECChainGenerator(targetChain), uniformOneStoragePower))
 				if test.useBLS {
 					// Initialise a new BLS backend for each test since it's not concurrent-safe.
@@ -144,7 +144,7 @@ func TestHonest_Disagreement(t *testing.T) {
 				var opts []sim.Option
 				opts = append(opts, test.options...)
 				opts = append(opts,
-					sim.WithBaseChain(&baseChain),
+					sim.WithBaseChain(baseChain),
 					sim.AddHonestParticipants(participantCount/2, sim.NewFixedECChainGenerator(oneChain), uniformOneStoragePower),
 					sim.AddHonestParticipants(participantCount/2, sim.NewFixedECChainGenerator(anotherChain), uniformOneStoragePower),
 				)
@@ -152,7 +152,7 @@ func TestHonest_Disagreement(t *testing.T) {
 				require.NoError(t, err)
 				require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 				// Insufficient majority means all should decide on base
-				requireConsensusAtFirstInstance(t, sm, *baseChain.Base())
+				requireConsensusAtFirstInstance(t, sm, baseChain.Base())
 			})
 		}
 	}
@@ -171,7 +171,7 @@ func FuzzHonest_AsyncRequireStrongQuorumToProgress(f *testing.F) {
 		oneChain := baseChain.Extend(tsg.Sample())
 		anotherChain := baseChain.Extend(tsg.Sample())
 		sm, err := sim.NewSimulation(asyncOptions(seed,
-			sim.WithBaseChain(&baseChain),
+			sim.WithBaseChain(baseChain),
 			sim.AddHonestParticipants(10, sim.NewFixedECChainGenerator(oneChain), uniformOneStoragePower),
 			sim.AddHonestParticipants(20, sim.NewFixedECChainGenerator(anotherChain), uniformOneStoragePower),
 		)...)
@@ -179,7 +179,7 @@ func FuzzHonest_AsyncRequireStrongQuorumToProgress(f *testing.F) {
 		require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 
 		// Must decide baseChain's head, i.e. the longest common prefix since there is no strong quorum.
-		requireConsensusAtFirstInstance(t, sm, *baseChain.Head())
+		requireConsensusAtFirstInstance(t, sm, baseChain.Head())
 	})
 }
 
@@ -195,7 +195,7 @@ func TestHonest_FixedLongestCommonPrefix(t *testing.T) {
 	abe := commonPrefix.Extend(tsg.Sample())
 	abf := commonPrefix.Extend(tsg.Sample())
 	sm, err := sim.NewSimulation(syncOptions(
-		sim.WithBaseChain(&baseChain),
+		sim.WithBaseChain(baseChain),
 		sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(abc), uniformOneStoragePower),
 		sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(abd), uniformOneStoragePower),
 		sim.AddHonestParticipants(1, sim.NewFixedECChainGenerator(abe), uniformOneStoragePower),
@@ -204,7 +204,7 @@ func TestHonest_FixedLongestCommonPrefix(t *testing.T) {
 	require.NoError(t, err)
 	require.NoErrorf(t, sm.Run(1, maxRounds), "%s", sm.Describe())
 	// Must decide ab, the longest common prefix.
-	requireConsensusAtFirstInstance(t, sm, *commonPrefix.Head())
+	requireConsensusAtFirstInstance(t, sm, commonPrefix.Head())
 }
 
 func FuzzHonest_SyncMajorityCommonPrefix(f *testing.F) {
@@ -238,8 +238,8 @@ func FuzzHonest_SyncMajorityCommonPrefix(f *testing.F) {
 		// Must decide the longest common prefix's head proposed by the majority at every instance.
 		for i := uint64(0); i < instanceCount; i++ {
 			instance := sm.GetInstance(i)
-			commonPrefix := majorityCommonPrefixGenerator.GenerateECChain(i, *instance.BaseChain.Base(), 0)
-			requireConsensusAtInstance(t, sm, i, *commonPrefix.Head())
+			commonPrefix := majorityCommonPrefixGenerator.GenerateECChain(i, instance.BaseChain.Base(), 0)
+			requireConsensusAtInstance(t, sm, i, commonPrefix.Head())
 		}
 	})
 }
@@ -282,8 +282,8 @@ func FuzzHonest_AsyncMajorityCommonPrefix(f *testing.F) {
 		// coverage exactly on common prefix head
 		for i := uint64(0); i < instanceCount; i++ {
 			instance := sm.GetInstance(i)
-			commonPrefix := majorityCommonPrefixGenerator.GenerateECChain(i, *instance.BaseChain.Base(), 0)
-			requireConsensusAtInstance(t, sm, i, commonPrefix...)
+			commonPrefix := majorityCommonPrefixGenerator.GenerateECChain(i, instance.BaseChain.Base(), 0)
+			requireConsensusAtInstance(t, sm, i, commonPrefix.TipSets...)
 		}
 	})
 }

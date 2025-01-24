@@ -21,7 +21,7 @@ var (
 type FinalityCertificateProvider func(context.Context, uint64) (*certs.FinalityCertificate, error)
 
 type tipSetWithPowerTable struct {
-	gpbft.TipSet
+	*gpbft.TipSet
 	Beacon     []byte
 	PowerTable *gpbft.PowerTable
 }
@@ -31,7 +31,7 @@ type CertChain struct {
 
 	rng              *rand.Rand
 	certificates     []*certs.FinalityCertificate
-	generateProposal func(context.Context, uint64) (gpbft.ECChain, error)
+	generateProposal func(context.Context, uint64) (*gpbft.ECChain, error)
 }
 
 func New(o ...Option) (*CertChain, error) {
@@ -63,7 +63,7 @@ func (cc *CertChain) GetCommittee(instance uint64) (*gpbft.Committee, error) {
 	return cc.getCommittee(tspt)
 }
 
-func (cc *CertChain) GetProposal(instance uint64) (*gpbft.SupplementalData, gpbft.ECChain, error) {
+func (cc *CertChain) GetProposal(instance uint64) (*gpbft.SupplementalData, *gpbft.ECChain, error) {
 	//TODO refactor ProposalProvider in gpbft to take context.
 	ctx := context.TODO()
 	proposal, err := cc.generateProposal(ctx, instance)
@@ -120,7 +120,7 @@ func (cc *CertChain) getTipSetWithPowerTableByEpoch(ctx context.Context, epoch i
 		return nil, err
 	}
 	return &tipSetWithPowerTable{
-		TipSet: gpbft.TipSet{
+		TipSet: &gpbft.TipSet{
 			Epoch:      epoch,
 			Key:        ts.Key(),
 			PowerTable: ptCid,
@@ -130,12 +130,12 @@ func (cc *CertChain) getTipSetWithPowerTableByEpoch(ctx context.Context, epoch i
 	}, nil
 }
 
-func (cc *CertChain) generateRandomProposal(ctx context.Context, base gpbft.TipSet, len int) (gpbft.ECChain, error) {
+func (cc *CertChain) generateRandomProposal(ctx context.Context, base *gpbft.TipSet, len int) (*gpbft.ECChain, error) {
 	if len == 0 {
 		return gpbft.NewChain(base)
 	}
 
-	suffix := make([]gpbft.TipSet, len-1)
+	suffix := make([]*gpbft.TipSet, len-1)
 	for i := range suffix {
 		epoch := base.Epoch + 1 + int64(i)
 		gTS, err := cc.getTipSetWithPowerTableByEpoch(ctx, epoch)
@@ -250,7 +250,7 @@ func (cc *CertChain) sign(ctx context.Context, committee *gpbft.Committee, paylo
 func (cc *CertChain) Generate(ctx context.Context, length uint64) ([]*certs.FinalityCertificate, error) {
 	cc.certificates = make([]*certs.FinalityCertificate, 0, length)
 
-	cc.generateProposal = func(ctx context.Context, instance uint64) (gpbft.ECChain, error) {
+	cc.generateProposal = func(ctx context.Context, instance uint64) (*gpbft.ECChain, error) {
 		var baseEpoch int64
 		if instance == cc.m.InitialInstance {
 			baseEpoch = cc.m.BootstrapEpoch - cc.m.EC.Finality

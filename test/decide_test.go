@@ -29,7 +29,7 @@ func FuzzImmediateDecideAdversary(f *testing.F) {
 					1,
 					sim.NewUniformECChainGenerator(rng.Uint64(), 1, 5),
 					uniformOneStoragePower),
-				sim.WithBaseChain(&baseChain),
+				sim.WithBaseChain(baseChain),
 				// Add the adversary to the simulation with 3/4 of total power.
 				sim.WithAdversary(adversary.NewImmediateDecideGenerator(adversaryValue, gpbft.NewStoragePower(3))),
 			)...)
@@ -61,7 +61,7 @@ func TestIllegalCommittee_OutOfRange(t *testing.T) {
 				1,
 				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 5),
 				uniformOneStoragePower),
-			sim.WithBaseChain(&baseChain),
+			sim.WithBaseChain(baseChain),
 			// Add the adversary to the simulation with 3/4 of total power.
 			sim.WithAdversary(adversary.NewImmediateDecideGenerator(
 				adversaryValue,
@@ -87,7 +87,7 @@ func TestIllegalCommittee_NoPower(t *testing.T) {
 				1,
 				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 5),
 				sim.UniformStoragePower(gpbft.NewStoragePower(1))),
-			sim.WithBaseChain(&baseChain),
+			sim.WithBaseChain(baseChain),
 			// Add the adversary to the simulation with enough power to make the honest
 			// node's power a rounding error. Then have that adversary include the
 			// honest participant in their decision (which is illegal because the
@@ -116,7 +116,7 @@ func TestIllegalCommittee_WrongValue(t *testing.T) {
 				1,
 				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 5),
 				sim.UniformStoragePower(gpbft.NewStoragePower(1))),
-			sim.WithBaseChain(&baseChain),
+			sim.WithBaseChain(baseChain),
 			sim.WithAdversary(adversary.NewImmediateDecideGenerator(
 				adversaryValue,
 				gpbft.NewStoragePower(3),
@@ -142,7 +142,7 @@ func TestIllegalCommittee_WrongSupplementalData(t *testing.T) {
 				1,
 				sim.NewUniformECChainGenerator(rng.Uint64(), 1, 5),
 				sim.UniformStoragePower(gpbft.NewStoragePower(1))),
-			sim.WithBaseChain(&baseChain),
+			sim.WithBaseChain(baseChain),
 			sim.WithAdversary(adversary.NewImmediateDecideGenerator(
 				adversaryValue,
 				gpbft.NewStoragePower(3),

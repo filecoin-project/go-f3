@@ -70,7 +70,7 @@ type ProposalProvider interface {
 	// supplemental data.
 	//
 	// Returns an error if the chain for the specified instance is not available.
-	GetProposal(instance uint64) (data *SupplementalData, chain ECChain, err error)
+	GetProposal(instance uint64) (data *SupplementalData, chain *ECChain, err error)
 }
 
 // CommitteeProvider defines an interface for retrieving committee information
