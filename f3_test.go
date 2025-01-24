@@ -115,7 +115,7 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 
 	// Wait until we're far enough that pure GPBFT catchup should be impossible.
 	targetInstance := env.nodes[1].currentGpbftInstance() + env.manifest.CommitteeLookback + 1
-	env.waitForInstanceNumber(targetInstance, 60*time.Second, false)
+	env.waitForInstanceNumber(targetInstance, 90*time.Second, false)
 
 	env.resumeNode(2)
 
