@@ -541,7 +541,7 @@ func (e *testEnv) waitForEpochFinalized(epoch int64) {
 				//       here and reduce the clock advance to give messages a chance of being
 				//       delivered in time. See:
 				//         - https://github.com/filecoin-project/go-f3/issues/818
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(20 * time.Millisecond)
 				for _, nd := range e.nodes {
 					if nd.f3 == nil || !nd.f3.IsRunning() {
 						continue
