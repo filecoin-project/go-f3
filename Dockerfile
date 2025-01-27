@@ -1,4 +1,4 @@
-FROM golang:1.22-bullseye AS build
+FROM golang:1.23-bullseye AS build
 
 WORKDIR /go/src/f3
 
