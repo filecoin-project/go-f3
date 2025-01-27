@@ -45,6 +45,8 @@ type partialMessageManager struct {
 	pendingDiscoveredChains chan *discoveredChain
 	// pendingChainBroadcasts is a channel of chains that are pending to be broadcasted.
 	pendingChainBroadcasts chan chainexchange.Message
+	// pendingInstanceRemoval is a channel of instances that are pending to be removed.
+	pendingInstanceRemoval chan uint64
 	// rebroadcastInterval is the interval at which chains are re-broadcasted.
 	rebroadcastInterval time.Duration
 
@@ -58,6 +60,7 @@ func newPartialMessageManager(progress gpbft.Progress, ps *pubsub.PubSub, m *man
 		pendingDiscoveredChains: make(chan *discoveredChain, 100),           // TODO: parameterize buffer size.
 		pendingPartialMessages:  make(chan *PartiallyValidatedMessage, 100), // TODO: parameterize buffer size.
 		pendingChainBroadcasts:  make(chan chainexchange.Message, 100),      // TODO: parameterize buffer size.
+		pendingInstanceRemoval:  make(chan uint64, 10),
 		rebroadcastInterval:     m.ChainExchange.RebroadcastInterval,
 	}
 	var err error
@@ -150,6 +153,23 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyV
 				// TODO: Add equivocation metrics: check if the message is different and if so
 				//       increment the equivocations counter tagged by phase.
 				//       See: https://github.com/filecoin-project/go-f3/issues/812
+			case instance, ok := <-pmm.pendingInstanceRemoval:
+				if !ok {
+					return
+				}
+				for i := range pmm.pmByInstance {
+					if i < instance {
+						delete(pmm.pmByInstance, i)
+					}
+				}
+				for i := range pmm.pmkByInstanceByChainKey {
+					if i < instance {
+						delete(pmm.pmkByInstanceByChainKey, i)
+					}
+				}
+				if err := pmm.chainex.RemoveChainsByInstance(ctx, instance); err != nil {
+					log.Errorw("Failed to remove chains by instance form chainexchange.", "instance", instance, "error", err)
+				}
 			}
 		}
 	}()
@@ -363,6 +383,16 @@ func inferJustificationVoteValue(pgmsg *PartialGMessage) {
 			// The message must be invalid. But let the flow proceed and have the validator
 			// reject it.
 		}
+	}
+}
+
+func (pmm *partialMessageManager) RemoveMessagesBeforeInstance(ctx context.Context, instance uint64) {
+	select {
+	case <-ctx.Done():
+		return
+	case pmm.pendingInstanceRemoval <- instance:
+	default:
+		log.Warnw("Dropped instance removal request as partial message manager is too slow.", "instance", instance)
 	}
 }
 

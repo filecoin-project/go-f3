@@ -788,7 +788,9 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) (time.Time, e
 	log.Infow("reached a decision", "instance", decision.Vote.Instance,
 		"ecHeadEpoch", decision.Vote.Value.Head().Epoch)
 	if decision.Vote.Instance > 0 {
-		h.pmCache.RemoveGroupsLessThan(decision.Vote.Instance - 1)
+		oldInstance := decision.Vote.Instance - 1
+		h.pmCache.RemoveGroupsLessThan(oldInstance)
+		h.pmm.RemoveMessagesBeforeInstance(context.Background(), oldInstance)
 	}
 	cert, err := h.saveDecision(decision)
 	if err != nil {

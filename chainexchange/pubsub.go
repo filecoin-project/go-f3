@@ -321,8 +321,16 @@ func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Messa
 func (p *PubSubChainExchange) RemoveChainsByInstance(_ context.Context, instance uint64) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	delete(p.chainsWanted, instance)
-	delete(p.chainsDiscovered, instance)
+	for i := range p.chainsWanted {
+		if i < instance {
+			delete(p.chainsWanted, i)
+		}
+	}
+	for i := range p.chainsDiscovered {
+		if i < instance {
+			delete(p.chainsDiscovered, i)
+		}
+	}
 	return nil
 }
 
