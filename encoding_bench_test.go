@@ -6,6 +6,7 @@ import (
 
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/encoding"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
@@ -15,23 +16,23 @@ const seed = 1413
 
 func BenchmarkCborEncoding(b *testing.B) {
 	rng := rand.New(rand.NewSource(seed))
-	encoder := &cborGMessageEncoding{}
+	encoder := encoding.NewCBOR[*PartialGMessage]()
 	msg := generateRandomPartialGMessage(b, rng)
 
 	b.ResetTimer()
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			if _, err := encoder.Encode(msg); err != nil {
-				require.NoError(b, err)
-			}
+			got, err := encoder.Encode(msg)
+			require.NoError(b, err)
+			require.NotEmpty(b, got)
 		}
 	})
 }
 
 func BenchmarkCborDecoding(b *testing.B) {
 	rng := rand.New(rand.NewSource(seed))
-	encoder := &cborGMessageEncoding{}
+	encoder := encoding.NewCBOR[*PartialGMessage]()
 	msg := generateRandomPartialGMessage(b, rng)
 	data, err := encoder.Encode(msg)
 	require.NoError(b, err)
@@ -40,17 +41,16 @@ func BenchmarkCborDecoding(b *testing.B) {
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			if got, err := encoder.Decode(data); err != nil {
-				require.NoError(b, err)
-				require.Equal(b, msg, got)
-			}
+			var got PartialGMessage
+			require.NoError(b, encoder.Decode(data, &got))
+			require.Equal(b, msg, &got)
 		}
 	})
 }
 
 func BenchmarkZstdEncoding(b *testing.B) {
 	rng := rand.New(rand.NewSource(seed))
-	encoder, err := newZstdGMessageEncoding()
+	encoder, err := encoding.NewZSTD[*PartialGMessage]()
 	require.NoError(b, err)
 	msg := generateRandomPartialGMessage(b, rng)
 
@@ -58,16 +58,16 @@ func BenchmarkZstdEncoding(b *testing.B) {
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			if _, err := encoder.Encode(msg); err != nil {
-				require.NoError(b, err)
-			}
+			got, err := encoder.Encode(msg)
+			require.NoError(b, err)
+			require.NotEmpty(b, got)
 		}
 	})
 }
 
 func BenchmarkZstdDecoding(b *testing.B) {
 	rng := rand.New(rand.NewSource(seed))
-	encoder, err := newZstdGMessageEncoding()
+	encoder, err := encoding.NewZSTD[*PartialGMessage]()
 	require.NoError(b, err)
 	msg := generateRandomPartialGMessage(b, rng)
 	data, err := encoder.Encode(msg)
@@ -77,10 +77,9 @@ func BenchmarkZstdDecoding(b *testing.B) {
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			if got, err := encoder.Decode(data); err != nil {
-				require.NoError(b, err)
-				require.Equal(b, msg, got)
-			}
+			var got PartialGMessage
+			require.NoError(b, encoder.Decode(data, &got))
+			require.Equal(b, msg, &got)
 		}
 	})
 }
@@ -99,9 +98,8 @@ func generateRandomPartialGMessage(b *testing.B, rng *rand.Rand) *PartialGMessag
 func generateRandomGMessage(b *testing.B, rng *rand.Rand) *gpbft.GMessage {
 	var maybeTicket []byte
 	if rng.Float64() < 0.5 {
-		generateRandomBytes(b, rng, 96)
+		maybeTicket = generateRandomBytes(b, rng, 96)
 	}
-
 	return &gpbft.GMessage{
 		Sender:        gpbft.ActorID(rng.Uint64()),
 		Vote:          generateRandomPayload(b, rng),
@@ -114,7 +112,7 @@ func generateRandomGMessage(b *testing.B, rng *rand.Rand) *gpbft.GMessage {
 func generateRandomJustification(b *testing.B, rng *rand.Rand) *gpbft.Justification {
 	return &gpbft.Justification{
 		Vote:      generateRandomPayload(b, rng),
-		Signers:   generateRandomBitfield(rng),
+		Signers:   generateRandomBitfield(b, rng),
 		Signature: generateRandomBytes(b, rng, 96),
 	}
 }
@@ -138,12 +136,18 @@ func generateRandomPayload(b *testing.B, rng *rand.Rand) gpbft.Payload {
 	}
 }
 
-func generateRandomBitfield(rng *rand.Rand) bitfield.BitField {
+func generateRandomBitfield(b *testing.B, rng *rand.Rand) bitfield.BitField {
 	ids := make([]uint64, rng.Intn(2_000)+1)
 	for i := range ids {
 		ids[i] = rng.Uint64()
 	}
-	return bitfield.NewFromSet(ids)
+	// Copy the bitfield once to force initialization of internal bit field state.
+	// This is to work around the equality assertions in tests, where under the hood
+	// reflection is used to check for equality. This way we can avoid writing custom
+	// equality checking for bitfields.
+	bitField, err := bitfield.NewFromSet(ids).Copy()
+	require.NoError(b, err)
+	return bitField
 }
 
 func generateRandomECChain(b *testing.B, rng *rand.Rand, length int) *gpbft.ECChain {

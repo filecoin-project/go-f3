@@ -1,13 +1,13 @@
 package chainexchange
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/encoding"
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	lru "github.com/hashicorp/golang-lru/v2"
 	logging "github.com/ipfs/go-log/v2"
@@ -38,10 +38,15 @@ type PubSubChainExchange struct {
 	pendingCacheAsWanted chan Message
 	topic                *pubsub.Topic
 	stop                 func() error
+	encoding             *encoding.ZSTD[*Message]
 }
 
 func NewPubSubChainExchange(o ...Option) (*PubSubChainExchange, error) {
 	opts, err := newOptions(o...)
+	if err != nil {
+		return nil, err
+	}
+	zstd, err := encoding.NewZSTD[*Message]()
 	if err != nil {
 		return nil, err
 	}
@@ -50,6 +55,7 @@ func NewPubSubChainExchange(o ...Option) (*PubSubChainExchange, error) {
 		chainsWanted:         map[uint64]*lru.Cache[gpbft.ECChainKey, *chainPortion]{},
 		chainsDiscovered:     map[uint64]*lru.Cache[gpbft.ECChainKey, *chainPortion]{},
 		pendingCacheAsWanted: make(chan Message, 100), // TODO: parameterise.
+		encoding:             zstd,
 	}, nil
 }
 
@@ -189,8 +195,7 @@ func (p *PubSubChainExchange) newChainPortionCache(capacity int) *lru.Cache[gpbf
 
 func (p *PubSubChainExchange) validatePubSubMessage(_ context.Context, _ peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
 	var cmsg Message
-	buf := bytes.NewBuffer(msg.Data)
-	if err := cmsg.UnmarshalCBOR(buf); err != nil {
+	if err := p.encoding.Decode(msg.Data, &cmsg); err != nil {
 		log.Debugw("failed to decode message", "from", msg.GetFrom(), "err", err)
 		return pubsub.ValidationReject
 	}
@@ -266,12 +271,11 @@ func (p *PubSubChainExchange) Broadcast(ctx context.Context, msg Message) error 
 		log.Warnw("Dropping wanted cache entry. Chain exchange is too slow to process chains as wanted", "msg", msg)
 	}
 
-	// TODO: integrate zstd compression.
-	var buf bytes.Buffer
-	if err := msg.MarshalCBOR(&buf); err != nil {
+	encoded, err := p.encoding.Encode(&msg)
+	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
-	if err := p.topic.Publish(ctx, buf.Bytes()); err != nil {
+	if err := p.topic.Publish(ctx, encoded); err != nil {
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
 	return nil
