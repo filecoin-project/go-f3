@@ -8,11 +8,13 @@ import (
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/encoding"
+	"github.com/filecoin-project/go-f3/internal/measurements"
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	lru "github.com/hashicorp/golang-lru/v2"
 	logging "github.com/ipfs/go-log/v2"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"go.opentelemetry.io/otel/metric"
 )
 
 var (
@@ -134,21 +136,24 @@ func (p *PubSubChainExchange) GetChainByInstance(ctx context.Context, instance u
 
 	// Check wanted keys first.
 
-	wanted := p.getChainsWantedAt(instance)
+	wanted := p.getChainsWantedAt(ctx, instance)
 	if portion, found := wanted.Get(key); found && !portion.IsPlaceholder() {
 		return portion.chain, true
 	}
 
 	// Check if the chain for the key is discovered.
-	discovered := p.getChainsDiscoveredAt(instance)
+	discovered := p.getChainsDiscoveredAt(ctx, instance)
 	if portion, found := discovered.Get(key); found {
 		// Add it to the wanted cache and remove it from the discovered cache.
 		wanted.Add(key, portion)
+		metrics.chains.Add(ctx, 1, metric.WithAttributeSet(
+			attrFromWantedDiscovered(true, true)))
 		discovered.Remove(key)
 
 		chain := portion.chain
 		if p.listener != nil {
 			p.listener.NotifyChainDiscovered(ctx, instance, chain)
+			metrics.notifications.Add(ctx, 1)
 		}
 		// TODO: Do we want to pull all the suffixes of the chain into wanted cache?
 		return chain, true
@@ -157,27 +162,31 @@ func (p *PubSubChainExchange) GetChainByInstance(ctx context.Context, instance u
 	// Otherwise, add a placeholder for the wanted key as a way to prioritise its
 	// retention via LRU recent-ness.
 	wanted.ContainsOrAdd(key, chainPortionPlaceHolder)
+	metrics.chains.Add(ctx, 1, metric.WithAttributeSet(
+		attrFromWantedDiscovered(true, false)))
 	return nil, false
 }
 
-func (p *PubSubChainExchange) getChainsWantedAt(instance uint64) *lru.Cache[gpbft.ECChainKey, *chainPortion] {
+func (p *PubSubChainExchange) getChainsWantedAt(ctx context.Context, instance uint64) *lru.Cache[gpbft.ECChainKey, *chainPortion] {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	wanted, exists := p.chainsWanted[instance]
 	if !exists {
 		wanted = p.newChainPortionCache(p.maxWantedChainsPerInstance)
 		p.chainsWanted[instance] = wanted
+		metrics.instances.Add(ctx, +1, metric.WithAttributes(attrKindWanted))
 	}
 	return wanted
 }
 
-func (p *PubSubChainExchange) getChainsDiscoveredAt(instance uint64) *lru.Cache[gpbft.ECChainKey, *chainPortion] {
+func (p *PubSubChainExchange) getChainsDiscoveredAt(ctx context.Context, instance uint64) *lru.Cache[gpbft.ECChainKey, *chainPortion] {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	discovered, exists := p.chainsDiscovered[instance]
 	if !exists {
 		discovered = p.newChainPortionCache(p.maxDiscoveredChainsPerInstance)
 		p.chainsDiscovered[instance] = discovered
+		metrics.instances.Add(ctx, +1, metric.WithAttributes(attrKindDiscovered))
 	}
 	return discovered
 }
@@ -193,7 +202,13 @@ func (p *PubSubChainExchange) newChainPortionCache(capacity int) *lru.Cache[gpbf
 	return cache
 }
 
-func (p *PubSubChainExchange) validatePubSubMessage(_ context.Context, _ peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
+func (p *PubSubChainExchange) validatePubSubMessage(ctx context.Context, _ peer.ID, msg *pubsub.Message) (_result pubsub.ValidationResult) {
+	defer func(start time.Time) {
+		attr := measurements.AttrFromPubSubValidationResult(_result)
+		metrics.validatedMessages.Add(ctx, 1, metric.WithAttributes(attr))
+		metrics.validationTime.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(attr))
+	}(time.Now())
+
 	var cmsg Message
 	if err := p.encoding.Decode(msg.Data, &cmsg); err != nil {
 		log.Debugw("failed to decode message", "from", msg.GetFrom(), "err", err)
@@ -230,8 +245,8 @@ func (p *PubSubChainExchange) validatePubSubMessage(_ context.Context, _ peer.ID
 
 func (p *PubSubChainExchange) cacheAsDiscoveredChain(ctx context.Context, cmsg Message) {
 
-	wanted := p.getChainsDiscoveredAt(cmsg.Instance)
-	discovered := p.getChainsDiscoveredAt(cmsg.Instance)
+	wanted := p.getChainsDiscoveredAt(ctx, cmsg.Instance)
+	discovered := p.getChainsDiscoveredAt(ctx, cmsg.Instance)
 
 	for offset := cmsg.Chain.Len(); offset >= 0 && ctx.Err() == nil; offset-- {
 		// TODO: Expose internals of merkle.go so that keys can be generated
@@ -241,15 +256,21 @@ func (p *PubSubChainExchange) cacheAsDiscoveredChain(ctx context.Context, cmsg M
 		if portion, found := wanted.Peek(key); !found {
 			// Not a wanted key; add it to discovered chains if they are not there already,
 			// i.e. without modifying the recent-ness of any of the discovered values.
-			discovered.ContainsOrAdd(key, &chainPortion{
+			existed, _ := discovered.ContainsOrAdd(key, &chainPortion{
 				chain: prefix,
 			})
+			if !existed {
+				metrics.chains.Add(ctx, 1, metric.WithAttributeSet(
+					attrFromWantedDiscovered(false, true)))
+			}
 		} else if portion.IsPlaceholder() {
 			// It is a wanted key with a placeholder; replace the placeholder with the actual
 			// discovery.
 			wanted.Add(key, &chainPortion{
 				chain: prefix,
 			})
+			metrics.chains.Add(ctx, 1, metric.WithAttributeSet(
+				attrFromWantedDiscovered(true, true)))
 		}
 		// Nothing to do; the discovered value is already in the wanted chains with
 		// discovered value.
@@ -260,7 +281,11 @@ func (p *PubSubChainExchange) cacheAsDiscoveredChain(ctx context.Context, cmsg M
 	}
 }
 
-func (p *PubSubChainExchange) Broadcast(ctx context.Context, msg Message) error {
+func (p *PubSubChainExchange) Broadcast(ctx context.Context, msg Message) (_err error) {
+	defer func() {
+		metrics.broadcasts.Add(ctx, 1, metric.WithAttributes(measurements.Status(ctx, _err)))
+		metrics.broadcastChainLen.Record(ctx, int64(msg.Chain.Len()))
+	}()
 
 	// Optimistically cache the broadcast chain and all of its prefixes as wanted.
 	select {
@@ -288,7 +313,7 @@ type discovery struct {
 
 func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Message) {
 	var notifications []discovery
-	wanted := p.getChainsWantedAt(cmsg.Instance)
+	wanted := p.getChainsWantedAt(ctx, cmsg.Instance)
 	for offset := cmsg.Chain.Len(); offset >= 0 && ctx.Err() == nil; offset-- {
 		// TODO: Expose internals of merkle.go so that keys can be generated
 		//       cumulatively for a more efficient prefix chain key generation.
@@ -298,6 +323,12 @@ func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Messa
 			wanted.Add(key, &chainPortion{
 				chain: prefix,
 			})
+
+			if portion.IsPlaceholder() {
+				metrics.chains.Add(ctx, 1, metric.WithAttributeSet(
+					attrFromWantedDiscovered(true, true)))
+			}
+
 			if p.listener != nil {
 				notifications = append(notifications, discovery{
 					instance: cmsg.Instance,
@@ -315,22 +346,29 @@ func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Messa
 		for _, notification := range notifications {
 			p.listener.NotifyChainDiscovered(ctx, notification.instance, notification.chain)
 		}
+		metrics.notifications.Add(ctx, int64(len(notifications)))
 	}
 }
 
-func (p *PubSubChainExchange) RemoveChainsByInstance(_ context.Context, instance uint64) error {
+func (p *PubSubChainExchange) RemoveChainsByInstance(ctx context.Context, instance uint64) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for i := range p.chainsWanted {
 		if i < instance {
 			delete(p.chainsWanted, i)
+			metrics.instances.Add(ctx, -1, metric.WithAttributes(attrKindWanted))
 		}
 	}
 	for i := range p.chainsDiscovered {
 		if i < instance {
 			delete(p.chainsDiscovered, i)
+			metrics.instances.Add(ctx, -1, metric.WithAttributes(attrKindDiscovered))
 		}
 	}
+	// TODO: Do we want to precisely count the number of "wanted but not discovered
+	//       chains" per instance? If so, then the LRU caches per instance need to be
+	//       wrapped to keep a count of placeholders, etc. For now, we can approximate
+	//       this by the number of partial messages never fulfilled.
 	return nil
 }
 

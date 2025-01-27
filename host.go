@@ -538,8 +538,9 @@ func (h *gpbftRunner) rebroadcastMessage(msg *gpbft.GMessage) error {
 var _ pubsub.ValidatorEx = (*gpbftRunner)(nil).validatePubsubMessage
 
 func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, _ peer.ID, msg *pubsub.Message) (_result pubsub.ValidationResult) {
+	var partiallyValidated bool
 	defer func(start time.Time) {
-		recordValidationTime(ctx, start, _result)
+		recordValidationTime(ctx, start, _result, partiallyValidated)
 	}(time.Now())
 
 	var pgmsg PartialGMessage
@@ -555,6 +556,7 @@ func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, _ peer.ID, msg 
 		if result == pubsub.ValidationAccept {
 			msg.ValidatorData = partiallyValidatedMessage
 		}
+		partiallyValidated = true
 		return result
 	}
 

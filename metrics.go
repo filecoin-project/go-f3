@@ -37,13 +37,16 @@ var samples = struct {
 }
 
 var metrics = struct {
-	headDiverged       metric.Int64Counter
-	reconfigured       metric.Int64Counter
-	manifestsReceived  metric.Int64Counter
-	validationTime     metric.Float64Histogram
-	proposalFetchTime  metric.Float64Histogram
-	committeeFetchTime metric.Float64Histogram
-	validatedMessages  metric.Int64Counter
+	headDiverged             metric.Int64Counter
+	reconfigured             metric.Int64Counter
+	manifestsReceived        metric.Int64Counter
+	validationTime           metric.Float64Histogram
+	proposalFetchTime        metric.Float64Histogram
+	committeeFetchTime       metric.Float64Histogram
+	validatedMessages        metric.Int64Counter
+	partialMessages          metric.Int64UpDownCounter
+	partialMessageDuplicates metric.Int64Counter
+	partialMessageInstances  metric.Int64UpDownCounter
 }{
 	headDiverged:      measurements.Must(meter.Int64Counter("f3_head_diverged", metric.WithDescription("Number of times we encountered the head has diverged from base scenario."))),
 	reconfigured:      measurements.Must(meter.Int64Counter("f3_reconfigured", metric.WithDescription("Number of times we reconfigured due to new manifest being delivered."))),
@@ -65,6 +68,12 @@ var metrics = struct {
 	)),
 	validatedMessages: measurements.Must(meter.Int64Counter("f3_validated_messages",
 		metric.WithDescription("Number of validated GPBFT messages."))),
+	partialMessages: measurements.Must(meter.Int64UpDownCounter("f3_partial_messages",
+		metric.WithDescription("Number of partial GPBFT messages pending fulfilment."))),
+	partialMessageDuplicates: measurements.Must(meter.Int64Counter("f3_partial_message_duplicates",
+		metric.WithDescription("Number of partial GPBFT messages recieved that already have an unfulfilled message for the same instance, sender, round and phase."))),
+	partialMessageInstances: measurements.Must(meter.Int64UpDownCounter("f3_partial_message_instances",
+		metric.WithDescription("Number of instances with partial GPBFT messages pending fulfilment."))),
 }
 
 func recordValidatedMessage(ctx context.Context, msg gpbft.ValidatedMessage) {
@@ -88,22 +97,13 @@ func recordValidatedMessage(ctx context.Context, msg gpbft.ValidatedMessage) {
 	metrics.validatedMessages.Add(ctx, 1, metric.WithAttributes(attrs...))
 }
 
-func recordValidationTime(ctx context.Context, start time.Time, result pubsub.ValidationResult) {
-	var v string
-	switch result {
-	case pubsub.ValidationAccept:
-		v = "accepted"
-	case pubsub.ValidationReject:
-		v = "rejected"
-	case pubsub.ValidationIgnore:
-		v = "ignored"
-	default:
-		v = "unknown"
-	}
+func recordValidationTime(ctx context.Context, start time.Time, result pubsub.ValidationResult, partiallyValidated bool) {
 	metrics.validationTime.Record(
 		ctx,
 		time.Since(start).Seconds(),
-		metric.WithAttributes(attribute.KeyValue{Key: "result", Value: attribute.StringValue(v)}))
+		metric.WithAttributes(
+			measurements.AttrFromPubSubValidationResult(result),
+			attribute.Bool("partially_validated", partiallyValidated)))
 }
 
 // attrStatusFromErr returns an attribute with key "status" and value set to "success" if
