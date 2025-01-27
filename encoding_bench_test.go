@@ -43,7 +43,7 @@ func BenchmarkCborDecoding(b *testing.B) {
 		for pb.Next() {
 			var got PartialGMessage
 			require.NoError(b, encoder.Decode(data, &got))
-			require.Equal(b, msg, &got)
+			requireEqualPartialMessages(b, msg, &got)
 		}
 	})
 }
@@ -79,9 +79,27 @@ func BenchmarkZstdDecoding(b *testing.B) {
 		for pb.Next() {
 			var got PartialGMessage
 			require.NoError(b, encoder.Decode(data, &got))
-			require.Equal(b, msg, &got)
+			requireEqualPartialMessages(b, msg, &got)
 		}
 	})
+}
+
+func requireEqualPartialMessages(b *testing.B, expected, actual *PartialGMessage) {
+	// Because empty ECChain gets marshaled as null, we need to use ECChain.Eq for
+	// checking equality. Hence, the custom equality check.
+	require.Equal(b, expected.Sender, actual.Sender)
+	require.Equal(b, expected.Signature, actual.Signature)
+	require.Equal(b, expected.VoteValueKey, actual.VoteValueKey)
+	require.Equal(b, expected.Ticket, actual.Ticket)
+	require.True(b, expected.Vote.Eq(&actual.Vote))
+	if expected.Justification == nil {
+		require.Nil(b, actual.Justification)
+	} else {
+		require.NotNil(b, actual.Justification)
+		require.Equal(b, expected.Justification.Signature, actual.Justification.Signature)
+		require.Equal(b, expected.Justification.Signers, actual.Justification.Signers)
+		require.True(b, expected.Justification.Vote.Eq(&actual.Justification.Vote))
+	}
 }
 
 func generateRandomPartialGMessage(b *testing.B, rng *rand.Rand) *PartialGMessage {
