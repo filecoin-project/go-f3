@@ -21,7 +21,10 @@ jobs:
   prepare-checkout:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     name: Prepare ref
-    runs-on: ubuntu-latest
+    # TODO: Revert "runs-on" back to ubuntu-latest once the build issues are resolved. See:
+    #        * https://github.com/docker/build-push-action/issues/1309
+    #        * https://github.com/filecoin-project/go-f3/issues/846
+    runs-on: ubuntu-22.04
     outputs:
       ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.sha || github.event_name != 'workflow_run' && github.ref || steps.releaser.outputs.version }}
     steps:
