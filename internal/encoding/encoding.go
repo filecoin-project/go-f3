@@ -3,6 +3,7 @@ package encoding
 import (
 	"bytes"
 	"fmt"
+	"sync"
 
 	"github.com/klauspost/compress/zstd"
 	cbg "github.com/whyrusleeping/cbor-gen"
@@ -12,6 +13,13 @@ import (
 // zstd decoder. The limit of 1MiB is chosen based on the default maximum message
 // size in GossipSub.
 const maxDecompressedSize = 1 << 20
+
+var bufferPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, maxDecompressedSize)
+		return &buf
+	},
+}
 
 type CBORMarshalUnmarshaler interface {
 	cbg.CBORMarshaler
@@ -30,11 +38,11 @@ func NewCBOR[T CBORMarshalUnmarshaler]() *CBOR[T] {
 }
 
 func (c *CBOR[T]) Encode(m T) ([]byte, error) {
-	var buf bytes.Buffer
-	if err := m.MarshalCBOR(&buf); err != nil {
+	var out bytes.Buffer
+	if err := m.MarshalCBOR(&out); err != nil {
 		return nil, err
 	}
-	return buf.Bytes(), nil
+	return out.Bytes(), nil
 }
 
 func (c *CBOR[T]) Decode(v []byte, t T) error {
@@ -53,7 +61,9 @@ func NewZSTD[T CBORMarshalUnmarshaler]() (*ZSTD[T], error) {
 	if err != nil {
 		return nil, err
 	}
-	reader, err := zstd.NewReader(nil, zstd.WithDecoderMaxMemory(maxDecompressedSize))
+	reader, err := zstd.NewReader(nil,
+		zstd.WithDecoderMaxMemory(maxDecompressedSize),
+		zstd.WithDecodeAllCapLimit(true))
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +88,10 @@ func (c *ZSTD[T]) Encode(m T) ([]byte, error) {
 }
 
 func (c *ZSTD[T]) Decode(v []byte, t T) error {
-	cborEncoded, err := c.decompressor.DecodeAll(v, make([]byte, 0, len(v)))
+	buf := bufferPool.Get().(*[]byte)
+	defer bufferPool.Put(buf)
+
+	cborEncoded, err := c.decompressor.DecodeAll(v, (*buf)[:0])
 	if err != nil {
 		return err
 	}
