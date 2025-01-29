@@ -10,6 +10,8 @@ import (
 	"github.com/filecoin-project/go-f3/manifest"
 	lru "github.com/hashicorp/golang-lru/v2"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 var _ chainexchange.Listener = (*partialMessageManager)(nil)
@@ -130,6 +132,7 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyV
 							log.Warnw("Dropped completed message as the gpbft runner is too slow to consume them.", "msg", pgmsg.GMessage)
 						}
 						buffer.Remove(messageKey)
+						metrics.partialMessages.Add(ctx, -1)
 					}
 				}
 				delete(partialMessageKeysAtInstance, chainkey)
@@ -146,13 +149,18 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyV
 					},
 				}
 				buffer := pmm.getOrInitPartialMessageBuffer(pgmsg.Vote.Instance)
-				if found, _ := buffer.ContainsOrAdd(key, pgmsg); !found {
+				if known, found, _ := buffer.PeekOrAdd(key, pgmsg); !found {
 					pmkByChainKey := pmm.pmkByInstanceByChainKey[pgmsg.Vote.Instance]
 					pmkByChainKey[pgmsg.VoteValueKey] = append(pmkByChainKey[pgmsg.VoteValueKey], key)
+					metrics.partialMessages.Add(ctx, 1)
+				} else {
+					// The message is a duplicate. This can happen when a message is re-broadcasted.
+					// But the vote value key must remain consistent for the same instance, sender,
+					// round and phase. If it's not, then it's an equivocation.
+					equivocation := known.VoteValueKey != pgmsg.VoteValueKey
+					metrics.partialMessageDuplicates.Add(ctx, 1,
+						metric.WithAttributes(attribute.Bool("equivocation", equivocation)))
 				}
-				// TODO: Add equivocation metrics: check if the message is different and if so
-				//       increment the equivocations counter tagged by phase.
-				//       See: https://github.com/filecoin-project/go-f3/issues/812
 			case instance, ok := <-pmm.pendingInstanceRemoval:
 				if !ok {
 					return
@@ -160,6 +168,7 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyV
 				for i := range pmm.pmByInstance {
 					if i < instance {
 						delete(pmm.pmByInstance, i)
+						metrics.partialMessageInstances.Add(context.Background(), -1)
 					}
 				}
 				for i := range pmm.pmkByInstanceByChainKey {
@@ -290,7 +299,6 @@ func (pmm *partialMessageManager) NotifyChainDiscovered(ctx context.Context, ins
 	case <-ctx.Done():
 		return
 	case pmm.pendingDiscoveredChains <- discovery:
-		// TODO: add metrics
 	default:
 		// The message completion looks up the key on chain exchange anyway. The net
 		// effect of this is delay in delivering messages assuming they're re-boradcasted
@@ -305,7 +313,6 @@ func (pmm *partialMessageManager) bufferPartialMessage(ctx context.Context, msg 
 	case <-ctx.Done():
 		return
 	case pmm.pendingPartialMessages <- msg:
-		// TODO: add metrics
 	default:
 		// Choosing to rely on GPBFT re-boradcast to compensate for a partial message
 		// being dropped. The key thing here is that partial message manager should never
@@ -328,6 +335,7 @@ func (pmm *partialMessageManager) getOrInitPartialMessageBuffer(instance uint64)
 			panic(err)
 		}
 		pmm.pmByInstance[instance] = buffer
+		metrics.partialMessageInstances.Add(context.Background(), 1)
 	}
 	if _, ok := pmm.pmkByInstanceByChainKey[instance]; !ok {
 		pmm.pmkByInstanceByChainKey[instance] = make(map[gpbft.ECChainKey][]partialMessageKey)

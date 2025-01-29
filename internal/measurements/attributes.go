@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/ipfs/go-datastore"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -36,4 +37,19 @@ func Status(ctx context.Context, err error) attribute.KeyValue {
 	default:
 		return AttrStatusError
 	}
+}
+
+func AttrFromPubSubValidationResult(result pubsub.ValidationResult) attribute.KeyValue {
+	var v string
+	switch result {
+	case pubsub.ValidationAccept:
+		v = "accepted"
+	case pubsub.ValidationReject:
+		v = "rejected"
+	case pubsub.ValidationIgnore:
+		v = "ignored"
+	default:
+		v = "unknown"
+	}
+	return attribute.String("result", v)
 }
