@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 
 	"github.com/ipfs/go-datastore"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -28,6 +29,21 @@ func Status(ctx context.Context, err error) attribute.KeyValue {
 		return AttrStatusSuccess
 	case errors.Is(err, datastore.ErrNotFound):
 		return AttrStatusNotFound
+	case errors.As(err, &pubsub.ValidationError{}):
+		// There are no sentinel errors for pubsub validation errors, unfortunately.
+		// Hence, the string gymnastics.
+		switch errMsg := err.Error(); {
+		case strings.Contains(errMsg, pubsub.RejectValidationIgnored):
+			return attribute.String("status", "error-pubsub-validation-ignored")
+		case strings.Contains(errMsg, pubsub.RejectValidationFailed):
+			return attribute.String("status", "error-pubsub-validation-failed")
+		case strings.Contains(errMsg, pubsub.RejectValidationThrottled):
+			return attribute.String("status", "error-pubsub-validation-throttled")
+		case strings.Contains(errMsg, pubsub.RejectValidationQueueFull):
+			return attribute.String("status", "error-pubsub-validation-q-full")
+		default:
+			return attribute.String("status", "error-pubsub-validation-other")
+		}
 	case os.IsTimeout(err),
 		errors.Is(err, os.ErrDeadlineExceeded),
 		errors.Is(cErr, context.DeadlineExceeded):
