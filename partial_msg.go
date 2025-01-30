@@ -165,10 +165,11 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyV
 				if !ok {
 					return
 				}
-				for i := range pmm.pmByInstance {
+				for i, pmsgs := range pmm.pmByInstance {
 					if i < instance {
 						delete(pmm.pmByInstance, i)
-						metrics.partialMessageInstances.Add(context.Background(), -1)
+						metrics.partialMessageInstances.Add(ctx, -1)
+						metrics.partialMessages.Add(ctx, -int64(pmsgs.Len()))
 					}
 				}
 				for i := range pmm.pmkByInstanceByChainKey {
