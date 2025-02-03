@@ -224,6 +224,12 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 				continue
 			}
 
+			mcid, err := update.Manifest.Cid()
+			if err != nil {
+				log.Errorw("Failed to determine manifest CID", "error", err)
+				continue
+			}
+
 			if err := m.filter(&update.Manifest); err != nil {
 				log.Errorw("received filtered manifest, discarded", "error", err)
 				continue
@@ -236,7 +242,7 @@ func (m *DynamicManifestProvider) Start(startCtx context.Context) error {
 				}
 			}
 
-			log.Infow("received manifest update", "seqNo", update.MessageSequence)
+			log.Infow("received manifest update", "seqNo", update.MessageSequence, "cid", mcid)
 
 			oldManifest := currentManifest
 			manifestCopy := update.Manifest

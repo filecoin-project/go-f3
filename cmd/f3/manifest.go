@@ -247,9 +247,13 @@ var manifestServeCmd = cli.Command{
 					if nextManifest, err := loadManifest(manifestPath); err != nil {
 						_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed reload manifest: %v\n", err)
 					} else if !nextManifest.Equal(currentManifest) {
-						_, _ = fmt.Fprintf(c.App.Writer, "Loaded changed manifest with network name: %q\n", nextManifest.NetworkName)
-						sender.UpdateManifest(nextManifest)
-						currentManifest = nextManifest
+						if mcid, err := nextManifest.Cid(); err != nil {
+							_, _ = fmt.Fprintf(c.App.ErrWriter, "Failed determine manifest CID: %v\n", err)
+						} else {
+							_, _ = fmt.Fprintf(c.App.Writer, "Loaded changed manifest with network name: %q, and CID %s\n", nextManifest.NetworkName, mcid)
+							sender.UpdateManifest(nextManifest)
+							currentManifest = nextManifest
+						}
 					}
 
 					// Periodically reconnect to bootstrappers; this would reload any changes to
