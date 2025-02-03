@@ -118,3 +118,27 @@ func TestManifest_NetworkName(t *testing.T) {
 		})
 	}
 }
+
+func TestManifest_CID(t *testing.T) {
+	t.Parallel()
+
+	const (
+		wantLocalDevnetCid = "baguqfiheaiqptjzqkzqyu2hskn7ac5fexvjwuxmjec7hjrjug27jkucvmrrtmji"
+		wantAfterUpdateCid = "baguqfiheaiqjxj6otbtvdoitpqtfmjbslqc2o5cnjuipjxxduxiaezomoa44cey"
+	)
+	subject := manifest.LocalDevnetManifest()
+	// Use a fixed network name for deterministic CID calculation.
+	subject.NetworkName = "fish"
+
+	got, err := subject.Cid()
+	require.NoError(t, err)
+	require.Equal(t, wantLocalDevnetCid, got.String())
+
+	changedSubject := *subject
+	changedSubject.CommitteeLookback = changedSubject.CommitteeLookback + 1
+	gotAfterUpdate, err := changedSubject.Cid()
+	require.NoError(t, err)
+	require.NotEqual(t, subject, changedSubject)
+	require.NotEqual(t, wantLocalDevnetCid, gotAfterUpdate.String())
+	require.Equal(t, wantAfterUpdateCid, gotAfterUpdate.String())
+}

@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
+	"github.com/multiformats/go-multihash"
 )
 
 // ErrNoManifest is returned when no manifest is known.
@@ -408,6 +409,21 @@ func (m *Manifest) DatastorePrefix() datastore.Key {
 
 func (m *Manifest) PubSubTopic() string {
 	return PubSubTopicFromNetworkName(m.NetworkName)
+}
+
+var cidPrefix = cid.Prefix{
+	Version:  1,
+	Codec:    cid.DagJSON,
+	MhType:   multihash.BLAKE2B_MIN + 31,
+	MhLength: 32,
+}
+
+func (m *Manifest) Cid() (cid.Cid, error) {
+	marshalled, err := m.Marshal()
+	if err != nil {
+		return cid.Cid{}, err
+	}
+	return cidPrefix.Sum(marshalled)
 }
 
 func PubSubTopicFromNetworkName(nn gpbft.NetworkName) string {
