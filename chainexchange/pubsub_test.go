@@ -36,6 +36,7 @@ func TestPubSubChainExchange_Broadcast(t *testing.T) {
 		chainexchange.WithPubSub(ps),
 		chainexchange.WithTopicName(topicName),
 		chainexchange.WithTopicScoreParams(nil),
+		chainexchange.WithMaxTimestampAge(time.Minute),
 		chainexchange.WithListener(&testListener),
 	)
 	require.NoError(t, err)
@@ -61,7 +62,7 @@ func TestPubSubChainExchange_Broadcast(t *testing.T) {
 	require.NoError(t, subject.Broadcast(ctx, chainexchange.Message{
 		Instance:  instance,
 		Chain:     ecChain,
-		Timestamp: time.Now().Unix(),
+		Timestamp: time.Now().Add(-2 * time.Second).Unix(),
 	}))
 
 	require.Eventually(t, func() bool {
