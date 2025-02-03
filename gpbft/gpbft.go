@@ -1039,7 +1039,7 @@ func (i *instance) log(format string, args ...any) {
 	if i.tracer != nil {
 		msg := fmt.Sprintf(format, args...)
 		i.tracer.Log("{%d}: %s (round %d, phase %s, proposal %s, value %s)", i.current.ID, msg,
-			i.current.Round, i.current.Phase, &i.proposal, &i.value)
+			i.current.Round, i.current.Phase, i.proposal, i.value)
 	}
 }
 
