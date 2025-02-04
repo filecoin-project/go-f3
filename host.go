@@ -296,7 +296,7 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 					}
 				} else {
 					ts := cert.ECChain.Head()
-					log.Infow("skipping finalization of a new head because the current manifest specifies that tipsets should not be finalized",
+					log.Debugw("skipping finalization of a new head because the current manifest specifies that tipsets should not be finalized",
 						"tsk", ts.Key,
 						"epoch", ts.Epoch,
 					)
