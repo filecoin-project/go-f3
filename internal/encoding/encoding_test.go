@@ -9,6 +9,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/require"
 	cbg "github.com/whyrusleeping/cbor-gen"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 var (
@@ -76,4 +77,21 @@ func TestZSTDLimits(t *testing.T) {
 
 	var dest testValue
 	require.ErrorContains(t, subject.Decode(tooLargeACompression, &dest), "decompressed size exceeds configured limit")
+}
+
+func TestZSTD_GetMetricAttribute(t *testing.T) {
+	t.Run("By Pointer", func(t *testing.T) {
+		subject, err := encoding.NewZSTD[*testValue]()
+		require.NoError(t, err)
+		require.Equal(t, attribute.String("type", "testValue"), subject.GetMetricAttribute())
+	})
+	t.Run("By Value", func(t *testing.T) {
+		type anotherTestValue struct {
+			cbg.CBORUnmarshaler
+			cbg.CBORMarshaler
+		}
+		subject, err := encoding.NewZSTD[anotherTestValue]()
+		require.NoError(t, err)
+		require.Equal(t, attribute.String("type", "anotherTestValue"), subject.GetMetricAttribute())
+	})
 }

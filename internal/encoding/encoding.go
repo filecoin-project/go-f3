@@ -2,11 +2,16 @@ package encoding
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"reflect"
 	"sync"
+	"time"
 
 	"github.com/klauspost/compress/zstd"
 	cbg "github.com/whyrusleeping/cbor-gen"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // maxDecompressedSize is the default maximum amount of memory allocated by the
@@ -37,7 +42,14 @@ func NewCBOR[T CBORMarshalUnmarshaler]() *CBOR[T] {
 	return &CBOR[T]{}
 }
 
-func (c *CBOR[T]) Encode(m T) ([]byte, error) {
+func (c *CBOR[T]) Encode(m T) (_ []byte, _err error) {
+	defer func(start time.Time) {
+		if _err != nil {
+			metrics.encodingTime.Record(context.Background(),
+				time.Since(start).Seconds(),
+				metric.WithAttributeSet(attrSetCborEncode))
+		}
+	}(time.Now())
 	var out bytes.Buffer
 	if err := m.MarshalCBOR(&out); err != nil {
 		return nil, err
@@ -45,7 +57,14 @@ func (c *CBOR[T]) Encode(m T) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-func (c *CBOR[T]) Decode(v []byte, t T) error {
+func (c *CBOR[T]) Decode(v []byte, t T) (_err error) {
+	defer func(start time.Time) {
+		if _err != nil {
+			metrics.encodingTime.Record(context.Background(),
+				time.Since(start).Seconds(),
+				metric.WithAttributeSet(attrSetCborDecode))
+		}
+	}(time.Now())
 	r := bytes.NewReader(v)
 	return t.UnmarshalCBOR(r)
 }
@@ -54,6 +73,9 @@ type ZSTD[T CBORMarshalUnmarshaler] struct {
 	cborEncoding *CBOR[T]
 	compressor   *zstd.Encoder
 	decompressor *zstd.Decoder
+
+	metricAttr       attribute.KeyValue
+	metricAttrLoader sync.Once
 }
 
 func NewZSTD[T CBORMarshalUnmarshaler]() (*ZSTD[T], error) {
@@ -74,26 +96,57 @@ func NewZSTD[T CBORMarshalUnmarshaler]() (*ZSTD[T], error) {
 	}, nil
 }
 
-func (c *ZSTD[T]) Encode(m T) ([]byte, error) {
-	cborEncoded, err := c.cborEncoding.Encode(m)
-	if len(cborEncoded) > maxDecompressedSize {
+func (c *ZSTD[T]) Encode(t T) (_ []byte, _err error) {
+	defer func(start time.Time) {
+		metrics.encodingTime.Record(context.Background(),
+			time.Since(start).Seconds(),
+			metric.WithAttributeSet(attrSetZstdEncode))
+	}(time.Now())
+	decompressed, err := c.cborEncoding.Encode(t)
+	if len(decompressed) > maxDecompressedSize {
 		// Error out early if the encoded value is too large to be decompressed.
-		return nil, fmt.Errorf("encoded value cannot exceed maximum size: %d > %d", len(cborEncoded), maxDecompressedSize)
+		return nil, fmt.Errorf("encoded value cannot exceed maximum size: %d > %d", len(decompressed), maxDecompressedSize)
 	}
 	if err != nil {
 		return nil, err
 	}
-	compressed := c.compressor.EncodeAll(cborEncoded, make([]byte, 0, len(cborEncoded)))
+	compressed := c.compressor.EncodeAll(decompressed, make([]byte, 0, len(decompressed)))
+	c.meterCompressionRatio(len(decompressed), len(compressed))
 	return compressed, nil
 }
 
-func (c *ZSTD[T]) Decode(v []byte, t T) error {
+func (c *ZSTD[T]) Decode(compressed []byte, t T) (_err error) {
+	defer func(start time.Time) {
+		if _err != nil {
+			metrics.encodingTime.Record(context.Background(),
+				time.Since(start).Seconds(),
+				metric.WithAttributeSet(attrSetZstdDecode))
+		}
+	}(time.Now())
 	buf := bufferPool.Get().(*[]byte)
 	defer bufferPool.Put(buf)
-
-	cborEncoded, err := c.decompressor.DecodeAll(v, (*buf)[:0])
+	decompressed, err := c.decompressor.DecodeAll(compressed, (*buf)[:0])
 	if err != nil {
 		return err
 	}
-	return c.cborEncoding.Decode(cborEncoded, t)
+	c.meterCompressionRatio(len(decompressed), len(compressed))
+	return c.cborEncoding.Decode(decompressed, t)
+}
+
+func (c *ZSTD[T]) meterCompressionRatio(decompressedSize, compressedSize int) {
+	compressionRatio := float64(decompressedSize) / float64(compressedSize)
+	metrics.zstdCompressionRatio.Record(context.Background(), compressionRatio, metric.WithAttributes(c.getMetricAttribute()))
+}
+
+func (c *ZSTD[T]) getMetricAttribute() attribute.KeyValue {
+	c.metricAttrLoader.Do(func() {
+		const key = "type"
+		switch target := reflect.TypeFor[T](); {
+		case target.Kind() == reflect.Ptr:
+			c.metricAttr = attribute.String(key, target.Elem().Name())
+		default:
+			c.metricAttr = attribute.String(key, target.Name())
+		}
+	})
+	return c.metricAttr
 }
