@@ -202,7 +202,7 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyV
 				if current != nil {
 					current.Timestamp = roundDownToUnixTime(t, pmm.rebroadcastInterval)
 					if err := pmm.chainex.Broadcast(ctx, *current); err != nil {
-						log.Errorw("Failed to re-broadcast chain.", "instance", current.Instance, "chain", current.Chain, "error", err)
+						log.Debugw("Failed to re-broadcast chain.", "instance", current.Instance, "chain", current.Chain, "error", err)
 					}
 				}
 			case pending, ok := <-pmm.pendingChainBroadcasts:
@@ -217,7 +217,7 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyV
 					current = &pending
 					current.Timestamp = roundDownToUnixTime(time.Now(), pmm.rebroadcastInterval)
 					if err := pmm.chainex.Broadcast(ctx, *current); err != nil {
-						log.Errorw("Failed to immediately re-broadcast chain.", "instance", current.Instance, "chain", current.Chain, "error", err)
+						log.Debugw("Failed to immediately re-broadcast chain.", "instance", current.Instance, "chain", current.Chain, "error", err)
 					}
 					ticker.Reset(pmm.rebroadcastInterval)
 				case pending.Instance == current.Instance:
