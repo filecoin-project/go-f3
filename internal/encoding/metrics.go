@@ -8,14 +8,10 @@ import (
 )
 
 var (
-	attrCodecCbor     = attribute.String("codec", "cbor")
-	attrCodecZstd     = attribute.String("codec", "zstd")
-	attrActionEncode  = attribute.String("action", "encode")
-	attrActionDecode  = attribute.String("action", "decode")
-	attrSetCborEncode = attribute.NewSet(attrCodecCbor, attrActionEncode)
-	attrSetCborDecode = attribute.NewSet(attrCodecCbor, attrActionDecode)
-	attrSetZstdEncode = attribute.NewSet(attrCodecZstd, attrActionEncode)
-	attrSetZstdDecode = attribute.NewSet(attrCodecZstd, attrActionDecode)
+	attrCodecCbor    = attribute.String("codec", "cbor")
+	attrCodecZstd    = attribute.String("codec", "zstd")
+	attrActionEncode = attribute.String("action", "encode")
+	attrActionDecode = attribute.String("action", "decode")
 
 	meter = otel.Meter("f3/internal/encoding")
 
@@ -36,3 +32,7 @@ var (
 		)),
 	}
 )
+
+func attrSuccessFromErr(err error) attribute.KeyValue {
+	return attribute.Bool("success", err == nil)
+}
