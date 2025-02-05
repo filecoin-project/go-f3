@@ -44,11 +44,9 @@ func NewCBOR[T CBORMarshalUnmarshaler]() *CBOR[T] {
 
 func (c *CBOR[T]) Encode(m T) (_ []byte, _err error) {
 	defer func(start time.Time) {
-		if _err != nil {
-			metrics.encodingTime.Record(context.Background(),
-				time.Since(start).Seconds(),
-				metric.WithAttributeSet(attrSetCborEncode))
-		}
+		metrics.encodingTime.Record(context.Background(),
+			time.Since(start).Seconds(),
+			metric.WithAttributes(attrCodecCbor, attrActionEncode, attrSuccessFromErr(_err)))
 	}(time.Now())
 	var out bytes.Buffer
 	if err := m.MarshalCBOR(&out); err != nil {
@@ -59,11 +57,9 @@ func (c *CBOR[T]) Encode(m T) (_ []byte, _err error) {
 
 func (c *CBOR[T]) Decode(v []byte, t T) (_err error) {
 	defer func(start time.Time) {
-		if _err != nil {
-			metrics.encodingTime.Record(context.Background(),
-				time.Since(start).Seconds(),
-				metric.WithAttributeSet(attrSetCborDecode))
-		}
+		metrics.encodingTime.Record(context.Background(),
+			time.Since(start).Seconds(),
+			metric.WithAttributes(attrCodecCbor, attrActionDecode, attrSuccessFromErr(_err)))
 	}(time.Now())
 	r := bytes.NewReader(v)
 	return t.UnmarshalCBOR(r)
@@ -100,7 +96,7 @@ func (c *ZSTD[T]) Encode(t T) (_ []byte, _err error) {
 	defer func(start time.Time) {
 		metrics.encodingTime.Record(context.Background(),
 			time.Since(start).Seconds(),
-			metric.WithAttributeSet(attrSetZstdEncode))
+			metric.WithAttributes(attrCodecZstd, attrActionEncode, attrSuccessFromErr(_err)))
 	}(time.Now())
 	decompressed, err := c.cborEncoding.Encode(t)
 	if len(decompressed) > maxDecompressedSize {
@@ -117,11 +113,9 @@ func (c *ZSTD[T]) Encode(t T) (_ []byte, _err error) {
 
 func (c *ZSTD[T]) Decode(compressed []byte, t T) (_err error) {
 	defer func(start time.Time) {
-		if _err != nil {
-			metrics.encodingTime.Record(context.Background(),
-				time.Since(start).Seconds(),
-				metric.WithAttributeSet(attrSetZstdDecode))
-		}
+		metrics.encodingTime.Record(context.Background(),
+			time.Since(start).Seconds(),
+			metric.WithAttributes(attrCodecZstd, attrActionDecode, attrSuccessFromErr(_err)))
 	}(time.Now())
 	buf := bufferPool.Get().(*[]byte)
 	defer bufferPool.Put(buf)
