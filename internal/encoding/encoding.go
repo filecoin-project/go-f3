@@ -106,7 +106,8 @@ func (c *ZSTD[T]) Encode(t T) (_ []byte, _err error) {
 	if err != nil {
 		return nil, err
 	}
-	compressed := c.compressor.EncodeAll(decompressed, make([]byte, 0, len(decompressed)))
+	maxCompressedSize := c.compressor.MaxEncodedSize(len(decompressed))
+	compressed := c.compressor.EncodeAll(decompressed, make([]byte, 0, maxCompressedSize))
 	c.meterCompressionRatio(len(decompressed), len(compressed))
 	return compressed, nil
 }
