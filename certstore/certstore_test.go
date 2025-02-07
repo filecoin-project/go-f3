@@ -409,20 +409,31 @@ func TestPowerNoData(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
-	pt, _ := testPowerTable(20)
+	pt, ptCid := testPowerTable(20)
 
 	cs, err := CreateStore(ctx, ds, 0, pt)
 	require.NoError(t, err)
 	cs.powerTableFrequency = 5
-	// clobber the datastore.
+
+	// Add some certs to force GetPowerTable call to have to range certs.
+	require.NoError(t, cs.Put(ctx, makeCert(0, gpbft.SupplementalData{PowerTable: ptCid})))
+	require.NoError(t, cs.Put(ctx, makeCert(1, gpbft.SupplementalData{PowerTable: ptCid})))
+
+	// Clobber the datastore.
 	cs.ds = ds_sync.MutexWrap(datastore.NewMapDatastore())
 
-	// Should fail to find any power tables.
+	// Should fail to find any power table apart from next. Because, internally it is
+	// cached.
 	_, err = cs.GetPowerTable(ctx, 0)
 	require.ErrorContains(t, err, "failed to load power table")
 	_, err = cs.GetPowerTable(ctx, 1)
-	require.ErrorContains(t, err, "cannot return future power table")
+	require.ErrorContains(t, err, "failed to load power table")
+	_, err = cs.GetPowerTable(ctx, 2)
+	require.NoError(t, err)
 
+	// Should fail to find power tables that are beyond the next expected instance.
+	_, err = cs.GetPowerTable(ctx, 3)
+	require.ErrorContains(t, err, "cannot return future power table")
 }
 
 func TestPowerEmptyPowerTable(t *testing.T) {
