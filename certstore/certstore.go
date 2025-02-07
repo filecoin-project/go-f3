@@ -287,13 +287,31 @@ func (cs *Store) GetPowerTable(ctx context.Context, instance uint64) (gpbft.Powe
 		return nil, fmt.Errorf("cannot return a power table before the first instance: %d", cs.firstInstance)
 	}
 
-	lastPowerTable := cs.firstInstance
-	if latestCert := cs.Latest(); latestCert != nil {
-		lastPowerTable = latestCert.GPBFTInstance + 1
+	// Copy a reference to both the latest cert and latest power table while holding
+	// the lock to guarantee order in case the latest changes while the requested
+	// power table is being retrieved.
+	cs.mu.RLock()
+	latestCert := cs.latestCertificate
+	latestPowerTable := cs.latestPowerTable
+	cs.mu.RUnlock()
+
+	nextCertInstance := cs.firstInstance
+	if latestCert != nil {
+		nextCertInstance = latestCert.GPBFTInstance + 1
 	}
-	if instance > lastPowerTable {
-		return nil, fmt.Errorf("cannot return future power table for instance %d > %d", instance, lastPowerTable)
+	if instance > nextCertInstance {
+		return nil, fmt.Errorf("cannot return future power table for instance %d > %d", instance, nextCertInstance)
 	}
+	if instance == nextCertInstance && len(latestPowerTable) != 0 {
+		// Note that the latestPowerTable may be nil/empty, which indicates the certstore
+		// is being opened. Hence, the strict check for non-zero length.
+		return latestPowerTable, nil
+	}
+	// Technically, it's possible to also optimize for the case where the instance is
+	// equal to the latest certificate instance. This is by "subtracting" the latest
+	// cert power table delta from the latest power table. But it's unclear if that
+	// optimization is necessary. Observing the runtime metrics should make it clear
+	// if it is. For now, YAGNI.
 
 	// We store every `powerTableFrequency` power tables. Find the nearest multiple smaller than
 	// the requested instance.
