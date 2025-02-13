@@ -149,7 +149,6 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 				timer.Reset(m.clock.Until(startTime))
 			case <-timer.C:
 				if priorityManifest == nil {
-					log.Errorf("nil priorityManifest")
 					// just a consistency check, timer might have fired before it was stopped
 					continue
 				}
