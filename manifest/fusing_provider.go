@@ -67,6 +67,9 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 	}
 
 	m.errgrp.Go(func() error {
+		defer m.priority.Stop(context.Background())
+		defer m.dynamic.Stop(context.Background())
+
 		startTimeOfPriority := func(mani *Manifest) (time.Time, error) {
 			head, err := m.ec.GetHead(m.runningCtx)
 			if err != nil {
@@ -78,13 +81,14 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 			start := head.Timestamp().Add(time.Duration(epochDelay) * mani.EC.Period)
 			return start, nil
 		}
+
 		var priorityManifest *Manifest
 		var timer *clock.Timer
 
 		first := true
 		for m.runningCtx.Err() != nil {
 			if !first {
-				m.clk.Sleep(5 * time.Second)
+				m.clock.Sleep(5 * time.Second)
 				first = false
 			}
 
@@ -98,10 +102,7 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 			headEpoch := head.Epoch()
 			// exit early if priorityManifest is relevant right now
 			if priorityManifest != nil && headEpoch >= priorityManifest.BootstrapEpoch-priorityManifest.EC.Finality {
-				m.priority.Stop(ctx)
 				m.manifestCh <- priorityManifest
-				m.priority.Stop()
-				m.dynamic.Stop()
 				return nil
 			}
 
@@ -128,8 +129,6 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 		}
 
 		defer timer.Stop()
-		defer m.priority.Stop(context.Background())
-		defer m.dynamic.Stop(context.Background())
 
 		for m.runningCtx.Err() == nil {
 			select {
@@ -190,7 +189,7 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 			case <-m.runningCtx.Done():
 			}
 		}
-		return
+		return nil
 	})
 
 	return nil
