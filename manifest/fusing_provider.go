@@ -34,7 +34,7 @@ type FusingManifestProvider struct {
 	clock      clock.Clock
 }
 
-// NewFusingManifestProvider creates a provider that will lock into the priority manifest onces it reaches BootstrapEpoch of priority manifest
+// NewFusingManifestProvider creates a provider that will lock into the priority manifest onces it reaches BootstrapEpoch-Finality of priority manifest
 // the priority ManifestProvider needs to provide at least one manifest (or nil), a sign of life, to enable forwarding of dynamic manifests
 func NewFusingManifestProvider(ctx context.Context, ec HeadGetter, dynamic ManifestProvider, priority ManifestProvider) (*FusingManifestProvider, error) {
 	clk := clock.GetClock(ctx)
@@ -62,55 +62,74 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 		return err
 	}
 
-	priorityManifest := <-m.priority.ManifestUpdates()
-	var timer *clock.Timer
-	startTimeOfPriority := func(mani *Manifest) (time.Time, error) {
-		head, err := m.ec.GetHead(ctx)
-		if err != nil {
-			return time.Time{}, fmt.Errorf("failed to determine current head epoch: %w", err)
-		}
-		headEpoch := head.Epoch()
-		switchEpoch := mani.BootstrapEpoch - mani.EC.Finality
-		epochDelay := switchEpoch - headEpoch
-		start := head.Timestamp().Add(time.Duration(epochDelay) * mani.EC.Period)
-		return start, nil
-	}
-
-	{
-		head, err := m.ec.GetHead(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to determine current head epoch: %w", err)
-		}
-		headEpoch := head.Epoch()
-		// exit early if priorityManifest is relevant right now
-		if priorityManifest != nil && headEpoch >= priorityManifest.BootstrapEpoch-priorityManifest.EC.Finality {
-			m.priority.Stop(ctx)
-			m.manifestCh <- priorityManifest
-			return nil
-		}
-
-		if priorityManifest != nil {
-			startTime, err := startTimeOfPriority(priorityManifest)
-			log.Infof("starting the fusing manifest provider, will switch to the priority manifest at %s,(now %s)",
-				startTime, m.clock.Now())
-			if err != nil {
-				return fmt.Errorf("trying to compute start time: %w", err)
-			}
-			timer = m.clock.Timer(m.clock.Until(startTime))
-		} else {
-			// create a stopped timer
-			timer = m.clock.Timer(time.Hour)
-			timer.Stop()
-		}
-	}
-
 	if err := m.dynamic.Start(ctx); err != nil {
 		return err
 	}
 
 	m.errgrp.Go(func() error {
+		startTimeOfPriority := func(mani *Manifest) (time.Time, error) {
+			head, err := m.ec.GetHead(m.runningCtx)
+			if err != nil {
+				return time.Time{}, fmt.Errorf("failed to determine current head epoch: %w", err)
+			}
+			headEpoch := head.Epoch()
+			switchEpoch := mani.BootstrapEpoch - mani.EC.Finality
+			epochDelay := switchEpoch - headEpoch
+			start := head.Timestamp().Add(time.Duration(epochDelay) * mani.EC.Period)
+			return start, nil
+		}
+		var priorityManifest *Manifest
+		var timer *clock.Timer
+
+		first := true
+		for m.runningCtx.Err() != nil {
+			if !first {
+				m.clk.Sleep(5 * time.Second)
+				first = false
+			}
+
+			priorityManifest = <-m.priority.ManifestUpdates()
+
+			head, err := m.ec.GetHead(ctx)
+			if err != nil {
+				log.Errorf("failed to determine current head epoch: %w", err)
+				continue
+			}
+			headEpoch := head.Epoch()
+			// exit early if priorityManifest is relevant right now
+			if priorityManifest != nil && headEpoch >= priorityManifest.BootstrapEpoch-priorityManifest.EC.Finality {
+				m.priority.Stop(ctx)
+				m.manifestCh <- priorityManifest
+				m.priority.Stop()
+				m.dynamic.Stop()
+				return nil
+			}
+
+			if priorityManifest != nil {
+				startTime, err := startTimeOfPriority(priorityManifest)
+				log.Infof("starting the fusing manifest provider, will switch to the priority manifest at %s",
+					startTime)
+				if err != nil {
+					log.Errorf("trying to compute start time: %w", err)
+					continue
+				}
+				timer = m.clock.Timer(m.clock.Until(startTime))
+				break
+			} else {
+				// create a stopped timer
+				timer = m.clock.Timer(time.Hour)
+				timer.Stop()
+				break
+			}
+		}
+
+		if m.runningCtx.Err() != nil {
+			return nil
+		}
+
 		defer timer.Stop()
 		defer m.priority.Stop(context.Background())
+		defer m.dynamic.Stop(context.Background())
 
 		for m.runningCtx.Err() == nil {
 			select {
@@ -165,19 +184,13 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 					"current epoch", head.Epoch(),
 				)
 				m.updateManifest(priorityManifest)
-				// Log any errors and move on. We don't bubble it because we don't
-				// want to stop everything if shutting down the dynamic manifest
-				// provider fails when switching over to a priority manifest.
-				if err := m.dynamic.Stop(context.Background()); err != nil {
-					log.Errorw("failure when stopping dynamic manifest provider", "error", err)
-				}
 				return nil
 			case update := <-m.dynamic.ManifestUpdates():
 				m.updateManifest(update)
 			case <-m.runningCtx.Done():
 			}
 		}
-		return m.dynamic.Stop(context.Background())
+		return
 	})
 
 	return nil
