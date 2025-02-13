@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Static manifest provider that doesn't allow any changes
-// in runtime to the initial manifest set in the provider
 type testManifestProvider chan *manifest.Manifest
 
 func (testManifestProvider) Start(context.Context) error { return nil }
