@@ -19,12 +19,12 @@ type HeadGetter interface {
 var _ ManifestProvider = (*FusingManifestProvider)(nil)
 
 // FusingManifestProvider is a ManifestProvider that starts by providing dynamic manifest updates
-// then switches to a static manifest when we get within finality of said manifest's bootstrap
+// then switches to a priority manifest when we get within finality of said manifest's bootstrap
 // epoch.
 type FusingManifestProvider struct {
-	ec      HeadGetter
-	dynamic ManifestProvider
-	static  *Manifest
+	ec       HeadGetter
+	dynamic  ManifestProvider
+	priority ManifestProvider
 
 	manifestCh chan *Manifest
 
@@ -34,11 +34,9 @@ type FusingManifestProvider struct {
 	clock      clock.Clock
 }
 
-func NewFusingManifestProvider(ctx context.Context, ec HeadGetter, dynamic ManifestProvider, static *Manifest) (*FusingManifestProvider, error) {
-	if err := static.Validate(); err != nil {
-		return nil, err
-	}
-
+// NewFusingManifestProvider creates a provider that will lock into the priority manifest onces it reaches BootstrapEpoch of priority manifest
+// the priority ManifestProvider needs to provide at least one manifest (or nil), a sign of life, to enable forwarding of dynamic manifests
+func NewFusingManifestProvider(ctx context.Context, ec HeadGetter, dynamic ManifestProvider, priority ManifestProvider) (*FusingManifestProvider, error) {
 	clk := clock.GetClock(ctx)
 	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	errgrp, ctx := errgroup.WithContext(ctx)
@@ -46,7 +44,7 @@ func NewFusingManifestProvider(ctx context.Context, ec HeadGetter, dynamic Manif
 	return &FusingManifestProvider{
 		ec:         ec,
 		dynamic:    dynamic,
-		static:     static,
+		priority:   priority,
 		errgrp:     errgrp,
 		cancel:     cancel,
 		runningCtx: ctx,
@@ -60,41 +58,92 @@ func (m *FusingManifestProvider) ManifestUpdates() <-chan *Manifest {
 }
 
 func (m *FusingManifestProvider) Start(ctx context.Context) error {
-	head, err := m.ec.GetHead(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to determine current head epoch")
+	if err := m.priority.Start(ctx); err != nil {
+		return err
 	}
 
-	switchEpoch := m.static.BootstrapEpoch - m.static.EC.Finality
-	headEpoch := head.Epoch()
-
-	if headEpoch >= switchEpoch {
-		m.manifestCh <- m.static
-		return nil
+	priorityManifest := <-m.priority.ManifestUpdates()
+	var timer *clock.Timer
+	startTimeOfPriority := func(mani *Manifest) (time.Time, error) {
+		head, err := m.ec.GetHead(ctx)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("failed to determine current head epoch: %w", err)
+		}
+		headEpoch := head.Epoch()
+		switchEpoch := mani.BootstrapEpoch - mani.EC.Finality
+		epochDelay := switchEpoch - headEpoch
+		start := head.Timestamp().Add(time.Duration(epochDelay) * mani.EC.Period)
+		return start, nil
 	}
 
-	epochDelay := switchEpoch - headEpoch
-	start := head.Timestamp().Add(time.Duration(epochDelay) * m.static.EC.Period)
+	{
+		head, err := m.ec.GetHead(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to determine current head epoch: %w", err)
+		}
+		headEpoch := head.Epoch()
+		// exit early if priorityManifest is relevant right now
+		if priorityManifest != nil && headEpoch >= priorityManifest.BootstrapEpoch-priorityManifest.EC.Finality {
+			m.priority.Stop(ctx)
+			m.manifestCh <- priorityManifest
+			return nil
+		}
+
+		if priorityManifest != nil {
+			startTime, err := startTimeOfPriority(priorityManifest)
+			log.Infof("starting the fusing manifest provider, will switch to the priority manifest at %s,(now %s)",
+				startTime, m.clock.Now())
+			if err != nil {
+				return fmt.Errorf("trying to compute start time: %w", err)
+			}
+			timer = m.clock.Timer(m.clock.Until(startTime))
+		} else {
+			// create a stopped timer
+			timer = m.clock.Timer(time.Hour)
+			timer.Stop()
+		}
+	}
 
 	if err := m.dynamic.Start(ctx); err != nil {
 		return err
 	}
 
-	log.Infof("starting the fusing manifest provider, will switch to the static manifest at %s", start)
-
 	m.errgrp.Go(func() error {
-		dynamicUpdates := m.dynamic.ManifestUpdates()
-		timer := m.clock.Timer(m.clock.Until(start))
 		defer timer.Stop()
+		defer m.priority.Stop(context.Background())
 
 		for m.runningCtx.Err() == nil {
 			select {
+			case priorityManifest = <-m.priority.ManifestUpdates():
+				if priorityManifest == nil {
+					timer.Stop()
+					continue
+				}
+				startTime, err := startTimeOfPriority(priorityManifest)
+				if err != nil {
+					log.Errorf("trying to compute start time: %+v", err)
+					// set timer in one epoch, shouldn't happen but be defensive
+					timer.Reset(priorityManifest.EC.Period)
+					continue
+				}
+
+				log.Infof("got new priorityManifest, will switch to the priority manifest at %s",
+					startTime)
+				timer.Reset(m.clock.Until(startTime))
 			case <-timer.C:
+				log.Errorf("timer fired")
+				if priorityManifest == nil {
+					log.Errorf("nil priorityManifest")
+					// just a consistency check, timer might have fired before it was stopped
+					continue
+				}
+
 				// Make sure we're actually at the target epoch. This shouldn't be
 				// an issue unless our clocks are really funky, the network is
 				// behind, or we're in a lotus integration test
 				// (https://github.com/filecoin-project/lotus/issues/12557).
 				head, err := m.ec.GetHead(m.runningCtx)
+				switchEpoch := priorityManifest.BootstrapEpoch - priorityManifest.EC.Finality
 				switch {
 				case err != nil:
 					log.Errorw("failed to get head in fusing manifest provider", "error", err)
@@ -103,27 +152,27 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 					log.Infow("delaying fusing manifest switch-over because head is behind the target epoch",
 						"head", head.Epoch(),
 						"target epoch", switchEpoch,
-						"bootstrap epoch", m.static.BootstrapEpoch,
+						"bootstrap epoch", priorityManifest.BootstrapEpoch,
 					)
-					timer.Reset(m.static.EC.Period)
+					timer.Reset(priorityManifest.EC.Period)
 					continue
 				}
 
 				log.Infow(
-					"fusing to the static manifest, stopping the dynamic manifest provider",
-					"network", m.static.NetworkName,
-					"bootstrap epoch", m.static.BootstrapEpoch,
+					"fusing to the priority manifest, stopping the dynamic manifest provider",
+					"network", priorityManifest.NetworkName,
+					"bootstrap epoch", priorityManifest.BootstrapEpoch,
 					"current epoch", head.Epoch(),
 				)
-				m.updateManifest(m.static)
+				m.updateManifest(priorityManifest)
 				// Log any errors and move on. We don't bubble it because we don't
 				// want to stop everything if shutting down the dynamic manifest
-				// provider fails when switching over to a static manifest.
+				// provider fails when switching over to a priority manifest.
 				if err := m.dynamic.Stop(context.Background()); err != nil {
 					log.Errorw("failure when stopping dynamic manifest provider", "error", err)
 				}
 				return nil
-			case update := <-dynamicUpdates:
+			case update := <-m.dynamic.ManifestUpdates():
 				m.updateManifest(update)
 			case <-m.runningCtx.Done():
 			}
