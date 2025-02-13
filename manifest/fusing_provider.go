@@ -2,7 +2,6 @@ package manifest
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/filecoin-project/go-f3/ec"
@@ -70,16 +69,12 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 		defer m.priority.Stop(context.Background())
 		defer m.dynamic.Stop(context.Background())
 
-		startTimeOfPriority := func(mani *Manifest) (time.Time, error) {
-			head, err := m.ec.GetHead(m.runningCtx)
-			if err != nil {
-				return time.Time{}, fmt.Errorf("failed to determine current head epoch: %w", err)
-			}
+		startTimeOfPriority := func(head ec.TipSet, mani *Manifest) time.Time {
 			headEpoch := head.Epoch()
 			switchEpoch := mani.BootstrapEpoch - mani.EC.Finality
 			epochDelay := switchEpoch - headEpoch
 			start := head.Timestamp().Add(time.Duration(epochDelay) * mani.EC.Period)
-			return start, nil
+			return start
 		}
 
 		var priorityManifest *Manifest
@@ -107,7 +102,7 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 			}
 
 			if priorityManifest != nil {
-				startTime, err := startTimeOfPriority(priorityManifest)
+				startTime := startTimeOfPriority(head, priorityManifest)
 				log.Infof("starting the fusing manifest provider, will switch to the priority manifest at %s",
 					startTime)
 				if err != nil {
@@ -137,7 +132,11 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 					timer.Stop()
 					continue
 				}
-				startTime, err := startTimeOfPriority(priorityManifest)
+				head, err := m.ec.GetHead(m.runningCtx)
+				if err != nil {
+					log.Errorf("getting head in fusing manifest: %+v", err)
+				}
+				startTime := startTimeOfPriority(head, priorityManifest)
 				if err != nil {
 					log.Errorf("trying to compute start time: %+v", err)
 					// set timer in one epoch, shouldn't happen but be defensive
@@ -149,7 +148,6 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 					startTime)
 				timer.Reset(m.clock.Until(startTime))
 			case <-timer.C:
-				log.Errorf("timer fired")
 				if priorityManifest == nil {
 					log.Errorf("nil priorityManifest")
 					// just a consistency check, timer might have fired before it was stopped
