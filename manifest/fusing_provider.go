@@ -78,18 +78,25 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 		}
 
 		var priorityManifest *Manifest
-		var timer *clock.Timer
+		// create a stopped timer
+		timer := m.clock.Timer(time.Hour)
+		timer.Stop()
 
 		first := true
-		for m.runningCtx.Err() != nil {
+		for m.runningCtx.Err() == nil {
 			if !first {
 				m.clock.Sleep(5 * time.Second)
 				first = false
 			}
 
-			priorityManifest = <-m.priority.ManifestUpdates()
+			select {
+			case priorityManifest = <-m.priority.ManifestUpdates():
+			case <-m.runningCtx.Done():
+				// we were stopped, clean exit
+				return nil
+			}
 
-			head, err := m.ec.GetHead(ctx)
+			head, err := m.ec.GetHead(m.runningCtx)
 			if err != nil {
 				log.Errorf("failed to determine current head epoch: %w", err)
 				continue
@@ -101,22 +108,19 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 				return nil
 			}
 
-			if priorityManifest != nil {
-				startTime := startTimeOfPriority(head, priorityManifest)
-				log.Infof("starting the fusing manifest provider, will switch to the priority manifest at %s",
-					startTime)
-				if err != nil {
-					log.Errorf("trying to compute start time: %w", err)
-					continue
-				}
-				timer = m.clock.Timer(m.clock.Until(startTime))
-				break
-			} else {
-				// create a stopped timer
-				timer = m.clock.Timer(time.Hour)
-				timer.Stop()
+			if priorityManifest == nil {
+				// init with stopped timer
 				break
 			}
+			startTime := startTimeOfPriority(head, priorityManifest)
+			log.Infof("starting the fusing manifest provider, will switch to the priority manifest at %s",
+				startTime)
+			if err != nil {
+				log.Errorf("trying to compute start time: %w", err)
+				continue
+			}
+			timer.Reset(m.clock.Until(startTime))
+			break
 		}
 
 		if m.runningCtx.Err() != nil {
