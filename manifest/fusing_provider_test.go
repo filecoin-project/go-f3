@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Static manifest provider that doesn't allow any changes
-// in runtime to the initial manifest set in the provider
 type testManifestProvider chan *manifest.Manifest
 
 func (testManifestProvider) Start(context.Context) error { return nil }
@@ -34,8 +32,12 @@ func TestFusingManifestProvider(t *testing.T) {
 
 	fakeEc := consensus.NewFakeEC(ctx)
 	manifestCh := make(chan *manifest.Manifest, 10)
+	priorityManifestCh := make(chan *manifest.Manifest, 1)
+	priorityManifestProvider := testManifestProvider(priorityManifestCh)
+	priorityManifestCh <- initialManifest
+
 	prov, err := manifest.NewFusingManifestProvider(ctx,
-		fakeEc, (testManifestProvider)(manifestCh), initialManifest)
+		fakeEc, (testManifestProvider)(manifestCh), priorityManifestProvider)
 	require.NoError(t, err)
 
 	require.NoError(t, prov.Start(ctx))
@@ -95,10 +97,70 @@ func TestFusingManifestProviderStop(t *testing.T) {
 
 	fakeEc := consensus.NewFakeEC(ctx)
 	manifestCh := make(chan *manifest.Manifest, 1)
+	priorityManifestCh := make(chan *manifest.Manifest, 1)
+	priorityManifestProvider := testManifestProvider(priorityManifestCh)
+	priorityManifestCh <- initialManifest
+
 	prov, err := manifest.NewFusingManifestProvider(ctx,
-		fakeEc, (testManifestProvider)(manifestCh), initialManifest)
+		fakeEc, (testManifestProvider)(manifestCh), priorityManifestProvider)
 	require.NoError(t, err)
 
 	require.NoError(t, prov.Start(ctx))
 	require.NoError(t, prov.Stop(ctx))
+}
+
+func TestFusingManifestProviderSwitchToPriority(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	ctx, clk := clock.WithMockClock(ctx)
+	t.Cleanup(cancel)
+
+	initialManifest := manifest.LocalDevnetManifest()
+	initialManifest.BootstrapEpoch = 2000
+	initialManifest.EC.Finality = 900
+
+	fakeEc := consensus.NewFakeEC(ctx)
+	manifestCh := make(chan *manifest.Manifest, 10)
+
+	priorityManifestCh := make(chan *manifest.Manifest, 1)
+	priorityManifestProvider := testManifestProvider(priorityManifestCh)
+	priorityManifestCh <- nil
+
+	prov, err := manifest.NewFusingManifestProvider(ctx,
+		fakeEc, (testManifestProvider)(manifestCh), priorityManifestProvider)
+	require.NoError(t, err)
+
+	require.NoError(t, prov.Start(ctx))
+	priorityManifestCh <- initialManifest
+
+	// Create and push a dynamic manifest with bootstrap epoch < 1100
+	dynamicManifest := *initialManifest
+	dynamicManifest.BootstrapEpoch = 1000
+	select {
+	case manifestCh <- &dynamicManifest:
+	default:
+		t.Fatal("failed to enqueue dynamic manifest")
+	}
+
+	select {
+	case m := <-prov.ManifestUpdates():
+		require.True(t, m.Equal(&dynamicManifest), "expected dynamic manifest")
+	case <-time.After(time.Second):
+		t.Fatal("expected a manifest update")
+	}
+
+	// Add time to reach the priority manifest switch epoch
+	clk.Add(initialManifest.EC.Period * 1200)
+	for i := 0; i < 10; i++ {
+		// fixes weird quirk with fake time
+		// where the initial manifest doesn't get processed before the initial clk.Add
+		// and the timer doesn't fire until another clk.Add
+		clk.Add(1)
+	}
+	t.Logf("clck now: %s", clk.Now())
+	select {
+	case m := <-prov.ManifestUpdates():
+		require.True(t, m.Equal(initialManifest), "expected to receive the priority manifest")
+	case <-time.After(time.Second):
+		t.Fatal("expected a manifest update")
+	}
 }
