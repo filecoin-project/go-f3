@@ -71,7 +71,7 @@ func TestFusingManifestProvider(t *testing.T) {
 		t.Fatal("expected a manifest update")
 	}
 
-	// Now update the dynamic manifest. We shouldn't receive it.
+	// Now update the secondary manifest. We shouldn't receive it.
 	select {
 	case manifestCh <- &otherManifest:
 	default:
@@ -132,18 +132,18 @@ func TestFusingManifestProviderSwitchToPriority(t *testing.T) {
 	require.NoError(t, prov.Start(ctx))
 	priorityManifestCh <- initialManifest
 
-	// Create and push a dynamic manifest with bootstrap epoch < 1100
-	dynamicManifest := *initialManifest
-	dynamicManifest.BootstrapEpoch = 1000
+	// Create and push a secondary manifest with bootstrap epoch < 1100
+	secondaryManifest := *initialManifest
+	secondaryManifest.BootstrapEpoch = 1000
 	select {
-	case manifestCh <- &dynamicManifest:
+	case manifestCh <- &secondaryManifest:
 	default:
-		t.Fatal("failed to enqueue dynamic manifest")
+		t.Fatal("failed to enqueue secondary manifest")
 	}
 
 	select {
 	case m := <-prov.ManifestUpdates():
-		require.True(t, m.Equal(&dynamicManifest), "expected dynamic manifest")
+		require.True(t, m.Equal(&secondaryManifest), "expected secondary manifest")
 	case <-time.After(time.Second):
 		t.Fatal("expected a manifest update")
 	}

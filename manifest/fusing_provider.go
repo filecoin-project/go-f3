@@ -85,7 +85,8 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 		first := true
 		for m.runningCtx.Err() == nil {
 			if !first {
-				m.clock.Sleep(5 * time.Second)
+				// sleep for a second if re-trying to avoid hot-looping
+				m.clock.Sleep(1 * time.Second)
 				first = false
 			}
 
@@ -115,10 +116,6 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 			startTime := startTimeOfPriority(head, primaryManifest)
 			log.Infof("starting the fusing manifest provider, will switch to the primary manifest at %s",
 				startTime)
-			if err != nil {
-				log.Errorf("trying to compute start time: %w", err)
-				continue
-			}
 			timer.Reset(m.clock.Until(startTime))
 			break
 		}
@@ -169,9 +166,9 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 					fallthrough
 				case head.Epoch() < switchEpoch:
 					log.Infow("delaying fusing manifest switch-over because head is behind the target epoch",
-						"head", head.Epoch(),
-						"target epoch", switchEpoch,
-						"bootstrap epoch", primaryManifest.BootstrapEpoch,
+						"target_epoch", switchEpoch,
+						"bootstrap_epoch", primaryManifest.BootstrapEpoch,
+						"current_epoch", head.Epoch(),
 					)
 					timer.Reset(primaryManifest.EC.Period)
 					continue
@@ -180,8 +177,8 @@ func (m *FusingManifestProvider) Start(ctx context.Context) error {
 				log.Infow(
 					"fusing to the primary manifest, stopping the secondary manifest provider",
 					"network", primaryManifest.NetworkName,
-					"bootstrap epoch", primaryManifest.BootstrapEpoch,
-					"current epoch", head.Epoch(),
+					"bootstrap_epoch", primaryManifest.BootstrapEpoch,
+					"current_epoch", head.Epoch(),
 				)
 				m.updateManifest(primaryManifest)
 				return nil
