@@ -19,7 +19,7 @@ import (
 // ErrNoManifest is returned when no manifest is known.
 var ErrNoManifest = errors.New("no known manifest")
 
-const VersionCapability = 5
+const VersionCapability = 6
 
 var (
 	DefaultCommitteeLookback uint64 = 10
@@ -427,7 +427,7 @@ func (m *Manifest) Cid() (cid.Cid, error) {
 }
 
 func PubSubTopicFromNetworkName(nn gpbft.NetworkName) string {
-	return "/f3/granite/0.0.2/" + string(nn)
+	return "/f3/granite/0.0.3/" + string(nn)
 }
 
 func ChainExchangeTopicFromNetworkName(nn gpbft.NetworkName) string {

@@ -113,7 +113,7 @@ func TestManifest_NetworkName(t *testing.T) {
 			require.True(t, strings.HasPrefix(gotDsPrefix, "/f3"))
 			require.True(t, strings.HasSuffix(gotDsPrefix, string(test.subject)))
 			gotPubSubTopic := m.PubSubTopic()
-			require.True(t, strings.HasPrefix(gotPubSubTopic, "/f3/granite/0.0.2/"))
+			require.True(t, strings.HasPrefix(gotPubSubTopic, "/f3/granite/0.0.3/"))
 			require.True(t, strings.HasSuffix(gotPubSubTopic, string(test.subject)))
 		})
 	}
@@ -123,8 +123,8 @@ func TestManifest_CID(t *testing.T) {
 	t.Parallel()
 
 	const (
-		wantLocalDevnetCid = "baguqfiheaiqptjzqkzqyu2hskn7ac5fexvjwuxmjec7hjrjug27jkucvmrrtmji"
-		wantAfterUpdateCid = "baguqfiheaiqjxj6otbtvdoitpqtfmjbslqc2o5cnjuipjxxduxiaezomoa44cey"
+		wantLocalDevnetCid = "baguqfiheaiqey5vrjjjqo3wvwpzq2hhan32rat4o5ectjwlqvrwuxddf73ukbya"
+		wantAfterUpdateCid = "baguqfiheaiqjs47hodx7netvag36yxsjh7whrxg7lxxkrwgkfdekhgu7jh6x27q"
 	)
 	subject := manifest.LocalDevnetManifest()
 	// Use a fixed network name for deterministic CID calculation.
