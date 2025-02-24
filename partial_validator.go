@@ -104,7 +104,7 @@ func (v *cachingPartialValidator) PartiallyValidateMessage(msg *PartialGMessage)
 	} else if alreadyValidated, err := v.cache.Contains(msg.Vote.Instance, messageCacheNamespace, buf.Bytes()); err != nil {
 		log.Errorw("failed to check already validated messages", "err", err)
 	} else if alreadyValidated {
-		return nil, nil
+		return &PartiallyValidatedMessage{PartialGMessage: msg}, nil
 	} else {
 		cacheMessage = true
 	}
