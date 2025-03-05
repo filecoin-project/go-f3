@@ -67,6 +67,7 @@ func newPartialMessageManager(progress gpbft.Progress, ps *pubsub.PubSub, m *man
 	}
 	var err error
 	pmm.chainex, err = chainexchange.NewPubSubChainExchange(
+		chainexchange.WithCompression(m.PubSub.ChainCompressionEnabled),
 		chainexchange.WithListener(pmm),
 		chainexchange.WithProgress(progress),
 		chainexchange.WithPubSub(ps),

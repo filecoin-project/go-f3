@@ -40,7 +40,7 @@ type PubSubChainExchange struct {
 	pendingCacheAsWanted chan Message
 	topic                *pubsub.Topic
 	stop                 func() error
-	encoding             *encoding.ZSTD[*Message]
+	encoding             encoding.EncodeDecoder[*Message]
 }
 
 func NewPubSubChainExchange(o ...Option) (*PubSubChainExchange, error) {
@@ -48,16 +48,19 @@ func NewPubSubChainExchange(o ...Option) (*PubSubChainExchange, error) {
 	if err != nil {
 		return nil, err
 	}
-	zstd, err := encoding.NewZSTD[*Message]()
-	if err != nil {
-		return nil, err
+	var enc encoding.EncodeDecoder[*Message] = encoding.NewCBOR[*Message]()
+	if opts.compression {
+		enc, err = encoding.NewZSTD[*Message]()
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &PubSubChainExchange{
 		options:              opts,
 		chainsWanted:         map[uint64]*lru.Cache[gpbft.ECChainKey, *chainPortion]{},
 		chainsDiscovered:     map[uint64]*lru.Cache[gpbft.ECChainKey, *chainPortion]{},
 		pendingCacheAsWanted: make(chan Message, 100), // TODO: parameterise.
-		encoding:             zstd,
+		encoding:             enc,
 	}, nil
 }
 
