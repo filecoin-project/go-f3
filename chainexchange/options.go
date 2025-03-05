@@ -24,6 +24,7 @@ type options struct {
 	maxWantedChainsPerInstance     int
 	listener                       Listener
 	maxTimestampAge                time.Duration
+	compression                    bool
 }
 
 func newOptions(o ...Option) (*options, error) {
@@ -58,6 +59,13 @@ func WithTopicName(name string) Option {
 			return errors.New("topic name cannot be empty")
 		}
 		o.topicName = name
+		return nil
+	}
+}
+
+func WithCompression(enabled bool) Option {
+	return func(o *options) error {
+		o.compression = enabled
 		return nil
 	}
 }

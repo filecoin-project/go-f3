@@ -15,6 +15,14 @@ import (
 )
 
 func TestPubSubChainExchange_Broadcast(t *testing.T) {
+	runBroadcastTest(t, chainexchange.WithCompression(true))
+}
+
+func TestPubSubChainExchange_Broadcast_NoCompress(t *testing.T) {
+	runBroadcastTest(t, chainexchange.WithCompression(false))
+}
+
+func runBroadcastTest(t *testing.T, opts ...chainexchange.Option) {
 	const topicName = "fish"
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	var testInstant gpbft.Instant
@@ -29,7 +37,7 @@ func TestPubSubChainExchange_Broadcast(t *testing.T) {
 	ps, err := pubsub.NewGossipSub(ctx, host, pubsub.WithFloodPublish(true))
 	require.NoError(t, err)
 
-	subject, err := chainexchange.NewPubSubChainExchange(
+	options := []chainexchange.Option{
 		chainexchange.WithProgress(func() (instant gpbft.Instant) {
 			return testInstant
 		}),
@@ -38,6 +46,11 @@ func TestPubSubChainExchange_Broadcast(t *testing.T) {
 		chainexchange.WithTopicScoreParams(nil),
 		chainexchange.WithMaxTimestampAge(time.Minute),
 		chainexchange.WithListener(&testListener),
+		chainexchange.WithCompression(true),
+	}
+	options = append(options, opts...)
+	subject, err := chainexchange.NewPubSubChainExchange(
+		options...,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, subject)

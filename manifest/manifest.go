@@ -55,7 +55,8 @@ var (
 	}
 
 	DefaultPubSubConfig = PubSubConfig{
-		CompressionEnabled: false,
+		CompressionEnabled:      false,
+		ChainCompressionEnabled: true,
 	}
 
 	DefaultChainExchangeConfig = ChainExchangeConfig{
@@ -217,7 +218,8 @@ func (e *EcConfig) Validate() error {
 }
 
 type PubSubConfig struct {
-	CompressionEnabled bool
+	CompressionEnabled      bool
+	ChainCompressionEnabled bool
 }
 
 func (p *PubSubConfig) Validate() error { return nil }
