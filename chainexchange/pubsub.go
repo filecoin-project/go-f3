@@ -48,8 +48,10 @@ func NewPubSubChainExchange(o ...Option) (*PubSubChainExchange, error) {
 	if err != nil {
 		return nil, err
 	}
-	var enc encoding.EncodeDecoder[*Message] = encoding.NewCBOR[*Message]()
-	if opts.compression {
+	var enc encoding.EncodeDecoder[*Message]
+	if !opts.compression {
+		enc = encoding.NewCBOR[*Message]()
+	} else {
 		enc, err = encoding.NewZSTD[*Message]()
 		if err != nil {
 			return nil, err
