@@ -25,7 +25,7 @@ func TestPubSubChainExchange_Broadcast_NoCompress(t *testing.T) {
 func runBroadcastTest(t *testing.T, opts ...chainexchange.Option) {
 	const topicName = "fish"
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	var testInstant gpbft.Instant
+	var testInstant gpbft.InstanceProgress
 	var testListener listener
 	host, err := libp2p.New()
 	require.NoError(t, err)
@@ -38,7 +38,7 @@ func runBroadcastTest(t *testing.T, opts ...chainexchange.Option) {
 	require.NoError(t, err)
 
 	options := []chainexchange.Option{
-		chainexchange.WithProgress(func() (instant gpbft.Instant) {
+		chainexchange.WithProgress(func() (instant gpbft.InstanceProgress) {
 			return testInstant
 		}),
 		chainexchange.WithPubSub(ps),

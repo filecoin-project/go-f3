@@ -735,7 +735,7 @@ func (h *gpbftRunner) Stop(ctx context.Context) error {
 // ID, round and phase.
 //
 // This API is safe for concurrent use.
-func (h *gpbftRunner) Progress() gpbft.Instant {
+func (h *gpbftRunner) Progress() gpbft.InstanceProgress {
 	return h.participant.Progress()
 }
 

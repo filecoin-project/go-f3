@@ -234,6 +234,16 @@ func (p *PubSubChainExchange) validatePubSubMessage(ctx context.Context, _ peer.
 		cmsg.Instance > current.ID+p.maxInstanceLookahead:
 		// Too far ahead or too far behind.
 		return pubsub.ValidationIgnore
+	case current.Input != nil && cmsg.Instance == current.ID:
+		// The input chain in current progress may be nil when the next instance is
+		// scheduled to start, but the input chain is not yet known, that is, calls to
+		// StartInstanceAt. Hence, the check for input presence.
+		currentBase := current.Input.Base()
+		msgBase := cmsg.Chain.Base()
+		if !msgBase.Equal(currentBase) {
+			log.Debugw("Invalid chain with mismatching base tipset for instance", "from", msg.GetFrom(), "instance", current.ID, "expectedBase", currentBase, "gotBase", msgBase)
+			return pubsub.ValidationReject
+		}
 	}
 	now := time.Now().Unix()
 	lowerBound := now - int64(p.maxTimestampAge.Seconds())
@@ -242,8 +252,7 @@ func (p *PubSubChainExchange) validatePubSubMessage(ctx context.Context, _ peer.
 		// affecting peer scores.
 		return pubsub.ValidationIgnore
 	}
-	// TODO: wire in the current base chain from an on-going instance to further
-	//       tighten up validation.
+
 	msg.ValidatorData = cmsg
 	return pubsub.ValidationAccept
 }

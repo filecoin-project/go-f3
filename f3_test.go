@@ -425,7 +425,7 @@ type testNodeStatus struct {
 	id          int
 	initialised bool
 	running     bool
-	progress    gpbft.Instant
+	progress    gpbft.InstanceProgress
 	latestCert  *certs.FinalityCertificate
 }
 

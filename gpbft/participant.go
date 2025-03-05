@@ -126,7 +126,7 @@ func (p *Participant) StartInstanceAt(instance uint64, when time.Time) (err erro
 // instance ID, round and phase.
 //
 // This API is safe for concurrent use.
-func (p *Participant) Progress() Instant {
+func (p *Participant) Progress() InstanceProgress {
 	return p.progression.Get()
 }
 
@@ -288,7 +288,9 @@ func (p *Participant) beginNextInstance(nextInstance uint64) {
 	if nextInstance > 0 {
 		p.committeeProvider.EvictCommitteesBefore(nextInstance - 1)
 	}
-	p.progression.NotifyProgress(Instant{ID: nextInstance, Round: 0, Phase: INITIAL_PHASE})
+	p.progression.NotifyProgress(InstanceProgress{
+		Instant: Instant{ID: nextInstance, Round: 0, Phase: INITIAL_PHASE},
+	})
 }
 
 func (p *Participant) terminated() bool {

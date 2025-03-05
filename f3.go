@@ -407,7 +407,7 @@ func (m *F3) GetPowerTable(ctx context.Context, ts gpbft.TipSetKey) (gpbft.Power
 	return nil, manifest.ErrNoManifest
 }
 
-func (m *F3) Progress() (instant gpbft.Instant) {
+func (m *F3) Progress() (instant gpbft.InstanceProgress) {
 	if st := m.state.Load(); st != nil && st.runner != nil {
 		instant = st.runner.Progress()
 	}
