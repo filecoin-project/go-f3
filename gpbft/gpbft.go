@@ -185,7 +185,7 @@ type instance struct {
 	beacon []byte
 	// current stores information about the current GPBFT instant in terms of
 	// instance ID, round and phase.
-	current Instant
+	current InstanceProgress
 	// Time at which the current phase can or must end.
 	// For QUALITY, PREPARE, and COMMIT, this is the latest time (the phase can end sooner).
 	// For CONVERGE, this is the exact time (the timeout solely defines the phase end).
@@ -253,10 +253,13 @@ func newInstance(
 		powerTable:        powerTable,
 		aggregateVerifier: aggregateVerifier,
 		beacon:            beacon,
-		current: Instant{
-			ID:    instanceID,
-			Round: 0,
-			Phase: INITIAL_PHASE,
+		current: InstanceProgress{
+			Instant: Instant{
+				ID:    instanceID,
+				Round: 0,
+				Phase: INITIAL_PHASE,
+			},
+			Input: input,
 		},
 		supplementalData: data,
 		proposal:         input,

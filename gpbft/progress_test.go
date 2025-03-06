@@ -16,14 +16,18 @@ func TestAtomicProgression(t *testing.T) {
 		require.Equal(t, INITIAL_PHASE, instant.Phase, "Expected initial phase to be INITIAL_PHASE")
 	})
 	t.Run("notify and get", func(t *testing.T) {
-		subject.NotifyProgress(Instant{1, 10, PREPARE_PHASE})
+		subject.NotifyProgress(InstanceProgress{
+			Instant: Instant{1, 10, PREPARE_PHASE},
+		})
 		instant := subject.Get()
 		require.Equal(t, uint64(1), instant.ID, "Expected instance to be 1")
 		require.Equal(t, uint64(10), instant.Round, "Expected round to be 10")
 		require.Equal(t, PREPARE_PHASE, instant.Phase, "Expected phase to be PREPARE_PHASE")
 	})
 	t.Run("notify and get progresses", func(t *testing.T) {
-		subject.NotifyProgress(Instant{2, 20, COMMIT_PHASE})
+		subject.NotifyProgress(InstanceProgress{
+			Instant: Instant{2, 20, COMMIT_PHASE},
+		})
 		instant := subject.Get()
 		require.Equal(t, uint64(2), instant.ID, "Expected instance to be updated to 2")
 		require.Equal(t, uint64(20), instant.Round, "Expected round to be updated to 20")
@@ -33,7 +37,9 @@ func TestAtomicProgression(t *testing.T) {
 		var wg sync.WaitGroup
 		update := func(inst, rnd uint64, ph Phase) {
 			defer wg.Done()
-			subject.NotifyProgress(Instant{inst, rnd, ph})
+			subject.NotifyProgress(InstanceProgress{
+				Instant: Instant{inst, rnd, ph},
+			})
 		}
 		wg.Add(2)
 		go update(3, 30, COMMIT_PHASE)
