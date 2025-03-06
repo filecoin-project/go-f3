@@ -11,6 +11,8 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
+	"github.com/multiformats/go-multiaddr-dns"
 )
 
 type Option func(*options) error
@@ -154,14 +156,27 @@ func WithBootstrapAddrs(addrs ...peer.AddrInfo) Option {
 }
 
 func WithBootstrapAddrsFromString(addrs ...string) Option {
+	const maddrResolutionTimeout = 10 * time.Second
 	return func(o *options) error {
 		o.bootstrapAddrs = make([]peer.AddrInfo, 0, len(addrs))
 		for _, v := range addrs {
-			addr, err := peer.AddrInfoFromString(v)
+			maddr, err := multiaddr.NewMultiaddr(v)
 			if err != nil {
-				return fmt.Errorf("invalid bootstrap address: %q: %w", v, err)
+				return fmt.Errorf("invalid multiaddr: %q: %w", v, err)
 			}
-			o.bootstrapAddrs = append(o.bootstrapAddrs, *addr)
+			ctx, cancel := context.WithTimeout(context.Background(), maddrResolutionTimeout)
+			defer cancel()
+			resolved, err := madns.Resolve(ctx, maddr)
+			if err != nil {
+				return fmt.Errorf("failed to resolve multiaddr: %q: %w", v, err)
+			}
+			for _, maddr := range resolved {
+				addr, err := peer.AddrInfoFromP2pAddr(maddr)
+				if err != nil {
+					return fmt.Errorf("invalid bootstrap address: %q: %w", v, err)
+				}
+				o.bootstrapAddrs = append(o.bootstrapAddrs, *addr)
+			}
 		}
 		return nil
 	}
