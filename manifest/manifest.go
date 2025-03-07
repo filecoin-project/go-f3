@@ -19,7 +19,7 @@ import (
 // ErrNoManifest is returned when no manifest is known.
 var ErrNoManifest = errors.New("no known manifest")
 
-const VersionCapability = 6
+const VersionCapability = 7
 
 var (
 	DefaultCommitteeLookback uint64 = 10
