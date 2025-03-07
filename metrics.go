@@ -46,6 +46,7 @@ var metrics = struct {
 	validatedMessages        metric.Int64Counter
 	partialMessages          metric.Int64UpDownCounter
 	partialMessageDuplicates metric.Int64Counter
+	partialMessagesDropped   metric.Int64Counter
 	partialMessageInstances  metric.Int64UpDownCounter
 }{
 	headDiverged:      measurements.Must(meter.Int64Counter("f3_head_diverged", metric.WithDescription("Number of times we encountered the head has diverged from base scenario."))),
@@ -72,6 +73,8 @@ var metrics = struct {
 		metric.WithDescription("Number of partial GPBFT messages pending fulfilment."))),
 	partialMessageDuplicates: measurements.Must(meter.Int64Counter("f3_partial_message_duplicates",
 		metric.WithDescription("Number of partial GPBFT messages recieved that already have an unfulfilled message for the same instance, sender, round and phase."))),
+	partialMessagesDropped: measurements.Must(meter.Int64Counter("f3_partial_messages_dropped",
+		metric.WithDescription("Number of partial GPBFT messages or chain broadcasts were dropped due to consumers being too slow."))),
 	partialMessageInstances: measurements.Must(meter.Int64UpDownCounter("f3_partial_message_instances",
 		metric.WithDescription("Number of instances with partial GPBFT messages pending fulfilment."))),
 }
