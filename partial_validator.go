@@ -2,12 +2,14 @@ package f3
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/caching"
+	"go.opentelemetry.io/otel/metric"
 )
 
 var (
@@ -104,9 +106,11 @@ func (v *cachingPartialValidator) PartiallyValidateMessage(msg *PartialGMessage)
 	} else if alreadyValidated, err := v.cache.Contains(msg.Vote.Instance, messageCacheNamespace, buf.Bytes()); err != nil {
 		log.Errorw("failed to check already validated messages", "err", err)
 	} else if alreadyValidated {
+		metrics.partialValidationCache.Add(context.TODO(), 1, metric.WithAttributes(attrCacheHit, attrCacheKindMessage))
 		return &PartiallyValidatedMessage{PartialGMessage: msg}, nil
 	} else {
 		cacheMessage = true
+		metrics.partialValidationCache.Add(context.TODO(), 1, metric.WithAttributes(attrCacheMiss, attrCacheKindMessage))
 	}
 
 	comt, err := v.committeeProvider.GetCommittee(msg.Vote.Instance)
@@ -199,9 +203,11 @@ func (v *cachingPartialValidator) validateJustification(msg *PartialGMessage, co
 	} else if alreadyValidated, err := v.cache.Contains(msg.Vote.Instance, justificationCacheNamespace, buf.Bytes()); err != nil {
 		log.Warnw("failed to check if justification is already cached", "err", err)
 	} else if alreadyValidated {
+		metrics.partialValidationCache.Add(context.TODO(), 1, metric.WithAttributes(attrCacheHit, attrCacheKindJustification))
 		return nil
 	} else {
 		cacheJustification = true
+		metrics.partialValidationCache.Add(context.TODO(), 1, metric.WithAttributes(attrCacheMiss, attrCacheKindJustification))
 	}
 
 	// Check that the justification is for the same instance, identical to the full
