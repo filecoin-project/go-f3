@@ -201,7 +201,7 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyV
 				return
 			case t := <-ticker.C:
 				if current != nil {
-					current.Timestamp = roundDownToUnixTime(t, pmm.rebroadcastInterval)
+					current.Timestamp = roundDownToUnixMilliTime(t, pmm.rebroadcastInterval)
 					if err := pmm.chainex.Broadcast(ctx, *current); err != nil {
 						log.Debugw("Failed to re-broadcast chain.", "instance", current.Instance, "chain", current.Chain, "error", err)
 					}
@@ -216,7 +216,7 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyV
 					// Broadcast immediately and reset the timer to tick from now onwards. This is to
 					// re-align the chain rebroadcast relative to instance start.
 					current = &pending
-					current.Timestamp = roundDownToUnixTime(time.Now(), pmm.rebroadcastInterval)
+					current.Timestamp = roundDownToUnixMilliTime(time.Now(), pmm.rebroadcastInterval)
 					if err := pmm.chainex.Broadcast(ctx, *current); err != nil {
 						log.Debugw("Failed to immediately re-broadcast chain.", "instance", current.Instance, "chain", current.Chain, "error", err)
 					}
@@ -243,8 +243,13 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyV
 	return completedMessages, nil
 }
 
-func roundDownToUnixTime(t time.Time, interval time.Duration) int64 {
-	return (t.Unix() / int64(interval)) * int64(interval)
+func roundDownToUnixMilliTime(t time.Time, interval time.Duration) int64 {
+	intervalMilli := interval.Milliseconds()
+	if intervalMilli <= 0 {
+		log.Errorw("Invalid rebroadcast interval, must be greater than 1 millisecond.", "interval", intervalMilli)
+		return 0
+	}
+	return (t.UnixMilli() / intervalMilli) * intervalMilli
 }
 
 func (pmm *partialMessageManager) BroadcastChain(ctx context.Context, instance uint64, chain *gpbft.ECChain) error {
