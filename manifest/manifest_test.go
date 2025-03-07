@@ -123,8 +123,8 @@ func TestManifest_CID(t *testing.T) {
 	t.Parallel()
 
 	const (
-		wantLocalDevnetCid = "baguqfiheaiqhcftyuzforpx5txjognkby4jkct6cfqbu7ffpv5tyec4g75fcixa"
-		wantAfterUpdateCid = "baguqfiheaiqe24zlmhle7wgs5xpzatshnbvxlkax5uttegmhwhouyia52hzqtjy"
+		wantLocalDevnetCid = "baguqfiheaiqhdjxmvlkbk3d4uapd4eibmybbpozvo6ul4warivcml3psthtmd3a"
+		wantAfterUpdateCid = "baguqfiheaiqhe2kchdb4whu3ek4fxxh5jombejiwsnufyti5dpfzlue7xp7xqoq"
 	)
 	subject := manifest.LocalDevnetManifest()
 	// Use a fixed network name for deterministic CID calculation.

@@ -55,8 +55,10 @@ var (
 	}
 
 	DefaultPubSubConfig = PubSubConfig{
-		CompressionEnabled:      false,
-		ChainCompressionEnabled: true,
+		CompressionEnabled:             false,
+		ChainCompressionEnabled:        true,
+		GMessageSubscriptionBufferSize: 128,
+		ValidatedMessageBufferSize:     128,
 	}
 
 	DefaultChainExchangeConfig = ChainExchangeConfig{
@@ -220,9 +222,21 @@ func (e *EcConfig) Validate() error {
 type PubSubConfig struct {
 	CompressionEnabled      bool
 	ChainCompressionEnabled bool
+
+	GMessageSubscriptionBufferSize int
+	ValidatedMessageBufferSize     int
 }
 
-func (p *PubSubConfig) Validate() error { return nil }
+func (p *PubSubConfig) Validate() error {
+	switch {
+	case p.GMessageSubscriptionBufferSize < 1:
+		return fmt.Errorf("pubsub gmessage subscription buffer size must be at least 1, got: %d", p.GMessageSubscriptionBufferSize)
+	case p.ValidatedMessageBufferSize < 1:
+		return fmt.Errorf("pubsub validated gmessage buffer size must be at least 1, got: %d", p.ValidatedMessageBufferSize)
+	default:
+		return nil
+	}
+}
 
 type ChainExchangeConfig struct {
 	SubscriptionBufferSize         int
