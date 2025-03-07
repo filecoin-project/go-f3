@@ -636,16 +636,12 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 		return nil, err
 	}
 
-	const (
-		subBufferSize      = 128
-		msgQueueBufferSize = 128
-	)
-	sub, err := h.topic.Subscribe(pubsub.WithBufferSize(subBufferSize))
+	sub, err := h.topic.Subscribe(pubsub.WithBufferSize(h.manifest.PubSub.GMessageSubscriptionBufferSize))
 	if err != nil {
 		return nil, fmt.Errorf("could not subscribe to pubsub topic: %s: %w", h.topic, err)
 	}
 
-	messageQueue := make(chan gpbft.ValidatedMessage, msgQueueBufferSize)
+	messageQueue := make(chan gpbft.ValidatedMessage, h.manifest.PubSub.ValidatedMessageBufferSize)
 	h.errgrp.Go(func() error {
 		defer func() {
 			sub.Cancel()
