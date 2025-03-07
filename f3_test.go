@@ -353,10 +353,11 @@ var base = manifest.Manifest{
 		HeadLookback:             4,
 		Finalize:                 true,
 	},
-	CertificateExchange: manifest.DefaultCxConfig,
-	CatchUpAlignment:    5 * time.Second,
-	PubSub:              manifest.DefaultPubSubConfig,
-	ChainExchange:       manifest.DefaultChainExchangeConfig,
+	CertificateExchange:   manifest.DefaultCxConfig,
+	CatchUpAlignment:      5 * time.Second,
+	PubSub:                manifest.DefaultPubSubConfig,
+	ChainExchange:         manifest.DefaultChainExchangeConfig,
+	PartialMessageManager: manifest.DefaultPartialMessageManagerConfig,
 }
 
 type testNode struct {

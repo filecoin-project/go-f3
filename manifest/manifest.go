@@ -71,6 +71,16 @@ var (
 		MaxTimestampAge:                8 * time.Second,
 	}
 
+	DefaultPartialMessageManagerConfig = PartialMessageManagerConfig{
+		PendingDiscoveredChainsBufferSize:     100,
+		PendingPartialMessagesBufferSize:      100,
+		PendingChainBroadcastsBufferSize:      100,
+		PendingInstanceRemovalBufferSize:      10, // to match the default committee lookback.
+		CompletedMessagesBufferSize:           100,
+		MaxBufferedMessagesPerInstance:        25_000, // Based on 5 phases, network size of 2K participants at a couple of rounds plus some headroom.
+		MaxCachedValidatedMessagesPerInstance: 25_000, // Based on 5 phases, network size of 2K participants at a couple of rounds plus some headroom.
+	}
+
 	// Default instance alignment when catching up.
 	DefaultCatchUpAlignment = DefaultEcConfig.Period / 2
 )
@@ -272,6 +282,37 @@ func (cx *ChainExchangeConfig) Validate() error {
 	}
 }
 
+type PartialMessageManagerConfig struct {
+	PendingDiscoveredChainsBufferSize     int
+	PendingPartialMessagesBufferSize      int
+	PendingChainBroadcastsBufferSize      int
+	PendingInstanceRemovalBufferSize      int
+	CompletedMessagesBufferSize           int
+	MaxBufferedMessagesPerInstance        int
+	MaxCachedValidatedMessagesPerInstance int
+}
+
+func (pmm *PartialMessageManagerConfig) Validate() error {
+	switch {
+	case pmm.PendingDiscoveredChainsBufferSize < 1:
+		return fmt.Errorf("pending discovered chains buffer size must be at least 1, got: %d", pmm.PendingDiscoveredChainsBufferSize)
+	case pmm.PendingPartialMessagesBufferSize < 1:
+		return fmt.Errorf("pending partial messages buffer size must be at least 1, got: %d", pmm.PendingPartialMessagesBufferSize)
+	case pmm.PendingChainBroadcastsBufferSize < 1:
+		return fmt.Errorf("pending chain broadcasts buffer size must be at least 1, got: %d", pmm.PendingChainBroadcastsBufferSize)
+	case pmm.PendingInstanceRemovalBufferSize < 1:
+		return fmt.Errorf("pending instance removal buffer size must be at least 1, got: %d", pmm.PendingInstanceRemovalBufferSize)
+	case pmm.CompletedMessagesBufferSize < 1:
+		return fmt.Errorf("completed messages buffer size must be at least 1, got: %d", pmm.CompletedMessagesBufferSize)
+	case pmm.MaxBufferedMessagesPerInstance < 1:
+		return fmt.Errorf("max buffered messages per instance must be at least 1, got: %d", pmm.MaxBufferedMessagesPerInstance)
+	case pmm.MaxCachedValidatedMessagesPerInstance < 1:
+		return fmt.Errorf("max cached validated messages per instance must be at least 1, got: %d", pmm.MaxCachedValidatedMessagesPerInstance)
+	default:
+		return nil
+	}
+}
+
 // Manifest identifies the specific configuration for the F3 instance currently running.
 type Manifest struct {
 	// Pause stops the participation in F3.
@@ -309,6 +350,8 @@ type Manifest struct {
 	PubSub PubSubConfig
 	// ChainExchange specifies the chain exchange configuration parameters.
 	ChainExchange ChainExchangeConfig
+	// PartialMessageManager specifies the configuration for the partial message manager.
+	PartialMessageManager PartialMessageManagerConfig
 }
 
 func (m *Manifest) Equal(o *Manifest) bool {
@@ -377,6 +420,9 @@ func (m *Manifest) Validate() error {
 	if err := m.ChainExchange.Validate(); err != nil {
 		return fmt.Errorf("invalid manifest: invalid chain exchange config: %w", err)
 	}
+	if err := m.PartialMessageManager.Validate(); err != nil {
+		return fmt.Errorf("invalid manifest: invalid partial message manager config: %w", err)
+	}
 	if m.ChainExchange.MaxChainLength > m.Gpbft.ChainProposedLength {
 		return fmt.Errorf("invalid manifest: chain exchange max chain length %d exceeds gpbft proposed chain length %d", m.ChainExchange.MaxChainLength, m.Gpbft.ChainProposedLength)
 	}
@@ -391,16 +437,17 @@ func LocalDevnetManifest() *Manifest {
 	rng := make([]byte, 4)
 	_, _ = rand.Read(rng)
 	m := &Manifest{
-		ProtocolVersion:     VersionCapability,
-		NetworkName:         gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng)),
-		BootstrapEpoch:      1000,
-		CommitteeLookback:   DefaultCommitteeLookback,
-		EC:                  DefaultEcConfig,
-		Gpbft:               DefaultGpbftConfig,
-		CertificateExchange: DefaultCxConfig,
-		CatchUpAlignment:    DefaultCatchUpAlignment,
-		PubSub:              DefaultPubSubConfig,
-		ChainExchange:       DefaultChainExchangeConfig,
+		ProtocolVersion:       VersionCapability,
+		NetworkName:           gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng)),
+		BootstrapEpoch:        1000,
+		CommitteeLookback:     DefaultCommitteeLookback,
+		EC:                    DefaultEcConfig,
+		Gpbft:                 DefaultGpbftConfig,
+		CertificateExchange:   DefaultCxConfig,
+		CatchUpAlignment:      DefaultCatchUpAlignment,
+		PubSub:                DefaultPubSubConfig,
+		ChainExchange:         DefaultChainExchangeConfig,
+		PartialMessageManager: DefaultPartialMessageManagerConfig,
 	}
 	return m
 }

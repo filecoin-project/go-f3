@@ -51,6 +51,10 @@ type partialMessageManager struct {
 	pendingInstanceRemoval chan uint64
 	// rebroadcastInterval is the interval at which chains are re-broadcasted.
 	rebroadcastInterval time.Duration
+	// maxBuffMsgPerInstance is the maximum number of buffered partial messages per instance.
+	maxBuffMsgPerInstance int
+	// completedMsgsBufSize is the size of the buffer for completed messages channel.
+	completedMsgsBufSize int
 
 	stop func()
 }
@@ -59,11 +63,13 @@ func newPartialMessageManager(progress gpbft.Progress, ps *pubsub.PubSub, m *man
 	pmm := &partialMessageManager{
 		pmByInstance:            make(map[uint64]*lru.Cache[partialMessageKey, *PartiallyValidatedMessage]),
 		pmkByInstanceByChainKey: make(map[uint64]map[gpbft.ECChainKey][]partialMessageKey),
-		pendingDiscoveredChains: make(chan *discoveredChain, 100),           // TODO: parameterize buffer size.
-		pendingPartialMessages:  make(chan *PartiallyValidatedMessage, 100), // TODO: parameterize buffer size.
-		pendingChainBroadcasts:  make(chan chainexchange.Message, 100),      // TODO: parameterize buffer size.
-		pendingInstanceRemoval:  make(chan uint64, 10),
+		pendingDiscoveredChains: make(chan *discoveredChain, m.PartialMessageManager.PendingDiscoveredChainsBufferSize),
+		pendingPartialMessages:  make(chan *PartiallyValidatedMessage, m.PartialMessageManager.PendingPartialMessagesBufferSize),
+		pendingChainBroadcasts:  make(chan chainexchange.Message, m.PartialMessageManager.PendingChainBroadcastsBufferSize),
+		pendingInstanceRemoval:  make(chan uint64, m.PartialMessageManager.PendingInstanceRemovalBufferSize),
 		rebroadcastInterval:     m.ChainExchange.RebroadcastInterval,
+		maxBuffMsgPerInstance:   m.PartialMessageManager.MaxBufferedMessagesPerInstance,
+		completedMsgsBufSize:    m.PartialMessageManager.CompletedMessagesBufferSize,
 	}
 	var err error
 	pmm.chainex, err = chainexchange.NewPubSubChainExchange(
@@ -90,7 +96,7 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyV
 		return nil, fmt.Errorf("starting chain exchange: %w", err)
 	}
 
-	completedMessages := make(chan *PartiallyValidatedMessage, 100) // TODO: parameterize buffer size.
+	completedMessages := make(chan *PartiallyValidatedMessage, pmm.completedMsgsBufSize)
 	ctx, pmm.stop = context.WithCancel(context.Background())
 	go func() {
 		defer func() {
@@ -364,11 +370,8 @@ func (pmm *partialMessageManager) bufferPartialMessage(ctx context.Context, msg 
 func (pmm *partialMessageManager) getOrInitPartialMessageBuffer(instance uint64) *lru.Cache[partialMessageKey, *PartiallyValidatedMessage] {
 	buffer, found := pmm.pmByInstance[instance]
 	if !found {
-		// TODO: parameterize this in the manifest?
-		// Based on 5 phases, 2K network size at a couple of rounds plus some headroom.
-		const maxBufferedMessagesPerInstance = 25_000
 		var err error
-		buffer, err = lru.New[partialMessageKey, *PartiallyValidatedMessage](maxBufferedMessagesPerInstance)
+		buffer, err = lru.New[partialMessageKey, *PartiallyValidatedMessage](pmm.maxBuffMsgPerInstance)
 		if err != nil {
 			log.Fatalf("Failed to create buffer for instance %d: %s", instance, err)
 			panic(err)

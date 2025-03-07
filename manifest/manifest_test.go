@@ -50,9 +50,10 @@ var base = manifest.Manifest{
 		MinimumPollInterval:  30 * time.Second,
 		MaximumPollInterval:  2 * time.Minute,
 	},
-	PubSub:           manifest.DefaultPubSubConfig,
-	ChainExchange:    manifest.DefaultChainExchangeConfig,
-	CatchUpAlignment: 0,
+	PubSub:                manifest.DefaultPubSubConfig,
+	ChainExchange:         manifest.DefaultChainExchangeConfig,
+	PartialMessageManager: manifest.DefaultPartialMessageManagerConfig,
+	CatchUpAlignment:      0,
 }
 
 func TestManifest_Validation(t *testing.T) {
@@ -123,8 +124,8 @@ func TestManifest_CID(t *testing.T) {
 	t.Parallel()
 
 	const (
-		wantLocalDevnetCid = "baguqfiheaiqhdjxmvlkbk3d4uapd4eibmybbpozvo6ul4warivcml3psthtmd3a"
-		wantAfterUpdateCid = "baguqfiheaiqhe2kchdb4whu3ek4fxxh5jombejiwsnufyti5dpfzlue7xp7xqoq"
+		wantLocalDevnetCid = "baguqfiheaiqnp422v5xrqg4uhvtlx3zm3ojwnvy3ut23wwficlr66uj6sy2k2ka"
+		wantAfterUpdateCid = "baguqfiheaiqplz22vi4qeofnpdskhnu34cocktadeumyg3i2jy27fs7htcxrc5y"
 	)
 	subject := manifest.LocalDevnetManifest()
 	// Use a fixed network name for deterministic CID calculation.

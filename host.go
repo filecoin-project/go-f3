@@ -152,7 +152,7 @@ func newRunner(
 		return nil, fmt.Errorf("creating partial message manager: %w", err)
 	}
 
-	runner.pmCache = caching.NewGroupedSet(int(m.CommitteeLookback), 25_000)
+	runner.pmCache = caching.NewGroupedSet(int(m.CommitteeLookback), m.PartialMessageManager.MaxCachedValidatedMessagesPerInstance)
 	obfuscatedHost := (*gpbftHost)(runner)
 	runner.pmv = newCachingPartialValidator(obfuscatedHost, runner.Progress, runner.pmCache, m.CommitteeLookback)
 
