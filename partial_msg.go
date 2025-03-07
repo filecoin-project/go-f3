@@ -130,7 +130,23 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyV
 							return
 						case completedMessages <- pgmsg:
 						default:
-							log.Warnw("Dropped completed message as the gpbft runner is too slow to consume them.", "msg", pgmsg.GMessage)
+							// The gpbft runner is too slow to consume the completed messages. Drop the
+							// earliest unconsumed message to make room for the new one. This is a trade-off
+							// between preferring eventual progress versus full message delivery while
+							// keeping a capped memory usage.
+							log.Warn("The gpbft runner is too slow to consume completed messages.")
+							select {
+							case <-ctx.Done():
+								return
+							case dropped := <-completedMessages:
+								metrics.partialMessagesDropped.Add(context.Background(), 1, metric.WithAttributes(attribute.String("kind", "completed_message")))
+								select {
+								case <-ctx.Done():
+									return
+								case completedMessages <- pgmsg:
+									log.Warnw("Dropped earliest completed message to add the latest as the gpbft runner is too slow to consume them.", "added", pgmsg.GMessage, "dropped", dropped)
+								}
+							}
 						}
 						buffer.Remove(messageKey)
 						metrics.partialMessages.Add(ctx, -1)
@@ -256,14 +272,30 @@ func (pmm *partialMessageManager) BroadcastChain(ctx context.Context, instance u
 	if chain.IsZero() {
 		return nil
 	}
+	msg := chainexchange.Message{Instance: instance, Chain: chain}
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case pmm.pendingChainBroadcasts <- chainexchange.Message{Instance: instance, Chain: chain}:
+	case pmm.pendingChainBroadcasts <- msg:
 	default:
-		// The chain broadcast is too slow. Drop the request and rely on GPBFT
-		// re-broadcast to request chain broadcast again instead of blocking.
-		log.Debugw("Dropped chain broadcast as chain rebroadcast is too slow.", "instance", instance, "chain", chain)
+		// The chain broadcast is too slow. Drop the earliest unprocessed request and
+		// rely on GPBFT re-broadcast to request chain broadcast again instead of
+		// blocking. The rationale for dropping the earliest is that the chances are
+		// later messages are more informative for the network and later ones. If we are
+		// slow in processing, the chances are we are behind.
+		log.Debugw("The chain rebroadcast is too slow.", "instance", instance, "chain", chain)
+		select {
+		case <-ctx.Done():
+			return nil
+		case dropped := <-pmm.pendingChainBroadcasts:
+			metrics.partialMessagesDropped.Add(context.Background(), 1, metric.WithAttributes(attribute.String("kind", "chain_broadcast")))
+			select {
+			case <-ctx.Done():
+				return nil
+			case pmm.pendingChainBroadcasts <- msg:
+				log.Warnw("Dropped earliest chain broadcast request to the latest as the chain broadcast is too slow to consume them.", "added", msg, "dropped", dropped)
+			}
+		}
 	}
 	return nil
 }
