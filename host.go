@@ -710,8 +710,16 @@ func (h *gpbftHost) RequestRebroadcast(instant gpbft.Instant) error {
 func (h *gpbftHost) GetProposal(instance uint64) (*gpbft.SupplementalData, *gpbft.ECChain, error) {
 	proposal, chain, err := h.inputs.GetProposal(h.runningCtx, instance)
 	if err == nil {
-		if err := h.pmm.BroadcastChain(h.runningCtx, instance, chain); err != nil {
-			log.Warnw("failed to broadcast chain", "instance", instance, "error", err)
+		// Only broadcast the chain if this is a fresh instance started by self to avoid
+		// broadcasting a proposal that otherwise would get filtered by the
+		// self-equivocation filter.
+		h.msgsMutex.Lock()
+		_, found := h.selfMessages[instance]
+		h.msgsMutex.Unlock()
+		if !found {
+			if err := h.pmm.BroadcastChain(h.runningCtx, instance, chain); err != nil {
+				log.Warnw("failed to broadcast chain", "instance", instance, "error", err)
+			}
 		}
 	}
 	return proposal, chain, err
