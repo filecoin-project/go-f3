@@ -245,11 +245,12 @@ func (p *PubSubChainExchange) validatePubSubMessage(ctx context.Context, _ peer.
 			return pubsub.ValidationReject
 		}
 	}
-	now := time.Now().Unix()
-	lowerBound := now - int64(p.maxTimestampAge.Seconds())
+	now := time.Now().UnixMilli()
+	lowerBound := now - p.maxTimestampAge.Milliseconds()
 	if lowerBound > cmsg.Timestamp || cmsg.Timestamp > now {
 		// The timestamp is too old or too far ahead. Ignore the message to avoid
 		// affecting peer scores.
+		log.Debugw("Timestamp too old or too far ahead", "from", msg.GetFrom(), "timestamp", cmsg.Timestamp, "lowerBound", lowerBound)
 		return pubsub.ValidationIgnore
 	}
 
