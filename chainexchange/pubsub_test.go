@@ -15,94 +15,102 @@ import (
 )
 
 func TestPubSubChainExchange_Broadcast(t *testing.T) {
-	runBroadcastTest(t, chainexchange.WithCompression(true))
-}
-
-func TestPubSubChainExchange_Broadcast_NoCompress(t *testing.T) {
-	runBroadcastTest(t, chainexchange.WithCompression(false))
-}
-
-func runBroadcastTest(t *testing.T, opts ...chainexchange.Option) {
-	const topicName = "fish"
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	var testInstant gpbft.InstanceProgress
-	var testListener listener
-	host, err := libp2p.New()
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		cancel()
-		require.NoError(t, host.Close())
-	})
-
-	ps, err := pubsub.NewGossipSub(ctx, host, pubsub.WithFloodPublish(true))
-	require.NoError(t, err)
-
-	options := []chainexchange.Option{
-		chainexchange.WithProgress(func() (instant gpbft.InstanceProgress) {
-			return testInstant
-		}),
-		chainexchange.WithPubSub(ps),
-		chainexchange.WithTopicName(topicName),
-		chainexchange.WithTopicScoreParams(nil),
-		chainexchange.WithMaxTimestampAge(time.Minute),
-		chainexchange.WithListener(&testListener),
-		chainexchange.WithCompression(true),
-	}
-	options = append(options, opts...)
-	subject, err := chainexchange.NewPubSubChainExchange(
-		options...,
-	)
-	require.NoError(t, err)
-	require.NotNil(t, subject)
-
-	err = subject.Start(ctx)
-	require.NoError(t, err)
-
-	instance := uint64(1)
-	ecChain := &gpbft.ECChain{
-		TipSets: []*gpbft.TipSet{
-			{Epoch: 0, Key: []byte("lobster"), PowerTable: gpbft.MakeCid([]byte("pt"))},
-			{Epoch: 1, Key: []byte("barreleye"), PowerTable: gpbft.MakeCid([]byte("pt"))},
+	for _, test := range []struct {
+		name string
+		opts []chainexchange.Option
+	}{
+		{
+			name: "no compression",
+			opts: []chainexchange.Option{chainexchange.WithCompression(false)},
 		},
+		{
+			name: "with compression",
+			opts: []chainexchange.Option{chainexchange.WithCompression(true)},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			const topicName = "fish"
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			var testInstant gpbft.InstanceProgress
+			var testListener listener
+			host, err := libp2p.New()
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				cancel()
+				require.NoError(t, host.Close())
+			})
+
+			ps, err := pubsub.NewGossipSub(ctx, host, pubsub.WithFloodPublish(true))
+			require.NoError(t, err)
+
+			options := []chainexchange.Option{
+				chainexchange.WithProgress(func() (instant gpbft.InstanceProgress) {
+					return testInstant
+				}),
+				chainexchange.WithPubSub(ps),
+				chainexchange.WithTopicName(topicName),
+				chainexchange.WithTopicScoreParams(nil),
+				chainexchange.WithMaxTimestampAge(time.Minute),
+				chainexchange.WithListener(&testListener),
+				chainexchange.WithCompression(true),
+			}
+			options = append(options, test.opts...)
+			subject, err := chainexchange.NewPubSubChainExchange(
+				options...,
+			)
+			require.NoError(t, err)
+			require.NotNil(t, subject)
+
+			err = subject.Start(ctx)
+			require.NoError(t, err)
+
+			instance := uint64(1)
+			ecChain := &gpbft.ECChain{
+				TipSets: []*gpbft.TipSet{
+					{Epoch: 0, Key: []byte("lobster"), PowerTable: gpbft.MakeCid([]byte("pt"))},
+					{Epoch: 1, Key: []byte("barreleye"), PowerTable: gpbft.MakeCid([]byte("pt"))},
+				},
+			}
+
+			key := ecChain.Key()
+			chain, found := subject.GetChainByInstance(ctx, instance, key)
+			require.False(t, found)
+			require.Nil(t, chain)
+			require.Empty(t, testListener.getNotifications())
+
+			require.NoError(t, subject.Broadcast(ctx, chainexchange.Message{
+				Instance:  instance,
+				Chain:     ecChain,
+				Timestamp: time.Now().Add(-2 * time.Second).UnixMilli(),
+			}))
+
+			require.Eventually(t, func() bool {
+				chain, found = subject.GetChainByInstance(ctx, instance, key)
+				return found
+			}, time.Second, 100*time.Millisecond)
+			require.Equal(t, ecChain, chain)
+
+			baseChain := ecChain.BaseChain()
+			baseKey := baseChain.Key()
+			require.Eventually(t, func() bool {
+				chain, found = subject.GetChainByInstance(ctx, instance, baseKey)
+				return found
+			}, time.Second, 100*time.Millisecond)
+			require.Equal(t, baseChain, chain)
+
+			// Assert that we have received 2 notifications, because ecChain has 2 tipsets.
+			// First should be the ecChain, second should be the baseChain.
+
+			notifications := testListener.getNotifications()
+			require.Len(t, notifications, 2)
+			require.Equal(t, instance, notifications[1].instance)
+			require.Equal(t, baseChain, notifications[1].chain)
+			require.Equal(t, instance, notifications[0].instance)
+			require.Equal(t, ecChain, notifications[0].chain)
+
+			require.NoError(t, subject.Shutdown(ctx))
+		})
 	}
-
-	key := ecChain.Key()
-	chain, found := subject.GetChainByInstance(ctx, instance, key)
-	require.False(t, found)
-	require.Nil(t, chain)
-	require.Empty(t, testListener.getNotifications())
-
-	require.NoError(t, subject.Broadcast(ctx, chainexchange.Message{
-		Instance:  instance,
-		Chain:     ecChain,
-		Timestamp: time.Now().Add(-2 * time.Second).Unix(),
-	}))
-
-	require.Eventually(t, func() bool {
-		chain, found = subject.GetChainByInstance(ctx, instance, key)
-		return found
-	}, time.Second, 100*time.Millisecond)
-	require.Equal(t, ecChain, chain)
-
-	baseChain := ecChain.BaseChain()
-	baseKey := baseChain.Key()
-	require.Eventually(t, func() bool {
-		chain, found = subject.GetChainByInstance(ctx, instance, baseKey)
-		return found
-	}, time.Second, 100*time.Millisecond)
-	require.Equal(t, baseChain, chain)
-
-	// Assert that we have received 2 notifications, because ecChain has 2 tipsets.
-	// First should be the ecChain, second should be the baseChain.
-
-	notifications := testListener.getNotifications()
-	require.Len(t, notifications, 2)
-	require.Equal(t, instance, notifications[1].instance)
-	require.Equal(t, baseChain, notifications[1].chain)
-	require.Equal(t, instance, notifications[0].instance)
-	require.Equal(t, ecChain, notifications[0].chain)
-
-	require.NoError(t, subject.Shutdown(ctx))
 }
 
 type notification struct {
