@@ -99,7 +99,7 @@ func (v *cachingValidator) ValidateMessage(msg *GMessage) (valid ValidatedMessag
 
 	comt, err := v.committeeProvider.GetCommittee(msg.Vote.Instance)
 	if err != nil {
-		return nil, ErrValidationNoCommittee
+		return nil, fmt.Errorf("failed to get committee for instance %d: %s: %w", msg.Vote.Instance, err, ErrValidationNoCommittee)
 	}
 	// Check sender is eligible.
 	senderPower, senderPubKey := comt.PowerTable.Get(msg.Sender)

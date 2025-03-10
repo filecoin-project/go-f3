@@ -115,7 +115,7 @@ func (v *cachingPartialValidator) PartiallyValidateMessage(msg *PartialGMessage)
 
 	comt, err := v.committeeProvider.GetCommittee(msg.Vote.Instance)
 	if err != nil {
-		return nil, gpbft.ErrValidationNoCommittee
+		return nil, fmt.Errorf("failed to get committee for instance %d: %s: %w", msg.Vote.Instance, err, gpbft.ErrValidationNoCommittee)
 	}
 	// Check sender is eligible, identical to full validator
 	senderPower, senderPubKey := comt.PowerTable.Get(msg.Sender)
