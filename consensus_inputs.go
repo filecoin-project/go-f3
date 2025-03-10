@@ -71,6 +71,12 @@ func (h *gpbftInputs) collectChain(ctx context.Context, base ec.TipSet, head ec.
 	res := make([]ec.TipSet, 0, 2*gpbft.ChainMaxLen)
 	res = append(res, head)
 
+	// early escape to avoid reporting divergence in metrics
+	if head.Epoch() < base.Epoch() {
+		log.Debugw("head behind base, proposing just base", "head", head.String(), "base", base.String())
+		return nil, nil
+	}
+
 	current := head
 	for !bytes.Equal(current.Key(), base.Key()) {
 		if current.Epoch() < base.Epoch() {
