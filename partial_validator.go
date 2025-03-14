@@ -160,6 +160,7 @@ func (v *cachingPartialValidator) PartiallyValidateMessage(msg *PartialGMessage)
 
 	// Check vote signature by marshaling the payload with the pre-computed vote value key.
 	sigPayload := v.marshalPartialPayloadForSigning(v.networkName, msg.VoteValueKey, &msg.Vote)
+	log.Errorf("partial payload: %X\n", sigPayload)
 	if err := v.signing.Verify(senderPubKey, sigPayload, msg.Signature); err != nil {
 		return nil, fmt.Errorf("invalid signature on %v, %v: %w", msg, err, gpbft.ErrValidationInvalid)
 	}

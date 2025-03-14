@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/manifest"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -25,6 +26,7 @@ type options struct {
 	listener                       Listener
 	maxTimestampAge                time.Duration
 	compression                    bool
+	clk                            clock.Clock
 }
 
 func newOptions(o ...Option) (*options, error) {
@@ -35,6 +37,7 @@ func newOptions(o ...Option) (*options, error) {
 		maxInstanceLookahead:           manifest.DefaultCommitteeLookback,
 		maxDiscoveredChainsPerInstance: 1000,
 		maxWantedChainsPerInstance:     1000,
+		clk:                            clock.RealClock,
 	}
 	for _, apply := range o {
 		if err := apply(opts); err != nil {
@@ -160,6 +163,16 @@ func WithMaxTimestampAge(max time.Duration) Option {
 			return errors.New("max timestamp age cannot be negative")
 		}
 		o.maxTimestampAge = max
+		return nil
+	}
+}
+
+func WithClock(clk clock.Clock) Option {
+	return func(o *options) error {
+		if clk == nil {
+			return errors.New("clock cannot be nil")
+		}
+		o.clk = clk
 		return nil
 	}
 }

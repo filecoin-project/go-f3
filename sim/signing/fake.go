@@ -91,6 +91,7 @@ func (s *FakeBackend) Aggregate(keys []gpbft.PubKey) (gpbft.Aggregate, error) {
 }
 
 func (v *FakeBackend) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Payload) []byte {
+	return p.MarshalForSigning(nn)
 	length := len(gpbft.DomainSeparationTag) + 2 + len(nn)
 	length += 1 + 8 + 8 // phase + round + instance
 	length += 4         // len(p.Value)

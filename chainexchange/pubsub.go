@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -245,7 +246,7 @@ func (p *PubSubChainExchange) validatePubSubMessage(ctx context.Context, _ peer.
 			return pubsub.ValidationReject
 		}
 	}
-	now := time.Now().UnixMilli()
+	now := p.clk.Now().UnixMilli()
 	lowerBound := now - p.maxTimestampAge.Milliseconds()
 	if lowerBound > cmsg.Timestamp || cmsg.Timestamp > now {
 		// The timestamp is too old or too far ahead. Ignore the message to avoid
@@ -263,11 +264,12 @@ func (p *PubSubChainExchange) cacheAsDiscoveredChain(ctx context.Context, cmsg M
 	wanted := p.getChainsDiscoveredAt(ctx, cmsg.Instance)
 	discovered := p.getChainsDiscoveredAt(ctx, cmsg.Instance)
 
-	for offset := cmsg.Chain.Len(); offset >= 0 && ctx.Err() == nil; offset-- {
-		// TODO: Expose internals of merkle.go so that keys can be generated
-		//       cumulatively for a more efficient prefix chain key generation.
+	keysBatch := cmsg.Chain.KeysForPrefixes()
+	for offset := cmsg.Chain.Len() - 1; offset >= 0 && ctx.Err() == nil; offset-- {
 		prefix := cmsg.Chain.Prefix(offset)
-		key := prefix.Key()
+		key := keysBatch[offset]
+		//key := prefix.Key()
+
 		if portion, found := wanted.Peek(key); !found {
 			// Not a wanted key; add it to discovered chains if they are not there already,
 			// i.e. without modifying the recent-ness of any of the discovered values.
@@ -326,14 +328,22 @@ type discovery struct {
 	chain    *gpbft.ECChain
 }
 
+var i atomic.Int64
+
 func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Message) {
+	start := time.Now()
 	var notifications []discovery
 	wanted := p.getChainsWantedAt(ctx, cmsg.Instance)
-	for offset := cmsg.Chain.Len(); offset >= 0 && ctx.Err() == nil; offset-- {
-		// TODO: Expose internals of merkle.go so that keys can be generated
-		//       cumulatively for a more efficient prefix chain key generation.
+	//keysBatch := cmsg.Chain.KeysForPrefixes()
+	time.Sleep(5 * time.Millisecond)
+	fmt.Println(cmsg.Chain.Len())
+
+	for offset := cmsg.Chain.Len() - 1; offset >= 0 && ctx.Err() == nil; offset-- {
 		prefix := cmsg.Chain.Prefix(offset)
+		//key := keysBatch[offset]
 		key := prefix.Key()
+		//runtime.KeepAlive(keysBatch)
+
 		if portion, found := wanted.Peek(key); !found || portion.IsPlaceholder() {
 			wanted.Add(key, &chainPortion{
 				chain: prefix,
@@ -355,6 +365,7 @@ func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Messa
 		// been evicted from the cache or not. This should be cheap enough considering the
 		// added complexity of tracking evictions relative to chain prefixes.
 	}
+	fmt.Printf("keysBatch took: %s\n", time.Since(start))
 
 	// Notify the listener outside the lock.
 	if p.listener != nil {

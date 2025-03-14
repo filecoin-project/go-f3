@@ -147,7 +147,7 @@ func newRunner(
 		runner.msgEncoding = encoding.NewCBOR[*PartialGMessage]()
 	}
 
-	runner.pmm, err = newPartialMessageManager(runner.Progress, ps, m)
+	runner.pmm, err = newPartialMessageManager(runner.Progress, ps, m, runner.clock)
 	if err != nil {
 		return nil, fmt.Errorf("creating partial message manager: %w", err)
 	}
@@ -500,6 +500,14 @@ func (h *gpbftRunner) BroadcastMessage(ctx context.Context, msg *gpbft.GMessage)
 		return fmt.Errorf("encoding GMessage for broadcast: %w", err)
 	}
 
+	_, err = h.participant.ValidateMessage(msg)
+	if err != nil {
+		log.Errorf("full message validation failed: %+v", err)
+	}
+	_, err = h.pmv.PartiallyValidateMessage(pmsg)
+	if err != nil {
+		log.Errorf("partial message validation failed: %+v", err)
+	}
 	err = h.topic.Publish(ctx, encoded)
 	if err != nil {
 		return fmt.Errorf("publishing message: %w", err)

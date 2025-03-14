@@ -32,7 +32,7 @@ const (
 	eventualCheckTimeout    = time.Minute
 	manifestPublishInterval = 100 * time.Millisecond
 	advanceClockEvery       = 5 * time.Millisecond
-	advanceClockBy          = 100 * time.Millisecond
+	advanceClockBy          = 50 * time.Millisecond
 )
 
 func init() {
