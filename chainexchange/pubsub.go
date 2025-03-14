@@ -3,7 +3,6 @@ package chainexchange
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -265,11 +264,10 @@ func (p *PubSubChainExchange) cacheAsDiscoveredChain(ctx context.Context, cmsg M
 	wanted := p.getChainsDiscoveredAt(ctx, cmsg.Instance)
 	discovered := p.getChainsDiscoveredAt(ctx, cmsg.Instance)
 
-	keysBatch := cmsg.Chain.KeysForPrefixes()
+	//keysBatch := cmsg.Chain.KeysForPrefixes()
 	for offset := cmsg.Chain.Len() - 1; offset >= 0 && ctx.Err() == nil; offset-- {
 		prefix := cmsg.Chain.Prefix(offset)
 		//key := keysBatch[offset]
-		runtime.KeepAlive(keysBatch)
 		key := prefix.Key()
 
 		if portion, found := wanted.Peek(key); !found {
@@ -336,15 +334,13 @@ func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Messa
 	var notifications []discovery
 	wanted := p.getChainsWantedAt(ctx, cmsg.Instance)
 	//keysBatch := cmsg.Chain.KeysForPrefixes()
-	//keysBatch := cmsg.Chain.KeysForPrefixes()
+	time.Sleep(5 * time.Millisecond)
 	fmt.Println(cmsg.Chain.Len())
-	time.Sleep(10 * time.Millisecond)
 
 	for offset := cmsg.Chain.Len() - 1; offset >= 0 && ctx.Err() == nil; offset-- {
 		prefix := cmsg.Chain.Prefix(offset)
 		//key := keysBatch[offset]
 		key := prefix.Key()
-		//runtime.KeepAlive(keysBatch)
 
 		if portion, found := wanted.Peek(key); !found || portion.IsPlaceholder() {
 			wanted.Add(key, &chainPortion{
