@@ -3,6 +3,7 @@ package chainexchange
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"time"
 
@@ -266,7 +267,9 @@ func (p *PubSubChainExchange) cacheAsDiscoveredChain(ctx context.Context, cmsg M
 	keysBatch := cmsg.Chain.KeysForPrefixes()
 	for offset := cmsg.Chain.Len() - 1; offset >= 0 && ctx.Err() == nil; offset-- {
 		prefix := cmsg.Chain.Prefix(offset)
-		key := keysBatch[offset]
+		//key := keysBatch[offset]
+		runtime.KeepAlive(keysBatch)
+		key := prefix.Key()
 
 		if portion, found := wanted.Peek(key); !found {
 			// Not a wanted key; add it to discovered chains if they are not there already,
@@ -332,7 +335,9 @@ func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Messa
 	keysBatch := cmsg.Chain.KeysForPrefixes()
 	for offset := cmsg.Chain.Len() - 1; offset >= 0 && ctx.Err() == nil; offset-- {
 		prefix := cmsg.Chain.Prefix(offset)
-		key := keysBatch[offset]
+		//key := keysBatch[offset]
+		runtime.KeepAlive(keysBatch)
+		key := prefix.Key()
 
 		if portion, found := wanted.Peek(key); !found || portion.IsPlaceholder() {
 			wanted.Add(key, &chainPortion{

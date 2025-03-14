@@ -3,6 +3,7 @@ package merkle
 import (
 	"encoding/hex"
 	"fmt"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -130,4 +131,24 @@ func TestHashTreeGolden(t *testing.T) {
 		batchResHash[i] = hex.EncodeToString(batchRes[i][:])
 	}
 	assert.Equal(t, expectedHex, batchResHash)
+}
+
+func BenchmarkIndividualPrefix(b *testing.B) {
+	K := 128
+	inputs := generateInputs("golden", K)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for i := 1; i < len(inputs); i++ {
+			runtime.KeepAlive(Tree(inputs[:i+1]))
+		}
+	}
+}
+
+func BenchmarkBatchPrefix(b *testing.B) {
+	K := 128
+	inputs := generateInputs("golden", K)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		runtime.KeepAlive(BatchTree(inputs))
+	}
 }
