@@ -7,6 +7,7 @@ import (
 
 	"github.com/filecoin-project/go-f3/chainexchange"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/manifest"
 	lru "github.com/hashicorp/golang-lru/v2"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -55,11 +56,12 @@ type partialMessageManager struct {
 	maxBuffMsgPerInstance int
 	// completedMsgsBufSize is the size of the buffer for completed messages channel.
 	completedMsgsBufSize int
+	clk                  clock.Clock
 
 	stop func()
 }
 
-func newPartialMessageManager(progress gpbft.Progress, ps *pubsub.PubSub, m *manifest.Manifest) (*partialMessageManager, error) {
+func newPartialMessageManager(progress gpbft.Progress, ps *pubsub.PubSub, m *manifest.Manifest, clk clock.Clock) (*partialMessageManager, error) {
 	pmm := &partialMessageManager{
 		pmByInstance:            make(map[uint64]*lru.Cache[partialMessageKey, *PartiallyValidatedMessage]),
 		pmkByInstanceByChainKey: make(map[uint64]map[gpbft.ECChainKey][]partialMessageKey),
@@ -70,6 +72,7 @@ func newPartialMessageManager(progress gpbft.Progress, ps *pubsub.PubSub, m *man
 		rebroadcastInterval:     m.ChainExchange.RebroadcastInterval,
 		maxBuffMsgPerInstance:   m.PartialMessageManager.MaxBufferedMessagesPerInstance,
 		completedMsgsBufSize:    m.PartialMessageManager.CompletedMessagesBufferSize,
+		clk:                     clk,
 	}
 	var err error
 	pmm.chainex, err = chainexchange.NewPubSubChainExchange(
@@ -84,6 +87,7 @@ func newPartialMessageManager(progress gpbft.Progress, ps *pubsub.PubSub, m *man
 		chainexchange.WithMaxTimestampAge(m.ChainExchange.MaxTimestampAge),
 		chainexchange.WithSubscriptionBufferSize(m.ChainExchange.SubscriptionBufferSize),
 		chainexchange.WithTopicName(manifest.ChainExchangeTopicFromNetworkName(m.NetworkName)),
+		chainexchange.WithClock(clk),
 	)
 	if err != nil {
 		return nil, err
@@ -210,7 +214,7 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyV
 	// Use a dedicated goroutine for chain broadcast to avoid any delay in
 	// broadcasting chains as it can fundamentally affect progress across the system.
 	go func() {
-		ticker := time.NewTicker(pmm.rebroadcastInterval)
+		ticker := pmm.clk.Ticker(pmm.rebroadcastInterval)
 		defer func() {
 			ticker.Stop()
 			log.Debugw("Partial message manager rebroadcast stopped.")
@@ -238,7 +242,7 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyV
 					// Broadcast immediately and reset the timer to tick from now onwards. This is to
 					// re-align the chain rebroadcast relative to instance start.
 					current = &pending
-					current.Timestamp = roundDownToUnixMilliTime(time.Now(), pmm.rebroadcastInterval)
+					current.Timestamp = roundDownToUnixMilliTime(pmm.clk.Now(), pmm.rebroadcastInterval)
 					if err := pmm.chainex.Broadcast(ctx, *current); err != nil {
 						log.Debugw("Failed to immediately re-broadcast chain.", "instance", current.Instance, "chain", current.Chain, "error", err)
 					}

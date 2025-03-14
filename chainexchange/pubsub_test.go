@@ -88,7 +88,7 @@ func TestPubSubChainExchange_Broadcast(t *testing.T) {
 				chain, found = subject.GetChainByInstance(ctx, instance, key)
 				return found
 			}, time.Second, 100*time.Millisecond)
-			require.Equal(t, ecChain, chain)
+			require.EqualExportedValues(t, ecChain, chain)
 
 			baseChain := ecChain.BaseChain()
 			baseKey := baseChain.Key()
@@ -96,7 +96,7 @@ func TestPubSubChainExchange_Broadcast(t *testing.T) {
 				chain, found = subject.GetChainByInstance(ctx, instance, baseKey)
 				return found
 			}, time.Second, 100*time.Millisecond)
-			require.Equal(t, baseChain, chain)
+			require.EqualExportedValues(t, baseChain, chain)
 
 			// Assert that we have received 2 notifications, because ecChain has 2 tipsets.
 			// First should be the ecChain, second should be the baseChain.
@@ -104,9 +104,9 @@ func TestPubSubChainExchange_Broadcast(t *testing.T) {
 			notifications := testListener.getNotifications()
 			require.Len(t, notifications, 2)
 			require.Equal(t, instance, notifications[1].instance)
-			require.Equal(t, baseChain, notifications[1].chain)
+			require.EqualExportedValues(t, baseChain, notifications[1].chain)
 			require.Equal(t, instance, notifications[0].instance)
-			require.Equal(t, ecChain, notifications[0].chain)
+			require.EqualExportedValues(t, ecChain, notifications[0].chain)
 
 			require.NoError(t, subject.Shutdown(ctx))
 		})

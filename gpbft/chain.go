@@ -425,6 +425,51 @@ func (c *ECChain) Key() ECChainKey {
 	return c.key
 }
 
+// KeysForPrefixes return batch of keys for all prefixes
+// the indexes to this array correspond to Prefix(i) calls
+func (c *ECChain) KeysForPrefixes() []ECChainKey {
+	if c.IsZero() {
+		return nil
+	}
+	values := make([][]byte, c.Len())
+	for i, ts := range c.TipSets {
+		values[i] = ts.MarshalForSigning()
+	}
+
+	batch := merkle.BatchTree(values)
+	res := make([]ECChainKey, c.Len())
+	for i := 0; i < c.Len(); i++ {
+		res[i] = batch[i]
+	}
+	return res
+}
+
+// AllPrefixes returns an array of all prefix chain including the c itself.
+// It precomputes keys for them as well, populating the key cache.
+func (c *ECChain) AllPrefixes() []*ECChain {
+	if c.IsZero() {
+		return nil
+	}
+	values := make([][]byte, c.Len())
+	for i, ts := range c.TipSets {
+		values[i] = ts.MarshalForSigning()
+	}
+	batch := merkle.BatchTree(values)
+
+	res := make([]*ECChain, len(c.TipSets))
+	for i := 0; i < len(c.TipSets); i++ {
+		var prefix ECChain
+		prefix.TipSets = c.TipSets[: i+1 : i+1]
+
+		copy(prefix.key[:], batch[i][:]) // populate the key cache
+		prefix.keyLazyLoader.Do(func() {})
+
+		res[i] = &prefix
+	}
+
+	return res
+}
+
 func (c *ECChain) String() string {
 	if c.IsZero() {
 		return "丄"
