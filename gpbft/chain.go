@@ -425,6 +425,25 @@ func (c *ECChain) Key() ECChainKey {
 	return c.key
 }
 
+// KeysForPrefixes return batch of keys for all prefixes
+// the indexes to this array correspond to Prefix(i) calls
+func (c *ECChain) KeysForPrefixes() []ECChainKey {
+	if c.IsZero() {
+		return nil
+	}
+	values := make([][]byte, c.Len())
+	for i, ts := range c.TipSets {
+		values[i] = ts.MarshalForSigning()
+	}
+
+	batch := merkle.BatchTree(values)
+	res := make([]ECChainKey, c.Len())
+	for i := 0; i < c.Len(); i++ {
+		res[i] = batch[i]
+	}
+	return res
+}
+
 func (c *ECChain) String() string {
 	if c.IsZero() {
 		return "丄"

@@ -263,11 +263,11 @@ func (p *PubSubChainExchange) cacheAsDiscoveredChain(ctx context.Context, cmsg M
 	wanted := p.getChainsDiscoveredAt(ctx, cmsg.Instance)
 	discovered := p.getChainsDiscoveredAt(ctx, cmsg.Instance)
 
-	for offset := cmsg.Chain.Len(); offset >= 0 && ctx.Err() == nil; offset-- {
-		// TODO: Expose internals of merkle.go so that keys can be generated
-		//       cumulatively for a more efficient prefix chain key generation.
+	keysBatch := cmsg.Chain.KeysForPrefixes()
+	for offset := cmsg.Chain.Len() - 1; offset >= 0 && ctx.Err() == nil; offset-- {
 		prefix := cmsg.Chain.Prefix(offset)
-		key := prefix.Key()
+		key := keysBatch[offset]
+
 		if portion, found := wanted.Peek(key); !found {
 			// Not a wanted key; add it to discovered chains if they are not there already,
 			// i.e. without modifying the recent-ness of any of the discovered values.
@@ -329,11 +329,11 @@ type discovery struct {
 func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Message) {
 	var notifications []discovery
 	wanted := p.getChainsWantedAt(ctx, cmsg.Instance)
-	for offset := cmsg.Chain.Len(); offset >= 0 && ctx.Err() == nil; offset-- {
-		// TODO: Expose internals of merkle.go so that keys can be generated
-		//       cumulatively for a more efficient prefix chain key generation.
+	keysBatch := cmsg.Chain.KeysForPrefixes()
+	for offset := cmsg.Chain.Len() - 1; offset >= 0 && ctx.Err() == nil; offset-- {
 		prefix := cmsg.Chain.Prefix(offset)
-		key := prefix.Key()
+		key := keysBatch[offset]
+
 		if portion, found := wanted.Peek(key); !found || portion.IsPlaceholder() {
 			wanted.Add(key, &chainPortion{
 				chain: prefix,
