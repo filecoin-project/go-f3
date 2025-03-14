@@ -264,11 +264,11 @@ func (p *PubSubChainExchange) cacheAsDiscoveredChain(ctx context.Context, cmsg M
 	wanted := p.getChainsDiscoveredAt(ctx, cmsg.Instance)
 	discovered := p.getChainsDiscoveredAt(ctx, cmsg.Instance)
 
-	//keysBatch := cmsg.Chain.KeysForPrefixes()
+	keysBatch := cmsg.Chain.KeysForPrefixes()
 	for offset := cmsg.Chain.Len() - 1; offset >= 0 && ctx.Err() == nil; offset-- {
 		prefix := cmsg.Chain.Prefix(offset)
-		//key := keysBatch[offset]
-		key := prefix.Key()
+		key := keysBatch[offset]
+		//key := prefix.Key()
 
 		if portion, found := wanted.Peek(key); !found {
 			// Not a wanted key; add it to discovered chains if they are not there already,
@@ -331,6 +331,7 @@ type discovery struct {
 var i atomic.Int64
 
 func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Message) {
+	start := time.Now()
 	var notifications []discovery
 	wanted := p.getChainsWantedAt(ctx, cmsg.Instance)
 	//keysBatch := cmsg.Chain.KeysForPrefixes()
@@ -341,6 +342,7 @@ func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Messa
 		prefix := cmsg.Chain.Prefix(offset)
 		//key := keysBatch[offset]
 		key := prefix.Key()
+		//runtime.KeepAlive(keysBatch)
 
 		if portion, found := wanted.Peek(key); !found || portion.IsPlaceholder() {
 			wanted.Add(key, &chainPortion{
@@ -363,6 +365,7 @@ func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Messa
 		// been evicted from the cache or not. This should be cheap enough considering the
 		// added complexity of tracking evictions relative to chain prefixes.
 	}
+	fmt.Printf("keysBatch took: %s\n", time.Since(start))
 
 	// Notify the listener outside the lock.
 	if p.listener != nil {

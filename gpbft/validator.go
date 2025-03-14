@@ -146,6 +146,7 @@ func (v *cachingValidator) ValidateMessage(msg *GMessage) (valid ValidatedMessag
 
 	// Check vote signature.
 	sigPayload := v.signing.MarshalPayloadForSigning(v.networkName, &msg.Vote)
+	log.Errorf("full payload: %X", sigPayload)
 	if err := v.signing.Verify(senderPubKey, sigPayload, msg.Signature); err != nil {
 		return nil, fmt.Errorf("invalid signature on %v, %v: %w", msg, err, ErrValidationInvalid)
 	}
