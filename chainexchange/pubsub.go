@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -246,7 +247,7 @@ func (p *PubSubChainExchange) validatePubSubMessage(ctx context.Context, _ peer.
 			return pubsub.ValidationReject
 		}
 	}
-	now := time.Now().UnixMilli()
+	now := p.clk.Now().UnixMilli()
 	lowerBound := now - p.maxTimestampAge.Milliseconds()
 	if lowerBound > cmsg.Timestamp || cmsg.Timestamp > now {
 		// The timestamp is too old or too far ahead. Ignore the message to avoid
@@ -329,15 +330,21 @@ type discovery struct {
 	chain    *gpbft.ECChain
 }
 
+var i atomic.Int64
+
 func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Message) {
 	var notifications []discovery
 	wanted := p.getChainsWantedAt(ctx, cmsg.Instance)
-	keysBatch := cmsg.Chain.KeysForPrefixes()
+	//keysBatch := cmsg.Chain.KeysForPrefixes()
+	//keysBatch := cmsg.Chain.KeysForPrefixes()
+	fmt.Println(cmsg.Chain.Len())
+	time.Sleep(10 * time.Millisecond)
+
 	for offset := cmsg.Chain.Len() - 1; offset >= 0 && ctx.Err() == nil; offset-- {
 		prefix := cmsg.Chain.Prefix(offset)
 		//key := keysBatch[offset]
-		runtime.KeepAlive(keysBatch)
 		key := prefix.Key()
+		//runtime.KeepAlive(keysBatch)
 
 		if portion, found := wanted.Peek(key); !found || portion.IsPlaceholder() {
 			wanted.Add(key, &chainPortion{

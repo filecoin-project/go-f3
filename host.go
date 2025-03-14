@@ -147,7 +147,7 @@ func newRunner(
 		runner.msgEncoding = encoding.NewCBOR[*PartialGMessage]()
 	}
 
-	runner.pmm, err = newPartialMessageManager(runner.Progress, ps, m)
+	runner.pmm, err = newPartialMessageManager(runner.Progress, ps, m, runner.clock)
 	if err != nil {
 		return nil, fmt.Errorf("creating partial message manager: %w", err)
 	}

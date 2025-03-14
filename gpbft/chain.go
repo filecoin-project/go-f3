@@ -415,13 +415,12 @@ func (c *ECChain) Key() ECChainKey {
 	if c.IsZero() {
 		return merkle.ZeroDigest
 	}
-	c.keyLazyLoader.Do(func() {
-		values := make([][]byte, c.Len())
-		for i, ts := range c.TipSets {
-			values[i] = ts.MarshalForSigning()
-		}
-		c.key = merkle.Tree(values)
-	})
+	values := make([][]byte, c.Len())
+	for i, ts := range c.TipSets {
+		values[i] = ts.MarshalForSigning()
+	}
+	return merkle.Tree(values)
+	c.key = merkle.Tree(values)
 	return c.key
 }
 
@@ -442,6 +441,11 @@ func (c *ECChain) KeysForPrefixes() []ECChainKey {
 		res[i] = batch[i]
 	}
 	return res
+}
+
+func (c *ECChain) AllPrefixes() []*ECChain {
+	return nil
+
 }
 
 func (c *ECChain) String() string {
