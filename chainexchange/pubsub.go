@@ -245,7 +245,7 @@ func (p *PubSubChainExchange) validatePubSubMessage(ctx context.Context, _ peer.
 			return pubsub.ValidationReject
 		}
 	}
-	now := time.Now().UnixMilli()
+	now := p.clk.Now().UnixMilli()
 	lowerBound := now - p.maxTimestampAge.Milliseconds()
 	if lowerBound > cmsg.Timestamp || cmsg.Timestamp > now {
 		// The timestamp is too old or too far ahead. Ignore the message to avoid
@@ -263,11 +263,11 @@ func (p *PubSubChainExchange) cacheAsDiscoveredChain(ctx context.Context, cmsg M
 	wanted := p.getChainsDiscoveredAt(ctx, cmsg.Instance)
 	discovered := p.getChainsDiscoveredAt(ctx, cmsg.Instance)
 
-	for offset := cmsg.Chain.Len(); offset >= 0 && ctx.Err() == nil; offset-- {
-		// TODO: Expose internals of merkle.go so that keys can be generated
-		//       cumulatively for a more efficient prefix chain key generation.
-		prefix := cmsg.Chain.Prefix(offset)
+	allPrefixes := cmsg.Chain.AllPrefixes()
+	for i := len(allPrefixes) - 1; i >= 0 && ctx.Err() == nil; i-- {
+		prefix := allPrefixes[i]
 		key := prefix.Key()
+
 		if portion, found := wanted.Peek(key); !found {
 			// Not a wanted key; add it to discovered chains if they are not there already,
 			// i.e. without modifying the recent-ness of any of the discovered values.
@@ -329,11 +329,12 @@ type discovery struct {
 func (p *PubSubChainExchange) cacheAsWantedChain(ctx context.Context, cmsg Message) {
 	var notifications []discovery
 	wanted := p.getChainsWantedAt(ctx, cmsg.Instance)
-	for offset := cmsg.Chain.Len(); offset >= 0 && ctx.Err() == nil; offset-- {
-		// TODO: Expose internals of merkle.go so that keys can be generated
-		//       cumulatively for a more efficient prefix chain key generation.
-		prefix := cmsg.Chain.Prefix(offset)
+
+	allPrefixes := cmsg.Chain.AllPrefixes()
+	for i := len(allPrefixes) - 1; i >= 0 && ctx.Err() == nil; i-- {
+		prefix := allPrefixes[i]
 		key := prefix.Key()
+
 		if portion, found := wanted.Peek(key); !found || portion.IsPlaceholder() {
 			wanted.Add(key, &chainPortion{
 				chain: prefix,

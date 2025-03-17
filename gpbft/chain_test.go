@@ -189,6 +189,55 @@ func TestECChain(t *testing.T) {
 	})
 }
 
+func TestECChainKeysForPrefixes(t *testing.T) {
+	t.Parallel()
+
+	pt1Cid := gpbft.MakeCid([]byte("pt1"))
+	pt2Cid := gpbft.MakeCid([]byte("pt2"))
+	pt3Cid := gpbft.MakeCid([]byte("pt3"))
+	tipSets := []*gpbft.TipSet{
+		{Epoch: 0, Key: []byte{0}, PowerTable: pt1Cid},
+		{Epoch: 1, Key: []byte{1}, PowerTable: pt2Cid},
+		{Epoch: 2, Key: []byte{2}, PowerTable: pt3Cid},
+	}
+
+	chain := &gpbft.ECChain{TipSets: tipSets}
+	keys := chain.KeysForPrefixes()
+
+	require.Equal(t, len(keys), len(tipSets), "KeysForPrefixes should return a key for each prefix")
+
+	for i, key := range keys {
+		prefixChain := chain.Prefix(i)
+		require.Equal(t, key, prefixChain.Key(), "Key for prefix %d should match", i)
+	}
+}
+
+func TestECChainAllPrefixes(t *testing.T) {
+	t.Parallel()
+
+	pt1Cid := gpbft.MakeCid([]byte("pt1"))
+	pt2Cid := gpbft.MakeCid([]byte("pt2"))
+	pt3Cid := gpbft.MakeCid([]byte("pt3"))
+	tipSets := []*gpbft.TipSet{
+		{Epoch: 0, Key: []byte{0}, PowerTable: pt1Cid},
+		{Epoch: 1, Key: []byte{1}, PowerTable: pt2Cid},
+		{Epoch: 2, Key: []byte{2}, PowerTable: pt3Cid},
+	}
+
+	chain := &gpbft.ECChain{TipSets: tipSets}
+	prefixes := chain.AllPrefixes()
+
+	require.Equal(t, len(prefixes), len(tipSets), "AllPrefixes should return a prefix for each tipset")
+
+	for i, prefix := range prefixes {
+		require.Equal(t, prefix.Len(), i+1, "Prefix %d should have length %d", i, i+1)
+		expected := chain.Prefix(i)
+		require.True(t, expected.Eq(prefix))
+		require.Equal(t, expected.Key(), prefix.Key())
+		require.NotSame(t, expected, prefix)
+	}
+}
+
 func TestECChain_Eq(t *testing.T) {
 	t.Parallel()
 	var (

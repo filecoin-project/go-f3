@@ -91,43 +91,8 @@ func (s *FakeBackend) Aggregate(keys []gpbft.PubKey) (gpbft.Aggregate, error) {
 }
 
 func (v *FakeBackend) MarshalPayloadForSigning(nn gpbft.NetworkName, p *gpbft.Payload) []byte {
-	length := len(gpbft.DomainSeparationTag) + 2 + len(nn)
-	length += 1 + 8 + 8 // phase + round + instance
-	length += 4         // len(p.Value)
-	if !p.Value.IsZero() {
-		for i := range p.Value.TipSets {
-			ts := p.Value.TipSets[i]
-			length += 8 // epoch
-			length += len(ts.Key)
-			length += len(ts.Commitments)
-			length += ts.PowerTable.ByteLen()
-		}
-	}
-
-	var buf bytes.Buffer
-	buf.Grow(length)
-	buf.WriteString(gpbft.DomainSeparationTag)
-	buf.WriteString(":")
-	buf.WriteString(string(nn))
-	buf.WriteString(":")
-
-	_ = binary.Write(&buf, binary.BigEndian, p.Phase)
-	_ = binary.Write(&buf, binary.BigEndian, p.Round)
-	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
-	_, _ = buf.Write(p.SupplementalData.Commitments[:])
-	_, _ = buf.Write(p.SupplementalData.PowerTable.Bytes())
-	_ = binary.Write(&buf, binary.BigEndian, uint32(p.Value.Len()))
-	if !p.Value.IsZero() {
-		for i := range p.Value.TipSets {
-			ts := p.Value.TipSets[i]
-
-			_ = binary.Write(&buf, binary.BigEndian, ts.Epoch)
-			_, _ = buf.Write(ts.Commitments[:])
-			_, _ = buf.Write(ts.PowerTable.Bytes())
-			_, _ = buf.Write(ts.Key)
-		}
-	}
-	return buf.Bytes()
+	//TODO: remove this whole facility
+	return p.MarshalForSigning(nn)
 }
 
 type fakeAggregate struct {

@@ -26,13 +26,13 @@ func WithMockClock(ctx context.Context) (context.Context, *Mock) {
 	return context.WithValue(ctx, clockKey, (Clock)(clk)), clk
 }
 
-var realClock = clock.New()
+var RealClock = clock.New()
 
 // GetClock either retrieves a mock clock from the context or returns a realtime clock.
 func GetClock(ctx context.Context) Clock {
 	clk := ctx.Value(clockKey)
 	if clk == nil {
-		return realClock
+		return RealClock
 	}
 	return clk.(Clock)
 }

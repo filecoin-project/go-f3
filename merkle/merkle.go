@@ -29,7 +29,7 @@ func TreeWithProofs(values [][]byte) (Digest, [][]Digest) {
 
 // Tree returns a the root of the merkle-tree of the given values.
 func Tree(values [][]byte) Digest {
-	return buildTree(bits.Len(uint(len(values))-1), values, nil)
+	return buildTree(depth(values), values, nil)
 }
 
 // VerifyProof verifies that the given value maps to the given index in the merkle-tree with the
@@ -122,4 +122,33 @@ func buildTree(depth int, values [][]byte, proofs [][]Digest) Digest {
 	}
 
 	return internalHash(leftHash, rightHash)
+}
+
+// BatchTree creates a batch of prefixes of values: [[0], [0, 1], [0, 1, 2], ...]
+// and provides digests for all of them.
+func BatchTree(values [][]byte) []Digest {
+	n := len(values)
+	roots := make([]Digest, n+1) // roots[0] is empty
+
+	for k := 1; k <= n; k++ {
+		if k == 1 {
+			roots[k] = leafHash(values[0])
+			continue
+		}
+
+		depth := bits.Len(uint(k - 1))
+		split := 1 << (depth - 1)
+
+		// Reuse left subtree root from previous computation
+		leftRoot := roots[split]
+
+		// compute right subtree root
+		// this could be made more optimal but leads to more messy code
+		rightValues := values[split:k]
+		rightRoot := buildTree(depth-1, rightValues, nil)
+
+		roots[k] = internalHash(leftRoot, rightRoot)
+	}
+
+	return roots[1:]
 }
