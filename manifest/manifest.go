@@ -55,7 +55,7 @@ var (
 	}
 
 	DefaultPubSubConfig = PubSubConfig{
-		CompressionEnabled:             false,
+		CompressionEnabled:             true,
 		ChainCompressionEnabled:        true,
 		GMessageSubscriptionBufferSize: 128,
 		ValidatedMessageBufferSize:     128,
