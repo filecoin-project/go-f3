@@ -438,7 +438,7 @@ func (c *ECChain) KeysForPrefixes() []ECChainKey {
 
 	batch := merkle.BatchTree(values)
 	res := make([]ECChainKey, c.Len())
-	for i := 0; i < c.Len(); i++ {
+	for i := range c.Len() {
 		res[i] = batch[i]
 	}
 	return res
@@ -457,7 +457,7 @@ func (c *ECChain) AllPrefixes() []*ECChain {
 	batch := merkle.BatchTree(values)
 
 	res := make([]*ECChain, len(c.TipSets))
-	for i := 0; i < len(c.TipSets); i++ {
+	for i := range len(c.TipSets) {
 		var prefix ECChain
 		prefix.TipSets = c.TipSets[: i+1 : i+1]
 

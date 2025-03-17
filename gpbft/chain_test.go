@@ -234,6 +234,7 @@ func TestECChainAllPrefixes(t *testing.T) {
 		expected := chain.Prefix(i)
 		require.True(t, expected.Eq(prefix))
 		require.Equal(t, expected.Key(), prefix.Key())
+		require.NotSame(t, expected, prefix)
 	}
 }
 
