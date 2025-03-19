@@ -1084,6 +1084,7 @@ func newQuorumState(powerTable *PowerTable, attributes ...attribute.KeyValue) *q
 		chainSupport:          map[ECChainKey]chainSupport{},
 		powerTable:            powerTable,
 		receivedJustification: map[ECChainKey]*Justification{},
+		attributes:            attributes,
 	}
 }
 
