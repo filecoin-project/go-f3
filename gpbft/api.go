@@ -128,6 +128,7 @@ type SigningMarshaler interface {
 	// This should usually call `Payload.MarshalForSigning(NetworkName)` except when testing as
 	// that method is slow (computes a merkle tree that's necessary for testing).
 	// Implementations must be safe for concurrent use.
+	// WARNING: the partial message code depends on the structure of signed payload
 	MarshalPayloadForSigning(NetworkName, *Payload) []byte
 }
 
