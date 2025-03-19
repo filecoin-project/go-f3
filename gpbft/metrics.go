@@ -70,8 +70,8 @@ var (
 				"0=INITIAL, 1=QUALITY, 2=CONVERGE, 3=PREPARE, 4=COMMIT, 5=DECIDE, and 6=TERMINATED"))),
 		skipCounter:     measurements.Must(meter.Int64Counter("f3_gpbft_skip_counter", metric.WithDescription("The number of times GPBFT skip either round or phase"))),
 		validationCache: measurements.Must(meter.Int64Counter("f3_gpbft_validation_cache", metric.WithDescription("The number of times GPBFT validation cache resulted in hit or miss."))),
-		quorumParticipation: measurements.Must(meter.Float64Gauge("f3_gpbft_quorum_participation",
-			metric.WithDescription("The current percentage of quorum participation at a given round and phase"))),
+		quorumParticipation: measurements.Must(meter.Float64Gauge("f3_gpbft_participation",
+			metric.WithDescription("The current ratio of participation at a given round and phase (converge not tracked)."))),
 	}
 )
 

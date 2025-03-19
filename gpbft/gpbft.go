@@ -15,6 +15,7 @@ import (
 	"github.com/filecoin-project/go-bitfield"
 	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
 	"github.com/ipfs/go-cid"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -267,11 +268,11 @@ func newInstance(
 		candidates: map[ECChainKey]struct{}{
 			input.BaseChain().Key(): {},
 		},
-		quality: newQuorumState(powerTable),
+		quality: newQuorumState(powerTable, attrQualityPhase),
 		rounds: map[uint64]*roundState{
-			0: newRoundState(powerTable),
+			0: newRoundState(0, powerTable),
 		},
-		decision: newQuorumState(powerTable),
+		decision: newQuorumState(powerTable, attrDecidePhase),
 		tracer:   participant.tracer,
 	}, nil
 }
@@ -282,11 +283,12 @@ type roundState struct {
 	committed *quorumState
 }
 
-func newRoundState(powerTable *PowerTable) *roundState {
+func newRoundState(roundNumber uint64, powerTable *PowerTable) *roundState {
+	roundAttr := attrKeyRound.Int(int(roundNumber))
 	return &roundState{
 		converged: newConvergeState(),
-		prepared:  newQuorumState(powerTable),
-		committed: newQuorumState(powerTable),
+		prepared:  newQuorumState(powerTable, attrPreparePhase, roundAttr),
+		committed: newQuorumState(powerTable, attrCommitPhase, roundAttr),
 	}
 }
 
@@ -791,7 +793,7 @@ func (i *instance) tryDecide() error {
 func (i *instance) getRound(r uint64) *roundState {
 	round, ok := i.rounds[r]
 	if !ok {
-		round = newRoundState(i.powerTable)
+		round = newRoundState(r, i.powerTable)
 		i.rounds[r] = round
 	}
 	return round
@@ -1063,6 +1065,8 @@ type quorumState struct {
 	powerTable *PowerTable
 	// Stores justifications received for some value.
 	receivedJustification map[ECChainKey]*Justification
+	// attributes for metrics
+	attributes []attribute.KeyValue
 }
 
 // A chain value and the total power supporting it
@@ -1074,7 +1078,7 @@ type chainSupport struct {
 }
 
 // Creates a new, empty quorum state.
-func newQuorumState(powerTable *PowerTable) *quorumState {
+func newQuorumState(powerTable *PowerTable, attributes ...attribute.KeyValue) *quorumState {
 	return &quorumState{
 		senders:               map[ActorID]struct{}{},
 		chainSupport:          map[ECChainKey]chainSupport{},
@@ -1118,6 +1122,11 @@ func (q *quorumState) receiveSender(sender ActorID) (int64, bool) {
 	q.senders[sender] = struct{}{}
 	senderPower, _ := q.powerTable.Get(sender)
 	q.sendersTotalPower += senderPower
+	if len(q.attributes) != 0 {
+		metrics.quorumParticipation.Record(context.Background(),
+			float64(q.sendersTotalPower)/float64(q.powerTable.ScaledTotal),
+			metric.WithAttributes(q.attributes...))
+	}
 	return senderPower, true
 }
 
