@@ -286,7 +286,7 @@ type roundState struct {
 func newRoundState(roundNumber uint64, powerTable *PowerTable) *roundState {
 	roundAttr := attrKeyRound.Int(int(roundNumber))
 	return &roundState{
-		converged: newConvergeState(),
+		converged: newConvergeState(roundAttr),
 		prepared:  newQuorumState(powerTable, attrPreparePhase, roundAttr),
 		committed: newQuorumState(powerTable, attrCommitPhase, roundAttr),
 	}
@@ -1323,6 +1323,10 @@ type convergeState struct {
 	senders map[ActorID]struct{}
 	// Chains indexed by key.
 	values map[ECChainKey]ConvergeValue
+
+	// sendersTotalPower is only used for metrics reporting
+	sendersTotalPower int64
+	attributes        []attribute.KeyValue
 }
 
 // ConvergeValue is valid when the Chain is non-zero and Justification is non-nil
@@ -1341,10 +1345,11 @@ func (cv *ConvergeValue) IsValid() bool {
 	return !cv.Chain.IsZero() && cv.Justification != nil
 }
 
-func newConvergeState() *convergeState {
+func newConvergeState(attributes ...attribute.KeyValue) *convergeState {
 	return &convergeState{
-		senders: map[ActorID]struct{}{},
-		values:  map[ECChainKey]ConvergeValue{},
+		senders:    map[ActorID]struct{}{},
+		values:     map[ECChainKey]ConvergeValue{},
+		attributes: append([]attribute.KeyValue{attrConvergePhase}, attributes...),
 	}
 }
 
@@ -1379,6 +1384,11 @@ func (c *convergeState) Receive(sender ActorID, table *PowerTable, value *ECChai
 	}
 	c.senders[sender] = struct{}{}
 	senderPower, _ := table.Get(sender)
+	c.sendersTotalPower += senderPower
+
+	metrics.quorumParticipation.Record(context.Background(),
+		float64(c.sendersTotalPower)/float64(table.ScaledTotal),
+		metric.WithAttributes(c.attributes...))
 
 	key := value.Key()
 	// Keep only the first justification and best ticket.
