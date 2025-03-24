@@ -165,7 +165,7 @@ func (cc *CertChain) signProportionally(ctx context.Context, committee *gpbft.Co
 		signature   []byte
 	}
 	var signatures []signatureAt
-	marshalledPayload := cc.sv.MarshalPayloadForSigning(cc.m.NetworkName, payload)
+	marshalledPayload := payload.MarshalForSigning(cc.m.NetworkName)
 	for _, p := range candidateSigners {
 		scaledPower, key := committee.PowerTable.Get(p.ID)
 		if scaledPower == 0 {
@@ -220,7 +220,7 @@ func (cc *CertChain) sign(ctx context.Context, committee *gpbft.Committee, paylo
 	var signingPowerSoFar int64
 	var signatures [][]byte
 	var signersMask []int
-	marshalledPayload := cc.sv.MarshalPayloadForSigning(cc.m.NetworkName, payload)
+	marshalledPayload := payload.MarshalForSigning(cc.m.NetworkName)
 	if err := signers.ForEach(
 		func(signerIndex uint64) error {
 			p := committee.PowerTable.Entries[signerIndex]

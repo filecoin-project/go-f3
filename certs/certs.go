@@ -184,20 +184,11 @@ func verifyFinalityCertificateSignature(verifier gpbft.Verifier, powerTable gpbf
 		Value:            cert.ECChain,
 	}
 
-	// We use SigningMarshaler when implemented (for testing), but only require a `Verifier` in
-	// the function signature to make it easier to use this as a free function.
-	var signedBytes []byte
-	if sig, ok := verifier.(gpbft.SigningMarshaler); ok {
-		signedBytes = sig.MarshalPayloadForSigning(nn, payload)
-	} else {
-		signedBytes = payload.MarshalForSigning(nn)
-	}
-
 	aggregate, err := verifier.Aggregate(keys)
 	if err != nil {
 		return err
 	}
-
+	signedBytes := payload.MarshalForSigning(nn)
 	if err := aggregate.VerifyAggregate(mask, signedBytes, cert.Signature); err != nil {
 		return fmt.Errorf("invalid signature on finality certificate for instance %d: %w", cert.GPBFTInstance, err)
 	}

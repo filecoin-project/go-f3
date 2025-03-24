@@ -42,7 +42,7 @@ type cachingPartialValidator struct {
 	committeeLookback uint64
 	committeeProvider gpbft.CommitteeProvider
 	networkName       gpbft.NetworkName
-	signing           gpbft.Signatures
+	signing           gpbft.Verifier
 	progress          gpbft.Progress
 }
 

@@ -19,7 +19,6 @@ var (
 type Signing interface {
 	gpbft.Verifier
 	gpbft.Signer
-	gpbft.SigningMarshaler
 }
 
 // AdhocSigning marshals, signs and verifies messages on behalf of any given

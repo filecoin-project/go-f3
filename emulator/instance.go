@@ -146,7 +146,7 @@ func (i *Instance) NewJustification(round uint64, phase gpbft.Phase, vote *gpbft
 }
 
 func (i *Instance) NewJustificationWithPayload(payload gpbft.Payload, from ...gpbft.ActorID) *gpbft.Justification {
-	msg := i.signing.MarshalPayloadForSigning(networkName, &payload)
+	msg := payload.MarshalForSigning(networkName)
 	qr := gpbft.QuorumResult{
 		Signers:    make([]int, len(from)),
 		Signatures: make([][]byte, len(from)),

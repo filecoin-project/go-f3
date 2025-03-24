@@ -88,7 +88,6 @@ func (d *Driver) prepareMessage(partialMessage *gpbft.GMessage) *gpbft.GMessage 
 
 	mb := instance.NewMessageBuilder(partialMessage.Vote, partialMessage.Justification, withValidTicket)
 	mb.NetworkName = d.host.NetworkName()
-	mb.SigningMarshaler = d.host
 	msg, err := mb.Build(context.Background(), d.host, partialMessage.Sender)
 	d.require.NoError(err)
 	d.require.NotNil(msg)
