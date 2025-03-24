@@ -36,8 +36,11 @@ func ComputeTicketRank(ticket Ticket, scaledPower int64) float64 {
 	return rank / float64(scaledPower)
 }
 
-// ticket should be 16 bytes
+// if ticket length is not 16, linearToExpDist will panic
 func linearToExpDist(ticket []byte) float64 {
+	if len(ticket) != 16 {
+		panic(fmt.Sprintf("expected ticket to be 16 bytes, got: %d", len(ticket)))
+	}
 	// we are interpreting the ticket as fixed-point number with 128 fractional bits
 	// and adjusting using exponential distribution inverse function, -log(x)
 	// we are computing Log2 of it with the adjustment that Log2(0) == -129
