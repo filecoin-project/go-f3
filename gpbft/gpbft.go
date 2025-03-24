@@ -243,10 +243,10 @@ func newInstance(
 	if input.IsZero() {
 		return nil, fmt.Errorf("input is empty")
 	}
+
 	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrInitialPhase))
 	metrics.currentInstance.Record(context.TODO(), int64(instanceID))
 	metrics.currentPhase.Record(context.TODO(), int64(INITIAL_PHASE))
-	metrics.currentRound.Record(context.TODO(), 0)
 
 	return &instance{
 		participant:       participant,
@@ -500,6 +500,14 @@ func (i *instance) tryCurrentPhase() error {
 	}
 }
 
+func (i *instance) reportPhaseMetrics() {
+	attr := metric.WithAttributes(attrPhase[i.current.Phase])
+
+	metrics.phaseCounter.Add(context.TODO(), 1, attr)
+	metrics.currentPhase.Record(context.TODO(), int64(i.current.Phase))
+	metrics.proposalLength.Record(context.TODO(), int64(i.proposal.Len()-1), attr)
+}
+
 // Sends this node's QUALITY message and begins the QUALITY phase.
 func (i *instance) beginQuality() error {
 	if i.current.Phase != INITIAL_PHASE {
@@ -511,8 +519,7 @@ func (i *instance) beginQuality() error {
 	i.phaseTimeout = i.alarmAfterSynchronyWithMulti(i.participant.qualityDeltaMulti)
 	i.resetRebroadcastParams()
 	i.broadcast(i.current.Round, QUALITY_PHASE, i.proposal, false, nil)
-	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrQualityPhase))
-	metrics.currentPhase.Record(context.TODO(), int64(QUALITY_PHASE))
+	i.reportPhaseMetrics()
 	return nil
 }
 
@@ -572,8 +579,7 @@ func (i *instance) beginConverge(justification *Justification) {
 	i.getRound(i.current.Round).converged.SetSelfValue(i.proposal, justification)
 
 	i.broadcast(i.current.Round, CONVERGE_PHASE, i.proposal, true, justification)
-	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrConvergePhase))
-	metrics.currentPhase.Record(context.TODO(), int64(CONVERGE_PHASE))
+	i.reportPhaseMetrics()
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
@@ -630,8 +636,7 @@ func (i *instance) beginPrepare(justification *Justification) {
 	i.resetRebroadcastParams()
 
 	i.broadcast(i.current.Round, PREPARE_PHASE, i.value, false, justification)
-	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrPreparePhase))
-	metrics.currentPhase.Record(context.TODO(), int64(PREPARE_PHASE))
+	i.reportPhaseMetrics()
 }
 
 // Attempts to end the PREPARE phase and begin COMMIT based on current state.
@@ -681,8 +686,7 @@ func (i *instance) beginCommit() {
 	}
 
 	i.broadcast(i.current.Round, COMMIT_PHASE, i.value, false, justification)
-	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrCommitPhase))
-	metrics.currentPhase.Record(context.TODO(), int64(COMMIT_PHASE))
+	i.reportPhaseMetrics()
 }
 
 func (i *instance) tryCommit(round uint64) error {
@@ -755,8 +759,7 @@ func (i *instance) beginDecide(round uint64) {
 	// Since each node sends only one DECIDE message, they must share the same vote
 	// in order to be aggregated.
 	i.broadcast(0, DECIDE_PHASE, i.value, false, justification)
-	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrDecidePhase))
-	metrics.currentPhase.Record(context.TODO(), int64(DECIDE_PHASE))
+	i.reportPhaseMetrics()
 }
 
 // Skips immediately to the DECIDE phase and sends a DECIDE message
@@ -770,9 +773,8 @@ func (i *instance) skipToDecide(value *ECChain, justification *Justification) {
 	i.resetRebroadcastParams()
 	i.broadcast(0, DECIDE_PHASE, i.value, false, justification)
 
-	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrDecidePhase))
-	metrics.currentPhase.Record(context.TODO(), int64(DECIDE_PHASE))
 	metrics.skipCounter.Add(context.TODO(), 1, metric.WithAttributes(attrSkipToDecide))
+	i.reportPhaseMetrics()
 }
 
 func (i *instance) tryDecide() error {
@@ -874,9 +876,8 @@ func (i *instance) terminate(decision *Justification) {
 	i.terminationValue = decision
 	i.resetRebroadcastParams()
 
-	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrTerminatedPhase))
 	metrics.roundHistogram.Record(context.TODO(), int64(i.current.Round))
-	metrics.currentPhase.Record(context.TODO(), int64(TERMINATED_PHASE))
+	i.reportPhaseMetrics()
 }
 
 func (i *instance) terminated() bool {
