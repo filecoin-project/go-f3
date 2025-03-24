@@ -204,55 +204,6 @@ func (_c *MockHost_GetProposal_Call) RunAndReturn(run func(uint64) (*Supplementa
 	return _c
 }
 
-// MarshalPayloadForSigning provides a mock function with given fields: _a0, _a1
-func (_m *MockHost) MarshalPayloadForSigning(_a0 NetworkName, _a1 *Payload) []byte {
-	ret := _m.Called(_a0, _a1)
-
-	if len(ret) == 0 {
-		panic("no return value specified for MarshalPayloadForSigning")
-	}
-
-	var r0 []byte
-	if rf, ok := ret.Get(0).(func(NetworkName, *Payload) []byte); ok {
-		r0 = rf(_a0, _a1)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]byte)
-		}
-	}
-
-	return r0
-}
-
-// MockHost_MarshalPayloadForSigning_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarshalPayloadForSigning'
-type MockHost_MarshalPayloadForSigning_Call struct {
-	*mock.Call
-}
-
-// MarshalPayloadForSigning is a helper method to define mock.On call
-//   - _a0 NetworkName
-//   - _a1 *Payload
-func (_e *MockHost_Expecter) MarshalPayloadForSigning(_a0 interface{}, _a1 interface{}) *MockHost_MarshalPayloadForSigning_Call {
-	return &MockHost_MarshalPayloadForSigning_Call{Call: _e.mock.On("MarshalPayloadForSigning", _a0, _a1)}
-}
-
-func (_c *MockHost_MarshalPayloadForSigning_Call) Run(run func(_a0 NetworkName, _a1 *Payload)) *MockHost_MarshalPayloadForSigning_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(NetworkName), args[1].(*Payload))
-	})
-	return _c
-}
-
-func (_c *MockHost_MarshalPayloadForSigning_Call) Return(_a0 []byte) *MockHost_MarshalPayloadForSigning_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockHost_MarshalPayloadForSigning_Call) RunAndReturn(run func(NetworkName, *Payload) []byte) *MockHost_MarshalPayloadForSigning_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // NetworkName provides a mock function with given fields:
 func (_m *MockHost) NetworkName() NetworkName {
 	ret := _m.Called()

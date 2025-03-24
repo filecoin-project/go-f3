@@ -24,7 +24,7 @@ type cachingValidator struct {
 	committeeLookback uint64
 	committeeProvider CommitteeProvider
 	networkName       NetworkName
-	signing           Signatures
+	verifier          Verifier
 	progress          Progress
 }
 
@@ -34,7 +34,7 @@ func newValidator(host Host, cp CommitteeProvider, progress Progress, cache *cac
 		committeeProvider: cp,
 		committeeLookback: committeeLookback,
 		networkName:       host.NetworkName(),
-		signing:           host,
+		verifier:          host,
 		progress:          progress,
 	}
 }
@@ -128,7 +128,7 @@ func (v *cachingValidator) ValidateMessage(msg *GMessage) (valid ValidatedMessag
 		if msg.Vote.Value.IsZero() {
 			return nil, fmt.Errorf("unexpected zero value for converge phase: %w", ErrValidationInvalid)
 		}
-		if !VerifyTicket(v.networkName, comt.Beacon, msg.Vote.Instance, msg.Vote.Round, senderPubKey, v.signing, msg.Ticket) {
+		if !VerifyTicket(v.networkName, comt.Beacon, msg.Vote.Instance, msg.Vote.Round, senderPubKey, v.verifier, msg.Ticket) {
 			return nil, fmt.Errorf("failed to verify ticket from %v: %w", msg.Sender, ErrValidationInvalid)
 		}
 	case DECIDE_PHASE:
@@ -145,8 +145,8 @@ func (v *cachingValidator) ValidateMessage(msg *GMessage) (valid ValidatedMessag
 	}
 
 	// Check vote signature.
-	sigPayload := v.signing.MarshalPayloadForSigning(v.networkName, &msg.Vote)
-	if err := v.signing.Verify(senderPubKey, sigPayload, msg.Signature); err != nil {
+	sigPayload := msg.Vote.MarshalForSigning(v.networkName)
+	if err := v.verifier.Verify(senderPubKey, sigPayload, msg.Signature); err != nil {
 		return nil, fmt.Errorf("invalid signature on %v, %v: %w", msg, err, ErrValidationInvalid)
 	}
 
@@ -272,7 +272,7 @@ func (v *cachingValidator) validateJustification(msg *GMessage, comt *Committee)
 		return fmt.Errorf("message %v has justification with insufficient power: %v", msg, justificationPower)
 	}
 
-	payload := v.signing.MarshalPayloadForSigning(v.networkName, &msg.Justification.Vote)
+	payload := msg.Justification.Vote.MarshalForSigning(v.networkName)
 	if err := comt.AggregateVerifier.VerifyAggregate(signers, payload, msg.Justification.Signature); err != nil {
 		return fmt.Errorf("verification of the aggregate failed: %+v: %w", msg.Justification, err)
 	}

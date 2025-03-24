@@ -87,7 +87,7 @@ func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) erro
 	if i.supplementalData != nil {
 		justificationPayload.SupplementalData = *i.supplementalData
 	}
-	sigPayload := i.host.MarshalPayloadForSigning(i.host.NetworkName(), &justificationPayload)
+	sigPayload := justificationPayload.MarshalForSigning(i.host.NetworkName())
 	signers := bitfield.New()
 
 	signers.Set(uint64(committee.PowerTable.Lookup[i.id]))
@@ -129,9 +129,8 @@ func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) erro
 
 	// Immediately send a DECIDE message
 	mb := &gpbft.MessageBuilder{
-		NetworkName:      i.host.NetworkName(),
-		PowerTable:       committee.PowerTable,
-		SigningMarshaler: i.host,
+		NetworkName: i.host.NetworkName(),
+		PowerTable:  committee.PowerTable,
 		Payload: gpbft.Payload{
 			Instance:         instance,
 			Round:            0,

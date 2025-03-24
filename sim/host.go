@@ -20,7 +20,6 @@ type simHost struct {
 	SimNetwork
 	gpbft.Signer
 	gpbft.Verifier
-	gpbft.SigningMarshaler
 	gpbft.Clock
 
 	id     gpbft.ActorID
@@ -46,16 +45,15 @@ type SimNetwork interface {
 func newHost(id gpbft.ActorID, sim *Simulation, ecg ECChainGenerator, spg StoragePowerGenerator, isAdversary bool) *simHost {
 	pubKey, _ := sim.signingBacked.GenerateKey()
 	return &simHost{
-		SimNetwork:       sim.network.networkFor(sim.signingBacked, id, isAdversary),
-		Verifier:         sim.signingBacked,
-		Signer:           sim.signingBacked,
-		SigningMarshaler: sim.signingBacked,
-		sim:              sim,
-		id:               id,
-		ecg:              ecg,
-		spg:              spg,
-		pubkey:           pubKey,
-		ecChain:          sim.baseChain,
+		SimNetwork: sim.network.networkFor(sim.signingBacked, id, isAdversary),
+		Verifier:   sim.signingBacked,
+		Signer:     sim.signingBacked,
+		sim:        sim,
+		id:         id,
+		ecg:        ecg,
+		spg:        spg,
+		pubkey:     pubKey,
+		ecChain:    sim.baseChain,
 	}
 }
 

@@ -107,7 +107,7 @@ func (w *WithholdCommit) StartInstanceAt(instance uint64, _when time.Time) error
 
 	signatures := make([][]byte, 0)
 	mask := make([]int, 0)
-	prepareMarshalled := w.host.MarshalPayloadForSigning(w.host.NetworkName(), &preparePayload)
+	prepareMarshalled := preparePayload.MarshalForSigning(w.host.NetworkName())
 	for _, signerIndex := range signers {
 		entry := committee.PowerTable.Entries[signerIndex]
 		signatures = append(signatures, w.sign(entry.PubKey, prepareMarshalled))
@@ -181,11 +181,10 @@ func (w *WithholdCommit) sign(pubkey gpbft.PubKey, msg []byte) []byte {
 func (w *WithholdCommit) synchronousBroadcastRequester(powertable *gpbft.PowerTable) func(gpbft.Payload, *gpbft.Justification) {
 	return func(payload gpbft.Payload, justification *gpbft.Justification) {
 		mb := &gpbft.MessageBuilder{
-			NetworkName:      w.host.NetworkName(),
-			PowerTable:       powertable,
-			Payload:          payload,
-			Justification:    justification,
-			SigningMarshaler: w.host,
+			NetworkName:   w.host.NetworkName(),
+			PowerTable:    powertable,
+			Payload:       payload,
+			Justification: justification,
 		}
 		if err := w.host.RequestSynchronousBroadcast(mb); err != nil {
 			panic(err)

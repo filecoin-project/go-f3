@@ -13,7 +13,6 @@ type Option func(*options) error
 type SignVerifier interface {
 	gpbft.Signer
 	gpbft.Verifier
-	gpbft.SigningMarshaler
 }
 
 type options struct {

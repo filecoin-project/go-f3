@@ -123,15 +123,6 @@ type Signer interface {
 	Sign(ctx context.Context, sender PubKey, msg []byte) ([]byte, error)
 }
 
-type SigningMarshaler interface {
-	// MarshalPayloadForSigning marshals the given payload into the bytes that should be signed.
-	// This should usually call `Payload.MarshalForSigning(NetworkName)` except when testing as
-	// that method is slow (computes a merkle tree that's necessary for testing).
-	// Implementations must be safe for concurrent use.
-	// WARNING: the partial message code depends on the structure of signed payload
-	MarshalPayloadForSigning(NetworkName, *Payload) []byte
-}
-
 type Aggregate interface {
 	// Aggregates signatures from a participants.
 	//
@@ -153,11 +144,6 @@ type Verifier interface {
 	//
 	// Implementations must be safe for concurrent use.
 	Aggregate(pubKeys []PubKey) (Aggregate, error)
-}
-
-type Signatures interface {
-	SigningMarshaler
-	Verifier
 }
 
 type DecisionReceiver interface {
@@ -182,6 +168,6 @@ type Host interface {
 	CommitteeProvider
 	Network
 	Clock
-	Signatures
+	Verifier
 	DecisionReceiver
 }
