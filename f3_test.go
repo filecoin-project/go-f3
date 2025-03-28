@@ -11,6 +11,7 @@ import (
 
 	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/certs"
+	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/internal/consensus"
@@ -329,6 +330,44 @@ func TestF3LateBootstrap(t *testing.T) {
 	})
 }
 
+func TestF3EpochFinalizedWithChainExchange(t *testing.T) {
+	env := newTestEnvironment(t).withNodes(2)
+
+	initialPowerTable := gpbft.PowerEntries{}
+	for _, n := range env.nodes {
+		pubkey, _ := env.signingBackend.GenerateKey()
+		initialPowerTable = append(initialPowerTable, gpbft.PowerEntry{
+			ID:     gpbft.ActorID(n.id),
+			PubKey: pubkey,
+			Power:  gpbft.NewStoragePower(1000),
+		})
+	}
+
+	env.ec = consensus.NewFakeEC(env.testCtx,
+		consensus.WithSeed(1413),
+		consensus.WithBootstrapEpoch(env.manifest.BootstrapEpoch),
+		consensus.WithMaxLookback(2*env.manifest.EC.Finality),
+		consensus.WithECPeriod(env.manifest.EC.Period),
+		consensus.WithInitialPowerTable(initialPowerTable),
+		consensus.WithForkSeed(1414),
+		consensus.WithForkAfterEpochs(10),
+	)
+
+	env.nodes[0].ec = consensus.NewFakeEC(env.testCtx,
+		consensus.WithSeed(1413),
+		consensus.WithBootstrapEpoch(env.manifest.BootstrapEpoch),
+		consensus.WithMaxLookback(2*env.manifest.EC.Finality),
+		consensus.WithECPeriod(env.manifest.EC.Period),
+		consensus.WithInitialPowerTable(initialPowerTable),
+		consensus.WithForkSeed(1415),
+		consensus.WithForkAfterEpochs(3),
+	)
+	env.start()
+	// Fast forward the clock to force nodes to catch up by generating longer chains.
+	env.clock.Add(1 * time.Hour)
+	env.requireEpochFinalizedEventually(env.manifest.BootstrapEpoch+10, eventualCheckTimeout)
+}
+
 var base = manifest.Manifest{
 	BootstrapEpoch:    50,
 	InitialInstance:   0,
@@ -339,7 +378,7 @@ var base = manifest.Manifest{
 		DeltaBackOffExponent:       1.3,
 		QualityDeltaMultiplier:     1.0,
 		MaxLookaheadRounds:         5,
-		ChainProposedLength:        gpbft.ChainDefaultLen,
+		ChainProposedLength:        30,
 		RebroadcastBackoffBase:     3 * time.Second,
 		RebroadcastBackoffSpread:   0.1,
 		RebroadcastBackoffExponent: 1.3,
@@ -353,10 +392,18 @@ var base = manifest.Manifest{
 		HeadLookback:             4,
 		Finalize:                 true,
 	},
-	CertificateExchange:   manifest.DefaultCxConfig,
-	CatchUpAlignment:      5 * time.Second,
-	PubSub:                manifest.DefaultPubSubConfig,
-	ChainExchange:         manifest.DefaultChainExchangeConfig,
+	CertificateExchange: manifest.DefaultCxConfig,
+	CatchUpAlignment:    5 * time.Second,
+	PubSub:              manifest.DefaultPubSubConfig,
+	ChainExchange: manifest.ChainExchangeConfig{
+		SubscriptionBufferSize:         32,
+		MaxChainLength:                 30,
+		MaxInstanceLookahead:           manifest.DefaultCommitteeLookback,
+		MaxDiscoveredChainsPerInstance: 1_000,
+		MaxWantedChainsPerInstance:     1_000,
+		RebroadcastInterval:            2 * time.Second,
+		MaxTimestampAge:                8 * time.Second,
+	},
 	PartialMessageManager: manifest.DefaultPartialMessageManagerConfig,
 }
 
@@ -366,6 +413,7 @@ type testNode struct {
 	id        int
 	f3        *f3.F3
 	dsErrFunc func(string) error
+	ec        ec.Backend
 }
 
 func (n *testNode) currentGpbftInstance() uint64 {
@@ -403,8 +451,11 @@ func (n *testNode) init() *f3.F3 {
 
 	n.e.signingBackend.Allow(int(n.id))
 
-	n.f3, err = f3.New(n.e.testCtx, mprovider, ds, n.h, ps, n.e.signingBackend, n.e.ec,
-		filepath.Join(n.e.tempDir, fmt.Sprintf("instance-%d", n.id)))
+	if n.ec == nil {
+		n.ec = n.e.ec
+	}
+	n.f3, err = f3.New(n.e.testCtx, mprovider, ds, n.h, ps, n.e.signingBackend, n.ec,
+		filepath.Join(n.e.tempDir, fmt.Sprintf("participant-%d", n.id)))
 	require.NoError(n.e.t, err)
 
 	n.e.errgrp.Go(func() error {
