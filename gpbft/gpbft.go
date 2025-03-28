@@ -247,6 +247,10 @@ func newInstance(
 	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrInitialPhase))
 	metrics.currentInstance.Record(context.TODO(), int64(instanceID))
 	metrics.currentPhase.Record(context.TODO(), int64(INITIAL_PHASE))
+	{
+		totalPowerFloat, _ := powerTable.Total.Float64()
+		metrics.totalPower.Record(context.TODO(), totalPowerFloat)
+	}
 
 	return &instance{
 		participant:       participant,
