@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -24,7 +25,7 @@ type PowerTableMutator func(epoch int64, pt gpbft.PowerEntries) gpbft.PowerEntri
 
 type FakeEC struct {
 	clock             clock.Clock
-	seed              []byte
+	seed              int64
 	initialPowerTable gpbft.PowerEntries
 	evolvePowerTable  PowerTableMutator
 
@@ -33,8 +34,12 @@ type FakeEC struct {
 	ecMaxLookback  int64
 	ecStart        time.Time
 
-	lk       sync.RWMutex
-	pausedAt *time.Time
+	lk                sync.RWMutex
+	pausedAt          *time.Time
+	finalizedEpochs   map[int64]int64
+	maxFinalizedEpoch int64
+	forkAfterEpochs   int64
+	forkSeed          int64
 }
 
 type tipset struct {
@@ -68,9 +73,9 @@ func WithBootstrapEpoch(epoch int64) FakeECOption {
 	}
 }
 
-func WithSeed(seed uint64) FakeECOption {
+func WithSeed(seed int64) FakeECOption {
 	return func(ec *fakeECConfig) {
-		ec.seed = binary.BigEndian.AppendUint64(nil, seed)
+		ec.seed = seed
 	}
 }
 
@@ -98,11 +103,30 @@ func WithEvolvingPowerTable(fn PowerTableMutator) FakeECOption {
 	}
 }
 
+// WithForkSeed sets the seed used to generate fork chains. For this option to
+// take effect, WithForkAfterEpochs must be set to a value greater than 0.
+func WithForkSeed(e int64) FakeECOption {
+	return func(ec *fakeECConfig) {
+		ec.forkSeed = e
+	}
+}
+
+// WithForkAfterEpochs sets the minimum number of epochs from the latest
+// finalized tipset key after which this EC may fork away.
+func WithForkAfterEpochs(e int64) FakeECOption {
+	return func(ec *fakeECConfig) {
+		ec.forkAfterEpochs = e
+	}
+}
+
 func NewFakeEC(ctx context.Context, options ...FakeECOption) *FakeEC {
 	clk := clock.GetClock(ctx)
 	fakeEc := &FakeEC{
-		clock:    clk,
-		ecPeriod: 30,
+		clock:           clk,
+		ecPeriod:        30 * time.Second,
+		seed:            time.Now().UnixNano(),
+		forkSeed:        time.Now().UnixNano() / 2,
+		finalizedEpochs: make(map[int64]int64),
 	}
 
 	for _, option := range options {
@@ -116,7 +140,8 @@ func NewFakeEC(ctx context.Context, options ...FakeECOption) *FakeEC {
 var cidPrefixBytes = gpbft.CidPrefix.Bytes()
 
 func (ec *FakeEC) genTipset(epoch int64) *tipset {
-	h, err := blake2b.New256(ec.seed)
+	seed := ec.getTipsetGenSeed(epoch)
+	h, err := blake2b.New256(binary.BigEndian.AppendUint64(nil, uint64(seed)))
 	if err != nil {
 		panic(err)
 	}
@@ -139,8 +164,9 @@ func (ec *FakeEC) genTipset(epoch int64) *tipset {
 		h.Write([]byte{1})
 		digest := h.Sum(nil)
 		if i == 0 {
-			//encode epoch in the first block hash
+			// Encode epoch in the first block hash along with the ID of this fake EC.
 			binary.BigEndian.PutUint64(digest[32-8:], uint64(epoch))
+			binary.BigEndian.PutUint64(digest[32-8-8:32-8], uint64(seed))
 		}
 		tsk = append(tsk, cidPrefixBytes...)
 		tsk = append(tsk, digest...)
@@ -156,6 +182,40 @@ func (ec *FakeEC) genTipset(epoch int64) *tipset {
 		timestamp: ec.ecStart.Add(time.Duration(epoch) * ec.ecPeriod),
 		beacon:    beacon,
 	}
+}
+
+func (ec *FakeEC) getTipsetGenSeed(epoch int64) int64 {
+	if ec.forkAfterEpochs <= 0 {
+		// The forking capability is disabled. Simply return whatever seed configured for
+		// ec.
+		return ec.seed
+	}
+	if epoch <= ec.bootstrapEpoch {
+		// Generate a consistent chain up to the bootstrap epoch for the same bootstrap
+		// epoch and ec period. Because, F3 bootstrap epoch is assumed to be final by
+		// design.
+		return ec.seed
+	}
+
+	// Find the seed based on what has been finalized so far.
+	ec.lk.RLock()
+	defer ec.lk.RUnlock()
+	if epoch > ec.forkAfterEpochs+ec.maxFinalizedEpoch {
+		// The epoch is beyond the fork after epoch, so we can fork. Change the seed to whatever
+		return ec.forkSeed
+	}
+	epochs := make([]int64, 0, len(ec.finalizedEpochs))
+	for finalizedEpoch := range ec.finalizedEpochs {
+		epochs = append(epochs, finalizedEpoch)
+	}
+	slices.Sort(epochs)
+	for _, e := range epochs {
+		if e >= epoch {
+			return ec.finalizedEpochs[e]
+		}
+	}
+
+	return ec.seed
 }
 
 // GetTipsetByEpoch returns the tipset at a given epoch. If the epoch does not
@@ -217,9 +277,8 @@ func (ec *FakeEC) GetHead(ctx context.Context) (ec.TipSet, error) {
 }
 
 func (ec *FakeEC) GetPowerTable(_ context.Context, tsk gpbft.TipSetKey) (gpbft.PowerEntries, error) {
-	targetEpoch := ec.epochFromTsk(tsk)
+	targetEpoch, _ := ec.epochAndSeedFromTsk(tsk)
 	headEpoch := ec.GetCurrentHead()
-
 	if targetEpoch > headEpoch {
 		return nil, fmt.Errorf("requested epoch %d beyond head %d", targetEpoch, headEpoch)
 	}
@@ -227,21 +286,32 @@ func (ec *FakeEC) GetPowerTable(_ context.Context, tsk gpbft.TipSetKey) (gpbft.P
 	if ec.ecMaxLookback > 0 && targetEpoch < headEpoch-ec.ecMaxLookback {
 		return nil, fmt.Errorf("oops, we forgot that power table, head %d, epoch %d", headEpoch, targetEpoch)
 	}
-
 	pt := ec.initialPowerTable
 	if ec.evolvePowerTable != nil {
 		pt = ec.evolvePowerTable(targetEpoch, pt)
 	}
-
 	return pt, nil
 }
 
-func (ec *FakeEC) epochFromTsk(tsk gpbft.TipSetKey) int64 {
-	return int64(binary.BigEndian.Uint64(tsk[6+32-8 : 6+32]))
+func (ec *FakeEC) epochAndSeedFromTsk(tsk gpbft.TipSetKey) (int64, int64) {
+	return int64(binary.BigEndian.Uint64(tsk[6+32-8 : 6+32])), int64(binary.BigEndian.Uint64(tsk[6+32-8-8 : 6+32-8]))
 }
 
 func (ec *FakeEC) GetTipset(_ context.Context, tsk gpbft.TipSetKey) (ec.TipSet, error) {
-	return ec.genTipset(ec.epochFromTsk(tsk)), nil
+	// Ignore the seed embedded in tipset key since it will be inferred to the right
+	// one by genTipset depending on finalized tipests.
+	epoch, _ := ec.epochAndSeedFromTsk(tsk)
+	return ec.genTipset(epoch), nil
 }
 
-func (ec *FakeEC) Finalize(context.Context, gpbft.TipSetKey) error { return nil }
+func (ec *FakeEC) Finalize(_ context.Context, tsk gpbft.TipSetKey) error {
+	epoch, seed := ec.epochAndSeedFromTsk(tsk)
+	ec.lk.Lock()
+	defer ec.lk.Unlock()
+	if foundSeed, found := ec.finalizedEpochs[epoch]; found && seed != foundSeed {
+		return fmt.Errorf("epoch already finalized: %d %d", epoch, seed)
+	}
+	ec.finalizedEpochs[epoch] = seed
+	ec.maxFinalizedEpoch = max(epoch, ec.maxFinalizedEpoch)
+	return nil
+}
