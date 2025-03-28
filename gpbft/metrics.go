@@ -55,6 +55,7 @@ var (
 		skipCounter         metric.Int64Counter
 		validationCache     metric.Int64Counter
 		quorumParticipation metric.Float64Gauge
+		totalPower          metric.Float64Gauge
 	}{
 		phaseCounter: measurements.Must(meter.Int64Counter("f3_gpbft_phase_counter", metric.WithDescription("Number of times phases change"))),
 		roundHistogram: measurements.Must(meter.Int64Histogram("f3_gpbft_round_histogram",
@@ -75,6 +76,8 @@ var (
 		validationCache: measurements.Must(meter.Int64Counter("f3_gpbft_validation_cache", metric.WithDescription("The number of times GPBFT validation cache resulted in hit or miss."))),
 		quorumParticipation: measurements.Must(meter.Float64Gauge("f3_gpbft_participation",
 			metric.WithDescription("The current ratio of participation at a given round and phase (converge not tracked)."))),
+		totalPower: measurements.Must(meter.Float64Gauge("f3_gpbft_total_power",
+			metric.WithDescription("The size of the power table as observed by gpbft."))),
 	}
 )
 
