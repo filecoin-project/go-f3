@@ -24,7 +24,7 @@ func TestHashTree(t *testing.T) {
 			root2 := Tree(test)
 			require.Equal(t, root, root2)
 			require.Equal(t, len(test), len(paths))
-			assert.Equal(t, len(paths[0]), depth(test))
+			assert.Equal(t, len(paths[0]), depth(len(test)))
 
 			for i, path := range paths {
 				valid, more := VerifyProof(root, i, test[i], path)
