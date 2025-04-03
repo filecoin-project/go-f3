@@ -153,7 +153,6 @@ func BatchTree(values [][]byte) []Digest {
 	memo := make(map[memoKey]Digest)
 
 	hasher := sha3.NewLegacyKeccak256()
-	defer hasher.Reset()
 
 	// buildTreeMemoized computes the Merkle root for values[startIndex:endIndex]
 	// at the specified targetDepth
