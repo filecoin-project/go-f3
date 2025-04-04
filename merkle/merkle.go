@@ -153,7 +153,6 @@ func BatchTree(values [][]byte) []Digest {
 	memo := make(map[memoKey]Digest)
 
 	hasher := sha3.NewLegacyKeccak256()
-	defer hasher.Reset()
 
 	leafHashes := make([]Digest, n)
 	for i := 0; i < n; i++ {
