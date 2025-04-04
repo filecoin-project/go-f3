@@ -173,8 +173,10 @@ func BatchTree(values [][]byte) []Digest {
 			return leafHash(values[startIndex], hasher)
 		}
 
-		key := memoKey{targetDepth, startIndex, endIndex}
-		if cachedDigest, ok := memo[key]; ok {
+		// only memoize if it is a power of two tree, otherwise it won't be reused used
+		cached := bits.OnesCount64(uint64(numValues)) == 1
+		key := memoKey{depth: targetDepth, startIndex: startIndex, endIndex: endIndex}
+		if cachedDigest, ok := memo[key]; cached && ok {
 			return cachedDigest
 		}
 
@@ -190,6 +192,9 @@ func BatchTree(values [][]byte) []Digest {
 		rightHash := buildTreeMemoized(targetDepth-1, splitIndex, endIndex, hasher) // Handles padding
 
 		result := internalHash(leftHash, rightHash, hasher)
+		if !cached {
+			return result
+		}
 		memo[key] = result
 		return result
 	}
