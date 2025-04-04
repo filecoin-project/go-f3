@@ -174,7 +174,6 @@ func BatchTree(values [][]byte) []Digest {
 				// this should not happen if initial depth calculation is correct
 				panic(fmt.Sprintf("buildTreeMemoized: targetDepth 0 but values count %d != 1", numValues))
 			}
-			// compute leaf hash directly (memoizing leaves adds overhead with little benefit)
 			return leafHashes[startIndex]
 		}
 
@@ -205,12 +204,7 @@ func BatchTree(values [][]byte) []Digest {
 	}
 
 	for k := 1; k <= n; k++ {
-		depthForPrefixK := 0
-		if k > 1 {
-			depthForPrefixK = depth(k)
-		} else {
-			depthForPrefixK = 0 // Single leaf tree has depth 0
-		}
+		depthForPrefixK := depth(k)
 
 		if k == 1 {
 			roots[k] = leafHashes[0]
