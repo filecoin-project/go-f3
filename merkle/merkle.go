@@ -153,11 +153,17 @@ func BatchTree(values [][]byte) []Digest {
 	memo := make(map[memoKey]Digest)
 
 	hasher := sha3.NewLegacyKeccak256()
+	defer hasher.Reset()
+
+	leafHashes := make([]Digest, n)
+	for i := 0; i < n; i++ {
+		leafHashes[i] = leafHash(values[i], hasher)
+	}
 
 	// buildTreeMemoized computes the Merkle root for values[startIndex:endIndex]
 	// at the specified targetDepth
-	var buildTreeMemoized func(targetDepth int, startIndex int, endIndex int, hasher shash.Hash) Digest
-	buildTreeMemoized = func(targetDepth int, startIndex int, endIndex int, hasher shash.Hash) Digest {
+	var buildTreeMemoized func(targetDepth int, startIndex int, endIndex int) Digest
+	buildTreeMemoized = func(targetDepth int, startIndex int, endIndex int) Digest {
 		numValues := endIndex - startIndex
 		if numValues == 0 {
 			// Base case: No values for this branch, return zero digest (padding)
@@ -170,7 +176,7 @@ func BatchTree(values [][]byte) []Digest {
 				panic(fmt.Sprintf("buildTreeMemoized: targetDepth 0 but values count %d != 1", numValues))
 			}
 			// compute leaf hash directly (memoizing leaves adds overhead with little benefit)
-			return leafHash(values[startIndex], hasher)
+			return leafHashes[startIndex]
 		}
 
 		// only memoize if it is a power of two tree, otherwise it won't be reused used
@@ -188,8 +194,8 @@ func BatchTree(values [][]byte) []Digest {
 			splitIndex = endIndex // Don't split beyond available values
 		}
 
-		leftHash := buildTreeMemoized(targetDepth-1, startIndex, splitIndex, hasher)
-		rightHash := buildTreeMemoized(targetDepth-1, splitIndex, endIndex, hasher) // Handles padding
+		leftHash := buildTreeMemoized(targetDepth-1, startIndex, splitIndex)
+		rightHash := buildTreeMemoized(targetDepth-1, splitIndex, endIndex) // Handles padding
 
 		result := internalHash(leftHash, rightHash, hasher)
 		if !cached {
@@ -208,7 +214,7 @@ func BatchTree(values [][]byte) []Digest {
 		}
 
 		if k == 1 {
-			roots[k] = leafHash(values[0], hasher)
+			roots[k] = leafHashes[0]
 			continue
 		}
 
@@ -222,7 +228,7 @@ func BatchTree(values [][]byte) []Digest {
 
 		// compute the root of the right subtree using the memoized function.
 		// values: values[splitSize:k], Target Depth: depthForPrefixK - 1
-		rightRoot := buildTreeMemoized(depthForPrefixK-1, splitSize, k, hasher)
+		rightRoot := buildTreeMemoized(depthForPrefixK-1, splitSize, k)
 
 		roots[k] = internalHash(leftRoot, rightRoot, hasher)
 	}
