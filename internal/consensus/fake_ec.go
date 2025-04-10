@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"slices"
 	"sync"
 	"time"
@@ -40,6 +41,7 @@ type FakeEC struct {
 	maxFinalizedEpoch int64
 	forkAfterEpochs   int64
 	forkSeed          int64
+	nullTipsetProb    float64
 }
 
 type tipset struct {
@@ -119,6 +121,12 @@ func WithForkAfterEpochs(e int64) FakeECOption {
 	}
 }
 
+func WithNullTipsetProbablity(p float64) FakeECOption {
+	return func(ec *fakeECConfig) {
+		ec.nullTipsetProb = p
+	}
+}
+
 func NewFakeEC(ctx context.Context, options ...FakeECOption) *FakeEC {
 	clk := clock.GetClock(ctx)
 	fakeEc := &FakeEC{
@@ -127,6 +135,7 @@ func NewFakeEC(ctx context.Context, options ...FakeECOption) *FakeEC {
 		seed:            time.Now().UnixNano(),
 		forkSeed:        time.Now().UnixNano() / 2,
 		finalizedEpochs: make(map[int64]int64),
+		nullTipsetProb:  0.015,
 	}
 
 	for _, option := range options {
@@ -139,6 +148,12 @@ func NewFakeEC(ctx context.Context, options ...FakeECOption) *FakeEC {
 
 var cidPrefixBytes = gpbft.CidPrefix.Bytes()
 
+// randFloat retunrs random float in 0..1 range
+func randFloat(rng []byte) float64 {
+	bits := binary.BigEndian.Uint64(rng[:8])
+	return float64(bits>>(64-52)) / float64(math.MaxUint64>>(64-52))
+}
+
 func (ec *FakeEC) genTipset(epoch int64) *tipset {
 	seed := ec.getTipsetGenSeed(epoch)
 	h, err := blake2b.New256(binary.BigEndian.AppendUint64(nil, uint64(seed)))
@@ -147,13 +162,12 @@ func (ec *FakeEC) genTipset(epoch int64) *tipset {
 	}
 	h.Write(binary.BigEndian.AppendUint64(nil, uint64(epoch)))
 	rng := h.Sum(nil)
-	var size uint8
-	size, rng = rng[0]%8, rng[1:]
-	if size == 0 {
-		// if tipset is empty, try again to reduce change for empty tipset
-		// from 12.5% to 1.5%
-		size = rng[0] % 8
+	var isZero bool
+	isZero, rng = randFloat(rng) < ec.nullTipsetProb, rng[8:]
+	if isZero {
+		return nil
 	}
+	size := (rng[0] % 7) + 1
 	tsk := make([]byte, 0, size*gpbft.CidMaxLen)
 
 	if size == 0 {
