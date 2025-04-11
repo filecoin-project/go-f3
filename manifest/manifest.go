@@ -423,8 +423,8 @@ func (m *Manifest) Validate() error {
 	if err := m.PartialMessageManager.Validate(); err != nil {
 		return fmt.Errorf("invalid manifest: invalid partial message manager config: %w", err)
 	}
-	if m.ChainExchange.MaxChainLength > m.Gpbft.ChainProposedLength {
-		return fmt.Errorf("invalid manifest: chain exchange max chain length %d exceeds gpbft proposed chain length %d", m.ChainExchange.MaxChainLength, m.Gpbft.ChainProposedLength)
+	if m.Gpbft.ChainProposedLength > m.ChainExchange.MaxChainLength {
+		return fmt.Errorf("invalid manifest: chain proposal length %d is greater than chain exchange max chain length %d", m.Gpbft.ChainProposedLength, m.ChainExchange.MaxChainLength)
 	}
 	if m.ChainExchange.MaxInstanceLookahead > m.CommitteeLookback {
 		return fmt.Errorf("invalid manifest: chain exchange max instance lookahead %d exceeds committee lookback %d", m.ChainExchange.MaxInstanceLookahead, m.CommitteeLookback)
