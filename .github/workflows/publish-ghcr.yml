@@ -6,7 +6,7 @@ on:
       - 'main'
     tags:
       - 'v*'
-    workflow_run:
+  workflow_run:
       workflows: [ Releaser ]
       types:
         - completed
