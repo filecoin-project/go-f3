@@ -6,6 +6,8 @@ on:
       - 'main'
     tags:
       - 'v*'
+  release:
+    types: [published]
   workflow_run:
       workflows: [ Releaser ]
       types:
@@ -67,6 +69,8 @@ jobs:
             type=ref,event=branch
             type=sha,format=long
             type=raw,value=${{ needs.prepare-checkout.outputs.ref }}
+            ${{ github.event_name == 'release' && 'type=raw,value=' + github.event.release.tag_name || '' }}
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
