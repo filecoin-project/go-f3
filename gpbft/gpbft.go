@@ -247,6 +247,7 @@ func newInstance(
 	metrics.phaseCounter.Add(context.TODO(), 1, metric.WithAttributes(attrInitialPhase))
 	metrics.currentInstance.Record(context.TODO(), int64(instanceID))
 	metrics.currentPhase.Record(context.TODO(), int64(INITIAL_PHASE))
+	metrics.currentRound.Record(context.TODO(), int64(0))
 	{
 		totalPowerFloat, _ := powerTable.Total.Float64()
 		metrics.totalPower.Record(context.TODO(), totalPowerFloat)
@@ -272,11 +273,11 @@ func newInstance(
 		candidates: map[ECChainKey]struct{}{
 			input.BaseChain().Key(): {},
 		},
-		quality: newQuorumState(powerTable, attrQualityPhase),
+		quality: newQuorumState(powerTable, attrQualityPhase, attrKeyRound.Int(0)),
 		rounds: map[uint64]*roundState{
 			0: newRoundState(0, powerTable),
 		},
-		decision: newQuorumState(powerTable, attrDecidePhase),
+		decision: newQuorumState(powerTable, attrDecidePhase, attrKeyRound.Int(0)),
 		tracer:   participant.tracer,
 	}, nil
 }
