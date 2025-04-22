@@ -273,10 +273,9 @@ func (cx *ChainExchangeConfig) Validate() error {
 	case cx.RebroadcastInterval < 1*time.Millisecond:
 		// The timestamp precision is set to milliseconds. Therefore, the rebroadcast interval must not be less than a millisecond.
 		return fmt.Errorf("chain exchange rebroadcast interval cannot be less than 1ms, got: %s", cx.RebroadcastInterval)
-	case cx.MaxTimestampAge < 4*cx.RebroadcastInterval:
-		// The 4X is made up, but the idea is that the max timestamp age should give enough time for message propagation across at least a pair of nodes.
-		return fmt.Errorf("chain exchange max timestamp age must be at least 4x the rebroadcast interval (%s), got: %s", cx.RebroadcastInterval, cx.MaxTimestampAge)
-
+	case cx.MaxTimestampAge < 1*time.Millisecond:
+		// The 1 ms is arbitrarily chosen as a reasonable non-zero minimum.
+		return fmt.Errorf("chain exchange max timestamp age must not  be less than 1ms, got: %s", cx.MaxTimestampAge)
 	default:
 		return nil
 	}
