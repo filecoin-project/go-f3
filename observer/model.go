@@ -3,6 +3,7 @@ package observer
 import (
 	"time"
 
+	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/gpbft"
 )
 
@@ -16,6 +17,7 @@ type message struct {
 	Signature     []byte         `json:"Signature"`
 	Ticket        []byte         `json:"Ticket"`
 	Justification *justification `json:"Justification"`
+	VoteValueKey  []byte         `json:"VoteValueKey"`
 }
 
 type justification struct {
@@ -44,7 +46,7 @@ type tipSet struct {
 	PowerTable  string `json:"PowerTable"`
 }
 
-func newMessage(timestamp time.Time, nn string, msg gpbft.GMessage) (*message, error) {
+func newMessage(timestamp time.Time, nn string, msg f3.PartialGMessage) (*message, error) {
 	j, err := newJustification(msg.Justification)
 	if err != nil {
 		return nil, err
@@ -57,6 +59,7 @@ func newMessage(timestamp time.Time, nn string, msg gpbft.GMessage) (*message, e
 		Ticket:        msg.Ticket,
 		Vote:          newPayload(msg.Vote),
 		Justification: j,
+		VoteValueKey:  msg.VoteValueKey[:],
 	}, nil
 }
 

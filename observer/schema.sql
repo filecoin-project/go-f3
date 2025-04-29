@@ -60,3 +60,7 @@ CREATE TABLE IF NOT EXISTS latest_messages (
     Signature BLOB
   ) NULL
 );
+
+-- Add Key column to latest_messages table to accommodate partial messages.
+ALTER TABLE latest_messages
+ADD COLUMN VoteValueKey BLOB;
