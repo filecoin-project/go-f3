@@ -1,7 +1,6 @@
 package observer
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	_ "embed"
@@ -14,7 +13,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/internal/encoding"
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/ipfs/go-log/v2"
@@ -41,6 +42,7 @@ type Observer struct {
 
 	messageObserved chan *message
 	networkChanged  <-chan gpbft.NetworkName
+	msgEncoding     *encoding.ZSTD[*f3.PartialGMessage]
 }
 
 func New(o ...Option) (*Observer, error) {
@@ -48,9 +50,14 @@ func New(o ...Option) (*Observer, error) {
 	if err != nil {
 		return nil, err
 	}
+	msgEncoding, err := encoding.NewZSTD[*f3.PartialGMessage]()
+	if err != nil {
+		return nil, err
+	}
 	return &Observer{
 		options:         opts,
 		messageObserved: make(chan *message, opts.messageBufferSize),
+		msgEncoding:     msgEncoding,
 	}, nil
 }
 
@@ -189,7 +196,7 @@ func (o *Observer) observe(ctx context.Context) error {
 }
 
 func (o *Observer) storeMessage(ctx context.Context, om *message) error {
-	const insertMessage = `INSERT INTO latest_messages VALUES(?,?,?,?::json,?,?,?::json);`
+	const insertMessage = `INSERT INTO latest_messages VALUES(?,?,?,?::json,?,?,?::json,?);`
 	voteMarshaled, err := json.Marshal(om.Vote)
 	if err != nil {
 		return fmt.Errorf("failed to marshal vote: %w", err)
@@ -210,6 +217,7 @@ func (o *Observer) storeMessage(ctx context.Context, om *message) error {
 		om.Signature,
 		om.Ticket,
 		justificationMarshaled,
+		om.VoteValueKey,
 	); err != nil {
 		return fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -317,7 +325,7 @@ func (o *Observer) startObserverFor(ctx context.Context, networkName gpbft.Netwo
 			}
 		}
 	}()
-	if err := o.pubSub.RegisterTopicValidator(topicName, validatePubSubMessage); err != nil {
+	if err := o.pubSub.RegisterTopicValidator(topicName, o.validatePubSubMessage); err != nil {
 		return nil, fmt.Errorf("failed to register topic validator: %w", err)
 	}
 	topic, err = o.pubSub.Join(topicName, pubsub.WithTopicMessageIdFn(psutil.GPBFTMessageIdFn))
@@ -353,7 +361,7 @@ func (o *Observer) startObserverFor(ctx context.Context, networkName gpbft.Netwo
 				continue
 			}
 
-			om, err := newMessage(time.Now().UTC(), string(networkName), msg.ValidatorData.(gpbft.GMessage))
+			om, err := newMessage(time.Now().UTC(), string(networkName), msg.ValidatorData.(f3.PartialGMessage))
 			if err != nil {
 				logger.Errorw("Failed to instantiate observation message", "err", err)
 				continue
@@ -394,11 +402,11 @@ func (o *Observer) Stop(ctx context.Context) error {
 	return err
 }
 
-func validatePubSubMessage(_ context.Context, _ peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
-	var gmsg gpbft.GMessage
-	if err := gmsg.UnmarshalCBOR(bytes.NewReader(msg.Data)); err != nil {
+func (o *Observer) validatePubSubMessage(_ context.Context, _ peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
+	var pgmsg f3.PartialGMessage
+	if err := o.msgEncoding.Decode(msg.Data, &pgmsg); err != nil {
 		return pubsub.ValidationReject
 	}
-	msg.ValidatorData = gmsg
+	msg.ValidatorData = pgmsg
 	return pubsub.ValidationAccept
 }
