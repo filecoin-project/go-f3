@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/go-f3/manifest"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/multierr"
 	"golang.org/x/sync/errgroup"
 )
@@ -287,13 +288,16 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 					return errors.New("cert store subscription to finalize tipsets was closed unexpectedly")
 				}
 				if h.manifest.EC.Finalize {
+					start := time.Now()
 					key := cert.ECChain.Head().Key
-					if err := h.ec.Finalize(h.runningCtx, key); err != nil {
+					err := h.ec.Finalize(h.runningCtx, key)
+					if err != nil {
 						// There is not much we can do here other than logging. The next instance start
 						// will effectively retry checkpointing the latest finalized tipset. This error
 						// will not impact the selection of next instance chain.
 						log.Errorf("error while finalizing decision at EC: %+v", err)
 					}
+					metrics.ecFinalizeTime.Record(context.Background(), time.Since(start).Seconds(), metric.WithAttributes(attrStatusFromErr(err)))
 				} else {
 					ts := cert.ECChain.Head()
 					log.Debugw("skipping finalization of a new head because the current manifest specifies that tipsets should not be finalized",
