@@ -54,6 +54,7 @@ var metrics = struct {
 	partialMessagesDropped   metric.Int64Counter
 	partialMessageInstances  metric.Int64UpDownCounter
 	partialValidationCache   metric.Int64Counter
+	ecFinalizeTime           metric.Float64Histogram
 }{
 	headDiverged:      measurements.Must(meter.Int64Counter("f3_head_diverged", metric.WithDescription("Number of times we encountered the head has diverged from base scenario."))),
 	reconfigured:      measurements.Must(meter.Int64Counter("f3_reconfigured", metric.WithDescription("Number of times we reconfigured due to new manifest being delivered."))),
@@ -85,6 +86,11 @@ var metrics = struct {
 		metric.WithDescription("Number of instances with partial GPBFT messages pending fulfilment."))),
 	partialValidationCache: measurements.Must(meter.Int64Counter("f3_partial_validation_cache",
 		metric.WithDescription("The number of times partial validation cache resulted in hit or miss."))),
+	ecFinalizeTime: measurements.Must(meter.Float64Histogram("f3_ec_finalize_time",
+		metric.WithDescription("Histogram of the number of seconds spent checkpointing an F3 decision in EC tagged by status"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.002, 0.003, 0.005, 0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 1.0, 10.0),
+		metric.WithUnit("s"),
+	)),
 }
 
 func recordValidatedMessage(ctx context.Context, msg gpbft.ValidatedMessage) {
