@@ -62,7 +62,7 @@ func (h *driverHost) RequestRebroadcast(instant gpbft.Instant) error {
 	return nil
 }
 
-func (h *driverHost) ReceiveDecision(decision *gpbft.Justification) (time.Time, error) {
+func (h *driverHost) ReceiveDecision(_ context.Context, decision *gpbft.Justification) (time.Time, error) {
 	require.NoError(h.t, h.maybeReceiveDecision(decision))
 	return h.now, nil
 }
@@ -79,7 +79,7 @@ func (h *driverHost) maybeReceiveDecision(decision *gpbft.Justification) error {
 	}
 }
 
-func (h *driverHost) GetProposal(id uint64) (*gpbft.SupplementalData, *gpbft.ECChain, error) {
+func (h *driverHost) GetProposal(_ context.Context, id uint64) (*gpbft.SupplementalData, *gpbft.ECChain, error) {
 	instance := h.chain[id]
 	if instance == nil {
 		return nil, nil, fmt.Errorf("instance ID %d not found", id)
@@ -87,7 +87,7 @@ func (h *driverHost) GetProposal(id uint64) (*gpbft.SupplementalData, *gpbft.ECC
 	return &instance.supplementalData, instance.Proposal(), nil
 }
 
-func (h *driverHost) GetCommittee(id uint64) (*gpbft.Committee, error) {
+func (h *driverHost) GetCommittee(_ context.Context, id uint64) (*gpbft.Committee, error) {
 	instance := h.chain[id]
 	if instance == nil {
 		return nil, fmt.Errorf("instance ID %d not found", id)

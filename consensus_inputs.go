@@ -191,7 +191,7 @@ func (h *gpbftInputs) GetProposal(ctx context.Context, instance uint64) (_ *gpbf
 
 func (h *gpbftInputs) GetCommittee(ctx context.Context, instance uint64) (_ *gpbft.Committee, _err error) {
 	defer func(start time.Time) {
-		metrics.committeeFetchTime.Record(context.TODO(), time.Since(start).Seconds(), metric.WithAttributes(attrStatusFromErr(_err)))
+		metrics.committeeFetchTime.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(attrStatusFromErr(_err)))
 	}(time.Now())
 
 	var powerTsk gpbft.TipSetKey

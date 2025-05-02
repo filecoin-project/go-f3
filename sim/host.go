@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -57,7 +58,7 @@ func newHost(id gpbft.ActorID, sim *Simulation, ecg ECChainGenerator, spg Storag
 	}
 }
 
-func (v *simHost) GetProposal(instance uint64) (*gpbft.SupplementalData, *gpbft.ECChain, error) {
+func (v *simHost) GetProposal(_ context.Context, instance uint64) (*gpbft.SupplementalData, *gpbft.ECChain, error) {
 	// Use the head of latest agreement chain as the base of next.
 	// TODO: use lookback to return the correct next power table commitment and commitments hash.
 	chain := v.ecg.GenerateECChain(instance, v.ecChain.Head(), v.id)
@@ -82,7 +83,7 @@ func (v *simHost) GetProposal(instance uint64) (*gpbft.SupplementalData, *gpbft.
 	return i.SupplementalData, chain, nil
 }
 
-func (v *simHost) GetCommittee(instance uint64) (*gpbft.Committee, error) {
+func (v *simHost) GetCommittee(_ context.Context, instance uint64) (*gpbft.Committee, error) {
 	i := v.sim.ec.GetInstance(instance)
 	if i == nil {
 		return nil, ErrInstanceUnavailable
@@ -102,7 +103,7 @@ func (v *simHost) Time() time.Time {
 	return v.sim.network.Time()
 }
 
-func (v *simHost) ReceiveDecision(decision *gpbft.Justification) (time.Time, error) {
+func (v *simHost) ReceiveDecision(_ context.Context, decision *gpbft.Justification) (time.Time, error) {
 	v.sim.ec.NotifyDecision(v.id, decision)
 	v.ecChain = decision.Vote.Value
 	return v.Time().Add(v.sim.ecEpochDuration).Add(v.sim.ecStabilisationDelay), nil

@@ -1,6 +1,7 @@
 package gpbft
 
 import (
+	"context"
 	"fmt"
 	"sync"
 )
@@ -22,13 +23,13 @@ func newCachedCommitteeProvider(delegate CommitteeProvider) *cachedCommitteeProv
 	}
 }
 
-func (c *cachedCommitteeProvider) GetCommittee(instance uint64) (*Committee, error) {
+func (c *cachedCommitteeProvider) GetCommittee(ctx context.Context, instance uint64) (*Committee, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if committee, found := c.committees[instance]; found {
 		return committee, nil
 	}
-	switch committee, err := c.delegate.GetCommittee(instance); {
+	switch committee, err := c.delegate.GetCommittee(ctx, instance); {
 	case err != nil:
 		return nil, fmt.Errorf("instance %d: %w: %w", instance, ErrValidationNoCommittee, err)
 	case committee == nil:

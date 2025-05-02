@@ -14,17 +14,15 @@ type Instant struct {
 }
 
 type MessageValidator interface {
-	// Validates a Granite message.
-	// An invalid message can never become valid, so may be dropped.
-	// Returns an error, wrapping (use errors.Is()/Unwrap()):
-	// - ErrValidationTooOld if the message is for a prior instance;
-	// - both ErrValidationNoCommittee and an error describing the reason;
-	//   if there is no committee available with with to validate the message;
-	// - both ErrValidationInvalid and a cause if the message is invalid,
-	// Returns a validated message if the message is valid.
+	// ValidateMessage validates a GPBFT message.
+	//
+	// An invalid message can never become valid, which may be dropped. If a message
+	// is invalid, an error of type ValidationError is returned, wrapping the cause.
+	// Otherwise, returns a validated message that may be passed onto MessageReceiver
+	// for processing.
 	//
 	// Implementations must be safe for concurrent use.
-	ValidateMessage(msg *GMessage) (valid ValidatedMessage, err error)
+	ValidateMessage(context.Context, *GMessage) (valid ValidatedMessage, err error)
 }
 
 // Opaque type tagging a validated message.
@@ -43,9 +41,9 @@ type MessageReceiver interface {
 	// - ErrValidationWrongBase if the message has an invalid base chain
 	// - ErrReceivedAfterTermination if the message is received after the instance has terminated (a programming error)
 	// - both ErrReceivedInternalError and a cause if there was an internal error processing the message
-	ReceiveMessage(msg ValidatedMessage) error
+	ReceiveMessage(ctx context.Context, msg ValidatedMessage) error
 	// ReceiveAlarm signals the trigger of the alarm set by Clock.SetAlarm.
-	ReceiveAlarm() error
+	ReceiveAlarm(ctx context.Context) error
 }
 
 // Interface from host to a network participant.
@@ -70,7 +68,7 @@ type ProposalProvider interface {
 	// supplemental data.
 	//
 	// Returns an error if the chain for the specified instance is not available.
-	GetProposal(instance uint64) (data *SupplementalData, chain *ECChain, err error)
+	GetProposal(ctx context.Context, instance uint64) (data *SupplementalData, chain *ECChain, err error)
 }
 
 // CommitteeProvider defines an interface for retrieving committee information
@@ -81,7 +79,7 @@ type CommitteeProvider interface {
 	// final, with the offset determined by the host.
 	//
 	// Returns an error if the committee is unavailable for the specified instance.
-	GetCommittee(instance uint64) (*Committee, error)
+	GetCommittee(ctx context.Context, instance uint64) (*Committee, error)
 }
 
 // Committee captures the voting power and beacon value associated to an instance
@@ -153,7 +151,7 @@ type DecisionReceiver interface {
 	// The notification must return the timestamp at which the next instance should begin,
 	// based on the decision received (which may be in the past).
 	// E.g. this might be: finalised tipset timestamp + epoch duration + stabilisation delay.
-	ReceiveDecision(decision *Justification) (time.Time, error)
+	ReceiveDecision(ctx context.Context, decision *Justification) (time.Time, error)
 }
 
 // Tracer collects trace logs that capture logical state changes.

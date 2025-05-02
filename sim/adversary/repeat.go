@@ -1,7 +1,7 @@
 package adversary
 
 import (
-	"time"
+	"context"
 
 	"github.com/filecoin-project/go-f3/gpbft"
 )
@@ -30,6 +30,9 @@ type Repeat struct {
 
 	// repetitionSampler determines the number of times each message is echoed by this adversary.
 	repetitionSampler RepetitionSampler
+
+	Absent
+	allowAll
 }
 
 // RepetitionSampler returns the number of times each message is repeated by Repeat adversary.
@@ -67,26 +70,23 @@ func NewRepeatGenerator(power gpbft.StoragePower, sampler RepetitionSampler) Gen
 		return &Adversary{
 			Receiver: NewRepeat(id, host, sampler),
 			Power:    power,
+			ID:       id,
 		}
 	}
 }
 
-func (*Repeat) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
-	return Validated(msg), nil
-}
-
-func (r *Repeat) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
+func (r *Repeat) ReceiveMessage(ctx context.Context, vmsg gpbft.ValidatedMessage) error {
 	msg := vmsg.Message()
 	echoCount := r.repetitionSampler(msg)
 	if echoCount <= 0 {
 		return nil
 	}
 	instance := msg.Vote.Instance
-	supplementalData, _, err := r.host.GetProposal(instance)
+	supplementalData, _, err := r.host.GetProposal(ctx, instance)
 	if err != nil {
 		panic(err)
 	}
-	committee, _ := r.host.GetCommittee(instance)
+	committee, _ := r.host.GetCommittee(ctx, instance)
 	p := gpbft.Payload{
 		Instance:         instance,
 		Round:            msg.Vote.Round,
@@ -104,7 +104,7 @@ func (r *Repeat) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
 		mt.BeaconForTicket = committee.Beacon
 	}
 	for i := 0; i < echoCount; i++ {
-		if msg.Sender != r.ID() {
+		if msg.Sender != r.id {
 			if err := r.host.RequestBroadcast(mt); err != nil {
 				panic(err)
 			}
@@ -112,8 +112,3 @@ func (r *Repeat) ReceiveMessage(vmsg gpbft.ValidatedMessage) error {
 	}
 	return nil
 }
-
-func (r *Repeat) ID() gpbft.ActorID                                              { return r.id }
-func (r *Repeat) StartInstanceAt(uint64, time.Time) error                        { return nil }
-func (r *Repeat) ReceiveAlarm() error                                            { return nil }
-func (r *Repeat) AllowMessage(gpbft.ActorID, gpbft.ActorID, gpbft.GMessage) bool { return true }

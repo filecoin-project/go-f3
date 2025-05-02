@@ -20,8 +20,8 @@ var (
 )
 
 type PartialMessageValidator interface {
-	PartiallyValidateMessage(msg *PartialGMessage) (*PartiallyValidatedMessage, error)
-	ValidateMessage(msg *PartiallyValidatedMessage) (gpbft.ValidatedMessage, error)
+	PartiallyValidateMessage(ctx context.Context, msg *PartialGMessage) (*PartiallyValidatedMessage, error)
+	ValidateMessage(ctx context.Context, msg *PartiallyValidatedMessage) (gpbft.ValidatedMessage, error)
 }
 
 type PartiallyValidatedMessage struct {
@@ -57,7 +57,7 @@ func newCachingPartialValidator(host gpbft.Host, progress gpbft.Progress, cache 
 	}
 }
 
-func (v *cachingPartialValidator) PartiallyValidateMessage(msg *PartialGMessage) (*PartiallyValidatedMessage, error) {
+func (v *cachingPartialValidator) PartiallyValidateMessage(ctx context.Context, msg *PartialGMessage) (*PartiallyValidatedMessage, error) {
 	if msg == nil {
 		return nil, gpbft.ErrValidationInvalid
 	}
@@ -106,14 +106,14 @@ func (v *cachingPartialValidator) PartiallyValidateMessage(msg *PartialGMessage)
 	} else if alreadyValidated, err := v.cache.Contains(msg.Vote.Instance, messageCacheNamespace, buf.Bytes()); err != nil {
 		log.Errorw("failed to check already validated messages", "err", err)
 	} else if alreadyValidated {
-		metrics.partialValidationCache.Add(context.TODO(), 1, metric.WithAttributes(attrCacheHit, attrCacheKindMessage))
+		metrics.partialValidationCache.Add(ctx, 1, metric.WithAttributes(attrCacheHit, attrCacheKindMessage))
 		return &PartiallyValidatedMessage{PartialGMessage: msg}, nil
 	} else {
 		cacheMessage = true
-		metrics.partialValidationCache.Add(context.TODO(), 1, metric.WithAttributes(attrCacheMiss, attrCacheKindMessage))
+		metrics.partialValidationCache.Add(ctx, 1, metric.WithAttributes(attrCacheMiss, attrCacheKindMessage))
 	}
 
-	comt, err := v.committeeProvider.GetCommittee(msg.Vote.Instance)
+	comt, err := v.committeeProvider.GetCommittee(ctx, msg.Vote.Instance)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get committee for instance %d: %s: %w", msg.Vote.Instance, err, gpbft.ErrValidationNoCommittee)
 	}
@@ -171,7 +171,7 @@ func (v *cachingPartialValidator) PartiallyValidateMessage(msg *PartialGMessage)
 		(msg.Vote.Phase == gpbft.COMMIT_PHASE && msg.VoteValueKey.IsZero()))
 
 	if needsJustification {
-		if err := v.validateJustification(msg, comt); err != nil {
+		if err := v.validateJustification(ctx, msg, comt); err != nil {
 			return nil, fmt.Errorf("%v: %w", err, gpbft.ErrValidationInvalid)
 		}
 	} else if msg.Justification != nil {
@@ -186,7 +186,7 @@ func (v *cachingPartialValidator) PartiallyValidateMessage(msg *PartialGMessage)
 	return &PartiallyValidatedMessage{PartialGMessage: msg}, nil
 }
 
-func (v *cachingPartialValidator) validateJustification(msg *PartialGMessage, comt *gpbft.Committee) error {
+func (v *cachingPartialValidator) validateJustification(ctx context.Context, msg *PartialGMessage, comt *gpbft.Committee) error {
 	if msg.Justification == nil {
 		return fmt.Errorf("message for phase %v round %v has no justification", msg.Vote.Phase, msg.Vote.Round)
 	}
@@ -203,11 +203,11 @@ func (v *cachingPartialValidator) validateJustification(msg *PartialGMessage, co
 	} else if alreadyValidated, err := v.cache.Contains(msg.Vote.Instance, justificationCacheNamespace, buf.Bytes()); err != nil {
 		log.Warnw("failed to check if justification is already cached", "err", err)
 	} else if alreadyValidated {
-		metrics.partialValidationCache.Add(context.TODO(), 1, metric.WithAttributes(attrCacheHit, attrCacheKindJustification))
+		metrics.partialValidationCache.Add(ctx, 1, metric.WithAttributes(attrCacheHit, attrCacheKindJustification))
 		return nil
 	} else {
 		cacheJustification = true
-		metrics.partialValidationCache.Add(context.TODO(), 1, metric.WithAttributes(attrCacheMiss, attrCacheKindJustification))
+		metrics.partialValidationCache.Add(ctx, 1, metric.WithAttributes(attrCacheMiss, attrCacheKindJustification))
 	}
 
 	// Check that the justification is for the same instance, identical to the full
@@ -305,7 +305,7 @@ func (v *cachingPartialValidator) validateJustification(msg *PartialGMessage, co
 	return nil
 }
 
-func (v *cachingPartialValidator) ValidateMessage(pmsg *PartiallyValidatedMessage) (gpbft.ValidatedMessage, error) {
+func (v *cachingPartialValidator) ValidateMessage(ctx context.Context, pmsg *PartiallyValidatedMessage) (gpbft.ValidatedMessage, error) {
 	// A partially validated message validates everything apart from validation rules
 	// that require knowing what the vote value is directly. These rules are:
 	//  - Consistency of the chain key with the chain itself.

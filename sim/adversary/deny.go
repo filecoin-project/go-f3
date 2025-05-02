@@ -14,17 +14,18 @@ var (
 // Deny adversary denies all messages to/from a given set of participants for a
 // configured duration of time.
 //
-// For this adversary to take effect global stabilisation time must be configured
+// For this adversary to take effect, global stabilization time must be configured
 // to be at least as long as the configured deny duration.
 //
-// See  sim.WithGlobalStabilizationTime.
+// See sim.WithGlobalStabilizationTime.
 type Deny struct {
-	id          gpbft.ActorID
 	host        Host
 	targetsByID map[gpbft.ActorID]struct{}
 	gst         time.Time
 	msgMatched  DenyMessageMatcher
 	mode        DenyTargetMode
+
+	Absent
 }
 
 // DenyMessageMatcher checks whether a message should be denied by the Deny adversary or not.
@@ -63,13 +64,12 @@ func DenyPhase(phase gpbft.Phase) DenyMessageMatcher {
 	}
 }
 
-func NewDeny(id gpbft.ActorID, host Host, denialDuration time.Duration, msgMatcher DenyMessageMatcher, mode DenyTargetMode, targets ...gpbft.ActorID) *Deny {
+func NewDeny(host Host, denialDuration time.Duration, msgMatcher DenyMessageMatcher, mode DenyTargetMode, targets ...gpbft.ActorID) *Deny {
 	targetsByID := make(map[gpbft.ActorID]struct{})
 	for _, target := range targets {
 		targetsByID[target] = struct{}{}
 	}
 	return &Deny{
-		id:          id,
 		host:        host,
 		targetsByID: targetsByID,
 		gst:         time.Time{}.Add(denialDuration),
@@ -81,14 +81,11 @@ func NewDeny(id gpbft.ActorID, host Host, denialDuration time.Duration, msgMatch
 func NewDenyGenerator(power gpbft.StoragePower, denialDuration time.Duration, msgMatcher DenyMessageMatcher, mode DenyTargetMode, targets ...gpbft.ActorID) Generator {
 	return func(id gpbft.ActorID, host Host) *Adversary {
 		return &Adversary{
-			Receiver: NewDeny(id, host, denialDuration, msgMatcher, mode, targets...),
+			Receiver: NewDeny(host, denialDuration, msgMatcher, mode, targets...),
 			Power:    power,
+			ID:       id,
 		}
 	}
-}
-
-func (d *Deny) ID() gpbft.ActorID {
-	return d.id
 }
 
 func (d *Deny) AllowMessage(from gpbft.ActorID, to gpbft.ActorID, msg gpbft.GMessage) bool {
@@ -116,10 +113,3 @@ func (d *Deny) isTargeted(id gpbft.ActorID, msg *gpbft.GMessage) bool {
 		return false
 	}
 }
-
-func (*Deny) StartInstanceAt(uint64, time.Time) error { return nil }
-func (*Deny) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
-	return Validated(msg), nil
-}
-func (*Deny) ReceiveMessage(gpbft.ValidatedMessage) error { return nil }
-func (*Deny) ReceiveAlarm() error                         { return nil }

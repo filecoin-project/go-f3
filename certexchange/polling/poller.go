@@ -1,4 +1,4 @@
-//go:generate go run golang.org/x/tools/cmd/stringer@v0.22.0 -type=PollStatus
+//go:generate go run golang.org/x/tools/cmd/stringer@v0.32.0 -type=PollStatus
 package polling
 
 import (

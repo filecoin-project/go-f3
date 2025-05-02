@@ -42,7 +42,7 @@ func newValidator(host Host, cp CommitteeProvider, progress Progress, cache *cac
 // ValidateMessage checks if the given message is valid. If invalid, an error is
 // returned. ErrValidationInvalid indicates that the message will never be valid
 // invalid and may be safely dropped.
-func (v *cachingValidator) ValidateMessage(msg *GMessage) (valid ValidatedMessage, err error) {
+func (v *cachingValidator) ValidateMessage(ctx context.Context, msg *GMessage) (valid ValidatedMessage, err error) {
 	if msg == nil {
 		return nil, ErrValidationInvalid
 	}
@@ -90,14 +90,14 @@ func (v *cachingValidator) ValidateMessage(msg *GMessage) (valid ValidatedMessag
 	} else if alreadyValidated, err := v.cache.Contains(msg.Vote.Instance, messageCacheNamespace, buf.Bytes()); err != nil {
 		log.Errorw("failed to check already validated messages", "err", err)
 	} else if alreadyValidated {
-		metrics.validationCache.Add(context.TODO(), 1, metric.WithAttributes(attrCacheHit, attrCacheKindMessage))
+		metrics.validationCache.Add(ctx, 1, metric.WithAttributes(attrCacheHit, attrCacheKindMessage))
 		return &validatedMessage{msg: msg}, nil
 	} else {
 		cacheMessage = true
-		metrics.validationCache.Add(context.TODO(), 1, metric.WithAttributes(attrCacheMiss, attrCacheKindMessage))
+		metrics.validationCache.Add(ctx, 1, metric.WithAttributes(attrCacheMiss, attrCacheKindMessage))
 	}
 
-	comt, err := v.committeeProvider.GetCommittee(msg.Vote.Instance)
+	comt, err := v.committeeProvider.GetCommittee(ctx, msg.Vote.Instance)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get committee for instance %d: %s: %w", msg.Vote.Instance, err, ErrValidationNoCommittee)
 	}
@@ -156,7 +156,7 @@ func (v *cachingValidator) ValidateMessage(msg *GMessage) (valid ValidatedMessag
 		(msg.Vote.Phase == COMMIT_PHASE && msg.Vote.Value.IsZero()))
 
 	if needsJustification {
-		if err := v.validateJustification(msg, comt); err != nil {
+		if err := v.validateJustification(ctx, msg, comt); err != nil {
 			return nil, fmt.Errorf("%v: %w", err, ErrValidationInvalid)
 		}
 	} else if msg.Justification != nil {
@@ -171,7 +171,7 @@ func (v *cachingValidator) ValidateMessage(msg *GMessage) (valid ValidatedMessag
 	return &validatedMessage{msg: msg}, nil
 }
 
-func (v *cachingValidator) validateJustification(msg *GMessage, comt *Committee) error {
+func (v *cachingValidator) validateJustification(ctx context.Context, msg *GMessage, comt *Committee) error {
 	if msg.Justification == nil {
 		return fmt.Errorf("message for phase %v round %v has no justification", msg.Vote.Phase, msg.Vote.Round)
 	}
@@ -186,11 +186,11 @@ func (v *cachingValidator) validateJustification(msg *GMessage, comt *Committee)
 	} else if alreadyValidated, err := v.cache.Contains(msg.Vote.Instance, justificationCacheNamespace, buf.Bytes()); err != nil {
 		log.Warnw("failed to check if justification is already cached", "err", err)
 	} else if alreadyValidated {
-		metrics.validationCache.Add(context.TODO(), 1, metric.WithAttributes(attrCacheHit, attrCacheKindJustification))
+		metrics.validationCache.Add(ctx, 1, metric.WithAttributes(attrCacheHit, attrCacheKindJustification))
 		return nil
 	} else {
 		cacheJustification = true
-		metrics.validationCache.Add(context.TODO(), 1, metric.WithAttributes(attrCacheMiss, attrCacheKindJustification))
+		metrics.validationCache.Add(ctx, 1, metric.WithAttributes(attrCacheMiss, attrCacheKindJustification))
 	}
 
 	// Check that the justification is for the same instance.
