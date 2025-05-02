@@ -153,17 +153,30 @@ func (p *Payload) Eq(other *Payload) bool {
 }
 
 func (p *Payload) MarshalForSigning(nn NetworkName) []byte {
+	return p.MarshalForSigningWithValueKey(nn, p.Value.Key())
+}
+
+func (p *Payload) MarshalForSigningWithValueKey(nn NetworkName, key ECChainKey) []byte {
+	const separator = ":"
 	var buf bytes.Buffer
+	buf.Grow(len(DomainSeparationTag) +
+		len(nn) + len(separator)*2 +
+		1 + // Phase
+		8 + // Round
+		8 + // Instance
+		len(p.SupplementalData.Commitments) +
+		len(key) + // Key
+		p.SupplementalData.PowerTable.ByteLen(),
+	)
 	buf.WriteString(DomainSeparationTag)
-	buf.WriteString(":")
+	buf.WriteString(separator)
 	buf.WriteString(string(nn))
-	buf.WriteString(":")
+	buf.WriteString(separator)
 
 	_ = binary.Write(&buf, binary.BigEndian, p.Phase)
 	_ = binary.Write(&buf, binary.BigEndian, p.Round)
 	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
 	_, _ = buf.Write(p.SupplementalData.Commitments[:])
-	key := p.Value.Key()
 	_, _ = buf.Write(key[:])
 	_, _ = buf.Write(p.SupplementalData.PowerTable.Bytes())
 	return buf.Bytes()
