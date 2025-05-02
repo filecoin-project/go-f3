@@ -61,7 +61,7 @@ type partialMessageManager struct {
 	stop func()
 }
 
-func newPartialMessageManager(progress gpbft.Progress, ps *pubsub.PubSub, m *manifest.Manifest, clk clock.Clock) (*partialMessageManager, error) {
+func newPartialMessageManager(progress gpbft.Progress, ps *pubsub.PubSub, m manifest.Manifest, clk clock.Clock) (*partialMessageManager, error) {
 	pmm := &partialMessageManager{
 		pmByInstance:            make(map[uint64]*lru.Cache[partialMessageKey, *PartiallyValidatedMessage]),
 		pmkByInstanceByChainKey: make(map[uint64]map[gpbft.ECChainKey][]partialMessageKey),

@@ -1,7 +1,6 @@
 package manifest
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -84,15 +83,6 @@ var (
 	// Default instance alignment when catching up.
 	DefaultCatchUpAlignment = DefaultEcConfig.Period / 2
 )
-
-type ManifestProvider interface {
-	// Start any background tasks required for the operation of the manifest provider.
-	Start(context.Context) error
-	// Stop stops a running manifest provider.
-	Stop(context.Context) error
-	// The channel on which manifest updates are returned.
-	ManifestUpdates() <-chan *Manifest
-}
 
 // Certificate Exchange config
 type CxConfig struct {
@@ -314,8 +304,6 @@ func (pmm *PartialMessageManagerConfig) Validate() error {
 
 // Manifest identifies the specific configuration for the F3 instance currently running.
 type Manifest struct {
-	// Pause stops the participation in F3.
-	Pause bool
 	// ProtocolVersion specifies protocol version to be used
 	ProtocolVersion uint64
 	// Initial instance to used for the f3 instance
@@ -324,11 +312,6 @@ type Manifest struct {
 	BootstrapEpoch int64
 	// Network name to apply for this manifest.
 	NetworkName gpbft.NetworkName
-	// Updates to perform over the power table from EC (by replacement). Any entries with 0
-	// power will disable the participant.
-	ExplicitPower gpbft.PowerEntries
-	// Ignore the power table from EC.
-	IgnoreECPower bool
 	// InitialPowerTable specifies the optional CID of the initial power table
 	InitialPowerTable cid.Cid // !Defined() if nil
 	// We take the current power table from the head tipset this many instances ago.
@@ -359,16 +342,13 @@ func (m *Manifest) Equal(o *Manifest) bool {
 	}
 
 	return m.NetworkName == o.NetworkName &&
-		m.Pause == o.Pause &&
 		m.InitialInstance == o.InitialInstance &&
 		m.BootstrapEpoch == o.BootstrapEpoch &&
-		m.IgnoreECPower == o.IgnoreECPower &&
 		m.CommitteeLookback == o.CommitteeLookback &&
 		// Don't include this in equality checks because it doesn't change the meaning of
 		// the manifest (and we don't want to restart the network when we first publish
 		// this).
 		// m.InitialPowerTable.Equals(o.InitialPowerTable) &&
-		m.ExplicitPower.Equal(o.ExplicitPower) &&
 		m.Gpbft == o.Gpbft &&
 		m.EC.Equal(&o.EC) &&
 		m.CertificateExchange == o.CertificateExchange &&
@@ -385,23 +365,6 @@ func (m *Manifest) Validate() error {
 	case m.BootstrapEpoch < m.EC.Finality:
 		return fmt.Errorf("invalid manifest: bootstrap epoch %d before finality %d",
 			m.BootstrapEpoch, m.EC.Finality)
-	case m.IgnoreECPower && len(m.ExplicitPower) == 0:
-		return fmt.Errorf("invalid manifest: ignoring ec power with no explicit power")
-	}
-
-	if len(m.ExplicitPower) > 0 {
-		pt := gpbft.NewPowerTable()
-		if err := pt.Add(m.ExplicitPower...); err != nil {
-			return fmt.Errorf("invalid manifest: invalid power entries")
-		}
-
-		if err := pt.Validate(); err != nil {
-			return fmt.Errorf("invalid manifest: %w", err)
-		}
-
-		if m.IgnoreECPower && pt.Total.Sign() <= 0 {
-			return fmt.Errorf("invalid manifest: no power")
-		}
 	}
 
 	if err := m.Gpbft.Validate(); err != nil {
@@ -432,10 +395,10 @@ func (m *Manifest) Validate() error {
 	return nil
 }
 
-func LocalDevnetManifest() *Manifest {
+func LocalDevnetManifest() Manifest {
 	rng := make([]byte, 4)
 	_, _ = rand.Read(rng)
-	m := &Manifest{
+	return Manifest{
 		ProtocolVersion:       VersionCapability,
 		NetworkName:           gpbft.NetworkName(fmt.Sprintf("localnet-%X", rng)),
 		BootstrapEpoch:        1000,
@@ -448,7 +411,6 @@ func LocalDevnetManifest() *Manifest {
 		ChainExchange:         DefaultChainExchangeConfig,
 		PartialMessageManager: DefaultPartialMessageManagerConfig,
 	}
-	return m
 }
 
 // Marshal the manifest into JSON

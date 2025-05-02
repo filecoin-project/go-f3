@@ -27,11 +27,6 @@ var observerCmd = cli.Command{
 			Value: "./observer/identity",
 		},
 		&cli.StringFlag{
-			Name:    "manifestServerID",
-			Aliases: []string{"msid"},
-			Usage:   "The libp2p peer ID of the manifest server.",
-		},
-		&cli.StringFlag{
 			Name:    "networkName",
 			Aliases: []string{"nn"},
 			Usage:   "The network name.",
@@ -109,13 +104,6 @@ var observerCmd = cli.Command{
 			}
 		}
 
-		if cctx.IsSet("manifestServerID") {
-			id, err := peer.Decode(cctx.String("manifestServerID"))
-			if err != nil {
-				return fmt.Errorf("failed to decode manifest server ID: %w", err)
-			}
-			opts = append(opts, observer.WithDynamicNetworkNameFromManifestProvider(id))
-		}
 		if cctx.IsSet("networkName") {
 			opts = append(opts, observer.WithStaticNetworkName(gpbft.NetworkName(cctx.String("networkName"))))
 		}
