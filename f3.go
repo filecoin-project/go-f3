@@ -26,7 +26,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 
 	"go.uber.org/multierr"
-	"golang.org/x/sync/errgroup"
 )
 
 // ErrF3NotRunning is returned when an operation is attempted on a non-running F3
@@ -39,13 +38,12 @@ type f3State struct {
 	ps       *powerstore.Store
 	certsub  *certexpoll.Subscriber
 	certserv *certexchange.Server
-	manifest *manifest.Manifest
 }
 
 type F3 struct {
-	verifier         gpbft.Verifier
-	manifestProvider manifest.ManifestProvider
-	diskPath         string
+	verifier gpbft.Verifier
+	mfst     manifest.Manifest
+	diskPath string
 
 	outboundMessages chan *gpbft.MessageBuilder
 
@@ -57,22 +55,18 @@ type F3 struct {
 
 	runningCtx context.Context
 	cancelCtx  context.CancelFunc
-	errgrp     *errgroup.Group
 
-	manifest atomic.Pointer[manifest.Manifest]
-	state    atomic.Pointer[f3State]
+	state atomic.Pointer[f3State]
 }
 
 // New creates and setups f3 with libp2p
 // The context is used for initialization not runtime.
-func New(_ctx context.Context, manifest manifest.ManifestProvider, ds datastore.Datastore, h host.Host,
+func New(_ctx context.Context, manifest manifest.Manifest, ds datastore.Datastore, h host.Host,
 	ps *pubsub.PubSub, verif gpbft.Verifier, ec ec.Backend, diskPath string) (*F3, error) {
 	runningCtx, cancel := context.WithCancel(context.WithoutCancel(_ctx))
-	errgrp, runningCtx := errgroup.WithContext(runningCtx)
-
 	return &F3{
 		verifier:         verif,
-		manifestProvider: manifest,
+		mfst:             manifest,
 		diskPath:         diskPath,
 		outboundMessages: make(chan *gpbft.MessageBuilder, 128),
 		host:             h,
@@ -82,20 +76,17 @@ func New(_ctx context.Context, manifest manifest.ManifestProvider, ds datastore.
 		clock:            clock.GetClock(runningCtx),
 		runningCtx:       runningCtx,
 		cancelCtx:        cancel,
-		errgrp:           errgrp,
 	}, nil
 }
 
-// MessageStoSign returns a channel of outbound messages that need to be signed by the client(s).
+// MessagesToSign returns a channel of outbound messages that need to be signed by the client(s).
 // - The same channel is shared between all callers and will never be closed.
 // - GPBFT will block if this channel is not read from.
 func (m *F3) MessagesToSign() <-chan *gpbft.MessageBuilder {
 	return m.outboundMessages
 }
 
-func (m *F3) Manifest() *manifest.Manifest {
-	return m.manifest.Load()
-}
+func (m *F3) Manifest() manifest.Manifest { return m.mfst }
 
 func (m *F3) Broadcast(ctx context.Context, signatureBuilder *gpbft.SignatureBuilder, msgSig []byte, vrf []byte) {
 	state := m.state.Load()
@@ -104,9 +95,9 @@ func (m *F3) Broadcast(ctx context.Context, signatureBuilder *gpbft.SignatureBui
 		return
 	}
 
-	if state.manifest.NetworkName != signatureBuilder.NetworkName {
+	if m.mfst.NetworkName != signatureBuilder.NetworkName {
 		log.Errorw("attempted to broadcast message for a wrong network",
-			"manifestNetwork", state.manifest.NetworkName, "messageNetwork", signatureBuilder.NetworkName)
+			"manifestNetwork", m.mfst.NetworkName, "messageNetwork", signatureBuilder.NetworkName)
 		return
 	}
 
@@ -131,30 +122,24 @@ func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCerti
 	return nil, ErrF3NotRunning
 }
 
-// Returns the time at which the F3 instance specified by the passed manifest should be started, or
-// 0 if the passed manifest is nil.
+// computeBootstrapDelay returns the time at which the F3 instance specified by
+// the passed manifest should be started.
 func (m *F3) computeBootstrapDelay() (time.Duration, error) {
-	manifest := m.manifest.Load()
-	if manifest == nil || manifest.Pause {
-		return 0, nil
-	}
-
 	ts, err := m.ec.GetHead(m.runningCtx)
 	if err != nil {
-		err := fmt.Errorf("failed to get the EC chain head: %w", err)
-		return 0, err
+		return 0, fmt.Errorf("failed to get the EC chain head: %w", err)
 	}
 
 	currentEpoch := ts.Epoch()
-	if currentEpoch >= manifest.BootstrapEpoch {
+	if currentEpoch >= m.mfst.BootstrapEpoch {
 		return 0, nil
 	}
-	epochDelay := manifest.BootstrapEpoch - currentEpoch
-	start := ts.Timestamp().Add(time.Duration(epochDelay) * manifest.EC.Period)
+	epochDelay := m.mfst.BootstrapEpoch - currentEpoch
+	start := ts.Timestamp().Add(time.Duration(epochDelay) * m.mfst.EC.Period)
 	delay := m.clock.Until(start)
 	// Add additional delay to skip over null epochs. That way we wait the full 900 epochs.
 	if delay <= 0 {
-		delay = manifest.EC.Period + delay%manifest.EC.Period
+		delay = m.mfst.EC.Period + delay%m.mfst.EC.Period
 	}
 	return delay, nil
 }
@@ -162,103 +147,42 @@ func (m *F3) computeBootstrapDelay() (time.Duration, error) {
 // Start the module, call Stop to exit. Canceling the past context will cancel the request to start
 // F3, it won't stop the service after it has started.
 func (m *F3) Start(startCtx context.Context) (_err error) {
-	err := m.manifestProvider.Start(startCtx)
-	if err != nil {
-		return err
-	}
-
-	// Try to get an initial manifest immediately if possible so uses can query it immediately.
-	var hasPendingManifest bool
-	select {
-	case pendingManifest := <-m.manifestProvider.ManifestUpdates():
-		metrics.manifestsReceived.Add(m.runningCtx, 1)
-		m.manifest.Store(pendingManifest)
-		hasPendingManifest = true
-	default:
-	}
 
 	initialDelay, err := m.computeBootstrapDelay()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to compute bootstrap delay: %w", err)
 	}
 
-	// Try to start immediately if we have a manifest available and don't have to wait to
-	// bootstrap. That way, we'll be fully started when we return from Start.
+	// Try to start immediately if there's no initial delay and pass on any start
+	// errors directly.
 	if initialDelay == 0 {
-		if err := m.startInternal(startCtx); err != nil {
-			log.Errorw("failed to reconfigure GPBFT", "error", err)
-		}
-		hasPendingManifest = false
+		return m.startInternal(startCtx)
 	}
 
-	if m := m.manifest.Load(); m != nil {
-		log.Infow("F3 is starting", "initialDelay", initialDelay, "hasPendingManifest", hasPendingManifest,
-			"NetworkName", m.NetworkName, "BootstrapEpoch", m.BootstrapEpoch, "Finality", m.EC.Finality,
-			"InitialPowerTable", m.InitialPowerTable, "CommitteeLookback", m.CommitteeLookback)
-	} else {
-		log.Infow("F3 is starting", "initialDelay", initialDelay, "hasPendingManifest", hasPendingManifest)
-	}
+	log.Infow("F3 is scheduled to start with initial delay", "initialDelay", initialDelay,
+		"NetworkName", m.mfst.NetworkName, "BootstrapEpoch", m.mfst.BootstrapEpoch, "Finality", m.mfst.EC.Finality,
+		"InitialPowerTable", m.mfst.InitialPowerTable, "CommitteeLookback", m.mfst.CommitteeLookback)
 
-	m.errgrp.Go(func() (_err error) {
-		defer func() {
-			if err := m.stopInternal(context.Background()); err != nil {
-				_err = multierr.Append(_err, err)
-			}
-		}()
-
-		manifestChangeTimer := m.clock.Timer(initialDelay)
-		if !hasPendingManifest && !manifestChangeTimer.Stop() {
-			<-manifestChangeTimer.C
-		}
-
-		defer manifestChangeTimer.Stop()
-		for m.runningCtx.Err() == nil {
-			select {
-			case update := <-m.manifestProvider.ManifestUpdates():
-				metrics.manifestsReceived.Add(m.runningCtx, 1)
-				if hasPendingManifest && !manifestChangeTimer.Stop() {
-					<-manifestChangeTimer.C
-				}
-				if err := m.stopInternal(m.runningCtx); err != nil {
-					// Don't fail here, just log and move on.
-					log.Errorw("failed to stop running F3 instance", "error", err)
-				}
-				metrics.manifestsReceived.Add(m.runningCtx, 1)
-				m.manifest.Store(update)
-			case <-manifestChangeTimer.C:
-			case <-m.runningCtx.Done():
-				return nil
-			}
-
-			if delay, err := m.computeBootstrapDelay(); err != nil {
-				return err
-			} else if delay > 0 {
-				hasPendingManifest = true
-				manifestChangeTimer.Reset(delay)
-				log.Infow("waiting for bootstrap epoch", "duration", delay.String())
-			} else {
-				if err := m.startInternal(m.runningCtx); err != nil {
-					// There's not much we can do here but complain and wait for
-					// a new manifest. This matches the behavior when we
-					// initially start as well.
-					log.Errorw("failed to start F3", "error", err)
-				}
-				hasPendingManifest = false
+	go func() {
+		startTimer := m.clock.Timer(initialDelay)
+		defer startTimer.Stop()
+		select {
+		case <-m.runningCtx.Done():
+			log.Debugw("F3 start disrupted", "cause", m.runningCtx.Err())
+		case startTime := <-startTimer.C:
+			if err := m.startInternal(m.runningCtx); err != nil {
+				log.Errorw("Failed to start F3 after initial delay", "scheduledStartTime", startTime, "err", err)
 			}
 		}
-		return nil
-	})
+	}()
 
 	return nil
 }
 
 // Stop F3.
-func (m *F3) Stop(stopCtx context.Context) (_err error) {
+func (m *F3) Stop(context.Context) (_err error) {
 	m.cancelCtx()
-	return multierr.Combine(
-		m.manifestProvider.Stop(stopCtx),
-		m.errgrp.Wait(),
-	)
+	return nil
 }
 
 func (s *f3State) stop(ctx context.Context) (err error) {
@@ -311,38 +235,31 @@ func (m *F3) startInternal(ctx context.Context) error {
 		err   error
 	)
 
-	state.manifest = m.manifest.Load()
-	// Pause if we we have no manifest, the manifest is paused, and/or we don't meet the minimum
-	// version requirement.
-	if state.manifest == nil ||
-		state.manifest.Pause ||
-		state.manifest.ProtocolVersion > manifest.VersionCapability {
-		return nil
+	if m.mfst.ProtocolVersion > manifest.VersionCapability {
+		return fmt.Errorf("manifest version %d is higher than current capability %d", m.mfst.ProtocolVersion, manifest.VersionCapability)
 	}
-
-	mPowerEc := ec.WithModifiedPower(m.ec, state.manifest.ExplicitPower, state.manifest.IgnoreECPower)
 
 	// We don't reset these fields if we only pause/resume.
 	certClient := certexchange.Client{
 		Host:           m.host,
-		NetworkName:    state.manifest.NetworkName,
-		RequestTimeout: state.manifest.CertificateExchange.ClientRequestTimeout,
+		NetworkName:    m.mfst.NetworkName,
+		RequestTimeout: m.mfst.CertificateExchange.ClientRequestTimeout,
 	}
 	cds := measurements.NewMeteredDatastore(meter, "f3_certstore_datastore_", m.ds)
-	state.cs, err = openCertstore(ctx, mPowerEc, cds, state.manifest, certClient)
+	state.cs, err = openCertstore(ctx, m.ec, cds, m.mfst, certClient)
 	if err != nil {
 		return fmt.Errorf("failed to open certstore: %w", err)
 	}
 
 	pds := measurements.NewMeteredDatastore(meter, "f3_ohshitstore_datastore_", m.ds)
-	state.ps, err = powerstore.New(ctx, mPowerEc, pds, state.cs, state.manifest)
+	state.ps, err = powerstore.New(ctx, m.ec, pds, state.cs, m.mfst)
 	if err != nil {
 		return fmt.Errorf("failed to construct the oshitstore: %w", err)
 	}
 
 	state.certserv = &certexchange.Server{
-		NetworkName:    state.manifest.NetworkName,
-		RequestTimeout: state.manifest.CertificateExchange.ServerRequestTimeout,
+		NetworkName:    m.mfst.NetworkName,
+		RequestTimeout: m.mfst.CertificateExchange.ServerRequestTimeout,
 		Host:           m.host,
 		Store:          state.cs,
 	}
@@ -350,16 +267,16 @@ func (m *F3) startInternal(ctx context.Context) error {
 	state.certsub = &certexpoll.Subscriber{
 		Client: certexchange.Client{
 			Host:           m.host,
-			NetworkName:    state.manifest.NetworkName,
-			RequestTimeout: state.manifest.CertificateExchange.ClientRequestTimeout,
+			NetworkName:    m.mfst.NetworkName,
+			RequestTimeout: m.mfst.CertificateExchange.ClientRequestTimeout,
 		},
 		Store:               state.cs,
 		SignatureVerifier:   m.verifier,
-		InitialPollInterval: state.manifest.EC.Period,
-		MaximumPollInterval: state.manifest.CertificateExchange.MaximumPollInterval,
-		MinimumPollInterval: state.manifest.CertificateExchange.MinimumPollInterval,
+		InitialPollInterval: m.mfst.EC.Period,
+		MaximumPollInterval: m.mfst.CertificateExchange.MaximumPollInterval,
+		MinimumPollInterval: m.mfst.CertificateExchange.MinimumPollInterval,
 	}
-	cleanName := strings.ReplaceAll(string(state.manifest.NetworkName), "/", "-")
+	cleanName := strings.ReplaceAll(string(m.mfst.NetworkName), "/", "-")
 	cleanName = strings.ReplaceAll(cleanName, ".", "")
 	cleanName = strings.ReplaceAll(cleanName, "\u0000", "")
 
@@ -371,7 +288,7 @@ func (m *F3) startInternal(ctx context.Context) error {
 
 	state.runner, err = newRunner(
 		ctx, state.cs, state.ps, m.pubsub, m.verifier,
-		m.outboundMessages, state.manifest, wal, m.host.ID(),
+		m.outboundMessages, m.mfst, wal, m.host.ID(),
 	)
 	if err != nil {
 		return err
@@ -384,7 +301,6 @@ func (m *F3) startInternal(ctx context.Context) error {
 	if !m.state.CompareAndSwap(nil, &state) {
 		return fmt.Errorf("concurrent start")
 	}
-
 	return nil
 }
 
@@ -400,11 +316,7 @@ func (m *F3) GetPowerTable(ctx context.Context, ts gpbft.TipSetKey) (gpbft.Power
 	if st := m.state.Load(); st != nil {
 		return st.ps.GetPowerTable(ctx, ts)
 	}
-	if manif := m.manifest.Load(); manif != nil {
-		return ec.WithModifiedPower(m.ec, manif.ExplicitPower, manif.IgnoreECPower).
-			GetPowerTable(ctx, ts)
-	}
-	return nil, manifest.ErrNoManifest
+	return m.ec.GetPowerTable(ctx, ts)
 }
 
 func (m *F3) Progress() (instant gpbft.InstanceProgress) {

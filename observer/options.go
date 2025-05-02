@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -89,51 +88,6 @@ func WithStaticNetworkName(name gpbft.NetworkName) Option {
 			case networkChanged <- name:
 				return networkChanged, nil
 			}
-		},
-	)
-}
-
-func WithDynamicNetworkNameFromManifestProvider(id peer.ID) Option {
-	return WithNetworkNameChangeListener(
-		func(ctx context.Context, pubSub *pubsub.PubSub) (<-chan gpbft.NetworkName, error) {
-			provider, err := manifest.NewDynamicManifestProvider(pubSub, id)
-			if err != nil {
-				return nil, err
-			}
-			if err := provider.Start(ctx); err != nil {
-				return nil, err
-			}
-
-			networkChanged := make(chan gpbft.NetworkName, 1)
-			notifyLatestChange := func(change gpbft.NetworkName) {
-				for ctx.Err() == nil {
-					select {
-					case <-ctx.Done():
-						return
-					case <-networkChanged:
-						// Silently consume unseen network change.
-					case networkChanged <- change:
-						return
-					}
-				}
-			}
-
-			go func() {
-				defer func() {
-					if err := provider.Stop(context.Background()); err != nil {
-						logger.Warnw("Failed to stop dynamic manifest provider gracefully", "err", err)
-					}
-				}()
-				for ctx.Err() == nil {
-					select {
-					case <-ctx.Done():
-						return
-					case updated := <-provider.ManifestUpdates():
-						notifyLatestChange(updated.NetworkName)
-					}
-				}
-			}()
-			return networkChanged, nil
 		},
 	)
 }

@@ -19,7 +19,7 @@ import (
 // openCertstore opens the certificate store for the specific manifest (namespaced by the network
 // name).
 func openCertstore(ctx context.Context, ec ec.Backend, ds datastore.Datastore,
-	m *manifest.Manifest, certClient certexchange.Client) (*certstore.Store, error) {
+	m manifest.Manifest, certClient certexchange.Client) (*certstore.Store, error) {
 	ds = namespace.Wrap(ds, m.DatastorePrefix())
 
 	if cs, err := certstore.OpenStore(ctx, ds); err == nil {
@@ -37,7 +37,7 @@ func openCertstore(ctx context.Context, ec ec.Backend, ds datastore.Datastore,
 	return certstore.CreateStore(ctx, ds, m.InitialInstance, initialPowerTable)
 }
 
-func loadInitialPowerTable(ctx context.Context, ec ec.Backend, m *manifest.Manifest, certClient certexchange.Client) (gpbft.PowerEntries, error) {
+func loadInitialPowerTable(ctx context.Context, ec ec.Backend, m manifest.Manifest, certClient certexchange.Client) (gpbft.PowerEntries, error) {
 	epoch := m.BootstrapEpoch - m.EC.Finality
 	if ts, err := ec.GetTipsetByEpoch(ctx, epoch); err != nil {
 		// This is odd because we usually keep the entire chain, just not the state.

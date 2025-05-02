@@ -19,7 +19,7 @@ import (
 )
 
 type gpbftInputs struct {
-	manifest  *manifest.Manifest
+	manifest  manifest.Manifest
 	certStore *certstore.Store
 	ec        ec.Backend
 	verifier  gpbft.Verifier
@@ -28,7 +28,7 @@ type gpbftInputs struct {
 	ptCache *lru.Cache[string, cid.Cid]
 }
 
-func newInputs(manifest *manifest.Manifest, certStore *certstore.Store, ec ec.Backend,
+func newInputs(manifest manifest.Manifest, certStore *certstore.Store, ec ec.Backend,
 	verifier gpbft.Verifier, clk clock.Clock) gpbftInputs {
 	cache, err := lru.New[string, cid.Cid](256) // keep a bit more than 2x max ECChain size
 	if err != nil {

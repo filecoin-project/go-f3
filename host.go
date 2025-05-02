@@ -31,7 +31,7 @@ type BroadcastMessage func(*gpbft.MessageBuilder)
 // passing them to gpbft in a single thread.
 type gpbftRunner struct {
 	certStore   *certstore.Store
-	manifest    *manifest.Manifest
+	manifest    manifest.Manifest
 	ec          ec.Backend
 	pubsub      *pubsub.PubSub
 	clock       clock.Clock
@@ -72,7 +72,7 @@ func newRunner(
 	ps *pubsub.PubSub,
 	verifier gpbft.Verifier,
 	out chan<- *gpbft.MessageBuilder,
-	m *manifest.Manifest,
+	m manifest.Manifest,
 	wal *writeaheadlog.WriteAheadLog[walEntry, *walEntry],
 	pID peer.ID,
 ) (*gpbftRunner, error) {

@@ -12,20 +12,8 @@ import (
 )
 
 var base = manifest.Manifest{
-	BootstrapEpoch: 900,
-	NetworkName:    "test",
-	ExplicitPower: gpbft.PowerEntries{
-		{
-			ID:     2,
-			Power:  gpbft.NewStoragePower(1),
-			PubKey: gpbft.PubKey{0},
-		},
-		{
-			ID:     3,
-			Power:  gpbft.NewStoragePower(1),
-			PubKey: gpbft.PubKey{1},
-		},
-	},
+	BootstrapEpoch:    900,
+	NetworkName:       "test",
 	CommitteeLookback: 10,
 	Gpbft: manifest.GpbftConfig{
 		Delta:                      10,
@@ -58,7 +46,8 @@ var base = manifest.Manifest{
 
 func TestManifest_Validation(t *testing.T) {
 	require.NoError(t, base.Validate())
-	require.NoError(t, manifest.LocalDevnetManifest().Validate())
+	localDevnetManifest := manifest.LocalDevnetManifest()
+	require.NoError(t, localDevnetManifest.Validate())
 
 	cpy := base
 	cpy.BootstrapEpoch = 50
@@ -77,18 +66,18 @@ func TestManifest_Serialization(t *testing.T) {
 	for _, test := range []struct {
 		name  string
 		given []byte
-		want  *manifest.Manifest
+		want  manifest.Manifest
 	}{
 		{
 			name:  "base",
 			given: baseMarshalled,
-			want:  &base,
+			want:  base,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := manifest.Unmarshal(bytes.NewReader(test.given))
 			require.NoError(t, err)
-			require.Equal(t, test.want, got)
+			require.Equal(t, &test.want, got)
 		})
 	}
 }
@@ -124,8 +113,8 @@ func TestManifest_CID(t *testing.T) {
 	t.Parallel()
 
 	const (
-		wantLocalDevnetCid = "baguqfiheaiqoktbekgcqvdpzlfnxvcocafjj5n6enxsokutvkkfqi6vrowr4gay"
-		wantAfterUpdateCid = "baguqfiheaiqiqtpn555ipnmjfp6ehzfymrtb5p5gyu2gmq74nohxlxwvhy3dx3y"
+		wantLocalDevnetCid = "baguqfiheaiqgpujeb5upzhbblchkuc2sxeis2y5upbsefktyspqqmjrcr27fiua"
+		wantAfterUpdateCid = "baguqfiheaiqaixtgfxvyaqdkdy6nsdybpvwjw7vgtw22enjg24kunho3b5nrduq"
 	)
 	subject := manifest.LocalDevnetManifest()
 	// Use a fixed network name for deterministic CID calculation.
@@ -135,7 +124,7 @@ func TestManifest_CID(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, wantLocalDevnetCid, got.String())
 
-	changedSubject := *subject
+	changedSubject := subject
 	changedSubject.CommitteeLookback = changedSubject.CommitteeLookback + 1
 	gotAfterUpdate, err := changedSubject.Cid()
 	require.NoError(t, err)

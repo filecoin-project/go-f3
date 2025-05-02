@@ -29,11 +29,10 @@ import (
 )
 
 const (
-	eventualCheckInterval   = 100 * time.Millisecond
-	eventualCheckTimeout    = time.Minute
-	manifestPublishInterval = 100 * time.Millisecond
-	advanceClockEvery       = 5 * time.Millisecond
-	advanceClockBy          = 100 * time.Millisecond
+	eventualCheckInterval = 100 * time.Millisecond
+	eventualCheckTimeout  = time.Minute
+	advanceClockEvery     = 5 * time.Millisecond
+	advanceClockBy        = 100 * time.Millisecond
 )
 
 func init() {
@@ -53,9 +52,13 @@ func TestF3Simple(t *testing.T) {
 
 func TestF3WithLookback(t *testing.T) {
 	t.Parallel()
+
+	mfst := base
+	mfst.EC.HeadLookback = 20
+
 	env := newTestEnvironment(t).
 		withNodes(2).
-		withManifest(func(m *manifest.Manifest) { m.EC.HeadLookback = 20 }).
+		withManifest(mfst).
 		start()
 	env.requireInstanceEventually(5, eventualCheckTimeout, true)
 
@@ -161,130 +164,6 @@ func TestF3FailRecover(t *testing.T) {
 	// We should proceed anyways (catching up via the certificate exchange protocol).
 	oldInstance := env.nodes[0].currentGpbftInstance()
 	env.requireInstanceEventually(oldInstance+3, eventualCheckTimeout, true)
-}
-
-func TestF3DynamicManifest_WithoutChanges(t *testing.T) {
-	t.Parallel()
-	env := newTestEnvironment(t).withNodes(2).withDynamicManifest()
-
-	env.start()
-	prev := env.nodes[0].f3.Manifest()
-
-	env.requireInstanceEventually(5, eventualCheckTimeout, false)
-	// no changes in manifest
-	require.Equal(t, prev, env.nodes[0].f3.Manifest())
-	env.requireConsistentManifest(true)
-}
-
-func TestF3DynamicManifest_WithRebootstrap(t *testing.T) {
-	t.Parallel()
-	env := newTestEnvironment(t).withNodes(2).withDynamicManifest().start()
-
-	prevManifest := env.nodes[0].f3.Manifest()
-	env.requireInstanceEventually(3, eventualCheckTimeout, true)
-
-	for range 2 {
-		nd := env.addNode()
-		pubkey, _ := env.signingBackend.GenerateKey()
-		env.manifest.ExplicitPower = append(env.manifest.ExplicitPower, gpbft.PowerEntry{
-			ID:     gpbft.ActorID(nd.id),
-			PubKey: pubkey,
-			Power:  gpbft.NewStoragePower(1),
-		})
-	}
-
-	env.updateManifest()
-	env.requireManifestPropagatedEventually(eventualCheckTimeout)
-
-	// check that it rebootstrapped and has a new base epoch.
-	targetBaseEpoch := env.manifest.BootstrapEpoch - env.manifest.EC.Finality
-	env.whileAdvancingClock(func() {
-		require.Eventually(t, func() bool {
-			//env.clock.Add(env.manifest.EC.Period)
-			c, err := env.nodes[0].f3.GetCert(env.testCtx, 0)
-			if err != nil || c == nil {
-				return false
-			}
-			return c.ECChain.Base().Epoch == targetBaseEpoch
-		}, eventualCheckTimeout, eventualCheckInterval, "Base epoch on node 0 not reached in time. Environment: %s", env)
-	})
-	env.requireInstanceEventually(3, eventualCheckTimeout, false)
-	require.NotEqual(t, prevManifest, env.nodes[0].f3.Manifest())
-	env.requireConsistentManifest(false)
-
-	// check that the power table is updated
-	ts, err := env.ec.GetTipsetByEpoch(env.testCtx, int64(env.nodes[0].currentGpbftInstance()))
-	require.NoError(t, err)
-	pt, err := env.nodes[0].f3.GetPowerTable(env.testCtx, ts.Key())
-	require.NoError(t, err)
-	require.Equal(t, len(pt), 4)
-}
-
-func TestF3DynamicManifest_WithPauseAndRebootstrap(t *testing.T) {
-	t.Parallel()
-	env := newTestEnvironment(t).withNodes(2).withDynamicManifest().start()
-
-	env.requireInstanceEventually(10, eventualCheckTimeout, true)
-	env.requireEpochFinalizedEventually(env.manifest.BootstrapEpoch+10, eventualCheckTimeout)
-	cert0, err := env.nodes[0].f3.GetCert(env.testCtx, 0)
-	require.NoError(t, err)
-	FirstFinalizedEpochBeforeRebootstrap := cert0.ECChain.Base().Epoch
-	require.Equal(t, env.manifest.BootstrapEpoch-env.manifest.EC.Finality, FirstFinalizedEpochBeforeRebootstrap)
-
-	env.manifest.Pause = true
-	env.updateManifest()
-	// check that it paused
-	env.requireF3NotRunningEventually(eventualCheckTimeout, nodeMatchers.all)
-
-	env.manifest.BootstrapEpoch += 10
-	env.manifest.Pause = false
-	env.updateManifest()
-	env.requireF3RunningEventually(eventualCheckTimeout, nodeMatchers.all)
-	env.requireManifestPropagatedEventually(eventualCheckTimeout)
-	env.requireConsistentManifest(true)
-
-	env.requireInstanceEventually(3, eventualCheckTimeout, true)
-	env.requireEpochFinalizedEventually(env.manifest.BootstrapEpoch+10, eventualCheckTimeout)
-
-	// Now check that we have the correct base for certificate 0.
-	cert0, err = env.nodes[0].f3.GetCert(env.testCtx, 0)
-	require.NoError(t, err)
-	require.Equal(t, env.manifest.BootstrapEpoch-env.manifest.EC.Finality, cert0.ECChain.Base().Epoch)
-	require.Less(t, FirstFinalizedEpochBeforeRebootstrap, cert0.ECChain.Base().Epoch)
-}
-
-func TestF3DynamicManifest_RebootstrapWithCompression(t *testing.T) {
-	t.Parallel()
-	env := newTestEnvironment(t).withNodes(2).withDynamicManifest().start()
-
-	env.requireInstanceEventually(10, eventualCheckTimeout, true)
-	env.requireEpochFinalizedEventually(env.manifest.BootstrapEpoch+10, eventualCheckTimeout)
-	cert0, err := env.nodes[0].f3.GetCert(env.testCtx, 0)
-	require.NoError(t, err)
-	FirstFinalizedEpochBeforeRebootstrap := cert0.ECChain.Base().Epoch
-	require.Equal(t, env.manifest.BootstrapEpoch-env.manifest.EC.Finality, FirstFinalizedEpochBeforeRebootstrap)
-
-	env.manifest.Pause = true
-	env.updateManifest()
-	// check that it paused
-	env.requireF3NotRunningEventually(eventualCheckTimeout, nodeMatchers.all)
-
-	env.manifest.BootstrapEpoch += 10
-	env.manifest.Pause = false
-	env.manifest.PubSub.CompressionEnabled = true
-	env.updateManifest()
-	env.requireF3RunningEventually(eventualCheckTimeout, nodeMatchers.all)
-	env.requireManifestPropagatedEventually(eventualCheckTimeout)
-	env.requireConsistentManifest(true)
-
-	env.requireInstanceEventually(3, eventualCheckTimeout, true)
-	env.requireEpochFinalizedEventually(env.manifest.BootstrapEpoch+10, eventualCheckTimeout)
-
-	// Now check that we have the correct base for certificate 0.
-	cert0, err = env.nodes[0].f3.GetCert(env.testCtx, 0)
-	require.NoError(t, err)
-	require.Equal(t, env.manifest.BootstrapEpoch-env.manifest.EC.Finality, cert0.ECChain.Base().Epoch)
-	require.Less(t, FirstFinalizedEpochBeforeRebootstrap, cert0.ECChain.Base().Epoch)
 }
 
 func TestF3LateBootstrap(t *testing.T) {
@@ -437,24 +316,12 @@ func (n *testNode) init() *f3.F3 {
 		return nil
 	}))
 
-	var mprovider manifest.ManifestProvider
-	if n.e.manifestSender != nil {
-		manifestServerID := n.e.manifestSender.SenderID()
-		mprovider, err = manifest.NewDynamicManifestProvider(
-			ps, manifestServerID,
-			manifest.DynamicManifestProviderWithInitialManifest(n.e.currentManifest()),
-		)
-	} else {
-		mprovider, err = manifest.NewStaticManifestProvider(n.e.currentManifest())
-	}
-	require.NoError(n.e.t, err)
-
-	n.e.signingBackend.Allow(int(n.id))
+	n.e.signingBackend.Allow(n.id)
 
 	if n.ec == nil {
 		n.ec = n.e.ec
 	}
-	n.f3, err = f3.New(n.e.testCtx, mprovider, ds, n.h, ps, n.e.signingBackend, n.ec,
+	n.f3, err = f3.New(n.e.testCtx, n.e.manifest, ds, n.h, ps, n.e.signingBackend, n.ec,
 		filepath.Join(n.e.tempDir, fmt.Sprintf("participant-%d", n.id)))
 	require.NoError(n.e.t, err)
 
@@ -517,54 +384,11 @@ type testEnv struct {
 	signingBackend *signing.FakeBackend
 	nodes          []*testNode
 	ec             *consensus.FakeEC
-	manifestSender *manifest.ManifestSender
 	net            mocknet.Mocknet
 	clock          *clock.Mock
 	tempDir        string // we need to ask for it before any of our cleanup hooks
 
-	manifest        manifest.Manifest
-	manifestVersion uint64
-}
-
-func (e *testEnv) currentManifest() *manifest.Manifest {
-	m := e.manifest
-	if e.manifestSender != nil {
-		nn := fmt.Sprintf("%s/%d", e.manifest.NetworkName, e.manifestVersion)
-		m.NetworkName = gpbft.NetworkName(nn)
-	}
-	return &m
-}
-
-// signals the update to the latest manifest in the environment.
-func (e *testEnv) updateManifest() {
-	e.t.Helper()
-	if e.manifestSender == nil {
-		e.t.Fatal("cannot update manifest unless the dynamic manifest is enabled")
-	}
-	e.manifestVersion++
-	e.manifestSender.UpdateManifest(e.currentManifest())
-}
-
-func (e *testEnv) requireManifestPropagatedEventually(timeout time.Duration) {
-	e.t.Helper()
-	newManifest := e.currentManifest()
-	e.whileAdvancingClock(func() {
-		require.Eventually(e.t, func() bool {
-			for _, n := range e.nodes {
-				if n.f3 == nil {
-					continue
-				}
-				m := n.f3.Manifest()
-				if m == nil {
-					return false
-				}
-				if !newManifest.Equal(m) {
-					return false
-				}
-			}
-			return true
-		}, timeout, eventualCheckInterval, "Manifest did not propagate in time. Environment: %s", e)
-	})
+	manifest manifest.Manifest
 }
 
 // waits for all nodes to reach a specific instance number.
@@ -684,16 +508,6 @@ func (e *testEnv) addNode() *testNode {
 	return n
 }
 
-func (e *testEnv) requireConsistentManifest(strict bool) {
-	m := e.nodes[0].f3.Manifest()
-	for _, n := range e.nodes {
-		// only check running nodes
-		if (n.f3 != nil && n.f3.IsRunning()) || strict {
-			require.Equal(e.t, n.f3.Manifest(), m)
-		}
-	}
-}
-
 type nodeMatcher func(*testNode) bool
 
 var nodeMatchers = struct {
@@ -801,17 +615,11 @@ func (e *testEnv) start() *testEnv {
 	// wait for nodes to initialize
 	e.requireF3RunningEventually(eventualCheckTimeout, nodeMatchers.all)
 
-	// If it exists, start the manifest sender
-	if e.manifestSender != nil {
-		go func() {
-			require.NoError(e.t, e.manifestSender.Run(e.testCtx))
-		}()
-	}
 	return e
 }
 
-func (e *testEnv) withManifest(fn func(m *manifest.Manifest)) *testEnv {
-	fn(&e.manifest)
+func (e *testEnv) withManifest(m manifest.Manifest) *testEnv {
+	e.manifest = m
 	return e
 }
 
@@ -821,19 +629,6 @@ func (e *testEnv) pauseNode(i int) {
 
 func (e *testEnv) resumeNode(i int) {
 	e.nodes[i].resume()
-}
-
-func (e *testEnv) withDynamicManifest() *testEnv {
-	h, err := e.net.GenPeer()
-	require.NoError(e.t, err)
-
-	ps, err := pubsub.NewGossipSub(e.testCtx, h, pubsub.WithMessageSignaturePolicy(pubsub.StrictNoSign))
-	require.NoError(e.t, err)
-
-	e.manifestSender, err = manifest.NewManifestSender(e.testCtx, h, ps, e.currentManifest(), manifestPublishInterval)
-	require.NoError(e.t, err)
-
-	return e
 }
 
 func (e *testEnv) injectDatastoreFailures(i int, fn func(op string) error) {

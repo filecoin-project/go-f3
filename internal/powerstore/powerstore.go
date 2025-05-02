@@ -31,7 +31,7 @@ type Store struct {
 
 	ds       datastore.Datastore
 	cs       *certstore.Store
-	manifest *manifest.Manifest
+	manifest manifest.Manifest
 
 	clock      clock.Clock
 	runningCtx context.Context
@@ -44,7 +44,7 @@ type Store struct {
 
 const diffPrefix = "/powerdiffs"
 
-func New(ctx context.Context, ec ec.Backend, ds datastore.Datastore, cs *certstore.Store, manifest *manifest.Manifest) (*Store, error) {
+func New(ctx context.Context, ec ec.Backend, ds datastore.Datastore, cs *certstore.Store, manifest manifest.Manifest) (*Store, error) {
 	runningCtx, ctxCancel := context.WithCancel(context.WithoutCancel(ctx))
 	errgrp, runningCtx := errgroup.WithContext(runningCtx)
 	return &Store{

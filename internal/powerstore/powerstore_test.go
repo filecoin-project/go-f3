@@ -159,7 +159,7 @@ func TestPowerStore(t *testing.T) {
 
 }
 
-func advanceF3(t *testing.T, m *manifest.Manifest, ps *powerstore.Store, cs *certstore.Store, until int64, epochsPerCert int) {
+func advanceF3(t *testing.T, m manifest.Manifest, ps *powerstore.Store, cs *certstore.Store, until int64, epochsPerCert int) {
 	instance := uint64(0)
 	base := m.BootstrapEpoch - m.EC.Finality
 	if latest := cs.Latest(); latest != nil {

@@ -9,7 +9,6 @@ import (
 	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/consensus"
-	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/filecoin-project/go-f3/sim/signing"
 	leveldb "github.com/ipfs/go-ds-leveldb"
 	logging "github.com/ipfs/go-log/v2"
@@ -82,7 +81,7 @@ var runCmd = cli.Command{
 		}
 
 		// setup initial power table for number of participants
-		initialPowerTable := []gpbft.PowerEntry{}
+		var initialPowerTable []gpbft.PowerEntry
 		fsig := signing.NewFakeBackend()
 		for i := 0; i < c.Int("N"); i++ {
 			pubkey, _ := fsig.GenerateKey()
@@ -92,27 +91,6 @@ var runCmd = cli.Command{
 				PubKey: pubkey,
 				Power:  gpbft.NewStoragePower(1000),
 			})
-		}
-
-		// if the manifest-server ID is passed in a flag,
-		// we setup the monitoring system
-		mFlag := c.String("manifest-server")
-		var manifestServer peer.ID
-		var mprovider manifest.ManifestProvider
-		if mFlag != "" {
-			manifestServer, err = peer.Decode(mFlag)
-			if err != nil {
-				return fmt.Errorf("parsing manifest server ID: %w", err)
-			}
-			mprovider, err = manifest.NewDynamicManifestProvider(ps, manifestServer,
-				manifest.DynamicManifestProviderWithDatastore(ds),
-				manifest.DynamicManifestProviderWithInitialManifest(m),
-			)
-		} else {
-			mprovider, err = manifest.NewStaticManifestProvider(m)
-		}
-		if err != nil {
-			return fmt.Errorf("constructing manifest provider: %w", err)
 		}
 
 		signingBackend := &fakeSigner{*signing.NewFakeBackend()}
@@ -125,7 +103,7 @@ var runCmd = cli.Command{
 			consensus.WithInitialPowerTable(initialPowerTable),
 		)
 
-		module, err := f3.New(ctx, mprovider, ds, h, ps, signingBackend, ec, filepath.Join(tmpdir, "f3"))
+		module, err := f3.New(ctx, m, ds, h, ps, signingBackend, ec, filepath.Join(tmpdir, "f3"))
 		if err != nil {
 			return fmt.Errorf("creating module: %w", err)
 		}
