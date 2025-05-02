@@ -13,142 +13,34 @@ import (
 	"golang.org/x/crypto/blake2b"
 
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/internal/clock"
-	mbase "github.com/multiformats/go-multibase"
 )
 
 var (
-	_ ec.Backend = (*FakeEC)(nil)
-	_ ec.TipSet  = (*tipset)(nil)
+	_              ec.Backend = (*FakeEC)(nil)
+	cidPrefixBytes            = gpbft.CidPrefix.Bytes()
 )
 
-type PowerTableMutator func(epoch int64, pt gpbft.PowerEntries) gpbft.PowerEntries
-
 type FakeEC struct {
-	clock             clock.Clock
-	seed              int64
-	initialPowerTable gpbft.PowerEntries
-	evolvePowerTable  PowerTableMutator
+	*fakeECOptions
 
-	bootstrapEpoch int64
-	ecPeriod       time.Duration
-	ecMaxLookback  int64
-	ecStart        time.Time
+	ecStart time.Time
 
 	lk                sync.RWMutex
 	pausedAt          *time.Time
 	finalizedEpochs   map[int64]int64
 	maxFinalizedEpoch int64
-	forkAfterEpochs   int64
-	forkSeed          int64
-	nullTipsetProb    float64
 }
 
-type tipset struct {
-	tsk       []byte
-	epoch     int64
-	timestamp time.Time
-	beacon    []byte
-}
-
-func (ts *tipset) Key() gpbft.TipSetKey { return ts.tsk }
-func (ts *tipset) Epoch() int64         { return ts.epoch }
-func (ts *tipset) Beacon() []byte       { return ts.beacon }
-func (ts *tipset) Timestamp() time.Time { return ts.timestamp }
-
-func (ts *tipset) String() string {
-	res, _ := mbase.Encode(mbase.Base32, ts.tsk[:gpbft.CidMaxLen])
-	for i := 1; i*gpbft.CidMaxLen < len(ts.tsk); i++ {
-		enc, _ := mbase.Encode(mbase.Base32, ts.tsk[gpbft.CidMaxLen*i:gpbft.CidMaxLen*(i+1)])
-		res += "," + enc
-	}
-	return res
-}
-
-type fakeECConfig FakeEC
-
-type FakeECOption func(*fakeECConfig)
-
-func WithBootstrapEpoch(epoch int64) FakeECOption {
-	return func(ec *fakeECConfig) {
-		ec.bootstrapEpoch = epoch
-	}
-}
-
-func WithSeed(seed int64) FakeECOption {
-	return func(ec *fakeECConfig) {
-		ec.seed = seed
-	}
-}
-
-func WithInitialPowerTable(initialPowerTable gpbft.PowerEntries) FakeECOption {
-	return func(ec *fakeECConfig) {
-		ec.initialPowerTable = initialPowerTable
-	}
-}
-
-func WithECPeriod(ecPeriod time.Duration) FakeECOption {
-	return func(ec *fakeECConfig) {
-		ec.ecPeriod = ecPeriod
-	}
-}
-
-func WithMaxLookback(distance int64) FakeECOption {
-	return func(ec *fakeECConfig) {
-		ec.ecMaxLookback = distance
-	}
-}
-
-func WithEvolvingPowerTable(fn PowerTableMutator) FakeECOption {
-	return func(ec *fakeECConfig) {
-		ec.evolvePowerTable = fn
-	}
-}
-
-// WithForkSeed sets the seed used to generate fork chains. For this option to
-// take effect, WithForkAfterEpochs must be set to a value greater than 0.
-func WithForkSeed(e int64) FakeECOption {
-	return func(ec *fakeECConfig) {
-		ec.forkSeed = e
-	}
-}
-
-// WithForkAfterEpochs sets the minimum number of epochs from the latest
-// finalized tipset key after which this EC may fork away.
-func WithForkAfterEpochs(e int64) FakeECOption {
-	return func(ec *fakeECConfig) {
-		ec.forkAfterEpochs = e
-	}
-}
-
-func WithNullTipsetProbablity(p float64) FakeECOption {
-	return func(ec *fakeECConfig) {
-		ec.nullTipsetProb = p
-	}
-}
-
-func NewFakeEC(ctx context.Context, options ...FakeECOption) *FakeEC {
-	clk := clock.GetClock(ctx)
-	fakeEc := &FakeEC{
-		clock:           clk,
-		ecPeriod:        30 * time.Second,
-		seed:            time.Now().UnixNano(),
-		forkSeed:        time.Now().UnixNano() / 2,
+func NewFakeEC(o ...FakeECOption) *FakeEC {
+	fec := &FakeEC{
+		fakeECOptions:   newFakeECOptions(o...),
 		finalizedEpochs: make(map[int64]int64),
-		nullTipsetProb:  0.015,
 	}
-
-	for _, option := range options {
-		option((*fakeECConfig)(fakeEc))
-	}
-
-	fakeEc.ecStart = clk.Now().Add(-time.Duration(fakeEc.bootstrapEpoch) * fakeEc.ecPeriod)
-	return fakeEc
+	fec.ecStart = fec.clock.Now().Add(-time.Duration(fec.bootstrapEpoch) * fec.ecPeriod)
+	return fec
 }
 
-var cidPrefixBytes = gpbft.CidPrefix.Bytes()
-
-// randFloat retunrs random float in 0..1 range
+// randFloat returns random float in 0..1 range
 func randFloat(rng []byte) float64 {
 	bits := binary.BigEndian.Uint64(rng[:8])
 	return float64(bits>>(64-52)) / float64(math.MaxUint64>>(64-52))
@@ -163,7 +55,7 @@ func (ec *FakeEC) genTipset(epoch int64) *tipset {
 	h.Write(binary.BigEndian.AppendUint64(nil, uint64(epoch)))
 	rng := h.Sum(nil)
 	var isZero bool
-	isZero, rng = randFloat(rng) < ec.nullTipsetProb, rng[8:]
+	isZero, rng = randFloat(rng) < ec.nullTipsetProbability, rng[8:]
 	if isZero {
 		return nil
 	}

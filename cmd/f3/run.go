@@ -97,7 +97,7 @@ var runCmd = cli.Command{
 		id := c.Uint64("id")
 		signingBackend.Allow(int(id))
 
-		ec := consensus.NewFakeEC(ctx,
+		ec := consensus.NewFakeEC(
 			consensus.WithBootstrapEpoch(m.BootstrapEpoch),
 			consensus.WithECPeriod(m.EC.Period),
 			consensus.WithInitialPowerTable(initialPowerTable),

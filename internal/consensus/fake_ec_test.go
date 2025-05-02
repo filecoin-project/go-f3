@@ -13,7 +13,7 @@ import (
 
 func TestTipsetString(t *testing.T) {
 	ctx := context.Background()
-	subject := consensus.NewFakeEC(ctx)
+	subject := consensus.NewFakeEC()
 	ts, err := subject.GetHead(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, ts.String())
@@ -23,7 +23,7 @@ func TestTipsetReproducibility(t *testing.T) {
 	const sampleSize = 3
 	sampleTipsets := func(opts ...consensus.FakeECOption) []ec.TipSet {
 		ctx, clk := clock.WithMockClock(context.Background())
-		subject := consensus.NewFakeEC(ctx, opts...)
+		subject := consensus.NewFakeEC(append(opts, consensus.WithClock(clk))...)
 		var samples []ec.TipSet
 		for i := 0; i < sampleSize; i++ {
 			ts, err := subject.GetHead(ctx)
@@ -117,14 +117,16 @@ func TestFakeEC_Finalization(t *testing.T) {
 		forkAfterEpochs = 3
 		finalizedEpoch  = 30
 	)
-	subject := consensus.NewFakeEC(ctx,
+	subject := consensus.NewFakeEC(
+		consensus.WithClock(clk),
 		consensus.WithSeed(seed),
 		consensus.WithECPeriod(ecPeriod),
 		consensus.WithBootstrapEpoch(bootstrapEpoch),
 		consensus.WithForkSeed(seed*7),
 		consensus.WithForkAfterEpochs(forkAfterEpochs),
 	)
-	alternative := consensus.NewFakeEC(ctx,
+	alternative := consensus.NewFakeEC(
+		consensus.WithClock(clk),
 		consensus.WithSeed(seed),
 		consensus.WithECPeriod(ecPeriod),
 		consensus.WithForkSeed(seed*23),
@@ -149,7 +151,7 @@ func TestFakeEC_Finalization(t *testing.T) {
 		}
 	}
 
-	// Now generate an alternative tipset at epoch 30 and assert that the subject obeys the finalized tipset acoording to fork after epochs.
+	// Now generate an alternative tipset at epoch 30 and assert that the subject obeys the finalized tipset according to fork after epochs.
 	finalizer, err := alternative.GetTipsetByEpoch(ctx, finalizedEpoch)
 	require.NoError(t, err)
 	require.NoError(t, subject.Finalize(ctx, finalizer.Key()))

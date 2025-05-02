@@ -35,7 +35,8 @@ func TestCertChain_GenerateAndVerify(t *testing.T) {
 	}
 	initialPowerTable := generatePowerTable(t, rng, generatePublicKey, nil)
 
-	ec := consensus.NewFakeEC(ctx,
+	ec := consensus.NewFakeEC(
+		consensus.WithClock(clk),
 		consensus.WithSeed(seed*13),
 		consensus.WithBootstrapEpoch(m.BootstrapEpoch),
 		consensus.WithECPeriod(m.EC.Period),

@@ -30,7 +30,7 @@ var powerTableC = gpbft.PowerEntries{
 }
 
 func TestReplacePowerTable(t *testing.T) {
-	backend := consensus.NewFakeEC(context.Background(), consensus.WithInitialPowerTable(powerTableA))
+	backend := consensus.NewFakeEC(consensus.WithInitialPowerTable(powerTableA))
 	modifiedBackend := ec.WithModifiedPower(backend, powerTableB, true)
 
 	head, err := modifiedBackend.GetHead(context.Background())
@@ -43,7 +43,7 @@ func TestReplacePowerTable(t *testing.T) {
 }
 
 func TestModifyPowerTable(t *testing.T) {
-	backend := consensus.NewFakeEC(context.Background(), consensus.WithInitialPowerTable(powerTableA))
+	backend := consensus.NewFakeEC(consensus.WithInitialPowerTable(powerTableA))
 	modifiedBackend := ec.WithModifiedPower(backend, powerTableB, false)
 
 	head, err := modifiedBackend.GetHead(context.Background())
@@ -55,7 +55,7 @@ func TestModifyPowerTable(t *testing.T) {
 }
 
 func TestBypassModifiedPowerTable(t *testing.T) {
-	backend := consensus.NewFakeEC(context.Background(), consensus.WithInitialPowerTable(powerTableA))
+	backend := consensus.NewFakeEC(consensus.WithInitialPowerTable(powerTableA))
 	modifiedBackend := ec.WithModifiedPower(backend, nil, false)
 	require.Equal(t, backend, modifiedBackend)
 }
