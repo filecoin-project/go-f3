@@ -3,7 +3,6 @@ package f3
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"fmt"
 	"math"
 
@@ -159,7 +158,7 @@ func (v *cachingPartialValidator) PartiallyValidateMessage(ctx context.Context, 
 	}
 
 	// Check vote signature by marshaling the payload with the pre-computed vote value key.
-	sigPayload := v.marshalPartialPayloadForSigning(v.networkName, msg.VoteValueKey, &msg.Vote)
+	sigPayload := msg.Vote.MarshalForSigningWithValueKey(v.networkName, msg.VoteValueKey)
 	if err := v.signing.Verify(senderPubKey, sigPayload, msg.Signature); err != nil {
 		return nil, fmt.Errorf("invalid signature on %v, %v: %w", msg, err, gpbft.ErrValidationInvalid)
 	}
@@ -292,7 +291,7 @@ func (v *cachingPartialValidator) validateJustification(ctx context.Context, msg
 
 	// Check justification signature by computing the signing payload using what a
 	// valid justification vote value should be.
-	payload := v.marshalPartialPayloadForSigning(v.networkName, expectedJustificationVoteValueKey, &msg.Justification.Vote)
+	payload := msg.Justification.Vote.MarshalForSigningWithValueKey(v.networkName, expectedJustificationVoteValueKey)
 	if err := comt.AggregateVerifier.VerifyAggregate(signers, payload, msg.Justification.Signature); err != nil {
 		return fmt.Errorf("verification of the aggregate failed: %+v: %w", msg.Justification, err)
 	}
@@ -370,24 +369,4 @@ func (v *cachingPartialValidator) ValidateMessage(ctx context.Context, pmsg *Par
 		}
 	}
 	return &fullyValidatedMessage{GMessage: pmsg.GMessage}, nil
-}
-
-func (v *cachingPartialValidator) marshalPartialPayloadForSigning(nn gpbft.NetworkName, k gpbft.ECChainKey, payload *gpbft.Payload) []byte {
-
-	// Mostly copied from Payload.MarshalPayloadForSigning with the difference that
-	// chain key is taken as a pre-computed argument and written directly to the
-	// buffer.
-
-	var buf bytes.Buffer
-	buf.WriteString(gpbft.DomainSeparationTag)
-	buf.WriteString(":")
-	buf.WriteString(string(nn))
-	buf.WriteString(":")
-	_ = binary.Write(&buf, binary.BigEndian, payload.Phase)
-	_ = binary.Write(&buf, binary.BigEndian, payload.Round)
-	_ = binary.Write(&buf, binary.BigEndian, payload.Instance)
-	_, _ = buf.Write(payload.SupplementalData.Commitments[:])
-	_, _ = buf.Write(k[:])
-	_, _ = buf.Write(payload.SupplementalData.PowerTable.Bytes())
-	return buf.Bytes()
 }
