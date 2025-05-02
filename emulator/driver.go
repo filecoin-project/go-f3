@@ -68,7 +68,7 @@ func (d *Driver) PeekLastBroadcastRequest() *gpbft.GMessage {
 
 func (d *Driver) DeliverAlarm() (bool, error) {
 	if d.host.maybeReceiveAlarm() {
-		return true, d.subject.ReceiveAlarm()
+		return true, d.subject.ReceiveAlarm(context.Background())
 	}
 	return false, nil
 }
@@ -98,9 +98,10 @@ func (d *Driver) prepareMessage(partialMessage *gpbft.GMessage) *gpbft.GMessage 
 }
 
 func (d *Driver) deliverMessage(msg *gpbft.GMessage) error {
-	if validated, err := d.subject.ValidateMessage(msg); err != nil {
+	ctx := context.Background()
+	if validated, err := d.subject.ValidateMessage(ctx, msg); err != nil {
 		return err
 	} else {
-		return d.subject.ReceiveMessage(validated)
+		return d.subject.ReceiveMessage(ctx, validated)
 	}
 }

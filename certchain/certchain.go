@@ -45,7 +45,7 @@ func New(o ...Option) (*CertChain, error) {
 	}, nil
 }
 
-func (cc *CertChain) GetCommittee(instance uint64) (*gpbft.Committee, error) {
+func (cc *CertChain) GetCommittee(ctx context.Context, instance uint64) (*gpbft.Committee, error) {
 	var committeeEpoch int64
 	if instance < cc.m.InitialInstance+cc.m.CommitteeLookback {
 		committeeEpoch = cc.m.BootstrapEpoch - cc.m.EC.Finality
@@ -54,8 +54,6 @@ func (cc *CertChain) GetCommittee(instance uint64) (*gpbft.Committee, error) {
 		certAtLookback := cc.certificates[lookbackIndex]
 		committeeEpoch = certAtLookback.ECChain.Head().Epoch
 	}
-	//TODO refactor CommitteeProvider in gpbft to take context.
-	ctx := context.TODO()
 	tspt, err := cc.getTipSetWithPowerTableByEpoch(ctx, committeeEpoch)
 	if err != nil {
 		return nil, err
@@ -63,22 +61,20 @@ func (cc *CertChain) GetCommittee(instance uint64) (*gpbft.Committee, error) {
 	return cc.getCommittee(tspt)
 }
 
-func (cc *CertChain) GetProposal(instance uint64) (*gpbft.SupplementalData, *gpbft.ECChain, error) {
-	//TODO refactor ProposalProvider in gpbft to take context.
-	ctx := context.TODO()
+func (cc *CertChain) GetProposal(ctx context.Context, instance uint64) (*gpbft.SupplementalData, *gpbft.ECChain, error) {
 	proposal, err := cc.generateProposal(ctx, instance)
 	if err != nil {
 		return nil, nil, err
 	}
-	suppData, err := cc.getSupplementalData(instance)
+	suppData, err := cc.getSupplementalData(ctx, instance)
 	if err != nil {
 		return nil, nil, err
 	}
 	return suppData, proposal, nil
 }
 
-func (cc *CertChain) getSupplementalData(instance uint64) (*gpbft.SupplementalData, error) {
-	nextCommittee, err := cc.GetCommittee(instance + 1)
+func (cc *CertChain) getSupplementalData(ctx context.Context, instance uint64) (*gpbft.SupplementalData, error) {
+	nextCommittee, err := cc.GetCommittee(ctx, instance+1)
 	if err != nil {
 		return nil, err
 	}
@@ -270,13 +266,13 @@ func (cc *CertChain) Generate(ctx context.Context, length uint64) ([]*certs.Fina
 	}
 
 	instance := cc.m.InitialInstance
-	committee, err := cc.GetCommittee(instance)
+	committee, err := cc.GetCommittee(ctx, instance)
 	if err != nil {
 		return nil, err
 	}
 	var nextCommittee *gpbft.Committee
 	for range length {
-		suppData, proposal, err := cc.GetProposal(instance)
+		suppData, proposal, err := cc.GetProposal(ctx, instance)
 		if err != nil {
 			return nil, err
 		}
@@ -291,7 +287,7 @@ func (cc *CertChain) Generate(ctx context.Context, length uint64) ([]*certs.Fina
 			return nil, err
 		}
 
-		nextCommittee, err = cc.GetCommittee(instance + 1)
+		nextCommittee, err = cc.GetCommittee(ctx, instance+1)
 		if err != nil {
 			return nil, err
 		}
@@ -314,14 +310,14 @@ func (cc *CertChain) Validate(ctx context.Context, crts []*certs.FinalityCertifi
 	for _, cert := range crts {
 		instance := cert.GPBFTInstance
 		proposal := cert.ECChain
-		suppData, err := cc.getSupplementalData(instance)
+		suppData, err := cc.getSupplementalData(ctx, instance)
 		if err != nil {
 			return err
 		}
 		if !suppData.Eq(&cert.SupplementalData) {
 			return fmt.Errorf("supplemental data mismatch at instance %d", instance)
 		}
-		committee, err := cc.GetCommittee(instance)
+		committee, err := cc.GetCommittee(ctx, instance)
 		if err != nil {
 			return fmt.Errorf("getting committee for instance %d: %w", instance, err)
 		}

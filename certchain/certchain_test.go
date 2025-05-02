@@ -73,7 +73,7 @@ func TestCertChain_GenerateAndVerify(t *testing.T) {
 	generatedChain, err := subject.Generate(ctx, certChainLength)
 	require.NoError(t, err)
 
-	initialCommittee, err := subject.GetCommittee(m.InitialInstance)
+	initialCommittee, err := subject.GetCommittee(ctx, m.InitialInstance)
 	require.NoError(t, err)
 
 	nextInstance, _, _, err := certs.ValidateFinalityCertificates(

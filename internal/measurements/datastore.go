@@ -51,56 +51,56 @@ func NewMeteredDatastore(meter metric.Meter, metricsPrefix string, delegate data
 
 func (m *meteredDatastore) Get(ctx context.Context, key datastore.Key) (_value []byte, _err error) {
 	defer func(start time.Time) {
-		m.recordMetrics(context.TODO(), time.Since(start), len(_value), _err, attrDsOperationGet)
+		m.recordMetrics(ctx, time.Since(start), len(_value), _err, attrDsOperationGet)
 	}(time.Now())
 	return m.delegate.Get(ctx, key)
 }
 
 func (m *meteredDatastore) Has(ctx context.Context, key datastore.Key) (_ bool, _err error) {
 	defer func(start time.Time) {
-		m.recordMetrics(context.TODO(), time.Since(start), -1, _err, attrDsOperationHas)
+		m.recordMetrics(ctx, time.Since(start), -1, _err, attrDsOperationHas)
 	}(time.Now())
 	return m.delegate.Has(ctx, key)
 }
 
 func (m *meteredDatastore) GetSize(ctx context.Context, key datastore.Key) (_size int, _err error) {
 	defer func(start time.Time) {
-		m.recordMetrics(context.TODO(), time.Since(start), _size, _err, attrDsOperationGetSize)
+		m.recordMetrics(ctx, time.Since(start), _size, _err, attrDsOperationGetSize)
 	}(time.Now())
 	return m.delegate.GetSize(ctx, key)
 }
 
 func (m *meteredDatastore) Query(ctx context.Context, q query.Query) (_ query.Results, _err error) {
 	defer func(start time.Time) {
-		m.recordMetrics(context.TODO(), time.Since(start), -1, _err, attrDsOperationQuery)
+		m.recordMetrics(ctx, time.Since(start), -1, _err, attrDsOperationQuery)
 	}(time.Now())
 	return m.delegate.Query(ctx, q)
 }
 
 func (m *meteredDatastore) Put(ctx context.Context, key datastore.Key, value []byte) (_err error) {
 	defer func(start time.Time) {
-		m.recordMetrics(context.TODO(), time.Since(start), len(value), _err, attrDsOperationPut)
+		m.recordMetrics(ctx, time.Since(start), len(value), _err, attrDsOperationPut)
 	}(time.Now())
 	return m.delegate.Put(ctx, key, value)
 }
 
 func (m *meteredDatastore) Delete(ctx context.Context, key datastore.Key) (_err error) {
 	defer func(start time.Time) {
-		m.recordMetrics(context.TODO(), time.Since(start), -1, _err, attrDsOperationDelete)
+		m.recordMetrics(ctx, time.Since(start), -1, _err, attrDsOperationDelete)
 	}(time.Now())
 	return m.delegate.Delete(ctx, key)
 }
 
 func (m *meteredDatastore) Sync(ctx context.Context, prefix datastore.Key) (_err error) {
 	defer func(start time.Time) {
-		m.recordMetrics(context.TODO(), time.Since(start), -1, _err, attrDsOperationSync)
+		m.recordMetrics(ctx, time.Since(start), -1, _err, attrDsOperationSync)
 	}(time.Now())
 	return m.delegate.Sync(ctx, prefix)
 }
 
 func (m *meteredDatastore) Close() (_err error) {
 	defer func(start time.Time) {
-		m.recordMetrics(context.TODO(), time.Since(start), -1, _err, attrDsOperationClose)
+		m.recordMetrics(context.Background(), time.Since(start), -1, _err, attrDsOperationClose)
 	}(time.Now())
 	return m.delegate.Close()
 }

@@ -4,7 +4,10 @@ import "github.com/filecoin-project/go-f3/gpbft"
 
 type Receiver interface {
 	gpbft.Receiver
-	ID() gpbft.ActorID
+	Censorer
+}
+
+type Censorer interface {
 	AllowMessage(from gpbft.ActorID, to gpbft.ActorID, msg gpbft.GMessage) bool
 }
 
@@ -23,4 +26,11 @@ type Generator func(gpbft.ActorID, Host) *Adversary
 type Adversary struct {
 	Receiver
 	Power gpbft.StoragePower
+	ID    gpbft.ActorID
 }
+
+var _ Censorer = (*allowAll)(nil)
+
+type allowAll struct{}
+
+func (allowAll) AllowMessage(gpbft.ActorID, gpbft.ActorID, gpbft.GMessage) bool { return true }

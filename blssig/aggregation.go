@@ -82,7 +82,7 @@ func (a *aggregation) VerifyAggregate(mask []int, msg []byte, signature []byte) 
 		}
 
 		metrics.verifyAggregate.Record(
-			context.TODO(), int64(len(mask)),
+			context.Background(), int64(len(mask)),
 			metric.WithAttributes(status),
 		)
 	}()

@@ -133,7 +133,7 @@ func (p *Participant) Progress() InstanceProgress {
 // ValidateMessage checks if the given message is valid. If invalid, an error is
 // returned. ErrValidationInvalid indicates that the message will never be valid
 // invalid and may be safely dropped.
-func (p *Participant) ValidateMessage(msg *GMessage) (valid ValidatedMessage, err error) {
+func (p *Participant) ValidateMessage(ctx context.Context, msg *GMessage) (valid ValidatedMessage, err error) {
 	// This method is not protected by the API mutex, it is intended for concurrent use.
 	// The instance mutex is taken when appropriate by inner methods.
 	defer func() {
@@ -141,14 +141,14 @@ func (p *Participant) ValidateMessage(msg *GMessage) (valid ValidatedMessage, er
 			err = newPanicError(r)
 		}
 		if err != nil {
-			metrics.errorCounter.Add(context.TODO(), 1, metric.WithAttributes(metricAttributeFromError(err)))
+			metrics.errorCounter.Add(ctx, 1, metric.WithAttributes(metricAttributeFromError(err)))
 		}
 	}()
-	return p.validator.ValidateMessage(msg)
+	return p.validator.ValidateMessage(ctx, msg)
 }
 
 // Receives a validated Granite message from some other participant.
-func (p *Participant) ReceiveMessage(vmsg ValidatedMessage) (err error) {
+func (p *Participant) ReceiveMessage(ctx context.Context, vmsg ValidatedMessage) (err error) {
 	if !p.apiMutex.TryLock() {
 		panic("concurrent API method invocation")
 	}
@@ -158,7 +158,7 @@ func (p *Participant) ReceiveMessage(vmsg ValidatedMessage) (err error) {
 			err = newPanicError(r)
 		}
 		if err != nil {
-			metrics.errorCounter.Add(context.TODO(), 1, metric.WithAttributes(metricAttributeFromError(err)))
+			metrics.errorCounter.Add(ctx, 1, metric.WithAttributes(metricAttributeFromError(err)))
 		}
 	}()
 	msg := vmsg.Message()
@@ -176,7 +176,7 @@ func (p *Participant) ReceiveMessage(vmsg ValidatedMessage) (err error) {
 		if err := p.gpbft.Receive(msg); err != nil {
 			return fmt.Errorf("%w: %w", ErrReceivedInternalError, err)
 		}
-		p.handleDecision()
+		p.handleDecision(ctx)
 	} else {
 		// Otherwise queue it for a future instance.
 		p.mqueue.Add(msg)
@@ -184,7 +184,7 @@ func (p *Participant) ReceiveMessage(vmsg ValidatedMessage) (err error) {
 	return nil
 }
 
-func (p *Participant) ReceiveAlarm() (err error) {
+func (p *Participant) ReceiveAlarm(ctx context.Context) (err error) {
 	if !p.apiMutex.TryLock() {
 		panic("concurrent API method invocation")
 	}
@@ -194,28 +194,28 @@ func (p *Participant) ReceiveAlarm() (err error) {
 			err = newPanicError(r)
 		}
 		if err != nil {
-			metrics.errorCounter.Add(context.TODO(), 1, metric.WithAttributes(metricAttributeFromError(err)))
+			metrics.errorCounter.Add(ctx, 1, metric.WithAttributes(metricAttributeFromError(err)))
 		}
 	}()
 
 	if p.gpbft == nil {
 		// The alarm is for fetching the next chain and beginning a new instance.
-		return p.beginInstance()
+		return p.beginInstance(ctx)
 	}
 	if err := p.gpbft.ReceiveAlarm(); err != nil {
 		return fmt.Errorf("failed receiving alarm: %w", err)
 	}
-	p.handleDecision()
+	p.handleDecision(ctx)
 	return nil
 }
 
-func (p *Participant) beginInstance() error {
+func (p *Participant) beginInstance(ctx context.Context) error {
 	currentInstance := p.Progress().ID
-	data, chain, err := p.host.GetProposal(currentInstance)
+	data, chain, err := p.host.GetProposal(ctx, currentInstance)
 	if err != nil {
 		return fmt.Errorf("failed fetching chain for instance %d: %w", currentInstance, err)
 	}
-	// Limit length of the chain to be proposed.
+	// Limit the length of the chain to be proposed.
 	if chain.IsZero() {
 		return errors.New("canonical chain cannot be zero-valued")
 	}
@@ -224,7 +224,7 @@ func (p *Participant) beginInstance() error {
 		return fmt.Errorf("invalid canonical chain: %w", err)
 	}
 
-	comt, err := p.committeeProvider.GetCommittee(currentInstance)
+	comt, err := p.committeeProvider.GetCommittee(ctx, currentInstance)
 	if err != nil {
 		return err
 	}
@@ -244,16 +244,16 @@ func (p *Participant) beginInstance() error {
 	if err := p.gpbft.ReceiveMany(queued); err != nil {
 		return fmt.Errorf("delivering queued messages: %w", err)
 	}
-	p.handleDecision()
+	p.handleDecision(ctx)
 	return nil
 }
 
-func (p *Participant) handleDecision() {
+func (p *Participant) handleDecision(ctx context.Context) {
 	if !p.terminated() {
 		return
 	}
 	decision := p.finishCurrentInstance()
-	nextStart, err := p.host.ReceiveDecision(decision)
+	nextStart, err := p.host.ReceiveDecision(ctx, decision)
 	if err != nil {
 		p.trace("failed to receive decision: %+v", err)
 		p.host.SetAlarm(time.Time{})

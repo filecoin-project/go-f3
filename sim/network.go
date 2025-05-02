@@ -169,6 +169,7 @@ func (n *Network) HasMoreTicks() bool {
 // Tick disseminates one message among participants and returns whether there are
 // any more messages to process.
 func (n *Network) Tick(adv *adversary.Adversary) error {
+	ctx := context.TODO()
 	msg := n.queue.Remove()
 	n.clock = msg.deliverAt
 
@@ -182,7 +183,7 @@ func (n *Network) Tick(adv *adversary.Adversary) error {
 			return fmt.Errorf("unknwon string message payload: %s", payload)
 		}
 		n.log(TraceRecvd, "P%d %s", msg.source, payload)
-		if err := receiver.ReceiveAlarm(); err != nil {
+		if err := receiver.ReceiveAlarm(ctx); err != nil {
 			return fmt.Errorf("failed to deliver alarm from %d to %d: %w", msg.source, msg.dest, err)
 		}
 	case gpbft.GMessage:
@@ -197,7 +198,7 @@ func (n *Network) Tick(adv *adversary.Adversary) error {
 				return nil
 			}
 		}
-		validated, err := receiver.ValidateMessage(&payload)
+		validated, err := receiver.ValidateMessage(ctx, &payload)
 		if err != nil {
 			if errors.Is(err, gpbft.ErrValidationTooOld) {
 				// Silently drop old messages.
@@ -206,7 +207,7 @@ func (n *Network) Tick(adv *adversary.Adversary) error {
 			return fmt.Errorf("invalid message from %d to %d: %w", msg.source, msg.dest, err)
 		}
 		n.log(TraceRecvd, "P%d ← P%d: %v", msg.dest, msg.source, msg.payload)
-		if err := receiver.ReceiveMessage(validated); err != nil {
+		if err := receiver.ReceiveMessage(ctx, validated); err != nil {
 			return fmt.Errorf("failed to deliver message from %d to %d: %w", msg.source, msg.dest, err)
 		}
 	default:

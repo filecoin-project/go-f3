@@ -68,7 +68,7 @@ func (s *Simulation) Run(instanceCount uint64, maxRounds uint64) error {
 
 	// Exclude adversary ID when checking for decision or instance completion.
 	if s.adversary != nil {
-		s.ignoreConsensusFor = append(s.ignoreConsensusFor, s.adversary.ID())
+		s.ignoreConsensusFor = append(s.ignoreConsensusFor, s.adversary.ID)
 	}
 
 	// Run until there are no more messages, meaning termination or deadlock.
@@ -155,7 +155,7 @@ func (s *Simulation) startParticipants(instance uint64) {
 	// Start adversary
 	if s.adversary != nil {
 		if err := s.adversary.StartInstanceAt(instance, when); err != nil {
-			panic(fmt.Errorf("adversary %d failed starting: %w", s.adversary.ID(), err))
+			panic(fmt.Errorf("adversary %d failed starting: %w", s.adversary.ID, err))
 		}
 	}
 }

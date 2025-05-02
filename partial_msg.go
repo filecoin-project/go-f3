@@ -149,7 +149,7 @@ func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyV
 							case <-ctx.Done():
 								return
 							case dropped := <-completedMessages:
-								metrics.partialMessagesDropped.Add(context.Background(), 1, metric.WithAttributes(attribute.String("kind", "completed_message")))
+								metrics.partialMessagesDropped.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", "completed_message")))
 								select {
 								case <-ctx.Done():
 									return
@@ -298,7 +298,7 @@ func (pmm *partialMessageManager) BroadcastChain(ctx context.Context, instance u
 		case <-ctx.Done():
 			return nil
 		case dropped := <-pmm.pendingChainBroadcasts:
-			metrics.partialMessagesDropped.Add(context.Background(), 1, metric.WithAttributes(attribute.String("kind", "chain_broadcast")))
+			metrics.partialMessagesDropped.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", "chain_broadcast")))
 			select {
 			case <-ctx.Done():
 				return nil

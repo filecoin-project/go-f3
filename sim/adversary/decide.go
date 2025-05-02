@@ -32,14 +32,16 @@ func ImmediateDecideWithJustifiedSupplementalData(data gpbft.SupplementalData) I
 	}
 }
 
-// / An "adversary" that immediately sends a DECIDE message, justified by its own COMMIT.
+// ImmediateDecide is an adversary that immediately sends a DECIDE message, justified by its own COMMIT.
 type ImmediateDecide struct {
-	id            gpbft.ActorID
-	host          Host
-	value, jValue *gpbft.ECChain
-
+	id                    gpbft.ActorID
+	host                  Host
+	value, jValue         *gpbft.ECChain
 	additionalParticipant *uint64
 	supplementalData      *gpbft.SupplementalData
+
+	Absent
+	allowAll
 }
 
 func NewImmediateDecide(id gpbft.ActorID, host Host, value *gpbft.ECChain, opts ...ImmediateDecideOption) *ImmediateDecide {
@@ -60,20 +62,18 @@ func NewImmediateDecideGenerator(value *gpbft.ECChain, power gpbft.StoragePower,
 		return &Adversary{
 			Receiver: NewImmediateDecide(id, host, value, opts...),
 			Power:    power,
+			ID:       id,
 		}
 	}
 }
 
-func (i *ImmediateDecide) ID() gpbft.ActorID {
-	return i.id
-}
-
-func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) error {
-	supplementalData, _, err := i.host.GetProposal(instance)
+func (i *ImmediateDecide) StartInstanceAt(instance uint64, _ time.Time) error {
+	ctx := context.Background()
+	supplementalData, _, err := i.host.GetProposal(ctx, instance)
 	if err != nil {
 		panic(err)
 	}
-	committee, err := i.host.GetCommittee(instance)
+	committee, err := i.host.GetCommittee(ctx, instance)
 	if err != nil {
 		panic(err)
 	}
@@ -149,21 +149,4 @@ func (i *ImmediateDecide) StartInstanceAt(instance uint64, _when time.Time) erro
 		panic(err)
 	}
 	return nil
-}
-
-func (*ImmediateDecide) ValidateMessage(msg *gpbft.GMessage) (gpbft.ValidatedMessage, error) {
-	return Validated(msg), nil
-}
-
-func (*ImmediateDecide) ReceiveMessage(_ gpbft.ValidatedMessage) error {
-	return nil
-}
-
-func (*ImmediateDecide) ReceiveAlarm() error {
-	return nil
-}
-
-func (*ImmediateDecide) AllowMessage(_ gpbft.ActorID, _ gpbft.ActorID, _ gpbft.GMessage) bool {
-	// Allow all messages
-	return true
 }

@@ -180,11 +180,11 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 	finalityCertificates, unsubCerts := h.certStore.Subscribe()
 	select {
 	case c := <-finalityCertificates:
-		if err := h.receiveCertificate(c); err != nil {
+		if err := h.receiveCertificate(ctx, c); err != nil {
 			log.Errorf("error when receiving certificate: %+v", err)
 		}
 	default:
-		if err := h.startInstanceAt(h.manifest.InitialInstance, h.clock.Now()); err != nil {
+		if err := h.startInstanceAt(ctx, h.manifest.InitialInstance, h.clock.Now()); err != nil {
 			log.Errorf("error when starting instance %d: %+v", h.manifest.InitialInstance, err)
 		}
 	}
@@ -197,15 +197,15 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 			}
 		}()
 		for h.runningCtx.Err() == nil {
-			// prioritise finality certificates and alarm delivery
+			// Prioritize finality certificates and alarm delivery
 			select {
 			case c := <-finalityCertificates:
-				if err := h.receiveCertificate(c); err != nil {
+				if err := h.receiveCertificate(h.runningCtx, c); err != nil {
 					log.Errorf("error when recieving certificate: %+v", err)
 				}
 				continue
 			case <-h.alertTimer.C:
-				if err := h.participant.ReceiveAlarm(); err != nil {
+				if err := h.participant.ReceiveAlarm(h.runningCtx); err != nil {
 					// TODO: Probably want to just abort the instance and wait
 					// for a finality certificate at this point?
 					log.Errorf("error when receiving alarm: %+v", err)
@@ -217,11 +217,11 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 			// Handle messages, completed messages, finality certificates, and alarms
 			select {
 			case c := <-finalityCertificates:
-				if err := h.receiveCertificate(c); err != nil {
+				if err := h.receiveCertificate(h.runningCtx, c); err != nil {
 					log.Errorf("error when recieving certificate: %+v", err)
 				}
 			case <-h.alertTimer.C:
-				if err := h.participant.ReceiveAlarm(); err != nil {
+				if err := h.participant.ReceiveAlarm(h.runningCtx); err != nil {
 					// TODO: Probably want to just abort the instance and wait
 					// for a finality certificate at this point?
 					log.Errorf("error when receiving alarm: %+v", err)
@@ -230,7 +230,7 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 				if !ok {
 					return fmt.Errorf("incoming message queue closed")
 				}
-				if err := h.participant.ReceiveMessage(msg); err != nil {
+				if err := h.participant.ReceiveMessage(h.runningCtx, msg); err != nil {
 					// We silently drop failed messages because GPBFT will
 					// return errors for, e.g., messages from old instances.
 					// Given the async nature of our pubsub message handling, we
@@ -244,12 +244,12 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 				if !ok {
 					return fmt.Errorf("incoming completed message queue closed")
 				}
-				switch validatedMessage, err := h.pmv.ValidateMessage(pvmsg); {
+				switch validatedMessage, err := h.pmv.ValidateMessage(h.runningCtx, pvmsg); {
 				case err != nil:
 					log.Debugw("Invalid partially validated message", "err", err)
 				default:
-					recordValidatedMessage(ctx, validatedMessage)
-					if err := h.participant.ReceiveMessage(validatedMessage); err != nil {
+					recordValidatedMessage(h.runningCtx, validatedMessage)
+					if err := h.participant.ReceiveMessage(h.runningCtx, validatedMessage); err != nil {
 						log.Errorw("error while processing completed message", "err", err)
 					}
 				}
@@ -273,7 +273,7 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 	//     to allow checkpointing of future finality certificates.
 	//
 	// Triggering the checkpointing here means that certstore remains the sole source
-	// of truth in terms of tipsets that have been finalised.
+	// of truth in terms of tipsets that have been finalized.
 	finalize, unsubFinalize := h.certStore.Subscribe()
 	h.errgrp.Go(func() error {
 		defer unsubFinalize()
@@ -297,7 +297,7 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 						// will not impact the selection of next instance chain.
 						log.Errorf("error while finalizing decision at EC: %+v", err)
 					}
-					metrics.ecFinalizeTime.Record(context.Background(), time.Since(start).Seconds(), metric.WithAttributes(attrStatusFromErr(err)))
+					metrics.ecFinalizeTime.Record(h.runningCtx, time.Since(start).Seconds(), metric.WithAttributes(attrStatusFromErr(err)))
 				} else {
 					ts := cert.ECChain.Head()
 					log.Debugw("skipping finalization of a new head because the current manifest specifies that tipsets should not be finalized",
@@ -326,7 +326,7 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 	return nil
 }
 
-func (h *gpbftRunner) receiveCertificate(c *certs.FinalityCertificate) error {
+func (h *gpbftRunner) receiveCertificate(ctx context.Context, c *certs.FinalityCertificate) error {
 	nextInstance := c.GPBFTInstance + 1
 	currentInstance := h.participant.Progress().ID
 	if currentInstance >= nextInstance {
@@ -336,10 +336,10 @@ func (h *gpbftRunner) receiveCertificate(c *certs.FinalityCertificate) error {
 	log.Debugw("skipping forwards based on cert", "from", currentInstance, "to", nextInstance)
 
 	nextInstanceStart := h.computeNextInstanceStart(c)
-	return h.startInstanceAt(nextInstance, nextInstanceStart)
+	return h.startInstanceAt(ctx, nextInstance, nextInstanceStart)
 }
 
-func (h *gpbftRunner) startInstanceAt(instance uint64, at time.Time) error {
+func (h *gpbftRunner) startInstanceAt(ctx context.Context, instance uint64, at time.Time) error {
 	// Look for any existing messages in WAL for the next instance, and if there is
 	// any replay them to self to aid the participant resume progress when possible.
 	//
@@ -381,9 +381,9 @@ func (h *gpbftRunner) startInstanceAt(instance uint64, at time.Time) error {
 	})
 
 	for _, message := range replay {
-		if validated, err := h.participant.ValidateMessage(message); err != nil {
+		if validated, err := h.participant.ValidateMessage(ctx, message); err != nil {
 			log.Warnw("invalid self message", "message", message, "err", err)
-		} else if err := h.participant.ReceiveMessage(validated); err != nil {
+		} else if err := h.participant.ReceiveMessage(ctx, validated); err != nil {
 			log.Warnw("failed to send resumption message", "message", message, "err", err)
 		}
 	}
@@ -555,7 +555,7 @@ func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, _ peer.ID, msg 
 
 	gmsg, completed := h.pmm.CompleteMessage(ctx, &pgmsg)
 	if !completed {
-		partiallyValidatedMessage, err := h.pmv.PartiallyValidateMessage(&pgmsg)
+		partiallyValidatedMessage, err := h.pmv.PartiallyValidateMessage(ctx, &pgmsg)
 		result := pubsubValidationResultFromError(err)
 		if result == pubsub.ValidationAccept {
 			msg.ValidatorData = partiallyValidatedMessage
@@ -564,7 +564,7 @@ func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, _ peer.ID, msg 
 		return result
 	}
 
-	validatedMessage, err := h.participant.ValidateMessage(gmsg)
+	validatedMessage, err := h.participant.ValidateMessage(ctx, gmsg)
 	result := pubsubValidationResultFromError(err)
 	if result == pubsub.ValidationAccept {
 		recordValidatedMessage(ctx, validatedMessage)
@@ -707,8 +707,8 @@ func (h *gpbftHost) RequestRebroadcast(instant gpbft.Instant) error {
 	return err
 }
 
-func (h *gpbftHost) GetProposal(instance uint64) (*gpbft.SupplementalData, *gpbft.ECChain, error) {
-	proposal, chain, err := h.inputs.GetProposal(h.runningCtx, instance)
+func (h *gpbftHost) GetProposal(ctx context.Context, instance uint64) (*gpbft.SupplementalData, *gpbft.ECChain, error) {
+	proposal, chain, err := h.inputs.GetProposal(ctx, instance)
 	if err == nil {
 		// Only broadcast the chain if this is a fresh instance started by self to avoid
 		// broadcasting a proposal that otherwise would get filtered by the
@@ -717,7 +717,7 @@ func (h *gpbftHost) GetProposal(instance uint64) (*gpbft.SupplementalData, *gpbf
 		_, found := h.selfMessages[instance]
 		h.msgsMutex.Unlock()
 		if !found {
-			if err := h.pmm.BroadcastChain(h.runningCtx, instance, chain); err != nil {
+			if err := h.pmm.BroadcastChain(ctx, instance, chain); err != nil {
 				log.Warnw("failed to broadcast chain", "instance", instance, "error", err)
 			}
 		}
@@ -725,8 +725,8 @@ func (h *gpbftHost) GetProposal(instance uint64) (*gpbft.SupplementalData, *gpbf
 	return proposal, chain, err
 }
 
-func (h *gpbftHost) GetCommittee(instance uint64) (*gpbft.Committee, error) {
-	return h.inputs.GetCommittee(h.runningCtx, instance)
+func (h *gpbftHost) GetCommittee(ctx context.Context, instance uint64) (*gpbft.Committee, error) {
+	return h.inputs.GetCommittee(ctx, instance)
 }
 
 func (h *gpbftRunner) Stop(ctx context.Context) error {
@@ -794,15 +794,15 @@ func (h *gpbftHost) SetAlarm(at time.Time) {
 // The notification must return the timestamp at which the next instance should begin,
 // based on the decision received (which may be in the past).
 // E.g. this might be: finalised tipset timestamp + epoch duration + stabilisation delay.
-func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) (time.Time, error) {
+func (h *gpbftHost) ReceiveDecision(ctx context.Context, decision *gpbft.Justification) (time.Time, error) {
 	log.Infow("reached a decision", "instance", decision.Vote.Instance,
 		"ecHeadEpoch", decision.Vote.Value.Head().Epoch)
 	if decision.Vote.Instance > 0 {
 		oldInstance := decision.Vote.Instance - 1
 		h.pmCache.RemoveGroupsLessThan(oldInstance)
-		h.pmm.RemoveMessagesBeforeInstance(context.Background(), oldInstance)
+		h.pmm.RemoveMessagesBeforeInstance(ctx, oldInstance)
 	}
-	cert, err := h.saveDecision(decision)
+	cert, err := h.saveDecision(ctx, decision)
 	if err != nil {
 		err := fmt.Errorf("error while saving decision: %+v", err)
 		log.Error(err)
@@ -811,14 +811,14 @@ func (h *gpbftHost) ReceiveDecision(decision *gpbft.Justification) (time.Time, e
 	return (*gpbftRunner)(h).computeNextInstanceStart(cert), nil
 }
 
-func (h *gpbftHost) saveDecision(decision *gpbft.Justification) (*certs.FinalityCertificate, error) {
+func (h *gpbftHost) saveDecision(ctx context.Context, decision *gpbft.Justification) (*certs.FinalityCertificate, error) {
 	instance := decision.Vote.Instance
-	current, err := h.GetCommittee(instance)
+	current, err := h.GetCommittee(ctx, instance)
 	if err != nil {
 		return nil, fmt.Errorf("getting commitee for current instance %d: %w", instance, err)
 	}
 
-	next, err := h.GetCommittee(instance + 1)
+	next, err := h.GetCommittee(ctx, instance+1)
 	if err != nil {
 		return nil, fmt.Errorf("getting commitee for next instance %d: %w", instance+1, err)
 	}
