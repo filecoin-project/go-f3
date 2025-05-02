@@ -17,14 +17,20 @@ func VerifyTicket(nn NetworkName, beacon []byte, instance uint64, round uint64, 
 // Serializes the input to the VRF signature for the CONVERGE phase of GossiPBFT.
 // Only used for VRF ticket creation and/or verification.
 func vrfSerializeSigInput(beacon []byte, instance uint64, round uint64, networkName NetworkName) []byte {
+	const separator = ":"
 	var buf bytes.Buffer
+	buf.Grow(len(DomainSeparationTagVRF) +
+		len(beacon) +
+		len(networkName) +
+		len(separator)*3 +
+		16)
 
 	buf.WriteString(DomainSeparationTagVRF)
-	buf.WriteString(":")
+	buf.WriteString(separator)
 	buf.WriteString(string(networkName))
-	buf.WriteString(":")
+	buf.WriteString(separator)
 	buf.Write(beacon)
-	buf.WriteString(":")
+	buf.WriteString(separator)
 	_ = binary.Write(&buf, binary.BigEndian, instance)
 	_ = binary.Write(&buf, binary.BigEndian, round)
 
