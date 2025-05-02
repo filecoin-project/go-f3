@@ -34,8 +34,9 @@ func TestPowerStore(t *testing.T) {
 
 	m := manifest.LocalDevnetManifest()
 
-	ec := consensus.NewFakeEC(ctx,
-		consensus.WithNullTipsetProbablity(0),
+	ec := consensus.NewFakeEC(
+		consensus.WithClock(clk),
+		consensus.WithNullTipsetProbability(0),
 		consensus.WithMaxLookback(2*m.EC.Finality),
 		consensus.WithBootstrapEpoch(m.BootstrapEpoch),
 		consensus.WithECPeriod(m.EC.Period),

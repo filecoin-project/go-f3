@@ -222,7 +222,8 @@ func TestF3EpochFinalizedWithChainExchange(t *testing.T) {
 		})
 	}
 
-	env.ec = consensus.NewFakeEC(env.testCtx,
+	env.ec = consensus.NewFakeEC(
+		consensus.WithClock(env.clock),
 		consensus.WithSeed(1413),
 		consensus.WithBootstrapEpoch(env.manifest.BootstrapEpoch),
 		consensus.WithMaxLookback(2*env.manifest.EC.Finality),
@@ -232,7 +233,8 @@ func TestF3EpochFinalizedWithChainExchange(t *testing.T) {
 		consensus.WithForkAfterEpochs(10),
 	)
 
-	env.nodes[0].ec = consensus.NewFakeEC(env.testCtx,
+	env.nodes[0].ec = consensus.NewFakeEC(
+		consensus.WithClock(env.clock),
 		consensus.WithSeed(1413),
 		consensus.WithBootstrapEpoch(env.manifest.BootstrapEpoch),
 		consensus.WithMaxLookback(2*env.manifest.EC.Finality),
@@ -586,7 +588,8 @@ func (e *testEnv) initialize() *testEnv {
 			})
 		}
 
-		e.ec = consensus.NewFakeEC(e.testCtx,
+		e.ec = consensus.NewFakeEC(
+			consensus.WithClock(e.clock),
 			consensus.WithSeed(1413),
 			consensus.WithBootstrapEpoch(e.manifest.BootstrapEpoch),
 			consensus.WithMaxLookback(2*e.manifest.EC.Finality),
