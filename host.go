@@ -72,9 +72,6 @@ type roundPhase struct {
 
 // Lack of progress patches in mainnet at instance 6017
 
-//go:embed mainnet_bootstrappers.pi
-var mainnetBootstrappers []byte
-
 func newRunner(
 	ctx context.Context,
 	cs *certstore.Store,
@@ -113,7 +110,6 @@ func newRunner(
 
 	var err error
 	runner.observer, err = observer.New(
-		observer.WithBootstrapAddrsFromString(string(mainnetBootstrappers)),
 		observer.WithStaticNetworkName("filecoin"),
 		observer.WithRetention(14*24*time.Hour),
 		observer.WithQueryServerListenAddress("0.0.0.0:45990"),
