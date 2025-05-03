@@ -65,9 +65,6 @@ func newOptions(opts ...Option) (*options, error) {
 			return nil, err
 		}
 	}
-	if len(opt.bootstrapAddrs) == 0 {
-		return nil, fmt.Errorf("at least one bootstrap address must be provided")
-	}
 	if opt.networkNameChangeListener == nil {
 		return nil, fmt.Errorf("network name change listener must be provided")
 	}
