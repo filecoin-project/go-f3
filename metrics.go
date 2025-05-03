@@ -12,11 +12,6 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-var attrCacheHit = attribute.String("cache", "hit")
-var attrCacheMiss = attribute.String("cache", "miss")
-var attrCacheKindMessage = attribute.String("kind", "message")
-var attrCacheKindJustification = attribute.String("kind", "justification")
-
 var meter = otel.Meter("f3")
 var samples = struct {
 	messages       *measurements.SampleSet

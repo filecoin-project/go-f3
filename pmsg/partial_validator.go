@@ -1,4 +1,4 @@
-package f3
+package pmsg
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	_                           PartialMessageValidator = (*cachingPartialValidator)(nil)
+	_                           PartialMessageValidator = (*CachingPartialValidator)(nil)
 	_                           gpbft.ValidatedMessage  = (*fullyValidatedMessage)(nil)
 	messageCacheNamespace                               = []byte("partial_message")
 	justificationCacheNamespace                         = []byte("partial_justification")
@@ -36,7 +36,7 @@ func (v fullyValidatedMessage) Message() *gpbft.GMessage { return v.GMessage }
 //       for taking a debt having a two flavour validator to be paid later.
 //       See: https://github.com/filecoin-project/go-f3/issues/826
 
-type cachingPartialValidator struct {
+type CachingPartialValidator struct {
 	cache             *caching.GroupedSet
 	committeeLookback uint64
 	committeeProvider gpbft.CommitteeProvider
@@ -45,8 +45,8 @@ type cachingPartialValidator struct {
 	progress          gpbft.Progress
 }
 
-func newCachingPartialValidator(host gpbft.Host, progress gpbft.Progress, cache *caching.GroupedSet, committeeLookback uint64) *cachingPartialValidator {
-	return &cachingPartialValidator{
+func NewCachingPartialValidator(host gpbft.Host, progress gpbft.Progress, cache *caching.GroupedSet, committeeLookback uint64) *CachingPartialValidator {
+	return &CachingPartialValidator{
 		cache:             cache,
 		committeeProvider: host,
 		committeeLookback: committeeLookback,
@@ -56,7 +56,7 @@ func newCachingPartialValidator(host gpbft.Host, progress gpbft.Progress, cache 
 	}
 }
 
-func (v *cachingPartialValidator) PartiallyValidateMessage(ctx context.Context, msg *PartialGMessage) (*PartiallyValidatedMessage, error) {
+func (v *CachingPartialValidator) PartiallyValidateMessage(ctx context.Context, msg *PartialGMessage) (*PartiallyValidatedMessage, error) {
 	if msg == nil {
 		return nil, gpbft.ErrValidationInvalid
 	}
@@ -185,7 +185,7 @@ func (v *cachingPartialValidator) PartiallyValidateMessage(ctx context.Context, 
 	return &PartiallyValidatedMessage{PartialGMessage: msg}, nil
 }
 
-func (v *cachingPartialValidator) validateJustification(ctx context.Context, msg *PartialGMessage, comt *gpbft.Committee) error {
+func (v *CachingPartialValidator) validateJustification(ctx context.Context, msg *PartialGMessage, comt *gpbft.Committee) error {
 	if msg.Justification == nil {
 		return fmt.Errorf("message for phase %v round %v has no justification", msg.Vote.Phase, msg.Vote.Round)
 	}
@@ -304,7 +304,7 @@ func (v *cachingPartialValidator) validateJustification(ctx context.Context, msg
 	return nil
 }
 
-func (v *cachingPartialValidator) ValidateMessage(ctx context.Context, pmsg *PartiallyValidatedMessage) (gpbft.ValidatedMessage, error) {
+func (v *CachingPartialValidator) ValidateMessage(ctx context.Context, pmsg *PartiallyValidatedMessage) (gpbft.ValidatedMessage, error) {
 	// A partially validated message validates everything apart from validation rules
 	// that require knowing what the vote value is directly. These rules are:
 	//  - Consistency of the chain key with the chain itself.
