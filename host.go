@@ -18,6 +18,7 @@ import (
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/internal/writeaheadlog"
 	"github.com/filecoin-project/go-f3/manifest"
+	"github.com/filecoin-project/go-f3/pmsg"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"go.opentelemetry.io/otel/metric"
@@ -54,9 +55,9 @@ type gpbftRunner struct {
 	selfMessages map[uint64]map[roundPhase][]*gpbft.GMessage
 
 	inputs      gpbftInputs
-	msgEncoding encoding.EncodeDecoder[*PartialGMessage]
-	pmm         *partialMessageManager
-	pmv         *cachingPartialValidator
+	msgEncoding encoding.EncodeDecoder[*pmsg.PartialGMessage]
+	pmm         *pmsg.PartialMessageManager
+	pmv         *pmsg.CachingPartialValidator
 	pmCache     *caching.GroupedSet
 }
 
@@ -142,22 +143,22 @@ func newRunner(
 	runner.participant = p
 
 	if runner.manifest.PubSub.CompressionEnabled {
-		runner.msgEncoding, err = encoding.NewZSTD[*PartialGMessage]()
+		runner.msgEncoding, err = encoding.NewZSTD[*pmsg.PartialGMessage]()
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		runner.msgEncoding = encoding.NewCBOR[*PartialGMessage]()
+		runner.msgEncoding = encoding.NewCBOR[*pmsg.PartialGMessage]()
 	}
 
-	runner.pmm, err = newPartialMessageManager(runner.Progress, ps, m, runner.clock)
+	runner.pmm, err = pmsg.NewPartialMessageManager(runner.Progress, ps, m, runner.clock)
 	if err != nil {
 		return nil, fmt.Errorf("creating partial message manager: %w", err)
 	}
 
 	runner.pmCache = caching.NewGroupedSet(int(m.CommitteeLookback), m.PartialMessageManager.MaxCachedValidatedMessagesPerInstance)
 	obfuscatedHost := (*gpbftHost)(runner)
-	runner.pmv = newCachingPartialValidator(obfuscatedHost, runner.Progress, runner.pmCache, m.CommitteeLookback)
+	runner.pmv = pmsg.NewCachingPartialValidator(obfuscatedHost, runner.Progress, runner.pmCache, m.CommitteeLookback)
 
 	return runner, nil
 }
@@ -497,7 +498,7 @@ func (h *gpbftRunner) BroadcastMessage(ctx context.Context, msg *gpbft.GMessage)
 		log.Warnw("failed to broadcast chain", "instance", msg.Vote.Instance, "error", err)
 	}
 
-	pmsg, err := h.pmm.toPartialGMessage(msg)
+	pmsg, err := h.pmm.ToPartialGMessage(msg)
 	if err != nil {
 		return err
 	}
@@ -527,7 +528,7 @@ func (h *gpbftRunner) rebroadcastMessage(msg *gpbft.GMessage) error {
 		log.Warnw("failed to rebroadcast chain", "instance", msg.Vote.Instance, "error", err)
 	}
 
-	pmsg, err := h.pmm.toPartialGMessage(msg)
+	pmsg, err := h.pmm.ToPartialGMessage(msg)
 	if err != nil {
 		return err
 	}
@@ -549,7 +550,7 @@ func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, _ peer.ID, msg 
 		recordValidationTime(ctx, start, _result, partiallyValidated)
 	}(time.Now())
 
-	var pgmsg PartialGMessage
+	var pgmsg pmsg.PartialGMessage
 	if err := h.msgEncoding.Decode(msg.Data, &pgmsg); err != nil {
 		log.Debugw("failed to decode message", "from", msg.GetFrom(), "err", err)
 		return pubsub.ValidationReject
@@ -671,8 +672,8 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 				case <-h.runningCtx.Done():
 					return nil
 				}
-			case *PartiallyValidatedMessage:
-				h.pmm.bufferPartialMessage(h.runningCtx, gmsg)
+			case *pmsg.PartiallyValidatedMessage:
+				h.pmm.BufferPartialMessage(h.runningCtx, gmsg)
 			default:
 				log.Errorf("invalid msgValidatorData: %+v", msg.ValidatorData)
 			}
