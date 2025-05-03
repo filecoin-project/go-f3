@@ -63,4 +63,4 @@ CREATE TABLE IF NOT EXISTS latest_messages (
 
 -- Add Key column to latest_messages table to accommodate partial messages.
 ALTER TABLE latest_messages
-ADD COLUMN VoteValueKey BLOB;
+ADD COLUMN IF NOT EXISTS VoteValueKey BLOB;
