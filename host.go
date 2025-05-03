@@ -65,6 +65,8 @@ type roundPhase struct {
 	phase gpbft.Phase
 }
 
+// Lack of progress patches in mainnet at instance 6017
+
 func newRunner(
 	ctx context.Context,
 	cs *certstore.Store,
