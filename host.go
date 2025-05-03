@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"sync"
 	"time"
@@ -649,6 +650,88 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 	}
 
 	messageQueue := make(chan gpbft.ValidatedMessage, h.manifest.PubSub.ValidatedMessageBufferSize)
+
+	incomingPartials := make(chan *pmsg.PartialGMessage, 512)
+
+	h.errgrp.Go(func() error {
+		// rebroadcast worker
+		tick := time.NewTicker(time.Second / 2)
+		defer tick.Stop()
+
+		msgsToSend := func() int {
+			defaultMsgToSend := 16 / 2
+			f, err := os.Open("/tmp/f3_comensation_broadcast_rate")
+			if errors.Is(err, os.ErrNotExist) {
+				return defaultMsgToSend
+			}
+			if err != nil {
+				log.Errorf("error opening broadcast rate file: %+v", err)
+				return defaultMsgToSend
+			}
+			defer f.Close()
+
+			var msgsToSend int
+			_, err = fmt.Fscanf(f, "%d", &msgsToSend)
+			if err != nil {
+				log.Errorf("error reading broadcast rate from file: %+v", err)
+				return defaultMsgToSend
+			}
+			return msgsToSend / 2
+		}
+
+		type partialMsgKey struct {
+			instance uint64
+			sender   gpbft.ActorID
+			round    uint64
+			phase    gpbft.Phase
+		}
+		knownMessages := make(map[partialMsgKey]*pmsg.PartialGMessage)
+		for h.runningCtx.Err() == nil {
+			select {
+			case <-h.runningCtx.Done():
+				return nil
+			case msg, ok := <-incomingPartials:
+				if !ok {
+					return nil
+				}
+				key := partialMsgKey{
+					instance: msg.Vote.Instance,
+					sender:   msg.Sender,
+					round:    msg.Vote.Round,
+					phase:    msg.Vote.Phase,
+				}
+				knownMessages[key] = msg
+			case <-tick.C:
+				toSend := msgsToSend()
+				progress := h.participant.Progress()
+				i := 0
+				for k, msg := range knownMessages {
+					if i >= toSend {
+						break
+					}
+					if progress.ID > k.instance {
+						delete(knownMessages, k)
+					}
+					if progress.Round > k.round+2 && k.phase != gpbft.QUALITY_PHASE && k.phase != gpbft.DECIDE_PHASE {
+						delete(knownMessages, k)
+					}
+
+					i++
+					encoded, err := h.msgEncoding.Encode(msg)
+					if err != nil {
+						log.Errorf("encoding PartialGMessage for re-broadcast: %w", err)
+						continue
+					}
+
+					err = h.topic.Publish(h.runningCtx, encoded)
+					if err != nil {
+						log.Errorf("publishing reboradcast message: %w", err)
+					}
+				}
+			}
+		}
+		return nil
+	})
 	h.errgrp.Go(func() error {
 		defer func() {
 			sub.Cancel()
@@ -673,6 +756,10 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 					return nil
 				}
 			case *pmsg.PartiallyValidatedMessage:
+				select {
+				case incomingPartials <- gmsg.PartialGMessage:
+				default:
+				}
 				h.pmm.BufferPartialMessage(h.runningCtx, gmsg)
 			default:
 				log.Errorf("invalid msgValidatorData: %+v", msg.ValidatorData)
