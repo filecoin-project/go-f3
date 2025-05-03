@@ -3,8 +3,8 @@ package observer
 import (
 	"time"
 
-	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/pmsg"
 )
 
 var emptyCommitments [32]byte
@@ -46,7 +46,7 @@ type tipSet struct {
 	PowerTable  string `json:"PowerTable"`
 }
 
-func newMessage(timestamp time.Time, nn string, msg f3.PartialGMessage) (*message, error) {
+func newMessage(timestamp time.Time, nn string, msg pmsg.PartialGMessage) (*message, error) {
 	j, err := newJustification(msg.Justification)
 	if err != nil {
 		return nil, err
