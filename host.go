@@ -2,8 +2,10 @@ package f3
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"sync"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/internal/writeaheadlog"
 	"github.com/filecoin-project/go-f3/manifest"
+	"github.com/filecoin-project/go-f3/observer"
 	"github.com/filecoin-project/go-f3/pmsg"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -59,6 +62,7 @@ type gpbftRunner struct {
 	pmm         *pmsg.PartialMessageManager
 	pmv         *pmsg.CachingPartialValidator
 	pmCache     *caching.GroupedSet
+	observer    *observer.Observer
 }
 
 type roundPhase struct {
@@ -67,6 +71,9 @@ type roundPhase struct {
 }
 
 // Lack of progress patches in mainnet at instance 6017
+
+//go:embed mainnet_bootstrappers.pi
+var mainnetBootstrappers []byte
 
 func newRunner(
 	ctx context.Context,
@@ -97,6 +104,24 @@ func newRunner(
 		equivFilter:  newEquivocationFilter(pID),
 		selfMessages: make(map[uint64]map[roundPhase][]*gpbft.GMessage),
 		inputs:       newInputs(m, cs, ec, verifier, clock.GetClock(ctx)),
+	}
+
+	const observerDir = "/tmp/f3-observer"
+	if err := os.MkdirAll(observerDir, 0755); err != nil && !os.IsExist(err) {
+		return nil, fmt.Errorf("creating observer directory: %w", err)
+	}
+
+	var err error
+	runner.observer, err = observer.New(
+		observer.WithBootstrapAddrsFromString(string(mainnetBootstrappers)),
+		observer.WithStaticNetworkName("filecoin"),
+		observer.WithRetention(14*24*time.Hour),
+		observer.WithQueryServerListenAddress("0.0.0.0:45990"),
+		observer.WithRotatePath(observerDir),
+		observer.WithConnectivityCheckInterval(-1), // Disable it since connectivity is handled by higher up turtles.
+		observer.WithPubSub(ps))
+	if err != nil {
+		return nil, fmt.Errorf("creating observer: %w", err)
 	}
 
 	// create a stopped timer to facilitate alerts requested from gpbft
@@ -326,6 +351,10 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 		}
 		return nil
 	})
+
+	if err := h.observer.Start(ctx); err != nil {
+		return fmt.Errorf("starting observer: %w", err)
+	}
 	return nil
 }
 
@@ -739,6 +768,7 @@ func (h *gpbftRunner) Stop(ctx context.Context) error {
 		h.errgrp.Wait(),
 		h.pmm.Shutdown(ctx),
 		h.teardownPubsub(),
+		h.observer.Start(ctx),
 	)
 }
 

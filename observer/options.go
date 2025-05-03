@@ -37,6 +37,8 @@ type options struct {
 	rotateInterval time.Duration
 	retention      time.Duration
 
+	pubSub *pubsub.PubSub
+
 	dataSourceName string
 }
 
@@ -240,6 +242,13 @@ func WithRetention(retention time.Duration) Option {
 func WithDataSourceName(dataSourceName string) Option {
 	return func(o *options) error {
 		o.dataSourceName = dataSourceName
+		return nil
+	}
+}
+
+func WithPubSub(ps *pubsub.PubSub) Option {
+	return func(o *options) error {
+		o.pubSub = ps
 		return nil
 	}
 }

@@ -35,10 +35,9 @@ var (
 
 type Observer struct {
 	*options
-	stop   func() error
-	pubSub *pubsub.PubSub
-	db     *sql.DB
-	qs     http.Server
+	stop func() error
+	db   *sql.DB
+	qs   http.Server
 
 	messageObserved chan *message
 	networkChanged  <-chan gpbft.NetworkName
@@ -80,14 +79,17 @@ func (o *Observer) Start(ctx context.Context) error {
 
 func (o *Observer) initialize(ctx context.Context) error {
 	var err error
-	// Set up pubsub to listen for GPBFT messages.
-	if o.pubSub, err = pubsub.NewGossipSub(ctx, o.host,
-		pubsub.WithPeerExchange(true),
-		pubsub.WithFloodPublish(true),
-		pubsub.WithMessageIdFn(psutil.GPBFTMessageIdFn),
-		pubsub.WithPeerScore(psutil.PubsubPeerScoreParams, psutil.PubsubPeerScoreThresholds),
-	); err != nil {
-		return fmt.Errorf("failed to initialise pubsub: %w", err)
+
+	if o.pubSub == nil {
+		// Set up pubsub to listen for GPBFT messages.
+		if o.pubSub, err = pubsub.NewGossipSub(ctx, o.host,
+			pubsub.WithPeerExchange(true),
+			pubsub.WithFloodPublish(true),
+			pubsub.WithMessageIdFn(psutil.GPBFTMessageIdFn),
+			pubsub.WithPeerScore(psutil.PubsubPeerScoreParams, psutil.PubsubPeerScoreThresholds),
+		); err != nil {
+			return fmt.Errorf("failed to initialise pubsub: %w", err)
+		}
 	}
 
 	// Set up network name change listener.
@@ -119,14 +121,16 @@ func (o *Observer) initialize(ctx context.Context) error {
 		return err
 	}
 
-	// Connect to bootstrap peers on initialisation to avoid the initial wait for
-	// reconnect ticker.
-	if err := o.connectToBootstrapPeers(ctx); err != nil {
-		// Warn but not return the error. Because, the observer will reconnect
-		// periodically if connectivity drops below options.connectivity.minPeers.
-		//
-		// See stayConnected.
-		logger.Warnw("Unsuccessful initial connection to bootstrap peers", "err", err)
+	if o.connectivityCheckInterval <= 0 {
+		// Connect to bootstrap peers on initialisation to avoid the initial wait for
+		// reconnect ticker.
+		if err := o.connectToBootstrapPeers(ctx); err != nil {
+			// Warn but not return the error. Because, the observer will reconnect
+			// periodically if connectivity drops below options.connectivity.minPeers.
+			//
+			// See stayConnected.
+			logger.Warnw("Unsuccessful initial connection to bootstrap peers", "err", err)
+		}
 	}
 
 	// Set up query server.
@@ -276,6 +280,10 @@ func (o *Observer) listenAndServeQueries() error {
 }
 
 func (o *Observer) stayConnected(ctx context.Context) error {
+	if o.connectivityCheckInterval <= 0 {
+		logger.Info("Re-connectivity is disabled")
+		return nil
+	}
 	ticker := time.NewTicker(o.connectivityCheckInterval)
 	defer ticker.Stop()
 	for ctx.Err() == nil {
