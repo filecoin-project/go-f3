@@ -748,13 +748,13 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 					i++
 					encoded, err := h.msgEncoding.Encode(msg)
 					if err != nil {
-						log.Errorf("encoding PartialGMessage for re-broadcast: %w", err)
+						log.Errorf("encoding PartialGMessage for re-broadcast: %v", err)
 						continue
 					}
 
 					err = h.topic.Publish(h.runningCtx, encoded)
 					if err != nil {
-						log.Errorf("publishing reboradcast message: %w", err)
+						log.Errorf("publishing reboradcast message: %v", err)
 					}
 				}
 			}
@@ -794,8 +794,12 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 					return nil
 				}
 			case *pmsg.PartiallyValidatedMessage:
+				msgCopy := &pmsg.PartialGMessage{
+					GMessage:     &*gmsg.GMessage,
+					VoteValueKey: gmsg.VoteValueKey,
+				}
 				select {
-				case incomingPartials <- gmsg.PartialGMessage:
+				case incomingPartials <- msgCopy:
 				default:
 					log.Warnw("compensating rebroadcast too slow; dropping message", "msg", gmsg.PartialGMessage)
 				}
