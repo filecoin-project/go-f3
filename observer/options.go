@@ -27,9 +27,12 @@ type options struct {
 	messageBufferSize         int
 	networkNameChangeListener NetworkNameChangeListener
 
-	connectivityCheckInterval         time.Duration
-	connectivityMinPeers              int
-	connectivityDHTBootstrapThreshold int
+	connectivityCheckInterval            time.Duration
+	connectivityMinPeers                 int
+	connectivityDHTBootstrapThreshold    int
+	connectivityLotusBoostrapThreshold   int
+	connectivityLotusBoostrapConcurrency int
+	connectivityLotusAPIEndpoints        []string
 
 	queryServerListenAddress string
 	queryServerReadTimeout   time.Duration
@@ -195,6 +198,15 @@ func WithBootstrapAddrsFromString(addrs ...string) Option {
 func WithDHTBootstrapThreshold(threshold int) Option {
 	return func(o *options) error {
 		o.connectivityDHTBootstrapThreshold = threshold
+		return nil
+	}
+}
+
+func WithLotusBoostrap(lotusAddrs []string, bootstrapThreshold int, concurrency int) Option {
+	return func(o *options) error {
+		o.connectivityLotusBoostrapThreshold = bootstrapThreshold
+		o.connectivityLotusAPIEndpoints = lotusAddrs
+		o.connectivityLotusBoostrapConcurrency = concurrency
 		return nil
 	}
 }

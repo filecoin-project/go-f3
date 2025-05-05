@@ -82,6 +82,26 @@ var observerCmd = cli.Command{
 			Usage: "The higher connection manager watermark.",
 			Value: 192,
 		},
+		&cli.StringSliceFlag{
+			Name:  "lotusDaemon",
+			Usage: "A lotus daemon API endpoint to use for peer discovery.",
+		},
+		&cli.IntFlag{
+			Name:  "reconnectConcurrency",
+			Usage: "The degree of concurrency to use when reconnecting to peers.",
+			Value: 50,
+		},
+		&cli.IntFlag{
+			Name: "dhtBootstrapThreshold",
+			Usage: "The threshold for bootstrapping with the DHT. " +
+				"A value of 0 disables bootstrapping with the DHT.",
+			Value: 100,
+		},
+		&cli.IntFlag{
+			Name:  "lotusBootstrapThreshold",
+			Usage: "The threshold for bootstrapping with lotus peers.",
+			Value: 100,
+		},
 	},
 
 	Action: func(cctx *cli.Context) error {
@@ -151,7 +171,11 @@ var observerCmd = cli.Command{
 			return fmt.Errorf("failed to create libp2p host: %w", err)
 		}
 		opts = append(opts, observer.WithHost(host))
-		opts = append(opts, observer.WithDHTBootstrapThreshold(cctx.Int("connLo")))
+		opts = append(opts, observer.WithDHTBootstrapThreshold(cctx.Int("dhtBootstrapThreshold")))
+		if cctx.IsSet("lotusDaemon") && cctx.Int("lotusBootstrapThreshold") > 0 {
+			opts = append(opts, observer.WithLotusBoostrap(cctx.StringSlice("lotusDaemon"),
+				cctx.Int("lotusBootstrapThreshold"), cctx.Int("reconnectConcurrency")))
+		}
 
 		o, err := observer.New(opts...)
 		if err != nil {
