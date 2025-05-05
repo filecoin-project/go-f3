@@ -24,6 +24,7 @@ type options struct {
 	host                      host.Host
 	bootstrapAddrs            []peer.AddrInfo
 	messageBufferSize         int
+	subBufferSize             int
 	networkNameChangeListener NetworkNameChangeListener
 
 	connectivityCheckInterval time.Duration
@@ -42,6 +43,7 @@ type options struct {
 func newOptions(opts ...Option) (*options, error) {
 	opt := options{
 		messageBufferSize:         100,
+		subBufferSize:             1024,
 		connectivityMinPeers:      5,
 		connectivityCheckInterval: 10 * time.Second,
 		queryServerReadTimeout:    5 * time.Second,
@@ -142,6 +144,14 @@ func WithMessageBufferSize(messageBufferSize int) Option {
 		return nil
 	}
 }
+
+func WithSubscriptionBufferSize(subBufferSize int) Option {
+	return func(o *options) error {
+		o.subBufferSize = subBufferSize
+		return nil
+	}
+}
+
 func WithConnectivityCheckInterval(interval time.Duration) Option {
 	return func(o *options) error {
 		o.connectivityCheckInterval = interval

@@ -335,7 +335,7 @@ func (o *Observer) startObserverFor(ctx context.Context, networkName gpbft.Netwo
 	if err = topic.SetScoreParams(psutil.PubsubTopicScoreParams); err != nil {
 		return nil, fmt.Errorf("failed to set topic score params: %w", err)
 	}
-	subscription, err = topic.Subscribe()
+	subscription, err = topic.Subscribe(pubsub.WithBufferSize(o.subBufferSize))
 	if err != nil {
 		return nil, fmt.Errorf("failed to subscribe to topic: %w", err)
 	}

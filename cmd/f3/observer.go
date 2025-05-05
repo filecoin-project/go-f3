@@ -40,6 +40,11 @@ var observerCmd = cli.Command{
 			Usage: "The list of bootstrap addrs read from a file with one address per line. " +
 				"The entries are used in conjunction with any addresses specified via <bootstrapAddr>.",
 		},
+		&cli.IntFlag{
+			Name:  "subBufferSize",
+			Usage: "The buffer size for the pubsub subscription channel.",
+			Value: 1024,
+		},
 		&cli.StringFlag{
 			Name:  "queryServerListenAddr",
 			Usage: "The query server listen address.",
@@ -81,6 +86,7 @@ var observerCmd = cli.Command{
 	Action: func(cctx *cli.Context) error {
 		opts := []observer.Option{
 			observer.WithQueryServerListenAddress(cctx.String("queryServerListenAddr")),
+			observer.WithSubscriptionBufferSize(cctx.Int("subBufferSize")),
 			observer.WithRotatePath(cctx.String("rotatePath")),
 			observer.WithRotateInterval(cctx.Duration("rotateInterval")),
 			observer.WithRetention(cctx.Duration("retention")),
