@@ -409,6 +409,10 @@ func (h *gpbftRunner) startInstanceAt(instance uint64, at time.Time) error {
 		}
 	})
 
+	if err := h.participant.StartInstanceAt(instance, at); err != nil {
+		return fmt.Errorf("starting instance at %d: %w", instance, err)
+	}
+
 	for _, message := range replay {
 		if validated, err := h.participant.ValidateMessage(message); err != nil {
 			log.Warnw("invalid self message", "message", message, "err", err)
@@ -416,7 +420,7 @@ func (h *gpbftRunner) startInstanceAt(instance uint64, at time.Time) error {
 			log.Warnw("failed to send resumption message", "message", message, "err", err)
 		}
 	}
-	return h.participant.StartInstanceAt(instance, at)
+	return nil
 }
 
 func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) (_nextStart time.Time) {
