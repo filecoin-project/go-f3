@@ -118,7 +118,7 @@ func newRunner(
 		observer.WithPubSub(ps),
 		observer.WithNoValidator(true))
 	if err != nil {
-		return nil, fmt.Errorf("creating observer: %w", err)
+		log.Warnf("creating observer: %w", err)
 	}
 
 	// create a stopped timer to facilitate alerts requested from gpbft
@@ -350,7 +350,7 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 	})
 
 	if err := h.observer.Start(ctx); err != nil {
-		return fmt.Errorf("starting observer: %w", err)
+		log.Warnf("starting observer: %w", err)
 	}
 	return nil
 }
