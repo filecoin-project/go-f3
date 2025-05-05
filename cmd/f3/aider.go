@@ -240,26 +240,7 @@ func aid(c *cli.Context, f3Chatter *pubsub.Topic) error {
 			_, _ = fmt.Fprintln(os.Stderr, err)
 			return
 		}
-		type key struct {
-			instance uint64
-			round    uint64
-			phase    string
-			sender   gpbft.ActorID
-		}
-		seen := make(map[key]struct{})
 		for _, msg := range msgs {
-			k := key{
-				instance: msg.Vote.Instance,
-				round:    msg.Vote.Round,
-				phase:    msg.Vote.Phase,
-				sender:   msg.Sender,
-			}
-
-			if _, found := seen[k]; found {
-				// already seen this message, skip it
-				continue
-			}
-
 			partial, err := msg.ToPartialMessage()
 			if err != nil {
 				err := fmt.Errorf("failed to construct partial message for sender %d: %w", sender, err)
@@ -279,7 +260,6 @@ func aid(c *cli.Context, f3Chatter *pubsub.Topic) error {
 				return
 			}
 			messagesCount.Add(1)
-			seen[k] = struct{}{}
 		}
 
 	}
@@ -306,17 +286,25 @@ func aid(c *cli.Context, f3Chatter *pubsub.Topic) error {
 }
 
 func listBroadcastMessagesByInstanceRoundSender(c *cli.Context, instance, round, sender uint64) ([]observer.Message, error) {
-	var messages []observer.Message
+	var messages []struct {
+		DedupedMessage observer.Message `json:"msg"`
+	}
 	if err := query(c, fmt.Sprintf(`
-SELECT *
-FROM latest_messages
-WHERE Sender = %d
-  AND (Vote).Instance = %d
-  AND ((Vote).Round > %d OR (Vote).Phase = 'QUALITY');
-`, sender, instance, max(int(round)-2, 0)), &messages); err != nil {
+SELECT Sender, Vote.Round, Vote.Instance, Vote.Phase, ARBITRARY(m) AS msg
+FROM Messages AS m
+WHERE Vote.Instance = %d
+  AND Sender = %d
+  AND (Vote.Round > %d OR Vote.Phase = 'QUALITY')
+GROUP BY Sender, Vote.Round, Vote.Instance, Vote.Phase;
+`, instance, sender, max(int(round)-2, 0)), &messages); err != nil {
 		return nil, err
 	}
-	return messages, nil
+
+	msgs := make([]observer.Message, len(messages))
+	for i, message := range messages {
+		msgs[i] = message.DedupedMessage
+	}
+	return msgs, nil
 
 }
 func listDistinctSendersByInstance(c *cli.Context, instance uint64) ([]uint64, error) {
