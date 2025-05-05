@@ -115,9 +115,10 @@ func newRunner(
 		observer.WithQueryServerListenAddress("0.0.0.0:45990"),
 		observer.WithRotatePath(observerDir),
 		observer.WithConnectivityCheckInterval(-1), // Disable it since connectivity is handled by higher up turtles.
-		observer.WithPubSub(ps))
+		observer.WithPubSub(ps),
+		observer.WithNoValidator(true))
 	if err != nil {
-		return nil, fmt.Errorf("creating observer: %w", err)
+		log.Warnf("creating observer: %w", err)
 	}
 
 	// create a stopped timer to facilitate alerts requested from gpbft
@@ -349,7 +350,7 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 	})
 
 	if err := h.observer.Start(ctx); err != nil {
-		return fmt.Errorf("starting observer: %w", err)
+		log.Warnf("starting observer: %w", err)
 	}
 	return nil
 }
@@ -408,6 +409,10 @@ func (h *gpbftRunner) startInstanceAt(instance uint64, at time.Time) error {
 		}
 	})
 
+	if err := h.participant.StartInstanceAt(instance, at); err != nil {
+		return fmt.Errorf("starting instance at %d: %w", instance, err)
+	}
+
 	for _, message := range replay {
 		if validated, err := h.participant.ValidateMessage(message); err != nil {
 			log.Warnw("invalid self message", "message", message, "err", err)
@@ -415,7 +420,7 @@ func (h *gpbftRunner) startInstanceAt(instance uint64, at time.Time) error {
 			log.Warnw("failed to send resumption message", "message", message, "err", err)
 		}
 	}
-	return h.participant.StartInstanceAt(instance, at)
+	return nil
 }
 
 func (h *gpbftRunner) computeNextInstanceStart(cert *certs.FinalityCertificate) (_nextStart time.Time) {
@@ -743,13 +748,13 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 					i++
 					encoded, err := h.msgEncoding.Encode(msg)
 					if err != nil {
-						log.Errorf("encoding PartialGMessage for re-broadcast: %w", err)
+						log.Errorf("encoding PartialGMessage for re-broadcast: %v", err)
 						continue
 					}
 
 					err = h.topic.Publish(h.runningCtx, encoded)
 					if err != nil {
-						log.Errorf("publishing reboradcast message: %w", err)
+						log.Errorf("publishing reboradcast message: %v", err)
 					}
 				}
 			}
@@ -789,8 +794,13 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 					return nil
 				}
 			case *pmsg.PartiallyValidatedMessage:
+				gmsCopy := *gmsg.GMessage
+				msgCopy := &pmsg.PartialGMessage{
+					GMessage:     &gmsCopy,
+					VoteValueKey: gmsg.VoteValueKey,
+				}
 				select {
-				case incomingPartials <- gmsg.PartialGMessage:
+				case incomingPartials <- msgCopy:
 				default:
 					log.Warnw("compensating rebroadcast too slow; dropping message", "msg", gmsg.PartialGMessage)
 				}
