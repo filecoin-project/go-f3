@@ -322,7 +322,7 @@ func (o *Observer) startObserverFor(ctx context.Context, networkName gpbft.Netwo
 		subscription *pubsub.Subscription
 		err          error
 	)
-	if o.dontRegisterValidator {
+	if !o.dontRegisterValidator {
 		defer func() {
 			if _err != nil {
 				_ = o.pubSub.UnregisterTopicValidator(topicName)
