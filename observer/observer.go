@@ -19,7 +19,9 @@ import (
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/filecoin-project/go-f3/pmsg"
 	"github.com/ipfs/go-log/v2"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	record "github.com/libp2p/go-libp2p-record"
 	"github.com/libp2p/go-libp2p/core/peer"
 	_ "github.com/marcboeker/go-duckdb"
 	"go.uber.org/multierr"
@@ -38,11 +40,14 @@ type Observer struct {
 	stop func() error
 	db   *sql.DB
 	qs   http.Server
+	dht  *dht.IpfsDHT
 
 	messageObserved chan *Message
 	networkChanged  <-chan gpbft.NetworkName
 	msgEncoding     *encoding.ZSTD[*pmsg.PartialGMessage]
 }
+
+const dhtBootstrapPeerThreshold = 200
 
 func New(o ...Option) (*Observer, error) {
 	opts, err := newOptions(o...)
@@ -90,6 +95,25 @@ func (o *Observer) initialize(ctx context.Context) error {
 		); err != nil {
 			return fmt.Errorf("failed to initialise pubsub: %w", err)
 		}
+	}
+	if o.connectivityDHTBootstrapThreshold > 0 {
+		opts := []dht.Option{dht.Mode(dht.ModeAuto),
+			dht.Validator(
+				record.NamespacedValidator{
+					"pk": record.PublicKeyValidator{},
+				}),
+			dht.ProtocolPrefix("/fil/kad/" + "testnetnet"), // should be base network name but we don't have manifest
+			dht.QueryFilter(dht.PublicQueryFilter),
+			dht.RoutingTableFilter(dht.PublicRoutingTableFilter),
+			dht.DisableProviders(),
+			dht.DisableValues()}
+		d, err := dht.New(
+			ctx, o.host, opts...,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to initialise DHT: %w", err)
+		}
+		o.dht = d
 	}
 
 	// Set up network name change listener.
@@ -289,12 +313,21 @@ func (o *Observer) stayConnected(ctx context.Context) error {
 	for ctx.Err() == nil {
 		select {
 		case <-ticker.C:
-			if peers := len(o.host.Network().Peers()); peers < o.connectivityMinPeers {
-				logger.Infow("Low network connectivity, re-bootstrapping", "peers", peers)
+			peers := len(o.host.Network().Peers())
+			logger.Infow("in connectivity check", "peers", peers)
+			if peers < o.connectivityMinPeers {
+				logger.Infow("Low network connectivity, re-bootstrapping", "peers", peers, "threshold", o.connectivityMinPeers)
 				if err := o.connectToBootstrapPeers(ctx); err != nil {
 					logger.Errorw("Failed to reconnect with at least one bootstrapper", "err", err)
 				}
 			}
+			if o.connectivityDHTBootstrapThreshold > 0 && peers < o.connectivityDHTBootstrapThreshold {
+				logger.Infow("Low network connectivity, re-bootstrapping DHT", "peers", peers, "threshold", o.connectivityDHTBootstrapThreshold)
+				if err := o.dht.Bootstrap(ctx); err != nil {
+					logger.Errorw("DHT bootstrap failed", "err", err)
+				}
+			}
+
 		case <-ctx.Done():
 			return nil
 		}

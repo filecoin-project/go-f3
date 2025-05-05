@@ -10,6 +10,7 @@ import (
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/observer"
+	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -84,6 +85,7 @@ var observerCmd = cli.Command{
 	},
 
 	Action: func(cctx *cli.Context) error {
+		logging.SetLogLevel("f3/observer", "info")
 		opts := []observer.Option{
 			observer.WithQueryServerListenAddress(cctx.String("queryServerListenAddr")),
 			observer.WithRotatePath(cctx.String("rotatePath")),
@@ -149,6 +151,7 @@ var observerCmd = cli.Command{
 			return fmt.Errorf("failed to create libp2p host: %w", err)
 		}
 		opts = append(opts, observer.WithHost(host))
+		opts = append(opts, observer.WithDHTBootstrapThreshold(cctx.Int("connLo")))
 
 		o, err := observer.New(opts...)
 		if err != nil {

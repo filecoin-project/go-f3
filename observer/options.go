@@ -27,8 +27,9 @@ type options struct {
 	messageBufferSize         int
 	networkNameChangeListener NetworkNameChangeListener
 
-	connectivityCheckInterval time.Duration
-	connectivityMinPeers      int
+	connectivityCheckInterval         time.Duration
+	connectivityMinPeers              int
+	connectivityDHTBootstrapThreshold int
 
 	queryServerListenAddress string
 	queryServerReadTimeout   time.Duration
@@ -185,6 +186,15 @@ func WithBootstrapAddrsFromString(addrs ...string) Option {
 				o.bootstrapAddrs = append(o.bootstrapAddrs, *addr)
 			}
 		}
+		return nil
+	}
+}
+
+// WithDHTBootstrapThreshold sets the threshold for bootstrapping with the DHT.
+// A value of 0 disables bootstrapping with the DHT.
+func WithDHTBootstrapThreshold(threshold int) Option {
+	return func(o *options) error {
+		o.connectivityDHTBootstrapThreshold = threshold
 		return nil
 	}
 }
