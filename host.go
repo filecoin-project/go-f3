@@ -684,7 +684,7 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 
 		msgsToSend := func() int {
 			defaultMsgToSend := 16 / 2
-			f, err := os.Open("/tmp/f3_comensation_broadcast_rate")
+			f, err := os.Open("/tmp/f3_compensation_broadcast_rate")
 			if errors.Is(err, os.ErrNotExist) {
 				return defaultMsgToSend
 			}
@@ -774,6 +774,15 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 
 			switch gmsg := msg.ValidatorData.(type) {
 			case gpbft.ValidatedMessage:
+				if partial, err := h.pmm.ToPartialGMessage(gmsg.Message()); err != nil {
+					log.Errorw("error converting partial message to gpbft message for compensating rebroadcast", "err", err)
+				} else {
+					select {
+					case incomingPartials <- partial:
+					default:
+						log.Warnw("compensating rebroadcast too slow; dropping message", "msg", partial)
+					}
+				}
 				select {
 				case messageQueue <- gmsg:
 				case <-h.runningCtx.Done():
@@ -783,10 +792,11 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 				select {
 				case incomingPartials <- gmsg.PartialGMessage:
 				default:
+					log.Warnw("compensating rebroadcast too slow; dropping message", "msg", gmsg.PartialGMessage)
 				}
 				h.pmm.BufferPartialMessage(h.runningCtx, gmsg)
 			default:
-				log.Errorf("invalid msgValidatorData: %+v", msg.ValidatorData)
+				log.Errorf("invalid msgValidatorData: %+v, topic: %s, from: %s", msg.ValidatorData, msg.GetTopic(), msg.GetFrom())
 			}
 		}
 		return nil
