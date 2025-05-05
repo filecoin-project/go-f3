@@ -1,57 +1,62 @@
 package observer
 
 import (
+	"encoding/base64"
+	"fmt"
 	"time"
 
+	"github.com/filecoin-project/go-bitfield"
+	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/pmsg"
+	"github.com/ipfs/go-cid"
 )
 
 var emptyCommitments [32]byte
 
-type message struct {
+type Message struct {
 	Timestamp     time.Time      `json:"Timestamp"`
 	NetworkName   string         `json:"NetworkName"`
 	Sender        gpbft.ActorID  `json:"Sender"`
-	Vote          payload        `json:"Vote"`
+	Vote          Payload        `json:"Vote"`
 	Signature     []byte         `json:"Signature"`
 	Ticket        []byte         `json:"Ticket"`
-	Justification *justification `json:"Justification"`
+	Justification *Justification `json:"Justification"`
 	VoteValueKey  []byte         `json:"VoteValueKey"`
 }
 
-type justification struct {
-	Vote      payload  `json:"Vote"`
+type Justification struct {
+	Vote      Payload  `json:"Vote"`
 	Signers   []uint64 `json:"Signers"`
 	Signature []byte   `json:"Signature"`
 }
 
-type payload struct {
+type Payload struct {
 	Instance         uint64           `json:"Instance"`
 	Round            uint64           `json:"Round"`
 	Phase            string           `json:"Phase"`
-	SupplementalData supplementalData `json:"SupplementalData"`
-	Value            []tipSet         `json:"Value"`
+	SupplementalData SupplementalData `json:"SupplementalData"`
+	Value            []TipSet         `json:"Value"`
 }
 
-type supplementalData struct {
+type SupplementalData struct {
 	Commitments []byte `json:"Commitments"`
 	PowerTable  string `json:"PowerTable"`
 }
 
-type tipSet struct {
+type TipSet struct {
 	Epoch       int64  `json:"Epoch"`
 	Key         []byte `json:"Key"`
 	Commitments []byte `json:"Commitments"`
 	PowerTable  string `json:"PowerTable"`
 }
 
-func newMessage(timestamp time.Time, nn string, msg pmsg.PartialGMessage) (*message, error) {
+func newMessage(timestamp time.Time, nn string, msg pmsg.PartialGMessage) (*Message, error) {
 	j, err := newJustification(msg.Justification)
 	if err != nil {
 		return nil, err
 	}
-	return &message{
+	return &Message{
 		Timestamp:     timestamp,
 		NetworkName:   nn,
 		Sender:        msg.Sender,
@@ -63,7 +68,7 @@ func newMessage(timestamp time.Time, nn string, msg pmsg.PartialGMessage) (*mess
 	}, nil
 }
 
-func newJustification(gj *gpbft.Justification) (*justification, error) {
+func newJustification(gj *gpbft.Justification) (*Justification, error) {
 	if gj == nil {
 		return nil, nil
 	}
@@ -72,14 +77,14 @@ func newJustification(gj *gpbft.Justification) (*justification, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &justification{
+	return &Justification{
 		Vote:      newPayload(gj.Vote),
 		Signers:   signers,
 		Signature: gj.Signature,
 	}, nil
 }
 
-func newPayload(gp gpbft.Payload) payload {
+func newPayload(gp gpbft.Payload) Payload {
 	var commitments []byte
 	if gp.SupplementalData.Commitments != emptyCommitments {
 		// Currently, all Commitments are always empty. For completeness and reducing
@@ -87,9 +92,9 @@ func newPayload(gp gpbft.Payload) payload {
 		commitments = gp.SupplementalData.Commitments[:]
 	}
 
-	value := make([]tipSet, gp.Value.Len())
+	value := make([]TipSet, gp.Value.Len())
 	for i, v := range gp.Value.TipSets {
-		value[i] = tipSet{
+		value[i] = TipSet{
 			Epoch:      v.Epoch,
 			Key:        v.Key,
 			PowerTable: v.PowerTable.String(),
@@ -98,14 +103,150 @@ func newPayload(gp gpbft.Payload) payload {
 			value[i].Commitments = v.Commitments[:]
 		}
 	}
-	return payload{
+	return Payload{
 		Instance: gp.Instance,
 		Round:    gp.Round,
 		Phase:    gp.Phase.String(),
-		SupplementalData: supplementalData{
+		SupplementalData: SupplementalData{
 			Commitments: commitments,
 			PowerTable:  gp.SupplementalData.PowerTable.String(),
 		},
 		Value: value,
+	}
+}
+
+func (m Message) ToPartialMessage() (*pmsg.PartialGMessage, error) {
+	payload, err := m.Vote.ToGpbftPayload()
+	if err != nil {
+		return nil, err
+	}
+	gj, err := m.Justification.ToGpbftJustification()
+	if err != nil {
+		return nil, err
+	}
+
+	return &pmsg.PartialGMessage{
+		GMessage: &gpbft.GMessage{
+			Sender:        m.Sender,
+			Vote:          payload,
+			Signature:     m.Signature,
+			Ticket:        m.Ticket,
+			Justification: gj,
+		},
+		VoteValueKey: gpbft.ECChainKey(m.VoteValueKey),
+	}, nil
+}
+
+func (p Payload) ToGpbftPayload() (gpbft.Payload, error) {
+	phase, err := phaseFromString(p.Phase)
+	if err != nil {
+		return gpbft.Payload{}, err
+	}
+	sd, err := p.SupplementalData.ToGpbftSupplementalData()
+	if err != nil {
+		return gpbft.Payload{}, err
+	}
+
+	gv, err := ToGpbftChain(p.Value...)
+	if err != nil {
+		return gpbft.Payload{}, err
+	}
+
+	return gpbft.Payload{
+		Instance:         p.Instance,
+		Round:            p.Round,
+		Phase:            phase,
+		SupplementalData: sd,
+		Value:            gv,
+	}, nil
+}
+
+func (s SupplementalData) ToGpbftSupplementalData() (gpbft.SupplementalData, error) {
+	var sd gpbft.SupplementalData
+	if len(s.Commitments) > 0 {
+		copy(sd.Commitments[:], s.Commitments)
+	}
+	var err error
+	sd.PowerTable, err = cid.Decode(s.PowerTable)
+	if err != nil {
+		return sd, fmt.Errorf("failed to decode PowerTable CID: %w", err)
+	}
+	return sd, nil
+}
+
+func (t TipSet) ToGpbftTipSet() (*gpbft.TipSet, error) {
+	sup, err := SupplementalData{
+		Commitments: t.Commitments,
+		PowerTable:  t.PowerTable,
+	}.ToGpbftSupplementalData()
+	if err != nil {
+		return nil, err
+	}
+	return &gpbft.TipSet{
+		Epoch:       t.Epoch,
+		Key:         t.Key,
+		PowerTable:  sup.PowerTable,
+		Commitments: sup.Commitments,
+	}, nil
+}
+
+func ToGpbftChain(tss ...TipSet) (*gpbft.ECChain, error) {
+	if len(tss) == 0 {
+		return nil, nil
+	}
+	gtss := make([]*gpbft.TipSet, len(tss))
+	var err error
+	for i, ts := range tss {
+		gtss[i], err = ts.ToGpbftTipSet()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return gpbft.NewChain(gtss[0], gtss[1:]...)
+}
+
+func (j *Justification) ToGpbftJustification() (*gpbft.Justification, error) {
+	if j == nil {
+		return nil, nil
+	}
+	ri, _ := rlepluslazy.RunsFromSlice(j.Signers)
+	gsigners, _ := bitfield.NewFromIter(ri)
+	payload, err := j.Vote.ToGpbftPayload()
+	if err != nil {
+		return nil, err
+	}
+
+	// Embedded struct as json, hence the decode.
+	s := string(j.Signature)
+	decoded, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return nil, err
+	}
+
+	return &gpbft.Justification{
+		Vote:      payload,
+		Signers:   gsigners,
+		Signature: decoded,
+	}, nil
+}
+
+func phaseFromString(phase string) (gpbft.Phase, error) {
+	switch phase {
+	case "INITIAL":
+		return gpbft.INITIAL_PHASE, nil
+	case "QUALITY":
+		return gpbft.QUALITY_PHASE, nil
+	case "CONVERGE":
+		return gpbft.CONVERGE_PHASE, nil
+	case "PREPARE":
+		return gpbft.PREPARE_PHASE, nil
+	case "COMMIT":
+		return gpbft.COMMIT_PHASE, nil
+	case "DECIDE":
+		return gpbft.DECIDE_PHASE, nil
+	case "TERMINATED":
+		return gpbft.TERMINATED_PHASE, nil
+	default:
+		return 0, fmt.Errorf("unknown phase: %s", phase)
 	}
 }
