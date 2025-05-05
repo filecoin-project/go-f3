@@ -1,16 +1,19 @@
 package observer
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -19,7 +22,9 @@ import (
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/filecoin-project/go-f3/pmsg"
 	"github.com/ipfs/go-log/v2"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	record "github.com/libp2p/go-libp2p-record"
 	"github.com/libp2p/go-libp2p/core/peer"
 	_ "github.com/marcboeker/go-duckdb"
 	"go.uber.org/multierr"
@@ -38,6 +43,7 @@ type Observer struct {
 	stop func() error
 	db   *sql.DB
 	qs   http.Server
+	dht  *dht.IpfsDHT
 
 	messageObserved chan *Message
 	networkChanged  <-chan gpbft.NetworkName
@@ -90,6 +96,25 @@ func (o *Observer) initialize(ctx context.Context) error {
 		); err != nil {
 			return fmt.Errorf("failed to initialise pubsub: %w", err)
 		}
+	}
+	if o.connectivityDHTBootstrapThreshold > 0 {
+		opts := []dht.Option{dht.Mode(dht.ModeAuto),
+			dht.Validator(
+				record.NamespacedValidator{
+					"pk": record.PublicKeyValidator{},
+				}),
+			dht.ProtocolPrefix("/fil/kad/" + "testnetnet"), // should be base network name but we don't have manifest
+			dht.QueryFilter(dht.PublicQueryFilter),
+			dht.RoutingTableFilter(dht.PublicRoutingTableFilter),
+			dht.DisableProviders(),
+			dht.DisableValues()}
+		d, err := dht.New(
+			ctx, o.host, opts...,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to initialise DHT: %w", err)
+		}
+		o.dht = d
 	}
 
 	// Set up network name change listener.
@@ -289,12 +314,46 @@ func (o *Observer) stayConnected(ctx context.Context) error {
 	for ctx.Err() == nil {
 		select {
 		case <-ticker.C:
-			if peers := len(o.host.Network().Peers()); peers < o.connectivityMinPeers {
-				logger.Infow("Low network connectivity, re-bootstrapping", "peers", peers)
+			nPeers := len(o.host.Network().Peers())
+			logger.Infow("in connectivity check", "peers", nPeers)
+			if nPeers < o.connectivityMinPeers {
+				logger.Infow("Low network connectivity, re-bootstrapping", "peers", nPeers, "threshold", o.connectivityMinPeers)
 				if err := o.connectToBootstrapPeers(ctx); err != nil {
 					logger.Errorw("Failed to reconnect with at least one bootstrapper", "err", err)
 				}
 			}
+			nPeers = len(o.host.Network().Peers())
+			if o.connectivityDHTBootstrapThreshold > 0 && nPeers < o.connectivityDHTBootstrapThreshold {
+				logger.Infow("Low network connectivity, re-bootstrapping DHT", "peers", nPeers, "threshold", o.connectivityDHTBootstrapThreshold)
+				if err := o.dht.Bootstrap(ctx); err != nil {
+					logger.Errorw("DHT bootstrap failed", "err", err)
+				}
+			}
+
+			nPeers = len(o.host.Network().Peers())
+			if o.connectivityLotusBoostrapThreshold > 0 && nPeers < o.connectivityLotusBoostrapThreshold {
+				logger.Infow("Low network connectivity, re-bootstrapping with lotus peers", "peers", nPeers, "threshold", o.connectivityLotusBoostrapThreshold)
+				peers := lotusNetPeers(o.connectivityLotusAPIEndpoints)
+				var count atomic.Int32
+				var eg errgroup.Group
+				eg.SetLimit(o.connectivityLotusBoostrapConcurrency)
+				for _, peer := range peers {
+					select {
+					case <-ctx.Done():
+					default:
+						eg.Go(func() error {
+							if err := o.host.Connect(ctx, peer); err == nil {
+								count.Add(1)
+							}
+							return nil
+						})
+					}
+				}
+				_ = eg.Wait()
+			}
+			nPeers = len(o.host.Network().Peers())
+			logger.Infow("after bootstraps", "peers", nPeers)
+
 		case <-ctx.Done():
 			return nil
 		}
@@ -418,4 +477,57 @@ func (o *Observer) validatePubSubMessage(_ context.Context, _ peer.ID, msg *pubs
 	}
 	msg.ValidatorData = pgmsg
 	return pubsub.ValidationAccept
+}
+
+func lotusNetPeers(lotusDaemons []string) []peer.AddrInfo {
+	const netPeersJsonRpc = `{"method":"Filecoin.NetPeers","params":[],"id":2,"jsonrpc":"2.0"}`
+
+	type resultOrError struct {
+		Result []peer.AddrInfo `json:"result"`
+		Error  *struct {
+			Message string `json:"message"`
+		}
+	}
+
+	var addrs []peer.AddrInfo
+	seen := make(map[string]struct{})
+	for _, endpoint := range lotusDaemons {
+		body := bytes.NewReader([]byte(netPeersJsonRpc))
+		req, err := http.NewRequest("POST", endpoint, body)
+		if err != nil {
+			logger.Errorf("failed construct request to discover peers from: %s :%w", endpoint, err)
+			continue
+		}
+		req.Header.Set("Content-Type", `application/json`)
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			logger.Errorf("failed to discover peers from lotus daemon %s: %w", endpoint, err)
+			continue
+		}
+		defer func() { _ = resp.Body.Close() }()
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			logger.Errorf("failed to read response body from lotus daemon %s: %w", endpoint, err)
+			continue
+		}
+		var roe resultOrError
+		if err := json.Unmarshal(respBody, &roe); err != nil {
+			logger.Errorf("failed to unmarshal response from lotus daemon %s: %s: %w", endpoint, string(respBody), err)
+			continue
+		}
+		if roe.Error != nil {
+			logger.Errorf("failed to discover peers from lotus daemon %s: %s", endpoint, roe.Error.Message)
+			continue
+		}
+
+		for _, addr := range roe.Result {
+			k := addr.ID.String()
+			if _, found := seen[k]; !found {
+				addrs = append(addrs, addr)
+				seen[k] = struct{}{}
+			}
+		}
+	}
+	return addrs
 }

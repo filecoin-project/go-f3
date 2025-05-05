@@ -308,10 +308,10 @@ func aid(c *cli.Context, f3Chatter *pubsub.Topic) error {
 func listBroadcastMessagesByInstanceRoundSender(c *cli.Context, instance, round, sender uint64) ([]observer.Message, error) {
 	var messages []observer.Message
 	if err := query(c, fmt.Sprintf(`
-SELECT * 
-FROM latest_messages 
-WHERE Sender = %d 
-  AND (Vote).Instance = %d 
+SELECT *
+FROM latest_messages
+WHERE Sender = %d
+  AND (Vote).Instance = %d
   AND ((Vote).Round > %d OR (Vote).Phase = 'QUALITY');
 `, sender, instance, max(int(round)-2, 0)), &messages); err != nil {
 		return nil, err
@@ -325,8 +325,8 @@ func listDistinctSendersByInstance(c *cli.Context, instance uint64) ([]uint64, e
 	}
 	if err := query(c, fmt.Sprintf(`
 SELECT DISTINCT Sender as sender
-FROM latest_messages 
-WHERE (Vote).Instance = %d 
+FROM latest_messages
+WHERE (Vote).Instance = %d
 ORDER BY Sender;
 `, instance), &senders); err != nil {
 		return nil, err
@@ -347,9 +347,9 @@ func getLatestInstanceRound(c *cli.Context) (uint64, uint64, error) {
 		Round    uint64 `json:"round"`
 	}
 	if err := query(c, `
-SELECT (Vote).Instance As instance, MAX((Vote).Round) AS round 
-FROM latest_messages 
-WHERE (Vote).Instance = (SELECT MAX((Vote).Instance) FROM latest_messages) 
+SELECT (Vote).Instance As instance, MAX((Vote).Round) AS round
+FROM latest_messages
+WHERE (Vote).Instance = (SELECT MAX((Vote).Instance) FROM latest_messages)
 GROUP BY (Vote).Instance;
 `, &latest); err != nil {
 		return 0, 0, err
