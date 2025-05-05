@@ -313,7 +313,7 @@ func listDistinctSendersByInstance(c *cli.Context, instance uint64) ([]uint64, e
 	}
 	if err := query(c, fmt.Sprintf(`
 SELECT DISTINCT Sender as sender
-FROM latest_messages
+FROM Messages
 WHERE (Vote).Instance = %d
 ORDER BY Sender;
 `, instance), &senders); err != nil {
@@ -336,8 +336,8 @@ func getLatestInstanceRound(c *cli.Context) (uint64, uint64, error) {
 	}
 	if err := query(c, `
 SELECT (Vote).Instance As instance, MAX((Vote).Round) AS round
-FROM latest_messages
-WHERE (Vote).Instance = (SELECT MAX((Vote).Instance) FROM latest_messages)
+FROM Messages
+WHERE (Vote).Instance = (SELECT MAX((Vote).Instance) FROM Messages)
 GROUP BY (Vote).Instance;
 `, &latest); err != nil {
 		return 0, 0, err
