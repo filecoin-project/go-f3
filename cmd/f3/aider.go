@@ -240,7 +240,26 @@ func aid(c *cli.Context, f3Chatter *pubsub.Topic) error {
 			_, _ = fmt.Fprintln(os.Stderr, err)
 			return
 		}
+		type key struct {
+			instance uint64
+			round    uint64
+			phase    string
+			sender   gpbft.ActorID
+		}
+		seen := make(map[key]struct{})
 		for _, msg := range msgs {
+			k := key{
+				instance: msg.Vote.Instance,
+				round:    msg.Vote.Round,
+				phase:    msg.Vote.Phase,
+				sender:   msg.Sender,
+			}
+
+			if _, found := seen[k]; found {
+				// already seen this message, skip it
+				continue
+			}
+
 			partial, err := msg.ToPartialMessage()
 			if err != nil {
 				err := fmt.Errorf("failed to construct partial message for sender %d: %w", sender, err)
@@ -260,6 +279,7 @@ func aid(c *cli.Context, f3Chatter *pubsub.Topic) error {
 				return
 			}
 			messagesCount.Add(1)
+			seen[k] = struct{}{}
 		}
 
 	}
