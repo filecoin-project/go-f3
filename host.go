@@ -115,7 +115,8 @@ func newRunner(
 		observer.WithQueryServerListenAddress("0.0.0.0:45990"),
 		observer.WithRotatePath(observerDir),
 		observer.WithConnectivityCheckInterval(-1), // Disable it since connectivity is handled by higher up turtles.
-		observer.WithPubSub(ps))
+		observer.WithPubSub(ps),
+		observer.WithNoValidator(true))
 	if err != nil {
 		return nil, fmt.Errorf("creating observer: %w", err)
 	}

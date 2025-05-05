@@ -12,7 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
-	"github.com/multiformats/go-multiaddr-dns"
+	madns "github.com/multiformats/go-multiaddr-dns"
 )
 
 type Option func(*options) error
@@ -37,7 +37,8 @@ type options struct {
 	rotateInterval time.Duration
 	retention      time.Duration
 
-	pubSub *pubsub.PubSub
+	pubSub                *pubsub.PubSub
+	dontRegisterValidator bool
 
 	dataSourceName string
 }
@@ -74,6 +75,13 @@ func newOptions(opts ...Option) (*options, error) {
 func WithHost(h host.Host) Option {
 	return func(o *options) error {
 		o.host = h
+		return nil
+	}
+}
+
+func WithNoValidator(dontRegister bool) Option {
+	return func(o *options) error {
+		o.dontRegisterValidator = dontRegister
 		return nil
 	}
 }

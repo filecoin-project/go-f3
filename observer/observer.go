@@ -322,19 +322,21 @@ func (o *Observer) startObserverFor(ctx context.Context, networkName gpbft.Netwo
 		subscription *pubsub.Subscription
 		err          error
 	)
-	defer func() {
-		if _err != nil {
-			_ = o.pubSub.UnregisterTopicValidator(topicName)
-			if topic != nil {
-				_ = topic.Close()
+	if o.dontRegisterValidator {
+		defer func() {
+			if _err != nil {
+				_ = o.pubSub.UnregisterTopicValidator(topicName)
+				if topic != nil {
+					_ = topic.Close()
+				}
+				if subscription != nil {
+					subscription.Cancel()
+				}
 			}
-			if subscription != nil {
-				subscription.Cancel()
-			}
+		}()
+		if err := o.pubSub.RegisterTopicValidator(topicName, o.validatePubSubMessage); err != nil {
+			return nil, fmt.Errorf("failed to register topic validator: %w", err)
 		}
-	}()
-	if err := o.pubSub.RegisterTopicValidator(topicName, o.validatePubSubMessage); err != nil {
-		return nil, fmt.Errorf("failed to register topic validator: %w", err)
 	}
 	topic, err = o.pubSub.Join(topicName, pubsub.WithTopicMessageIdFn(psutil.GPBFTMessageIdFn))
 	if err != nil {
@@ -355,7 +357,6 @@ func (o *Observer) startObserverFor(ctx context.Context, networkName gpbft.Netwo
 		defer func() {
 			subscription.Cancel()
 			_ = topic.Close()
-			_ = o.pubSub.UnregisterTopicValidator(topicName)
 			wg.Done()
 		}()
 
