@@ -794,8 +794,9 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 					return nil
 				}
 			case *pmsg.PartiallyValidatedMessage:
+				gmsCopy := *gmsg.GMessage
 				msgCopy := &pmsg.PartialGMessage{
-					GMessage:     &*gmsg.GMessage,
+					GMessage:     &gmsCopy,
 					VoteValueKey: gmsg.VoteValueKey,
 				}
 				select {
