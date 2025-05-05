@@ -16,19 +16,19 @@ import (
 
 type Option func(*options) error
 
-// NetworkNameChangeListener returns a channel that is notified whenever the
-// network name changes. The channel should never be closed.
-type NetworkNameChangeListener func(context.Context, *pubsub.PubSub) (<-chan gpbft.NetworkName, error)
-
 type options struct {
-	host                      host.Host
-	bootstrapAddrs            []peer.AddrInfo
-	messageBufferSize         int
-	subBufferSize             int
-	networkNameChangeListener NetworkNameChangeListener
+	host                       host.Host
+	connectivityBootstrapPeers []peer.AddrInfo
+	messageBufferSize          int
+	subBufferSize              int
+	networkName                gpbft.NetworkName
 
-	connectivityCheckInterval time.Duration
-	connectivityMinPeers      int
+	connectivityCheckInterval          time.Duration
+	connectivityConcurrency            int
+	connectivityBootstrappersThreshold int
+	connectivityDHTThreshold           int
+	connectivityLotusPeersThreshold    int
+	connectivityLotusAPIEndpoints      []string
 
 	queryServerListenAddress string
 	queryServerReadTimeout   time.Duration
@@ -47,8 +47,9 @@ func newOptions(opts ...Option) (*options, error) {
 	opt := options{
 		messageBufferSize:         100,
 		subBufferSize:             1024,
-		connectivityMinPeers:      5,
 		connectivityCheckInterval: 10 * time.Second,
+		connectivityConcurrency:   10,
+		connectivityDHTThreshold:  5,
 		queryServerReadTimeout:    5 * time.Second,
 		rotatePath:                ".",
 		rotateInterval:            10 * time.Minute,
@@ -67,8 +68,8 @@ func newOptions(opts ...Option) (*options, error) {
 			return nil, err
 		}
 	}
-	if opt.networkNameChangeListener == nil {
-		return nil, fmt.Errorf("network name change listener must be provided")
+	if opt.networkName == "" {
+		return nil, fmt.Errorf("network name must be provided")
 	}
 	return &opt, nil
 }
@@ -87,42 +88,40 @@ func WithPubSubValidatorDisabled(disable bool) Option {
 	}
 }
 
-func WithStaticNetworkName(name gpbft.NetworkName) Option {
-	return WithNetworkNameChangeListener(
-		func(ctx context.Context, _ *pubsub.PubSub) (<-chan gpbft.NetworkName, error) {
-			networkChanged := make(chan gpbft.NetworkName, 1)
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case networkChanged <- name:
-				return networkChanged, nil
-			}
-		},
-	)
-}
-
-func WithNetworkNameChangeListener(listener NetworkNameChangeListener) Option {
+func WithNetworkName(name gpbft.NetworkName) Option {
 	return func(o *options) error {
-		if listener == nil {
-			return fmt.Errorf("listener must not be nil")
-		}
-		o.networkNameChangeListener = listener
+		o.networkName = name
 		return nil
 	}
 }
 
-func WithBootstrapAddrs(addrs ...peer.AddrInfo) Option {
+// WithBootstrapPeers sets the bootstrap peers for connectivity. The threshold
+// is the minimum connectivity threshold below which the bootstrap peers are
+// used to improve connectivity. Disabled if the threshold is set to 0 or no peers are provided.
+//
+// See: WithBootstrapPeersFromString.
+func WithBootstrapPeers(threshold int, peers ...peer.AddrInfo) Option {
 	return func(o *options) error {
-		o.bootstrapAddrs = addrs
+		o.connectivityBootstrapPeers = peers
+		o.connectivityBootstrappersThreshold = threshold
 		return nil
 	}
 }
 
-func WithBootstrapAddrsFromString(addrs ...string) Option {
+// WithBootstrapPeersFromString sets the bootstrap peers for connectivity. The
+// threshold is the minimum connectivity threshold below which the bootstrap
+// peers are used to improve connectivity. Disabled if the threshold is set to 0
+// or no peers are provided.
+//
+// Any provided string addresses are resolved with a timeout of 10 seconds. An
+// error is returned if any one of given addresses fail to resolve.
+//
+// See: WithBootstrapPeers.
+func WithBootstrapPeersFromString(threshold int, peers ...string) Option {
 	const maddrResolutionTimeout = 10 * time.Second
 	return func(o *options) error {
-		o.bootstrapAddrs = make([]peer.AddrInfo, 0, len(addrs))
-		for _, v := range addrs {
+		o.connectivityBootstrapPeers = make([]peer.AddrInfo, 0, len(peers))
+		for _, v := range peers {
 			maddr, err := multiaddr.NewMultiaddr(v)
 			if err != nil {
 				return fmt.Errorf("invalid multiaddr: %q: %w", v, err)
@@ -138,9 +137,30 @@ func WithBootstrapAddrsFromString(addrs ...string) Option {
 				if err != nil {
 					return fmt.Errorf("invalid bootstrap address: %q: %w", v, err)
 				}
-				o.bootstrapAddrs = append(o.bootstrapAddrs, *addr)
+				o.connectivityBootstrapPeers = append(o.connectivityBootstrapPeers, *addr)
 			}
 		}
+		o.connectivityBootstrappersThreshold = threshold
+		return nil
+	}
+}
+
+// WithDHTPeerDiscovery sets the threshold for peer discovery via Filecoin DHT.
+// Disabled if set to zero.
+func WithDHTPeerDiscovery(threshold int) Option {
+	return func(o *options) error {
+		o.connectivityDHTThreshold = threshold
+		return nil
+	}
+}
+
+// WithLotusPeerDiscovery configures peer discovery via Filecoin.NetPeers API
+// call through a list of lotus daemons. Disabled if threshold is set to 0 or no
+// lotusDaemon endpoints are provided.
+func WithLotusPeerDiscovery(threshold int, apiEndpoints ...string) Option {
+	return func(o *options) error {
+		o.connectivityLotusPeersThreshold = threshold
+		o.connectivityLotusAPIEndpoints = apiEndpoints
 		return nil
 	}
 }
@@ -166,9 +186,24 @@ func WithConnectivityCheckInterval(interval time.Duration) Option {
 	}
 }
 
+// WithMaxConcurrentConnectionAttempts sets the maximum number of concurrent
+// connection attempts to make to peers. This is used to limit the number of
+// concurrent connection attempts to make to peers when the connectivity
+// threshold is below the specified threshold for any one of the configured
+// connectivity repair mechanisms. The default is 50.
+func WithMaxConcurrentConnectionAttempts(limit int) Option {
+	return func(o *options) error {
+		if limit < 1 {
+			return fmt.Errorf("max concurrent connection attempts must be greater than 0")
+		}
+		o.connectivityConcurrency = limit
+		return nil
+	}
+}
+
 func WithConnectivityMinPeers(count int) Option {
 	return func(o *options) error {
-		o.connectivityMinPeers = count
+		o.connectivityBootstrappersThreshold = count
 		return nil
 	}
 }

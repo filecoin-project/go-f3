@@ -12,6 +12,7 @@ import (
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/encoding"
+	"github.com/filecoin-project/go-f3/internal/lotus"
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/filecoin-project/go-f3/observer"
@@ -157,7 +158,7 @@ var aiderCmd = cli.Command{
 		connectToAll := func() {
 			var eg errgroup.Group
 			eg.SetLimit(c.Int("reconnectConcurrency"))
-			peers := lotusNetPeers(c)
+			peers := lotus.ListAllPeers(c.Context, c.StringSlice("lotusDaemon")...)
 			var count atomic.Int32
 			for _, peer := range peers {
 				select {
@@ -374,67 +375,4 @@ func query[R any](c *cli.Context, query string, result R) error {
 		return fmt.Errorf("failed to unmarshal response: %s: %w", string(respBody), err)
 	}
 	return nil
-}
-
-func lotusNetPeers(c *cli.Context) []peer.AddrInfo {
-	lotusDaemons := c.StringSlice("lotusDaemon")
-	if len(lotusDaemons) == 0 {
-		return nil
-	}
-
-	const netPeersJsonRpc = `{"method":"Filecoin.NetPeers","params":[],"id":2,"jsonrpc":"2.0"}`
-
-	type resultOrError struct {
-		Result []peer.AddrInfo `json:"result"`
-		Error  *struct {
-			Message string `json:"message"`
-		}
-	}
-
-	var addrs []peer.AddrInfo
-	seen := make(map[string]struct{})
-	for _, endpoint := range lotusDaemons {
-		body := bytes.NewReader([]byte(netPeersJsonRpc))
-		req, err := http.NewRequest("POST", endpoint, body)
-		if err != nil {
-			err := fmt.Errorf("failed construct request to discover peers from: %s :%w", endpoint, err)
-			_, _ = fmt.Fprintln(os.Stderr, err)
-			continue
-		}
-		req.Header.Set("Content-Type", `application/json`)
-
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			err := fmt.Errorf("failed to discover peers from lotus daemon %s: %w", endpoint, err)
-			_, _ = fmt.Fprintln(os.Stderr, err)
-			continue
-		}
-		defer func() { _ = resp.Body.Close() }()
-		respBody, err := io.ReadAll(resp.Body)
-		if err != nil {
-			err := fmt.Errorf("failed to read response body from lotus daemon %s: %w", endpoint, err)
-			_, _ = fmt.Fprintln(os.Stderr, err)
-			continue
-		}
-		var roe resultOrError
-		if err := json.Unmarshal(respBody, &roe); err != nil {
-			err := fmt.Errorf("failed to unmarshal response from lotus daemon %s: %s: %w", endpoint, string(respBody), err)
-			_, _ = fmt.Fprintln(os.Stderr, err)
-			continue
-		}
-		if roe.Error != nil {
-			err := fmt.Errorf("failed to discover peers from lotus daemon %s: %s", endpoint, roe.Error.Message)
-			_, _ = fmt.Fprintln(os.Stderr, err)
-			continue
-		}
-
-		for _, addr := range roe.Result {
-			k := addr.ID.String()
-			if _, found := seen[k]; !found {
-				addrs = append(addrs, addr)
-				seen[k] = struct{}{}
-			}
-		}
-	}
-	return addrs
 }

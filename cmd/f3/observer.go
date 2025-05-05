@@ -81,6 +81,30 @@ var observerCmd = cli.Command{
 			Usage: "The higher connection manager watermark.",
 			Value: 192,
 		},
+		&cli.StringSliceFlag{
+			Name:  "lotusDaemon",
+			Usage: "A lotus daemon API endpoint to use for peer discovery via Filecoin.NetPeers API. Example: http://localhost:1234/rpc/v1",
+		},
+		&cli.IntFlag{
+			Name:  "reconnectConcurrency",
+			Usage: "The degree of concurrency to use when reconnecting to peers.",
+			Value: 50,
+		},
+		&cli.IntFlag{
+			Name:  "bootstrapperConnectivityThreshold",
+			Usage: "The connectivity threshold below which peer discovery via the bootstrap peer list is engaged. Disabled if set to zero.",
+			Value: 100,
+		},
+		&cli.IntFlag{
+			Name:  "dhtConnectivityThreshold",
+			Usage: "The connectivity threshold below which peer discovery via the Filecoin DHT is engaged. Disabled if set to zero.",
+			Value: 100,
+		},
+		&cli.IntFlag{
+			Name:  "lotusConnectivityThreshold",
+			Usage: "The connectivity threshold below which peer discovery via Lotus Net Peers is engaged. Disabled if set to zero or no lotusDaemon endpoints are provided.",
+			Value: 100,
+		},
 	},
 
 	Action: func(cctx *cli.Context) error {
@@ -91,6 +115,7 @@ var observerCmd = cli.Command{
 			observer.WithRotateInterval(cctx.Duration("rotateInterval")),
 			observer.WithRetention(cctx.Duration("retention")),
 			observer.WithDataSourceName(cctx.String("dataSourceName")),
+			observer.WithMaxConcurrentConnectionAttempts(cctx.Int("reconnectConcurrency")),
 		}
 		var identity crypto.PrivKey
 		if cctx.IsSet("identity") {
@@ -111,10 +136,11 @@ var observerCmd = cli.Command{
 		}
 
 		if cctx.IsSet("networkName") {
-			opts = append(opts, observer.WithStaticNetworkName(gpbft.NetworkName(cctx.String("networkName"))))
+			opts = append(opts, observer.WithNetworkName(gpbft.NetworkName(cctx.String("networkName"))))
 		}
+		bCThreshold := cctx.Int("bootstrapperConnectivityThreshold")
 		if cctx.IsSet("bootstrapAddr") {
-			opts = append(opts, observer.WithBootstrapAddrsFromString(cctx.StringSlice("bootstrapAddr")...))
+			opts = append(opts, observer.WithBootstrapPeersFromString(bCThreshold, cctx.StringSlice("bootstrapAddr")...))
 		}
 		if cctx.IsSet("bootstrapAddrsFile") {
 			baf, err := os.ReadFile(cctx.Path("bootstrapAddrsFile"))
@@ -122,7 +148,7 @@ var observerCmd = cli.Command{
 				return fmt.Errorf("failed to read bootstrap addrs file: %w", err)
 			}
 			bootstrapAddrs := strings.Split(strings.TrimSpace(string(baf)), "\n")
-			opts = append(opts, observer.WithBootstrapAddrsFromString(bootstrapAddrs...))
+			opts = append(opts, observer.WithBootstrapPeersFromString(bCThreshold, bootstrapAddrs...))
 		}
 		if observerID, err := peer.IDFromPrivateKey(identity); err != nil {
 			return fmt.Errorf("failed to get peer ID from libp2p identity: %w", err)
@@ -143,6 +169,11 @@ var observerCmd = cli.Command{
 			return fmt.Errorf("failed to create libp2p host: %w", err)
 		}
 		opts = append(opts, observer.WithHost(host))
+		opts = append(opts, observer.WithDHTPeerDiscovery(cctx.Int("dhtConnectivityThreshold")))
+		if threshold := cctx.Int("lotusConnectivityThreshold"); cctx.IsSet("lotusDaemon") && threshold > 0 {
+			apiEndpoints := cctx.StringSlice("lotusDaemon")
+			opts = append(opts, observer.WithLotusPeerDiscovery(threshold, apiEndpoints...))
+		}
 
 		o, err := observer.New(opts...)
 		if err != nil {
