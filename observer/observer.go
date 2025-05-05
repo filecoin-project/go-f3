@@ -39,7 +39,7 @@ type Observer struct {
 	db   *sql.DB
 	qs   http.Server
 
-	messageObserved chan *message
+	messageObserved chan *Message
 	networkChanged  <-chan gpbft.NetworkName
 	msgEncoding     *encoding.ZSTD[*pmsg.PartialGMessage]
 }
@@ -55,7 +55,7 @@ func New(o ...Option) (*Observer, error) {
 	}
 	return &Observer{
 		options:         opts,
-		messageObserved: make(chan *message, opts.messageBufferSize),
+		messageObserved: make(chan *Message, opts.messageBufferSize),
 		msgEncoding:     msgEncoding,
 	}, nil
 }
@@ -199,7 +199,7 @@ func (o *Observer) observe(ctx context.Context) error {
 	return nil
 }
 
-func (o *Observer) storeMessage(ctx context.Context, om *message) error {
+func (o *Observer) storeMessage(ctx context.Context, om *Message) error {
 	const insertMessage = `INSERT INTO latest_messages VALUES(?,?,?,?::json,?,?,?::json,?);`
 	voteMarshaled, err := json.Marshal(om.Vote)
 	if err != nil {
