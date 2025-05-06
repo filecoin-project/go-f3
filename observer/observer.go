@@ -13,11 +13,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/filecoin-project/go-f3"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/encoding"
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/manifest"
+	"github.com/filecoin-project/go-f3/pmsg"
 	"github.com/ipfs/go-log/v2"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -42,7 +42,7 @@ type Observer struct {
 
 	messageObserved chan *message
 	networkChanged  <-chan gpbft.NetworkName
-	msgEncoding     *encoding.ZSTD[*f3.PartialGMessage]
+	msgEncoding     *encoding.ZSTD[*pmsg.PartialGMessage]
 }
 
 func New(o ...Option) (*Observer, error) {
@@ -50,7 +50,7 @@ func New(o ...Option) (*Observer, error) {
 	if err != nil {
 		return nil, err
 	}
-	msgEncoding, err := encoding.NewZSTD[*f3.PartialGMessage]()
+	msgEncoding, err := encoding.NewZSTD[*pmsg.PartialGMessage]()
 	if err != nil {
 		return nil, err
 	}
@@ -361,7 +361,7 @@ func (o *Observer) startObserverFor(ctx context.Context, networkName gpbft.Netwo
 				continue
 			}
 
-			om, err := newMessage(time.Now().UTC(), string(networkName), msg.ValidatorData.(f3.PartialGMessage))
+			om, err := newMessage(time.Now().UTC(), string(networkName), msg.ValidatorData.(pmsg.PartialGMessage))
 			if err != nil {
 				logger.Errorw("Failed to instantiate observation message", "err", err)
 				continue
@@ -403,7 +403,7 @@ func (o *Observer) Stop(ctx context.Context) error {
 }
 
 func (o *Observer) validatePubSubMessage(_ context.Context, _ peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
-	var pgmsg f3.PartialGMessage
+	var pgmsg pmsg.PartialGMessage
 	if err := o.msgEncoding.Decode(msg.Data, &pgmsg); err != nil {
 		return pubsub.ValidationReject
 	}

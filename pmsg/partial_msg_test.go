@@ -1,4 +1,4 @@
-package f3
+package pmsg
 
 import (
 	"testing"

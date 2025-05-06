@@ -1,4 +1,4 @@
-package f3
+package pmsg
 
 import (
 	"context"
@@ -10,12 +10,14 @@ import (
 	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/manifest"
 	lru "github.com/hashicorp/golang-lru/v2"
+	logging "github.com/ipfs/go-log/v2"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
-var _ chainexchange.Listener = (*partialMessageManager)(nil)
+var log = logging.Logger("f3")
+var _ chainexchange.Listener = (*PartialMessageManager)(nil)
 
 type PartialGMessage struct {
 	*gpbft.GMessage
@@ -32,7 +34,7 @@ type discoveredChain struct {
 	chain    *gpbft.ECChain
 }
 
-type partialMessageManager struct {
+type PartialMessageManager struct {
 	chainex *chainexchange.PubSubChainExchange
 
 	// pmByInstance is a map of instance to a buffer of partial messages that are
@@ -61,8 +63,8 @@ type partialMessageManager struct {
 	stop func()
 }
 
-func newPartialMessageManager(progress gpbft.Progress, ps *pubsub.PubSub, m manifest.Manifest, clk clock.Clock) (*partialMessageManager, error) {
-	pmm := &partialMessageManager{
+func NewPartialMessageManager(progress gpbft.Progress, ps *pubsub.PubSub, m manifest.Manifest, clk clock.Clock) (*PartialMessageManager, error) {
+	pmm := &PartialMessageManager{
 		pmByInstance:            make(map[uint64]*lru.Cache[partialMessageKey, *PartiallyValidatedMessage]),
 		pmkByInstanceByChainKey: make(map[uint64]map[gpbft.ECChainKey][]partialMessageKey),
 		pendingDiscoveredChains: make(chan *discoveredChain, m.PartialMessageManager.PendingDiscoveredChainsBufferSize),
@@ -95,7 +97,7 @@ func newPartialMessageManager(progress gpbft.Progress, ps *pubsub.PubSub, m mani
 	return pmm, nil
 }
 
-func (pmm *partialMessageManager) Start(ctx context.Context) (<-chan *PartiallyValidatedMessage, error) {
+func (pmm *PartialMessageManager) Start(ctx context.Context) (<-chan *PartiallyValidatedMessage, error) {
 	if err := pmm.chainex.Start(ctx); err != nil {
 		return nil, fmt.Errorf("starting chain exchange: %w", err)
 	}
@@ -278,7 +280,7 @@ func roundDownToUnixMilliTime(t time.Time, interval time.Duration) int64 {
 	return (t.UnixMilli() / intervalMilli) * intervalMilli
 }
 
-func (pmm *partialMessageManager) BroadcastChain(ctx context.Context, instance uint64, chain *gpbft.ECChain) error {
+func (pmm *PartialMessageManager) BroadcastChain(ctx context.Context, instance uint64, chain *gpbft.ECChain) error {
 	if chain.IsZero() {
 		return nil
 	}
@@ -310,7 +312,7 @@ func (pmm *partialMessageManager) BroadcastChain(ctx context.Context, instance u
 	return nil
 }
 
-func (pmm *partialMessageManager) toPartialGMessage(msg *gpbft.GMessage) (*PartialGMessage, error) {
+func (pmm *PartialMessageManager) ToPartialGMessage(msg *gpbft.GMessage) (*PartialGMessage, error) {
 	msgCopy := *(msg)
 	pmsg := &PartialGMessage{
 		GMessage: &msgCopy,
@@ -342,7 +344,7 @@ func (pmm *partialMessageManager) toPartialGMessage(msg *gpbft.GMessage) (*Parti
 	return pmsg, nil
 }
 
-func (pmm *partialMessageManager) NotifyChainDiscovered(ctx context.Context, instance uint64, chain *gpbft.ECChain) {
+func (pmm *PartialMessageManager) NotifyChainDiscovered(ctx context.Context, instance uint64, chain *gpbft.ECChain) {
 	discovery := &discoveredChain{instance: instance, chain: chain}
 	select {
 	case <-ctx.Done():
@@ -357,7 +359,7 @@ func (pmm *partialMessageManager) NotifyChainDiscovered(ctx context.Context, ins
 	}
 }
 
-func (pmm *partialMessageManager) bufferPartialMessage(ctx context.Context, msg *PartiallyValidatedMessage) {
+func (pmm *PartialMessageManager) BufferPartialMessage(ctx context.Context, msg *PartiallyValidatedMessage) {
 	select {
 	case <-ctx.Done():
 		return
@@ -371,7 +373,7 @@ func (pmm *partialMessageManager) bufferPartialMessage(ctx context.Context, msg 
 	}
 }
 
-func (pmm *partialMessageManager) getOrInitPartialMessageBuffer(instance uint64) *lru.Cache[partialMessageKey, *PartiallyValidatedMessage] {
+func (pmm *PartialMessageManager) getOrInitPartialMessageBuffer(instance uint64) *lru.Cache[partialMessageKey, *PartiallyValidatedMessage] {
 	buffer, found := pmm.pmByInstance[instance]
 	if !found {
 		var err error
@@ -389,7 +391,7 @@ func (pmm *partialMessageManager) getOrInitPartialMessageBuffer(instance uint64)
 	return buffer
 }
 
-func (pmm *partialMessageManager) CompleteMessage(ctx context.Context, pgmsg *PartialGMessage) (*gpbft.GMessage, bool) {
+func (pmm *PartialMessageManager) CompleteMessage(ctx context.Context, pgmsg *PartialGMessage) (*gpbft.GMessage, bool) {
 	if pgmsg == nil {
 		// For sanity assert that the message isn't nil.
 		return nil, false
@@ -440,7 +442,7 @@ func inferJustificationVoteValue(pgmsg *PartialGMessage) {
 	}
 }
 
-func (pmm *partialMessageManager) RemoveMessagesBeforeInstance(ctx context.Context, instance uint64) {
+func (pmm *PartialMessageManager) RemoveMessagesBeforeInstance(ctx context.Context, instance uint64) {
 	select {
 	case <-ctx.Done():
 		return
@@ -450,7 +452,7 @@ func (pmm *partialMessageManager) RemoveMessagesBeforeInstance(ctx context.Conte
 	}
 }
 
-func (pmm *partialMessageManager) Shutdown(ctx context.Context) error {
+func (pmm *PartialMessageManager) Shutdown(ctx context.Context) error {
 	if pmm.stop != nil {
 		pmm.stop()
 	}
