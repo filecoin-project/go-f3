@@ -37,6 +37,9 @@ type options struct {
 	rotateInterval time.Duration
 	retention      time.Duration
 
+	pubSub                  *pubsub.PubSub
+	pubSubValidatorDisabled bool
+
 	dataSourceName string
 }
 
@@ -64,9 +67,6 @@ func newOptions(opts ...Option) (*options, error) {
 			return nil, err
 		}
 	}
-	if len(opt.bootstrapAddrs) == 0 {
-		return nil, fmt.Errorf("at least one bootstrap address must be provided")
-	}
 	if opt.networkNameChangeListener == nil {
 		return nil, fmt.Errorf("network name change listener must be provided")
 	}
@@ -76,6 +76,13 @@ func newOptions(opts ...Option) (*options, error) {
 func WithHost(h host.Host) Option {
 	return func(o *options) error {
 		o.host = h
+		return nil
+	}
+}
+
+func WithPubSubValidatorDisabled(disable bool) Option {
+	return func(o *options) error {
+		o.pubSubValidatorDisabled = disable
 		return nil
 	}
 }
@@ -204,6 +211,13 @@ func WithRetention(retention time.Duration) Option {
 func WithDataSourceName(dataSourceName string) Option {
 	return func(o *options) error {
 		o.dataSourceName = dataSourceName
+		return nil
+	}
+}
+
+func WithPubSub(ps *pubsub.PubSub) Option {
+	return func(o *options) error {
+		o.pubSub = ps
 		return nil
 	}
 }
