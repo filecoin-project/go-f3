@@ -27,6 +27,7 @@ func main() {
 			&observerCmd,
 			&toolsCmd,
 			&certsCmd,
+			&aiderCmd,
 		},
 	}
 
