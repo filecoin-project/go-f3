@@ -15,11 +15,14 @@ import (
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/encoding"
+	"github.com/filecoin-project/go-f3/internal/lotus"
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/filecoin-project/go-f3/pmsg"
 	"github.com/ipfs/go-log/v2"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	record "github.com/libp2p/go-libp2p-record"
 	"github.com/libp2p/go-libp2p/core/peer"
 	_ "github.com/marcboeker/go-duckdb"
 	"go.uber.org/multierr"
@@ -38,9 +41,9 @@ type Observer struct {
 	stop func() error
 	db   *sql.DB
 	qs   http.Server
+	dht  *dht.IpfsDHT
 
 	messageObserved chan *Message
-	networkChanged  <-chan gpbft.NetworkName
 	msgEncoding     *encoding.ZSTD[*pmsg.PartialGMessage]
 }
 
@@ -91,10 +94,24 @@ func (o *Observer) initialize(ctx context.Context) error {
 			return fmt.Errorf("failed to initialise pubsub: %w", err)
 		}
 	}
-
-	// Set up network name change listener.
-	if o.networkChanged, err = o.networkNameChangeListener(ctx, o.pubSub); err != nil {
-		return err
+	if o.connectivityDHTThreshold > 0 {
+		opts := []dht.Option{dht.Mode(dht.ModeAuto),
+			dht.Validator(
+				record.NamespacedValidator{
+					"pk": record.PublicKeyValidator{},
+				}),
+			dht.ProtocolPrefix("/fil/kad/" + "testnetnet"), // should be base network name but we don't have manifest
+			dht.QueryFilter(dht.PublicQueryFilter),
+			dht.RoutingTableFilter(dht.PublicRoutingTableFilter),
+			dht.DisableProviders(),
+			dht.DisableValues()}
+		d, err := dht.New(
+			ctx, o.host, opts...,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to initialise DHT: %w", err)
+		}
+		o.dht = d
 	}
 
 	// Set up database connection.
@@ -121,16 +138,10 @@ func (o *Observer) initialize(ctx context.Context) error {
 		return err
 	}
 
-	if o.connectivityCheckInterval <= 0 {
-		// Connect to bootstrap peers on initialisation to avoid the initial wait for
-		// reconnect ticker.
-		if err := o.connectToBootstrapPeers(ctx); err != nil {
-			// Warn but not return the error. Because, the observer will reconnect
-			// periodically if connectivity drops below options.connectivity.minPeers.
-			//
-			// See stayConnected.
-			logger.Warnw("Unsuccessful initial connection to bootstrap peers", "err", err)
-		}
+	// If connectivity check interval is enabled, repair connections once to avoid
+	// waiting for the ticker.
+	if o.connectivityCheckInterval > 0 {
+		o.repairConnectivity(ctx)
 	}
 
 	// Set up query server.
@@ -159,31 +170,20 @@ func (o *Observer) createOrReplaceMessagesView(ctx context.Context, includeParqu
 
 func (o *Observer) observe(ctx context.Context) error {
 	rotation := time.NewTimer(o.rotateInterval)
-	var stopObserverForNetwork func()
+	stopObserverForNetwork, err := o.startObserverFor(ctx, o.networkName)
+	if err != nil {
+		return fmt.Errorf("failed to start observer for network %s: %w", o.networkName, err)
+	}
 
 	defer func() {
 		rotation.Stop()
-		if stopObserverForNetwork != nil {
-			stopObserverForNetwork()
-		}
+		stopObserverForNetwork()
 	}()
 
 	for ctx.Err() == nil {
 		select {
 		case <-ctx.Done():
 			return nil
-		case network, ok := <-o.networkChanged:
-			if !ok {
-				panic("network name change listener channel closed unexpectedly")
-			}
-			if stopObserverForNetwork != nil {
-				stopObserverForNetwork()
-			}
-			var err error
-			stopObserverForNetwork, err = o.startObserverFor(ctx, network)
-			if err != nil {
-				logger.Errorw("Failed to start observer for network", "network", network, "err", err)
-			}
 		case om := <-o.messageObserved:
 			if err := o.storeMessage(ctx, om); err != nil {
 				logger.Errorw("Failed to store message", "message", om, "err", err)
@@ -289,12 +289,7 @@ func (o *Observer) stayConnected(ctx context.Context) error {
 	for ctx.Err() == nil {
 		select {
 		case <-ticker.C:
-			if peers := len(o.host.Network().Peers()); peers < o.connectivityMinPeers {
-				logger.Infow("Low network connectivity, re-bootstrapping", "peers", peers)
-				if err := o.connectToBootstrapPeers(ctx); err != nil {
-					logger.Errorw("Failed to reconnect with at least one bootstrapper", "err", err)
-				}
-			}
+			o.repairConnectivity(ctx)
 		case <-ctx.Done():
 			return nil
 		}
@@ -302,17 +297,83 @@ func (o *Observer) stayConnected(ctx context.Context) error {
 	return nil
 }
 
-func (o *Observer) connectToBootstrapPeers(ctx context.Context) error {
-	var err error
-	for _, addr := range o.bootstrapAddrs {
-		if ctx.Err() != nil {
-			break
-		}
-		if cErr := o.host.Connect(ctx, addr); cErr != nil {
-			err = multierr.Append(err, fmt.Errorf("failed to connect to bootstrap address: %v", addr))
+func (o *Observer) repairConnectivity(ctx context.Context) {
+	connectivity := o.countConnectedPeers()
+	o.tryConnectToBootstrapPeers(ctx)
+	o.tryConnectToFilecoinDHT(ctx)
+	o.tryConnectToLotusNetPeers(ctx)
+	logger.Infow("Connectivity cycle completed", "before", connectivity, "after", o.countConnectedPeers())
+}
+
+func (o *Observer) countConnectedPeers() int {
+	return len(o.host.Network().Peers())
+}
+
+func (o *Observer) tryConnectToLotusNetPeers(ctx context.Context) {
+	if o.connectivityLotusPeersThreshold <= 0 {
+		return
+	}
+	connectivity := o.countConnectedPeers()
+	if connectivity >= o.connectivityLotusPeersThreshold {
+		return
+	}
+	peers := lotus.ListAllPeers(ctx, o.connectivityLotusAPIEndpoints...)
+	logger.Infow("Low network connectivity, reconnecting to peers discovered via Lotus", "connectivity", connectivity, "lotusPeers", len(peers), "threshold", o.connectivityLotusPeersThreshold)
+	var eg errgroup.Group
+	eg.SetLimit(o.connectivityConcurrency)
+	for _, addr := range peers {
+		select {
+		case <-ctx.Done():
+		default:
+			eg.Go(func() error {
+				if err := o.host.Connect(ctx, addr); err != nil {
+					logger.Debugw("Failed to connect to peer discovered via Lotus", "peer", addr, "err", err)
+				}
+				return nil
+			})
 		}
 	}
-	return err
+	_ = eg.Wait()
+}
+
+func (o *Observer) tryConnectToFilecoinDHT(ctx context.Context) {
+	if o.connectivityDHTThreshold <= 0 {
+		return
+	}
+
+	connectivity := o.countConnectedPeers()
+	if connectivity < o.connectivityDHTThreshold {
+		logger.Infow("Low network connectivity, re-bootstrapping via DHT", "connectivity", connectivity, "threshold", o.connectivityDHTThreshold)
+		if err := o.dht.Bootstrap(ctx); err != nil {
+			logger.Errorw("DHT bootstrap failed", "err", err)
+		}
+	}
+}
+
+func (o *Observer) tryConnectToBootstrapPeers(ctx context.Context) {
+	if len(o.connectivityBootstrapPeers) == 0 {
+		return
+	}
+	connectivity := o.countConnectedPeers()
+	if connectivity >= o.connectivityBootstrappersThreshold {
+		return
+	}
+	logger.Infow("Low network connectivity, re connecting to bootstrap peers", "connectivity", connectivity, "threshold", o.connectivityBootstrappersThreshold)
+	var eg errgroup.Group
+	eg.SetLimit(o.connectivityConcurrency)
+	for _, addr := range o.connectivityBootstrapPeers {
+		select {
+		case <-ctx.Done():
+		default:
+			eg.Go(func() error {
+				if err := o.host.Connect(ctx, addr); err != nil {
+					logger.Debugw("Failed to connect to bootstrap peer", "peer", addr, "err", err)
+				}
+				return nil
+			})
+		}
+	}
+	_ = eg.Wait()
 }
 
 func (o *Observer) startObserverFor(ctx context.Context, networkName gpbft.NetworkName) (_stop func(), _err error) {

@@ -25,11 +25,11 @@ func TestWithBootstrapAddrsFromString_Resolution(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			apply := WithBootstrapAddrsFromString(tt.addrs...)
+			apply := WithBootstrapPeersFromString(5, tt.addrs...)
 			require.NotNil(t, apply)
 			got := &options{}
 			require.NoError(t, apply(got))
-			require.NotEmpty(t, tt.addrs, got.bootstrapAddrs)
+			require.NotEmpty(t, tt.addrs, got.connectivityBootstrapPeers)
 		})
 	}
 }
