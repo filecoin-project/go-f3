@@ -97,6 +97,11 @@ var aiderCmd = cli.Command{
 			Usage: "The maximum time to wait for an F3 instance before considering it as lagging.",
 			Value: 3 * time.Minute,
 		},
+		&cli.Uint64Flag{
+			Name:  "minRound",
+			Usage: "The minimum F3 round be to reached before rebroadcasting.",
+			Value: 1,
+		},
 	},
 
 	Action: func(c *cli.Context) error {
@@ -321,7 +326,7 @@ func isF3Lagging(c *cli.Context) (_ bool, _lag *gpbft.InstanceProgress) {
 
 		// We have the latest seen instance and round from observer. Treat F3 as lagging
 		// if round is non-zero.
-		return progress.Round > 0, progress
+		return progress.Round > c.Uint64("minRound"), progress
 	}
 
 	// There's live f3 progress fetched from lotus daemon. Conservatively pick the
@@ -329,7 +334,7 @@ func isF3Lagging(c *cli.Context) (_ bool, _lag *gpbft.InstanceProgress) {
 	slices.SortFunc(progresses, compareProgress)
 	leastProgress := progresses[0]
 
-	if leastProgress.Round > 0 {
+	if leastProgress.Round > c.Uint64("minRound") {
 		// Non-zero round; treat F3 as behind, since ideally all instances should finish
 		// in a single round. This case will also cover CONVERGE, since it never happens
 		// in round 0.
