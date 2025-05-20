@@ -1,3 +1,6 @@
+// certchain package is a testing utility for generating and validating
+// finality certificates.
+// It has no effect on the consensus protocol.
 package certchain
 
 import (
