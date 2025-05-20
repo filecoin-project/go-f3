@@ -50,7 +50,7 @@ func (cc *CertChain) GetCommittee(ctx context.Context, instance uint64) (*gpbft.
 	if instance < cc.m.InitialInstance+cc.m.CommitteeLookback {
 		committeeEpoch = cc.m.BootstrapEpoch - cc.m.EC.Finality
 	} else {
-		lookbackIndex := instance - cc.m.CommitteeLookback + 1
+		lookbackIndex := instance - cc.m.CommitteeLookback - cc.m.InitialInstance + 1
 		certAtLookback := cc.certificates[lookbackIndex]
 		committeeEpoch = certAtLookback.ECChain.Head().Epoch
 	}

@@ -24,6 +24,7 @@ func TestCertChain_GenerateAndVerify(t *testing.T) {
 
 	ctx, clk := clock.WithMockClock(context.Background())
 	m := manifest.LocalDevnetManifest()
+	m.InitialInstance = 100
 	signVerifier := signing.NewFakeBackend()
 	rng := rand.New(rand.NewSource(seed * 23))
 	generatePublicKey := func(id gpbft.ActorID) gpbft.PubKey {
