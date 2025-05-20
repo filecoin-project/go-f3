@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"math/rand"
 	"slices"
 
@@ -159,7 +160,7 @@ func (cc *CertChain) signProportionally(ctx context.Context, committee *gpbft.Co
 	// range of 66% to 100% of total power.
 	const minimumPower = 2.0 / 3.0
 	targetPowerPortion := minimumPower + cc.rng.Float64()*(1.0-minimumPower)
-	signingPowerThreshold := int64(float64(committee.PowerTable.ScaledTotal) * targetPowerPortion)
+	signingPowerThreshold := int64(math.Ceil(float64(committee.PowerTable.ScaledTotal) * targetPowerPortion))
 
 	var signingPowerSoFar int64
 	type signatureAt struct {
@@ -217,7 +218,7 @@ func (cc *CertChain) signProportionally(ctx context.Context, committee *gpbft.Co
 
 func (cc *CertChain) sign(ctx context.Context, committee *gpbft.Committee, payload *gpbft.Payload, signers *bitfield.BitField) ([]byte, error) {
 	const minimumPower = 2.0 / 3.0
-	minSigningPower := int64(float64(committee.PowerTable.ScaledTotal) * minimumPower)
+	minSigningPower := int64(math.Ceil(float64(committee.PowerTable.ScaledTotal) * minimumPower))
 
 	var signingPowerSoFar int64
 	var signatures [][]byte
