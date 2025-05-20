@@ -41,6 +41,9 @@ type options struct {
 	pubSubValidatorDisabled bool
 
 	dataSourceName string
+
+	maxBatchSize  int
+	maxBatchDelay time.Duration
 }
 
 func newOptions(opts ...Option) (*options, error) {
@@ -54,6 +57,8 @@ func newOptions(opts ...Option) (*options, error) {
 		rotatePath:                ".",
 		rotateInterval:            10 * time.Minute,
 		retention:                 -1,
+		maxBatchSize:              1000,
+		maxBatchDelay:             time.Minute,
 	}
 	for _, apply := range opts {
 		if err := apply(&opt); err != nil {
@@ -253,6 +258,23 @@ func WithDataSourceName(dataSourceName string) Option {
 func WithPubSub(ps *pubsub.PubSub) Option {
 	return func(o *options) error {
 		o.pubSub = ps
+		return nil
+	}
+}
+
+func WithMaxBatchSize(size int) Option {
+	return func(o *options) error {
+		o.maxBatchSize = size
+		return nil
+	}
+}
+
+func WithMaxBatchDelay(d time.Duration) Option {
+	return func(o *options) error {
+		if d < 0 {
+			return fmt.Errorf("max batch delay must be greater than or equal to 0")
+		}
+		o.maxBatchDelay = d
 		return nil
 	}
 }

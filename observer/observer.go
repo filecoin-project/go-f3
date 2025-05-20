@@ -3,8 +3,8 @@ package observer
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	_ "embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -24,7 +24,7 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	record "github.com/libp2p/go-libp2p-record"
 	"github.com/libp2p/go-libp2p/core/peer"
-	_ "github.com/marcboeker/go-duckdb"
+	"github.com/marcboeker/go-duckdb"
 	"go.uber.org/multierr"
 	"golang.org/x/sync/errgroup"
 )
@@ -45,6 +45,12 @@ type Observer struct {
 
 	messageObserved chan *Message
 	msgEncoding     *encoding.ZSTD[*pmsg.PartialGMessage]
+
+	dbConnector           *duckdb.Connector
+	dbAppender            *duckdb.Appender
+	dbConnection          driver.Conn
+	unflushedMessageCount int
+	lastFlushedAt         time.Time
 }
 
 func New(o ...Option) (*Observer, error) {
@@ -75,14 +81,18 @@ func (o *Observer) Start(ctx context.Context) error {
 	eg.Go(o.listenAndServeQueries)
 	o.stop = func() error {
 		stop()
-		return eg.Wait()
+		return multierr.Combine(
+			o.dbAppender.Close(),
+			o.dbConnection.Close(),
+			o.dbConnector.Close(),
+			o.db.Close(),
+			eg.Wait())
 	}
 	return nil
 }
 
 func (o *Observer) initialize(ctx context.Context) error {
 	var err error
-
 	if o.pubSub == nil {
 		// Set up pubsub to listen for GPBFT messages.
 		if o.pubSub, err = pubsub.NewGossipSub(ctx, o.host,
@@ -115,9 +125,11 @@ func (o *Observer) initialize(ctx context.Context) error {
 	}
 
 	// Set up database connection.
-	if o.db, err = sql.Open("duckdb", o.dataSourceName); err != nil {
-		return err
+	o.dbConnector, err = duckdb.NewConnector(o.dataSourceName, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create duckdb connector: %w", err)
 	}
+	o.db = sql.OpenDB(o.dbConnector)
 
 	// Create database schema.
 	if _, err := o.db.ExecContext(ctx, schema); err != nil {
@@ -136,6 +148,16 @@ func (o *Observer) initialize(ctx context.Context) error {
 	if err := o.createOrReplaceMessagesView(ctx, includeParquetFiles); err != nil {
 		logger.Errorw("failed to create or replace messages view", "err", err)
 		return err
+	}
+
+	// Set up appender used for batch insertion of messages observed.
+	o.dbConnection, err = o.dbConnector.Connect(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to connect to duckdb: %w", err)
+	}
+	o.dbAppender, err = duckdb.NewAppenderFromConn(o.dbConnection, "", "latest_messages")
+	if err != nil {
+		return fmt.Errorf("failed to create duckdb appender: %w", err)
 	}
 
 	// If connectivity check interval is enabled, repair connections once to avoid
@@ -200,30 +222,35 @@ func (o *Observer) observe(ctx context.Context) error {
 }
 
 func (o *Observer) storeMessage(ctx context.Context, om *Message) error {
-	const insertMessage = `INSERT INTO latest_messages VALUES(?,?,?,?::json,?,?,?::json,?);`
-	voteMarshaled, err := json.Marshal(om.Vote)
-	if err != nil {
-		return fmt.Errorf("failed to marshal vote: %w", err)
-	}
-	var justificationMarshaled any
+	var justification any
 	if om.Justification != nil {
-		v, err := json.Marshal(om.Justification)
-		if err != nil {
-			return fmt.Errorf("failed to marshal justification: %w", err)
-		}
-		justificationMarshaled = string(v)
+		// Dereference to get the go-duckdb reflection in appender to behave. Otherwise,
+		// it fails as it interprets the type as mismatch due to how nullable fields are
+		// handled.
+		justification = *om.Justification
 	}
-	if _, err := o.db.ExecContext(ctx, insertMessage,
+	if err := o.dbAppender.AppendRow(
 		om.Timestamp,
 		om.NetworkName,
-		om.Sender,
-		string(voteMarshaled),
+		int64(om.Sender),
+		om.Vote,
 		om.Signature,
 		om.Ticket,
-		justificationMarshaled,
+		justification,
 		om.VoteValueKey,
 	); err != nil {
-		return fmt.Errorf("failed to execute query: %w", err)
+		return fmt.Errorf("failed to append row: %w", err)
+	}
+	o.unflushedMessageCount++
+	batchSizeReached := o.unflushedMessageCount >= o.maxBatchSize
+	batchDelayElapsed := !o.lastFlushedAt.IsZero() && time.Since(o.lastFlushedAt) >= o.maxBatchDelay
+	if batchSizeReached || batchDelayElapsed {
+		if err := o.dbAppender.Flush(); err != nil {
+			return fmt.Errorf("failed to flush appender: %w", err)
+		}
+		logger.Infow("Flushed messages to database", "count", o.unflushedMessageCount, "after", time.Since(o.lastFlushedAt))
+		o.unflushedMessageCount = 0
+		o.lastFlushedAt = time.Now()
 	}
 	return nil
 }
