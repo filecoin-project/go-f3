@@ -51,6 +51,9 @@ func (cc *CertChain) GetCommittee(ctx context.Context, instance uint64) (*gpbft.
 		committeeEpoch = cc.m.BootstrapEpoch - cc.m.EC.Finality
 	} else {
 		lookbackIndex := instance - cc.m.CommitteeLookback - cc.m.InitialInstance + 1
+		if lookbackIndex >= uint64(len(cc.certificates)) {
+			return nil, fmt.Errorf("no prior finality certificate to get committee at instance %d", instance)
+		}
 		certAtLookback := cc.certificates[lookbackIndex]
 		committeeEpoch = certAtLookback.ECChain.Head().Epoch
 	}
