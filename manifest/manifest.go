@@ -352,8 +352,11 @@ func (m *Manifest) Equal(o *Manifest) bool {
 		m.Gpbft == o.Gpbft &&
 		m.EC.Equal(&o.EC) &&
 		m.CertificateExchange == o.CertificateExchange &&
-		m.ProtocolVersion == o.ProtocolVersion
-
+		m.ProtocolVersion == o.ProtocolVersion &&
+		m.PubSub == o.PubSub && // Added PubSub comparison
+		m.ChainExchange == o.ChainExchange && // Added ChainExchange comparison
+		m.PartialMessageManager == o.PartialMessageManager && // Added PartialMessageManager comparison
+		m.CatchUpAlignment == o.CatchUpAlignment // Added CatchUpAlignment comparison
 }
 
 func (m *Manifest) Validate() error {
