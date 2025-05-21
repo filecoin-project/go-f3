@@ -105,6 +105,16 @@ var observerCmd = cli.Command{
 			Usage: "The connectivity threshold below which peer discovery via Lotus Net Peers is engaged. Disabled if set to zero or no lotusDaemon endpoints are provided.",
 			Value: 100,
 		},
+		&cli.IntFlag{
+			Name:  "maxBatchSize",
+			Usage: "The maximum number of messages to batch together in a single insertion into database.",
+			Value: 1000,
+		},
+		&cli.DurationFlag{
+			Name:  "maxBatchDelay",
+			Usage: "The maximum time to wait before a batch is flushed to the database.",
+			Value: time.Minute,
+		},
 	},
 
 	Action: func(cctx *cli.Context) error {
@@ -116,6 +126,8 @@ var observerCmd = cli.Command{
 			observer.WithRetention(cctx.Duration("retention")),
 			observer.WithDataSourceName(cctx.String("dataSourceName")),
 			observer.WithMaxConcurrentConnectionAttempts(cctx.Int("reconnectConcurrency")),
+			observer.WithMaxBatchSize(cctx.Int("maxBatchSize")),
+			observer.WithMaxBatchDelay(cctx.Duration("maxBatchDelay")),
 		}
 		var identity crypto.PrivKey
 		if cctx.IsSet("identity") {
