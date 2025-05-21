@@ -191,8 +191,8 @@ func (o *Observer) createOrReplaceMessagesView(ctx context.Context, includeParqu
 }
 
 func (o *Observer) observe(ctx context.Context) error {
-	rotation := time.NewTimer(o.rotateInterval)
-	flush := time.NewTimer(o.maxBatchDelay)
+	rotation := time.NewTicker(o.rotateInterval)
+	flush := time.NewTicker(o.maxBatchDelay)
 	stopObserverForNetwork, err := o.startObserverFor(ctx, o.networkName)
 	if err != nil {
 		return fmt.Errorf("failed to start observer for network %s: %w", o.networkName, err)
