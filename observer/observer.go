@@ -192,6 +192,7 @@ func (o *Observer) createOrReplaceMessagesView(ctx context.Context, includeParqu
 
 func (o *Observer) observe(ctx context.Context) error {
 	rotation := time.NewTimer(o.rotateInterval)
+	flush := time.NewTimer(o.maxBatchDelay)
 	stopObserverForNetwork, err := o.startObserverFor(ctx, o.networkName)
 	if err != nil {
 		return fmt.Errorf("failed to start observer for network %s: %w", o.networkName, err)
@@ -199,6 +200,7 @@ func (o *Observer) observe(ctx context.Context) error {
 
 	defer func() {
 		rotation.Stop()
+		flush.Stop()
 		stopObserverForNetwork()
 	}()
 
@@ -216,12 +218,16 @@ func (o *Observer) observe(ctx context.Context) error {
 			if err := o.rotateMessages(ctx); err != nil {
 				logger.Errorw("Failed to rotate latest messages", "err", err)
 			}
+		case <-flush.C:
+			if err := o.tryFlushMessages(); err != nil {
+				logger.Errorw("Failed to flush observed messages", "err", err)
+			}
 		}
 	}
 	return nil
 }
 
-func (o *Observer) storeMessage(ctx context.Context, om *Message) error {
+func (o *Observer) storeMessage(_ context.Context, om *Message) error {
 	var justification any
 	if om.Justification != nil {
 		// Dereference to get the go-duckdb reflection in appender to behave. Otherwise,
@@ -242,6 +248,10 @@ func (o *Observer) storeMessage(ctx context.Context, om *Message) error {
 		return fmt.Errorf("failed to append row: %w", err)
 	}
 	o.unflushedMessageCount++
+	return o.tryFlushMessages()
+}
+
+func (o *Observer) tryFlushMessages() error {
 	batchSizeReached := o.unflushedMessageCount >= o.maxBatchSize
 	batchDelayElapsed := !o.lastFlushedAt.IsZero() && time.Since(o.lastFlushedAt) >= o.maxBatchDelay
 	if batchSizeReached || batchDelayElapsed {
