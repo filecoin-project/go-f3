@@ -194,7 +194,8 @@ func (e *EcConfig) Equal(o *EcConfig) bool {
 		e.Finality == o.Finality &&
 		e.DelayMultiplier == o.DelayMultiplier &&
 		e.HeadLookback == o.HeadLookback &&
-		slices.Equal(e.BaseDecisionBackoffTable, o.BaseDecisionBackoffTable)
+		slices.Equal(e.BaseDecisionBackoffTable, o.BaseDecisionBackoffTable) &&
+		e.Finalize == o.Finalize // Added Finalize check
 }
 
 func (e *EcConfig) Validate() error {
