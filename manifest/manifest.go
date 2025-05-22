@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -189,14 +188,6 @@ type EcConfig struct {
 	Finalize bool
 }
 
-func (e *EcConfig) Equal(o *EcConfig) bool {
-	return e.Period == o.Period &&
-		e.Finality == o.Finality &&
-		e.DelayMultiplier == o.DelayMultiplier &&
-		e.HeadLookback == o.HeadLookback &&
-		slices.Equal(e.BaseDecisionBackoffTable, o.BaseDecisionBackoffTable)
-}
-
 func (e *EcConfig) Validate() error {
 	switch {
 	case e.HeadLookback < 0:
@@ -334,26 +325,6 @@ type Manifest struct {
 	ChainExchange ChainExchangeConfig
 	// PartialMessageManager specifies the configuration for the partial message manager.
 	PartialMessageManager PartialMessageManagerConfig
-}
-
-func (m *Manifest) Equal(o *Manifest) bool {
-	if m == nil || o == nil {
-		return m == o
-	}
-
-	return m.NetworkName == o.NetworkName &&
-		m.InitialInstance == o.InitialInstance &&
-		m.BootstrapEpoch == o.BootstrapEpoch &&
-		m.CommitteeLookback == o.CommitteeLookback &&
-		// Don't include this in equality checks because it doesn't change the meaning of
-		// the manifest (and we don't want to restart the network when we first publish
-		// this).
-		// m.InitialPowerTable.Equals(o.InitialPowerTable) &&
-		m.Gpbft == o.Gpbft &&
-		m.EC.Equal(&o.EC) &&
-		m.CertificateExchange == o.CertificateExchange &&
-		m.ProtocolVersion == o.ProtocolVersion
-
 }
 
 func (m *Manifest) Validate() error {
