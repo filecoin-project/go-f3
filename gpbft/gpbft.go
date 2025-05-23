@@ -997,7 +997,7 @@ func (i *instance) tryRebroadcast() {
 			// trigger before the phase timeout. Override the alarm with rebroadcast timeout
 			// and check for phase timeout in the next cycle of rebroadcast.
 			i.participant.host.SetAlarm(i.rebroadcastTimeout)
-			i.log("scheduled initial rebroadcast at %v before phase timeout at %v", i.rebroadcastTimeout, i.phaseTimeout)
+			i.log("scheduled next rebroadcast at %v before phase timeout at %v", i.rebroadcastTimeout, i.phaseTimeout)
 		} else {
 			// The rebroadcast timeout is set after the phase timeout. Set the alarm for phase timeout instead.
 			i.log("Reverted to phase timeout at %v as it is before the next rebroadcast timeout at %v", i.phaseTimeout, i.rebroadcastTimeout)
