@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/filecoin-project/go-f3/emulator"
 	"github.com/filecoin-project/go-f3/gpbft"
@@ -521,6 +522,51 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 			Justification: evidenceOfCommit,
 		})
 		driver.RequireDecision(instance.ID(), futureRoundProposal)
+	})
+
+	t.Run("Rebroadcasts independent of phase timeout after 3 rounds", func(t *testing.T) {
+		instance, driver := newInstanceAndDriver(t)
+		driver.RequireStartInstance(instance.ID())
+		driver.RequireQuality()
+		justification := instance.NewJustification(12, gpbft.PREPARE_PHASE, instance.Proposal(), 0, 1)
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        0,
+			Vote:          instance.NewConverge(13, instance.Proposal()),
+			Ticket:        emulator.ValidTicket,
+			Justification: justification,
+		})
+		driver.RequireDeliverMessage(&gpbft.GMessage{
+			Sender:        0,
+			Vote:          instance.NewPrepare(13, instance.Proposal()),
+			Ticket:        emulator.ValidTicket,
+			Justification: justification,
+		})
+
+		requireRebroadcast := func() {
+			driver.RequireQuality()
+			driver.RequireConverge(13, instance.Proposal(), justification)
+			driver.RequireNoBroadcast()
+		}
+
+		driver.RequireConverge(13, instance.Proposal(), justification)       // Should schedule rebroadcast.
+		driver.RequireNoBroadcast()                                          // Assert no broadcast until timeout expires.
+		driver.RequireDeliverAlarm()                                         // Expire the timeout.
+		requireRebroadcast()                                                 // Assert rebroadcast, which should schedule the next rebroadcast.
+		driver.RequireDeliverAlarm()                                         // Trigger alarm
+		requireRebroadcast()                                                 // Expect rebroadcast again, because phase timeout should be enough in the future since we are in round 13.
+		driver.AdvanceTimeBy(24 * time.Hour)                                 // Now, advance the clock beyond the rebroadcast timeout.
+		driver.RequireDeliverAlarm()                                         // Trigger alarm, which should trigger the phase timeout instead of rebroadcast timeout.
+		driver.RequirePrepareAtRound(13, instance.Proposal(), justification) // Expect progress to PREPARE phase; that is no rebroadcast.
+		driver.RequireNoBroadcast()                                          // Expect no further broadcast because PREPARE phase is not timed out yet.
+
+		// Now, because we are beyond round 3, we should expect rebroadcast even though the phase timeout
+		// hasn't expired yet. This is because the rebroadcast is set to trigger immediately beyond round 3.
+		// Therefore, assert that rebroadcast is triggered, and this time it includes a PREPARE message.
+		driver.RequireDeliverAlarm()
+		driver.RequireQuality()
+		driver.RequirePrepareAtRound(13, instance.Proposal(), justification)
+		driver.RequireConverge(13, instance.Proposal(), justification)
+		driver.RequireNoBroadcast() // Nothing else should be broadcast until the next alarm.
 	})
 }
 

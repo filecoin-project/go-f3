@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/stretchr/testify/require"
@@ -104,4 +105,13 @@ func (d *Driver) deliverMessage(msg *gpbft.GMessage) error {
 	} else {
 		return d.subject.ReceiveMessage(ctx, validated)
 	}
+}
+
+// AdvanceTimeBy advances the current time of the driver by the given amount.
+// This allows the driver to simulate the passage of time in the emulated
+// gpbft.Participant. This is useful for testing timeouts and other time-based
+// behavior in the gpbft.Participant in high number of rounds, which
+// exponentially increases the phase timeout.
+func (d *Driver) AdvanceTimeBy(t time.Duration) {
+	d.host.now = d.host.now.Add(t)
 }

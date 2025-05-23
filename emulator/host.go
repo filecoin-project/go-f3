@@ -39,7 +39,9 @@ func (h *driverHost) maybeReceiveAlarm() bool {
 	if h.pendingAlarm == nil {
 		return false
 	}
-	h.now = *h.pendingAlarm
+	if h.now.Before(*h.pendingAlarm) {
+		h.now = *h.pendingAlarm
+	}
 	h.pendingAlarm = nil
 	return true
 }
