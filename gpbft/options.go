@@ -25,9 +25,10 @@ type options struct {
 
 	qualityDeltaMulti float64
 
-	committeeLookback  uint64
-	maxLookaheadRounds uint64
-	rebroadcastAfter   func(int) time.Duration
+	committeeLookback                uint64
+	maxLookaheadRounds               uint64
+	rebroadcastAfter                 func(int) time.Duration
+	rebroadcastImmediatelyAfterRound uint64
 
 	maxCachedInstances           int
 	maxCachedMessagesPerInstance int
@@ -38,13 +39,14 @@ type options struct {
 
 func newOptions(o ...Option) (*options, error) {
 	opts := &options{
-		delta:                        defaultDelta,
-		deltaBackOffExponent:         defaultDeltaBackOffExponent,
-		qualityDeltaMulti:            1.0,
-		committeeLookback:            defaultCommitteeLookback,
-		rebroadcastAfter:             defaultRebroadcastAfter,
-		maxCachedInstances:           defaultMaxCachedInstances,
-		maxCachedMessagesPerInstance: defaultMaxCachedMessagesPerInstance,
+		delta:                            defaultDelta,
+		deltaBackOffExponent:             defaultDeltaBackOffExponent,
+		qualityDeltaMulti:                1.0,
+		committeeLookback:                defaultCommitteeLookback,
+		rebroadcastAfter:                 defaultRebroadcastAfter,
+		rebroadcastImmediatelyAfterRound: 3,
+		maxCachedInstances:               defaultMaxCachedInstances,
+		maxCachedMessagesPerInstance:     defaultMaxCachedMessagesPerInstance,
 	}
 	for _, apply := range o {
 		if err := apply(opts); err != nil {
@@ -139,6 +141,17 @@ func WithMaxCachedMessagesPerInstance(v int) Option {
 func WithCommitteeLookback(lookback uint64) Option {
 	return func(o *options) error {
 		o.committeeLookback = lookback
+		return nil
+	}
+}
+
+// WithRebroadcastImmediatelyAfterRound sets the round after which rebroadcast is
+// scheduled without waiting for phase timeout to expire first.
+//
+// Defaults to 3 if unset.
+func WithRebroadcastImmediatelyAfterRound(round uint64) Option {
+	return func(o *options) error {
+		o.rebroadcastImmediatelyAfterRound = round
 		return nil
 	}
 }

@@ -550,7 +550,7 @@ func (i *instance) tryQuality() error {
 	// Wait either for a strong quorum that agree on our proposal, or for the timeout
 	// to expire.
 	foundQuorum := i.quality.HasStrongQuorumFor(i.proposal.Key())
-	timeoutExpired := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
+	timeoutExpired := i.phaseTimeoutElapsed()
 
 	if foundQuorum || timeoutExpired {
 		// If strong quorum of input is found the proposal will remain unchanged.
@@ -606,8 +606,11 @@ func (i *instance) tryConverge() error {
 		return fmt.Errorf("unexpected phase %s, expected %s", i.current.Phase, CONVERGE_PHASE)
 	}
 	// The CONVERGE phase timeout doesn't wait to hear from >⅔ of power.
-	timeoutExpired := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
+	timeoutExpired := i.phaseTimeoutElapsed()
 	if !timeoutExpired {
+		if i.shouldRebroadcast() {
+			i.tryRebroadcast()
+		}
 		return nil
 	}
 	commitRoundState := i.getRound(i.current.Round - 1).committed
@@ -666,9 +669,8 @@ func (i *instance) tryPrepare() error {
 	prepared := i.getRound(i.current.Round).prepared
 	proposalKey := i.proposal.Key()
 	foundQuorum := prepared.HasStrongQuorumFor(proposalKey)
-	timedOut := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
 	quorumNotPossible := !prepared.CouldReachStrongQuorumFor(proposalKey, false)
-	phaseComplete := timedOut && prepared.ReceivedFromStrongQuorum()
+	phaseComplete := i.phaseTimeoutElapsed() && prepared.ReceivedFromStrongQuorum()
 
 	if foundQuorum {
 		i.value = i.proposal
@@ -678,7 +680,7 @@ func (i *instance) tryPrepare() error {
 
 	if foundQuorum || quorumNotPossible || phaseComplete {
 		i.beginCommit()
-	} else if timedOut {
+	} else if i.shouldRebroadcast() {
 		i.tryRebroadcast()
 	}
 	return nil
@@ -714,8 +716,7 @@ func (i *instance) tryCommit(round uint64) error {
 	// no check on the current phase.
 	committed := i.getRound(round).committed
 	quorumValue, foundStrongQuorum := committed.FindStrongQuorumValue()
-	timedOut := atOrAfter(i.participant.host.Time(), i.phaseTimeout)
-	phaseComplete := timedOut && committed.ReceivedFromStrongQuorum()
+	phaseComplete := i.phaseTimeoutElapsed() && committed.ReceivedFromStrongQuorum()
 
 	switch {
 	case foundStrongQuorum && !quorumValue.IsZero():
@@ -751,7 +752,7 @@ func (i *instance) tryCommit(round uint64) error {
 			}
 		}
 		i.beginNextRound()
-	case timedOut:
+	case i.shouldRebroadcast():
 		// The phase has timed out. Attempt to re-broadcast messages.
 		i.tryRebroadcast()
 	}
@@ -940,16 +941,39 @@ func (i *instance) tryRebroadcast() {
 		// instance phase and schedule the first alarm:
 		//  * If in DECIDE phase, use current time as offset. Because, DECIDE phase does
 		//    not have any phase timeout and may be too far in the past.
+		//  * If the current phase is beyond the immediate rebroadcast threshold, use
+		//    the current time as offset to avoid extended periods of radio silence
+		//    when phase timeout grows exponentially large.
 		//  * Otherwise, use the phase timeout.
 		var rebroadcastTimeoutOffset time.Time
-		if i.current.Phase == DECIDE_PHASE {
+		if i.current.Phase == DECIDE_PHASE || i.current.Round > i.participant.rebroadcastImmediatelyAfterRound {
 			rebroadcastTimeoutOffset = i.participant.host.Time()
 		} else {
 			rebroadcastTimeoutOffset = i.phaseTimeout
 		}
 		i.rebroadcastTimeout = rebroadcastTimeoutOffset.Add(i.participant.rebroadcastAfter(0))
-		i.participant.host.SetAlarm(i.rebroadcastTimeout)
-		i.log("scheduled initial rebroadcast at %v", i.rebroadcastTimeout)
+		if i.phaseTimeoutElapsed() {
+			// The phase timeout has already elapsed; therefore, there's no risk of
+			// overriding any existing alarm. Simply set the alarm for rebroadcast.
+			i.participant.host.SetAlarm(i.rebroadcastTimeout)
+			i.log("scheduled initial rebroadcast at %v", i.rebroadcastTimeout)
+		} else if i.rebroadcastTimeout.Before(i.phaseTimeout) {
+			// The rebroadcast timeout is set before the phase timeout; therefore, it should
+			// trigger before the phase timeout. Override the alarm with rebroadcast timeout
+			// and check for phase timeout in the next cycle of rebroadcast.
+			i.participant.host.SetAlarm(i.rebroadcastTimeout)
+			i.log("scheduled initial rebroadcast at %v before phase timeout at %v", i.rebroadcastTimeout, i.phaseTimeout)
+		} else {
+			// The phase timeout is set before the rebroadcast timeout. Therefore, there must
+			// have been an alarm set already for the phase. Do nothing, because the GPBFT
+			// process loop will trigger the phase alarm, which in turn tries the current
+			// phase and eventually will try rebroadcast.
+			//
+			// Therefore, reset the rebroadcast parameters to re-attempt setting the initial
+			// rebroadcast timeout once the phase expires.
+			i.log("Resetting rebroadcast as rebroadcast timeout at %v is after phase timeout at %v and the current phase has not timed out yet.", i.rebroadcastTimeout, i.phaseTimeout)
+			i.resetRebroadcastParams()
+		}
 	case i.rebroadcastTimeoutElapsed():
 		// Rebroadcast now that the corresponding timeout has elapsed, and schedule the
 		// successive rebroadcast.
@@ -958,13 +982,27 @@ func (i *instance) tryRebroadcast() {
 
 		// Use current host time as the offset for the next alarm to assure that rate of
 		// broadcasted messages grows relative to the actual time at which an alarm is
-		// triggered , not the absolute alarm time. This would avoid a "runaway
+		// triggered, not the absolute alarm time. This would avoid a "runaway
 		// rebroadcast" scenario where rebroadcast timeout consistently remains behind
 		// current time due to the discrepancy between set alarm time and the actual time
 		// at which the alarm is triggered.
 		i.rebroadcastTimeout = i.participant.host.Time().Add(i.participant.rebroadcastAfter(i.rebroadcastAttempts))
-		i.participant.host.SetAlarm(i.rebroadcastTimeout)
-		i.log("scheduled next rebroadcast at %v", i.rebroadcastTimeout)
+		if i.phaseTimeoutElapsed() {
+			// The phase timeout has already elapsed; therefore, there's no risk of
+			// overriding any existing alarm. Simply set the alarm for rebroadcast.
+			i.participant.host.SetAlarm(i.rebroadcastTimeout)
+			i.log("scheduled next rebroadcast at %v", i.rebroadcastTimeout)
+		} else if i.rebroadcastTimeout.Before(i.phaseTimeout) {
+			// The rebroadcast timeout is set before the phase timeout; therefore, it should
+			// trigger before the phase timeout. Override the alarm with rebroadcast timeout
+			// and check for phase timeout in the next cycle of rebroadcast.
+			i.participant.host.SetAlarm(i.rebroadcastTimeout)
+			i.log("scheduled initial rebroadcast at %v before phase timeout at %v", i.rebroadcastTimeout, i.phaseTimeout)
+		} else {
+			// The rebroadcast timeout is set after the phase timeout. Set the alarm for phase timeout instead.
+			i.log("Reverted to phase timeout at %v as it is before the next rebroadcast timeout at %v", i.phaseTimeout, i.rebroadcastTimeout)
+			i.participant.host.SetAlarm(i.phaseTimeout)
+		}
 	default:
 		// Rebroadcast timeout is set but has not elapsed yet; nothing to do.
 	}
@@ -978,6 +1016,14 @@ func (i *instance) resetRebroadcastParams() {
 func (i *instance) rebroadcastTimeoutElapsed() bool {
 	now := i.participant.host.Time()
 	return atOrAfter(now, i.rebroadcastTimeout)
+}
+
+func (i *instance) shouldRebroadcast() bool {
+	return i.phaseTimeoutElapsed() || i.current.Round > i.participant.rebroadcastImmediatelyAfterRound
+}
+
+func (i *instance) phaseTimeoutElapsed() bool {
+	return atOrAfter(i.participant.host.Time(), i.phaseTimeout)
 }
 
 func (i *instance) rebroadcast() {
