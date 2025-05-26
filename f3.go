@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -62,8 +63,11 @@ type F3 struct {
 // New creates and setups f3 with libp2p
 // The context is used for initialization not runtime.
 func New(_ctx context.Context, manifest manifest.Manifest, ds datastore.Datastore, h host.Host,
-	ps *pubsub.PubSub, verif gpbft.Verifier, ec ec.Backend, diskPath string) (*F3, error) {
+	ps *pubsub.PubSub, verif gpbft.Verifier, ecBackend ec.Backend, diskPath string) (*F3, error) {
 	runningCtx, cancel := context.WithCancel(context.WithoutCancel(_ctx))
+
+	// concurrency is limited to half of the number of CPUs, and cache size is set to 256 which should be enough for most use cases
+	ecBackend = ec.NewPowerCachingECWrapper(ecBackend, max(runtime.NumCPU()/2, 8), 256)
 	return &F3{
 		verifier:         verif,
 		mfst:             manifest,
@@ -71,7 +75,7 @@ func New(_ctx context.Context, manifest manifest.Manifest, ds datastore.Datastor
 		outboundMessages: make(chan *gpbft.MessageBuilder, 128),
 		host:             h,
 		ds:               ds,
-		ec:               ec,
+		ec:               ecBackend,
 		pubsub:           ps,
 		clock:            clock.GetClock(runningCtx),
 		runningCtx:       runningCtx,
