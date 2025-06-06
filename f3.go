@@ -175,6 +175,7 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 				delay, err := m.computeBootstrapDelay()
 				if err != nil {
 					log.Errorw("failed to compute bootstrap delay", "err", err)
+					return
 				}
 				if delay > 0 {
 					log.Infow("waiting for bootstrap epoch", "duration", delay.String())
@@ -184,6 +185,7 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 					if err != nil {
 						log.Errorw("failed to start F3 after initial delay", "scheduledStartTime", startTime, "err", err)
 					}
+					return
 				}
 			}
 		}
