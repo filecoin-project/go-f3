@@ -18,7 +18,6 @@ import (
 	"github.com/filecoin-project/go-f3/internal/lotus"
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/manifest"
-	"github.com/filecoin-project/go-f3/pmsg"
 	"github.com/ipfs/go-log/v2"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -44,7 +43,7 @@ type Observer struct {
 	dht  *dht.IpfsDHT
 
 	messageObserved chan *Message
-	msgEncoding     *encoding.ZSTD[*pmsg.PartialGMessage]
+	msgEncoding     *encoding.ZSTD[*gpbft.PartialGMessage]
 
 	dbConnector           *duckdb.Connector
 	dbAppender            *duckdb.Appender
@@ -58,7 +57,7 @@ func New(o ...Option) (*Observer, error) {
 	if err != nil {
 		return nil, err
 	}
-	msgEncoding, err := encoding.NewZSTD[*pmsg.PartialGMessage]()
+	msgEncoding, err := encoding.NewZSTD[*gpbft.PartialGMessage]()
 	if err != nil {
 		return nil, err
 	}
@@ -473,7 +472,7 @@ func (o *Observer) startObserverFor(ctx context.Context, networkName gpbft.Netwo
 				continue
 			}
 
-			om, err := newMessage(time.Now().UTC(), string(networkName), msg.ValidatorData.(pmsg.PartialGMessage))
+			om, err := newMessage(time.Now().UTC(), string(networkName), msg.ValidatorData.(gpbft.PartialGMessage))
 			if err != nil {
 				logger.Errorw("Failed to instantiate observation message", "err", err)
 				continue
@@ -515,7 +514,7 @@ func (o *Observer) Stop(ctx context.Context) error {
 }
 
 func (o *Observer) validatePubSubMessage(_ context.Context, _ peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
-	var pgmsg pmsg.PartialGMessage
+	var pgmsg gpbft.PartialGMessage
 	if err := o.msgEncoding.Decode(msg.Data, &pgmsg); err != nil {
 		return pubsub.ValidationReject
 	}

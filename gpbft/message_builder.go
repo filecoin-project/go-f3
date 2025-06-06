@@ -71,7 +71,7 @@ func (mb *MessageBuilder) PrepareSigningInputs(id ActorID) (*SignatureBuilder, e
 }
 
 // Sign creates the signed payload from the signature builder and returns the payload
-// and VRF signatures. These signatures can be used independent from the builder.
+// and VRF signatures. These signatures can be used independent of the builder.
 func (st *SignatureBuilder) Sign(ctx context.Context, signer Signer) ([]byte, []byte, error) {
 	payloadSignature, err := signer.Sign(ctx, st.PubKey, st.PayloadToSign)
 	if err != nil {
