@@ -160,18 +160,31 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 	}
 
 	log.Infow("F3 is scheduled to start with initial delay", "initialDelay", initialDelay,
-		"NetworkName", m.mfst.NetworkName, "BootstrapEpoch", m.mfst.BootstrapEpoch, "Finality", m.mfst.EC.Finality,
+		"NetworkName", m.mfst.NetworkName, "BootstrapEpoch", m.mfst.BootstrapEpoch, "ECPeriod", m.mfst.EC.Period, "Finality", m.mfst.EC.Finality,
 		"InitialPowerTable", m.mfst.InitialPowerTable, "CommitteeLookback", m.mfst.CommitteeLookback)
 
 	go func() {
 		startTimer := m.clock.Timer(initialDelay)
 		defer startTimer.Stop()
-		select {
-		case <-m.runningCtx.Done():
-			log.Debugw("F3 start disrupted", "cause", m.runningCtx.Err())
-		case startTime := <-startTimer.C:
-			if err := m.startInternal(m.runningCtx); err != nil {
-				log.Errorw("Failed to start F3 after initial delay", "scheduledStartTime", startTime, "err", err)
+		for {
+			select {
+			case <-m.runningCtx.Done():
+				log.Debugw("F3 start disrupted", "cause", m.runningCtx.Err())
+				return
+			case startTime := <-startTimer.C:
+				delay, err := m.computeBootstrapDelay()
+				if err != nil {
+					log.Errorw("failed to compute bootstrap delay", "err", err)
+				}
+				if delay > 0 {
+					log.Infow("waiting for bootstrap epoch", "duration", delay.String())
+					startTimer.Reset(delay)
+				} else {
+					err = m.startInternal(m.runningCtx)
+					if err != nil {
+						log.Errorw("failed to start F3 after initial delay", "scheduledStartTime", startTime, "err", err)
+					}
+				}
 			}
 		}
 	}()
