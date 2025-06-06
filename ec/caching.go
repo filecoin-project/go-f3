@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/internal/singleflight"
 	lru "github.com/hashicorp/golang-lru/v2"
+	"golang.org/x/sync/singleflight"
 )
 
 type PowerCachingECWrapper struct {
@@ -15,7 +15,7 @@ type PowerCachingECWrapper struct {
 	cache *lru.Cache[string, gpbft.PowerEntries]
 
 	smaphore chan struct{}
-	dedup    singleflight.Group[gpbft.PowerEntries]
+	dedup    singleflight.Group
 }
 
 func NewPowerCachingECWrapper(backend Backend, concurrency int, cacheSize int) *PowerCachingECWrapper {
@@ -40,16 +40,16 @@ func (p *PowerCachingECWrapper) GetPowerTable(ctx context.Context, tsk gpbft.Tip
 
 	ch := p.dedup.DoChan(string(tsk),
 		// break context cancellation chain as the dedup group might start with short context and then get called with longer one
-		func() (gpbft.PowerEntries, error) { return p.executeGetPowerTable(context.WithoutCancel(ctx), tsk) })
+		func() (any, error) { return p.executeGetPowerTable(context.WithoutCancel(ctx), tsk) })
 
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case res := <-ch:
 		if res.Err != nil {
-			return nil, res.Err
+			return nil, fmt.Errorf("getting power table: %w", res.Err)
 		}
-		return res.Val, nil
+		return res.Val.(gpbft.PowerEntries), nil
 	}
 }
 

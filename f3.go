@@ -66,7 +66,7 @@ func New(_ctx context.Context, manifest manifest.Manifest, ds datastore.Datastor
 	ps *pubsub.PubSub, verif gpbft.Verifier, ecBackend ec.Backend, diskPath string) (*F3, error) {
 	runningCtx, cancel := context.WithCancel(context.WithoutCancel(_ctx))
 
-	// concurrency is limited to half of the number of CPUs, and cache size is set to 256 which should be enough for most use cases
+	// concurrency is limited to half of the number of CPUs, and cache size is set to 256 which is more than 2x max ECChain size
 	ecBackend = ec.NewPowerCachingECWrapper(ecBackend, max(runtime.NumCPU()/2, 8), 256)
 	return &F3{
 		verifier:         verif,
