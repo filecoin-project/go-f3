@@ -31,6 +31,16 @@ type ValidatedMessage interface {
 	Message() *GMessage
 }
 
+type PartialMessageValidator interface {
+	PartiallyValidateMessage(ctx context.Context, msg *PartialGMessage) (PartiallyValidatedMessage, error)
+	FullyValidateMessage(ctx context.Context, msg PartiallyValidatedMessage) (ValidatedMessage, error)
+}
+
+type PartiallyValidatedMessage interface {
+	// Returns the partially validated message.
+	PartialMessage() *PartialGMessage
+}
+
 // Receives a Granite protocol message.
 // Calls to methods on this interface are expected to be serialized.
 // The methods are not safe for concurrent use, and may panic if called concurrently.

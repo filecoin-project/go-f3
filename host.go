@@ -12,7 +12,6 @@ import (
 	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/ec"
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/internal/caching"
 	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/internal/encoding"
 	"github.com/filecoin-project/go-f3/internal/psutil"
@@ -55,10 +54,8 @@ type gpbftRunner struct {
 	selfMessages map[uint64]map[roundPhase][]*gpbft.GMessage
 
 	inputs      gpbftInputs
-	msgEncoding encoding.EncodeDecoder[*pmsg.PartialGMessage]
+	msgEncoding encoding.EncodeDecoder[*gpbft.PartialGMessage]
 	pmm         *pmsg.PartialMessageManager
-	pmv         *pmsg.CachingPartialValidator
-	pmCache     *caching.GroupedSet
 }
 
 type roundPhase struct {
@@ -143,23 +140,18 @@ func newRunner(
 	runner.participant = p
 
 	if runner.manifest.PubSub.CompressionEnabled {
-		runner.msgEncoding, err = encoding.NewZSTD[*pmsg.PartialGMessage]()
+		runner.msgEncoding, err = encoding.NewZSTD[*gpbft.PartialGMessage]()
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		runner.msgEncoding = encoding.NewCBOR[*pmsg.PartialGMessage]()
+		runner.msgEncoding = encoding.NewCBOR[*gpbft.PartialGMessage]()
 	}
 
 	runner.pmm, err = pmsg.NewPartialMessageManager(runner.Progress, ps, m, runner.clock)
 	if err != nil {
 		return nil, fmt.Errorf("creating partial message manager: %w", err)
 	}
-
-	runner.pmCache = caching.NewGroupedSet(int(m.CommitteeLookback), m.PartialMessageManager.MaxCachedValidatedMessagesPerInstance)
-	obfuscatedHost := (*gpbftHost)(runner)
-	runner.pmv = pmsg.NewCachingPartialValidator(obfuscatedHost, runner.Progress, runner.pmCache, m.CommitteeLookback)
-
 	return runner, nil
 }
 
@@ -247,7 +239,7 @@ func (h *gpbftRunner) Start(ctx context.Context) (_err error) {
 				if !ok {
 					return fmt.Errorf("incoming completed message queue closed")
 				}
-				switch validatedMessage, err := h.pmv.ValidateMessage(h.runningCtx, pvmsg); {
+				switch validatedMessage, err := h.participant.FullyValidateMessage(h.runningCtx, pvmsg); {
 				case err != nil:
 					log.Debugw("Invalid partially validated message", "err", err)
 				default:
@@ -554,7 +546,7 @@ func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, _ peer.ID, msg 
 		recordValidationTime(ctx, start, _result, partiallyValidated)
 	}(time.Now())
 
-	var pgmsg pmsg.PartialGMessage
+	var pgmsg gpbft.PartialGMessage
 	if err := h.msgEncoding.Decode(msg.Data, &pgmsg); err != nil {
 		log.Debugw("failed to decode message", "from", msg.GetFrom(), "err", err)
 		return pubsub.ValidationReject
@@ -562,7 +554,7 @@ func (h *gpbftRunner) validatePubsubMessage(ctx context.Context, _ peer.ID, msg 
 
 	gmsg, completed := h.pmm.CompleteMessage(ctx, &pgmsg)
 	if !completed {
-		partiallyValidatedMessage, err := h.pmv.PartiallyValidateMessage(ctx, &pgmsg)
+		partiallyValidatedMessage, err := h.participant.PartiallyValidateMessage(ctx, &pgmsg)
 		result := pubsubValidationResultFromError(err)
 		if result == pubsub.ValidationAccept {
 			msg.ValidatorData = partiallyValidatedMessage
@@ -676,7 +668,7 @@ func (h *gpbftRunner) startPubsub() (<-chan gpbft.ValidatedMessage, error) {
 				case <-h.runningCtx.Done():
 					return nil
 				}
-			case *pmsg.PartiallyValidatedMessage:
+			case gpbft.PartiallyValidatedMessage:
 				h.pmm.BufferPartialMessage(h.runningCtx, gmsg)
 			default:
 				log.Errorf("invalid msgValidatorData: %+v", msg.ValidatorData)
@@ -806,7 +798,6 @@ func (h *gpbftHost) ReceiveDecision(ctx context.Context, decision *gpbft.Justifi
 		"ecHeadEpoch", decision.Vote.Value.Head().Epoch)
 	if decision.Vote.Instance > 0 {
 		oldInstance := decision.Vote.Instance - 1
-		h.pmCache.RemoveGroupsLessThan(oldInstance)
 		h.pmm.RemoveMessagesBeforeInstance(ctx, oldInstance)
 	}
 	cert, err := h.saveDecision(ctx, decision)

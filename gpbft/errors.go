@@ -1,6 +1,10 @@
 package gpbft
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"runtime/debug"
+)
 
 var (
 	_ error = (*ValidationError)(nil)
@@ -40,5 +44,21 @@ var (
 // ValidationError signals that an error has occurred while validating a GMessage.
 type ValidationError struct{ message string }
 
+type PanicError struct {
+	Cause      any
+	stackTrace string
+}
+
 func newValidationError(message string) ValidationError { return ValidationError{message: message} }
 func (e ValidationError) Error() string                 { return e.message }
+
+func newPanicError(cause any) *PanicError {
+	return &PanicError{
+		Cause:      cause,
+		stackTrace: string(debug.Stack()),
+	}
+}
+
+func (e *PanicError) Error() string {
+	return fmt.Sprintf("participant panicked: %v\n%v", e.Cause, e.stackTrace)
+}
