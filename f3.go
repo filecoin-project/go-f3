@@ -166,7 +166,7 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 	go func() {
 		startTimer := m.clock.Timer(initialDelay)
 		defer startTimer.Stop()
-		for {
+		for m.runningCtx.Err() == nil {
 			select {
 			case <-m.runningCtx.Done():
 				log.Debugw("F3 start disrupted", "cause", m.runningCtx.Err())
