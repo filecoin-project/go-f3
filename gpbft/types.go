@@ -62,10 +62,10 @@ func (p Phase) String() string {
 
 // GMessage is a message in the GossiPBFT protocol. The same message structure is
 // used for all rounds and phases. Note that the message is self-attesting so no
-// separate envelope or signature is needed. - The signature field fixes the
-// included sender ID via the implied public key; - The signature payload
-// includes all fields a sender can freely choose; - The ticket field is a
-// signature of the same public key, so also self-attesting.
+// separate envelope or signature is needed.
+//   - The signature field fixes the included sender ID via the implied public key.
+//   - The signature payload includes all fields in Vote as described by Payload.MarshalForSigning.
+//   - The ticket field is a signature of the same public key, so also self-attesting.
 type GMessage struct {
 	// Sender is the ID of the sender/signer of this message (a miner actor ID).
 	Sender ActorID
