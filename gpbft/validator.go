@@ -73,17 +73,40 @@ func newValidator(nn NetworkName, verifier Verifier, cp CommitteeProvider, progr
 // returned. ErrValidationInvalid indicates that the message will never be valid
 // invalid and may be safely dropped.
 func (v *cachingValidator) ValidateMessage(ctx context.Context, msg *GMessage) (valid ValidatedMessage, err error) {
-	if err = v.ValidateMessageWithVoteValueKey(ctx, nil, msg); err != nil {
+	if msg == nil {
+		return nil, ErrValidationInvalid
+	}
+
+	if err := v.validateByProgress(msg); err != nil {
+		return nil, err
+	}
+	cacheKey, err := v.getCacheKey(msg)
+	if err != nil {
+		log.Warnw("failed to get cache key for message", "err", err)
+		cacheKey = nil
+	}
+	if err = v.validateMessageWithVoteValueKey(ctx, cacheKey, nil, msg); err != nil {
 		return nil, err
 	}
 	return &validatedMessage{msg: msg}, nil
 }
 
 func (v *cachingValidator) PartiallyValidateMessage(ctx context.Context, msg *PartialGMessage) (PartiallyValidatedMessage, error) {
-	if msg == nil {
+	if msg == nil || msg.GMessage == nil {
 		return nil, ErrValidationInvalid
 	}
-	if err := v.ValidateMessageWithVoteValueKey(ctx, &msg.VoteValueKey, msg.GMessage); err != nil {
+
+	if err := v.validateByProgress(msg.GMessage); err != nil {
+		return nil, err
+	}
+
+	cacheKey, err := v.getCacheKey(msg)
+	if err != nil {
+		log.Warnw("failed to get cache key for partial message", "err", err)
+		cacheKey = nil
+	}
+
+	if err := v.validateMessageWithVoteValueKey(ctx, cacheKey, &msg.VoteValueKey, msg.GMessage); err != nil {
 		return nil, err
 	}
 	return &partiallyValidatedMessage{
@@ -168,25 +191,18 @@ func (v *cachingValidator) FullyValidateMessage(_ context.Context, pvmsg Partial
 	return &validatedMessage{msg: pmsg.GMessage}, nil
 }
 
-func (v *cachingValidator) ValidateMessageWithVoteValueKey(ctx context.Context, valueKey *ECChainKey, msg *GMessage) (_err error) {
-	if msg == nil {
-		return ErrValidationInvalid
-	}
-
-	if err := v.validateByProgress(msg); err != nil {
-		return err
-	}
-
+func (v *cachingValidator) validateMessageWithVoteValueKey(ctx context.Context, cacheKey []byte, valueKey *ECChainKey, msg *GMessage) (_err error) {
 	partial := valueKey != nil
 	cacheNamespace := validationNamespaces.message(partial)
-	alreadyValidated, cacheKey, err := v.isAlreadyValidated(msg.Vote.Instance, cacheNamespace, msg)
-	if err != nil {
-		log.Errorw("failed to check if message is already validated", "partial", partial, "err", err)
-	} else if alreadyValidated {
-		metrics.validationCache.Add(ctx, 1, metric.WithAttributes(attrCacheHit, attrCacheKindMessage, attrPartial(partial)))
-		return nil
-	} else {
-		metrics.validationCache.Add(ctx, 1, metric.WithAttributes(attrCacheMiss, attrCacheKindMessage, attrPartial(partial)))
+	if len(cacheKey) > 0 {
+		if alreadyValidated, err := v.isAlreadyValidated(msg.Vote.Instance, cacheNamespace, cacheKey); err != nil {
+			log.Errorw("failed to check if message is already validated", "partial", partial, "err", err)
+		} else if alreadyValidated {
+			metrics.validationCache.Add(ctx, 1, metric.WithAttributes(attrCacheHit, attrCacheKindMessage, attrPartial(partial)))
+			return nil
+		} else {
+			metrics.validationCache.Add(ctx, 1, metric.WithAttributes(attrCacheMiss, attrCacheKindMessage, attrPartial(partial)))
+		}
 	}
 
 	comt, err := v.committeeProvider.GetCommittee(ctx, msg.Vote.Instance)
@@ -317,17 +333,27 @@ func (v *cachingValidator) validateJustification(ctx context.Context, valueKey *
 	partial := valueKey != nil
 	cacheNamespace := validationNamespaces.justification(partial)
 
-	// Only cache the justification if:
-	//  * marshalling it was successful, and
-	//  * it is not yet present in the cache.
-	alreadyValidated, cacheKey, err := v.isAlreadyValidated(msg.Vote.Instance, cacheNamespace, msg.Justification)
+	// It doesn't matter whether the justification is partial or not. Because, namespace
+	// separates the two.
+	cacheKey, err := v.getCacheKey(msg.Justification)
+	var alreadyValidated bool
 	if err != nil {
-		log.Warnw("failed to check if justification is already cached", "partial", partial, "err", err)
-	} else if alreadyValidated {
-		metrics.validationCache.Add(ctx, 1, metric.WithAttributes(attrCacheHit, attrCacheKindJustification, attrPartial(partial)))
-		return nil
+		log.Warnw("failed to get cache key for justification", "partial", partial, "err", err)
+		// If we can't compute the cache key, we can't cache the justification. But we
+		// can still validate it.
+		cacheKey = nil
 	} else {
-		metrics.validationCache.Add(ctx, 1, metric.WithAttributes(attrCacheMiss, attrCacheKindJustification, attrPartial(partial)))
+		// Only cache the justification if:
+		//  * marshalling it was successful, and
+		//  * it is not yet present in the cache.
+		if alreadyValidated, err = v.isAlreadyValidated(msg.Vote.Instance, cacheNamespace, cacheKey); err != nil {
+			log.Warnw("failed to check if justification is already cached", "partial", partial, "err", err)
+		} else if alreadyValidated {
+			metrics.validationCache.Add(ctx, 1, metric.WithAttributes(attrCacheHit, attrCacheKindJustification, attrPartial(partial)))
+			return nil
+		} else {
+			metrics.validationCache.Add(ctx, 1, metric.WithAttributes(attrCacheMiss, attrCacheKindJustification, attrPartial(partial)))
+		}
 	}
 
 	// Check that the justification is for the same instance.
@@ -430,15 +456,18 @@ func (v *cachingValidator) validateJustification(ctx context.Context, valueKey *
 	return nil
 }
 
-func (v *cachingValidator) isAlreadyValidated(group uint64, namespace validatorNamespace, msg cbor.Marshaler) (bool, []byte, error) {
+func (v *cachingValidator) isAlreadyValidated(group uint64, namespace validatorNamespace, cacheKey []byte) (bool, error) {
+	alreadyValidated, err := v.cache.Contains(group, namespace, cacheKey)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if already validated: %w", err)
+	}
+	return alreadyValidated, nil
+}
+
+func (v *cachingValidator) getCacheKey(msg cbor.Marshaler) ([]byte, error) {
 	var buf bytes.Buffer
 	if err := msg.MarshalCBOR(&buf); err != nil {
-		return false, nil, fmt.Errorf("failed to get cache key: %w", err)
+		return nil, fmt.Errorf("failed to get cache key: %w", err)
 	}
-	key := buf.Bytes()
-	alreadyValidated, err := v.cache.Contains(group, namespace, key)
-	if err != nil {
-		return false, key, fmt.Errorf("failed to check if already validated: %w", err)
-	}
-	return alreadyValidated, key, nil
+	return buf.Bytes(), nil
 }
