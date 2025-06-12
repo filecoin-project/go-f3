@@ -40,7 +40,6 @@ var (
 	attrCacheMiss              = attribute.String("cache", "miss")
 	attrCacheKindMessage       = attribute.String("kind", "message")
 	attrCacheKindJustification = attribute.String("kind", "justification")
-	attrPartial                = func(partial bool) attribute.KeyValue { return attribute.Bool("partial", partial) }
 	attrKeyRound               = attribute.Key("round")
 
 	metrics = struct {

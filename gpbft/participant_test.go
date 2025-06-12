@@ -268,20 +268,13 @@ func TestParticipant(t *testing.T) {
 			initialInstance := uint64(0)
 			subject := newParticipantTestSubject(t, seed, initialInstance)
 			subject.mockCommitteeForInstance(initialInstance, subject.powerTable, subject.beacon)
-			msg := &gpbft.GMessage{
+			gotValidated, gotValidateErr := subject.ValidateMessage(ctx, &gpbft.GMessage{
 				Sender: subject.id,
 				Vote: gpbft.Payload{
 					SupplementalData: *subject.supplementalData,
 				},
-			}
-			gotValidated, gotValidateErr := subject.ValidateMessage(ctx, msg)
-			require.Nil(t, gotValidated)
-			require.ErrorContains(t, gotValidateErr, "invalid vote phase: 0")
-
-			gotPartiallyValidated, gotValidateErr := subject.PartiallyValidateMessage(ctx, &gpbft.PartialGMessage{
-				GMessage: msg,
 			})
-			require.Nil(t, gotPartiallyValidated)
+			require.Nil(t, gotValidated)
 			require.ErrorContains(t, gotValidateErr, "invalid vote phase: 0")
 		})
 		t.Run("message is accepted (queued)", func(t *testing.T) {
@@ -1046,34 +1039,6 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 				}
 				require.Equal(t, gotValidated != nil, gotValidateErr == nil)
 			}
-			testPartialValidate := func(msg *gpbft.GMessage) {
-				testRoundTrip(msg)
-
-				msgCopy := *msg
-				msgCopy.Vote.Value = nil
-				if msgCopy.Justification != nil {
-					msgCopy.Justification.Vote.Value = nil
-				}
-
-				gotValidated, gotValidateErr := subject.PartiallyValidateMessage(context.Background(), &gpbft.PartialGMessage{
-					GMessage:     &msgCopy,
-					VoteValueKey: msg.Vote.Value.Key(),
-				})
-				subject.assertHostExpectations()
-				if test.wantErr != "" {
-					require.ErrorContains(t, gotValidateErr, test.wantErr)
-				} else {
-					require.NoError(t, gotValidateErr)
-					gotValidated.PartialMessage().Vote.Value = msg.Vote.Value
-					if msg.Justification != nil {
-						gotValidated.PartialMessage().Justification.Vote.Value = msg.Justification.Vote.Value
-					}
-					gotFullyValidated, gotValidateErr := subject.FullyValidateMessage(context.Background(), gotValidated)
-					require.NoError(t, gotValidateErr)
-					require.NotNil(t, gotFullyValidated)
-				}
-				require.Equal(t, gotValidated != nil, gotValidateErr == nil)
-			}
 
 			if test.msg != nil {
 				testValidate(test.msg(subject))
@@ -1081,7 +1046,6 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 			if test.msgs != nil {
 				for _, msg := range test.msgs(subject) {
 					testValidate(msg)
-					testPartialValidate(msg)
 				}
 			}
 		})
@@ -1124,48 +1088,16 @@ func TestParticipant_ValidateMessageParallel(t *testing.T) {
 
 		gotValidated, gotValidateErr := subject.ValidateMessage(context.Background(), msg)
 		require.NoError(t, gotValidateErr)
-		require.NotNil(t, gotValidated)
-	}
-	partiallyValidateOne := func(i uint64) {
-		msg := &gpbft.GMessage{
-			Sender: somePowerEntry.ID,
-			Vote: gpbft.Payload{
-				Instance: initialInstanceNumber + (i % instanceCount),
-				Phase:    gpbft.QUALITY_PHASE,
-				SupplementalData: gpbft.SupplementalData{
-					PowerTable: ptCid,
-				},
-			},
-			Signature: signature,
-		}
-
-		gotValidated, gotValidateErr := subject.PartiallyValidateMessage(context.Background(), &gpbft.PartialGMessage{
-			GMessage:     msg,
-			VoteValueKey: subject.canonicalChain.Key(),
-		})
-		require.NoError(t, gotValidateErr)
-		require.NotNil(t, gotValidated)
-
-		gotValidated.PartialMessage().Vote.Value = subject.canonicalChain
-
-		gotFullyValidated, gotValidateErr := subject.FullyValidateMessage(context.Background(), gotValidated)
-		require.NoError(t, gotValidateErr)
-		require.NotNil(t, gotFullyValidated)
+		require.Equal(t, gotValidated != nil, gotValidateErr == nil)
 	}
 	// Run validation in parallel.
 	var wg sync.WaitGroup
-	wg.Add(concurrency * 2)
+	wg.Add(concurrency)
 	for i := 0; i < concurrency; i++ {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < msgCount; j++ {
 				validateOne(uint64(j))
-			}
-		}()
-		go func() {
-			defer wg.Done()
-			for j := 0; j < msgCount; j++ {
-				partiallyValidateOne(uint64(j))
 			}
 		}()
 	}

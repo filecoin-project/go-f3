@@ -8,6 +8,7 @@ import (
 	"github.com/filecoin-project/go-bitfield"
 	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/pmsg"
 	"github.com/ipfs/go-cid"
 )
 
@@ -50,7 +51,7 @@ type TipSet struct {
 	PowerTable  string `json:"PowerTable"`
 }
 
-func newMessage(timestamp time.Time, nn string, msg gpbft.PartialGMessage) (*Message, error) {
+func newMessage(timestamp time.Time, nn string, msg pmsg.PartialGMessage) (*Message, error) {
 	j, err := newJustification(msg.Justification)
 	if err != nil {
 		return nil, err
@@ -114,7 +115,7 @@ func newPayload(gp gpbft.Payload) Payload {
 	}
 }
 
-func (m Message) ToPartialMessage() (*gpbft.PartialGMessage, error) {
+func (m Message) ToPartialMessage() (*pmsg.PartialGMessage, error) {
 	payload, err := m.Vote.ToGpbftPayload()
 	if err != nil {
 		return nil, err
@@ -124,7 +125,7 @@ func (m Message) ToPartialMessage() (*gpbft.PartialGMessage, error) {
 		return nil, err
 	}
 
-	return &gpbft.PartialGMessage{
+	return &pmsg.PartialGMessage{
 		GMessage: &gpbft.GMessage{
 			Sender:        m.Sender,
 			Vote:          payload,

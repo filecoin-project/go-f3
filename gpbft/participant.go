@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
@@ -16,8 +17,8 @@ import (
 var (
 	log = logging.Logger("f3/gpbft")
 
-	_ Receiver                = (*Participant)(nil)
-	_ PartialMessageValidator = (*Participant)(nil)
+	messageCacheNamespace       = []byte("message")
+	justificationCacheNamespace = []byte("justification")
 )
 
 // An F3 participant runs repeated instances of Granite to finalise longer chains.
@@ -51,6 +52,32 @@ type Participant struct {
 	validator    *cachingValidator
 }
 
+type validatedMessage struct {
+	msg *GMessage
+}
+
+func (v *validatedMessage) Message() *GMessage {
+	return v.msg
+}
+
+var _ Receiver = (*Participant)(nil)
+
+func newPanicError(panicCause any) *PanicError {
+	return &PanicError{
+		Err:        panicCause,
+		stackTrace: string(debug.Stack()),
+	}
+}
+
+type PanicError struct {
+	Err        any
+	stackTrace string
+}
+
+func (e *PanicError) Error() string {
+	return fmt.Sprintf("participant panicked: %v\n%v", e.Err, e.stackTrace)
+}
+
 func NewParticipant(host Host, o ...Option) (*Participant, error) {
 	opts, err := newOptions(o...)
 	if err != nil {
@@ -66,7 +93,7 @@ func NewParticipant(host Host, o ...Option) (*Participant, error) {
 		mqueue:            newMessageQueue(opts.maxLookaheadRounds),
 		messageCache:      messageCache,
 		progression:       progression,
-		validator:         newValidator(host.NetworkName(), host, ccp, progression.Get, messageCache, opts.committeeLookback),
+		validator:         newValidator(host, ccp, progression.Get, messageCache, opts.committeeLookback),
 	}, nil
 }
 
@@ -106,46 +133,18 @@ func (p *Participant) Progress() InstanceProgress {
 // ValidateMessage checks if the given message is valid. If invalid, an error is
 // returned. ErrValidationInvalid indicates that the message will never be valid
 // invalid and may be safely dropped.
-func (p *Participant) ValidateMessage(ctx context.Context, msg *GMessage) (_ ValidatedMessage, _err error) {
+func (p *Participant) ValidateMessage(ctx context.Context, msg *GMessage) (valid ValidatedMessage, err error) {
 	// This method is not protected by the API mutex, it is intended for concurrent use.
 	// The instance mutex is taken when appropriate by inner methods.
 	defer func() {
 		if r := recover(); r != nil {
-			_err = newPanicError(r)
+			err = newPanicError(r)
 		}
-		if _err != nil {
-			metrics.errorCounter.Add(ctx, 1, metric.WithAttributes(metricAttributeFromError(_err)))
+		if err != nil {
+			metrics.errorCounter.Add(ctx, 1, metric.WithAttributes(metricAttributeFromError(err)))
 		}
 	}()
 	return p.validator.ValidateMessage(ctx, msg)
-}
-
-func (p *Participant) PartiallyValidateMessage(ctx context.Context, msg *PartialGMessage) (_ PartiallyValidatedMessage, _err error) {
-	// This method is not protected by the API mutex, it is intended for concurrent use.
-	// The instance mutex is taken when appropriate by inner methods.
-	defer func() {
-		if r := recover(); r != nil {
-			_err = newPanicError(r)
-		}
-		if _err != nil {
-			metrics.errorCounter.Add(ctx, 1, metric.WithAttributes(metricAttributeFromError(_err)))
-		}
-	}()
-	return p.validator.PartiallyValidateMessage(ctx, msg)
-}
-
-func (p *Participant) FullyValidateMessage(ctx context.Context, msg PartiallyValidatedMessage) (_ ValidatedMessage, _err error) {
-	// This method is not protected by the API mutex, it is intended for concurrent use.
-	// The instance mutex is taken when appropriate by inner methods.
-	defer func() {
-		if r := recover(); r != nil {
-			_err = newPanicError(r)
-		}
-		if _err != nil {
-			metrics.errorCounter.Add(ctx, 1, metric.WithAttributes(metricAttributeFromError(_err)))
-		}
-	}()
-	return p.validator.FullyValidateMessage(ctx, msg)
 }
 
 // Receives a validated Granite message from some other participant.

@@ -7,6 +7,7 @@ import (
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/encoding"
+	"github.com/filecoin-project/go-f3/pmsg"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
@@ -16,7 +17,7 @@ const seed = 1413
 
 func BenchmarkCborEncoding(b *testing.B) {
 	rng := rand.New(rand.NewSource(seed))
-	encoder := encoding.NewCBOR[*gpbft.PartialGMessage]()
+	encoder := encoding.NewCBOR[*pmsg.PartialGMessage]()
 	msg := generateRandomPartialGMessage(b, rng)
 
 	b.ResetTimer()
@@ -32,7 +33,7 @@ func BenchmarkCborEncoding(b *testing.B) {
 
 func BenchmarkCborDecoding(b *testing.B) {
 	rng := rand.New(rand.NewSource(seed))
-	encoder := encoding.NewCBOR[*gpbft.PartialGMessage]()
+	encoder := encoding.NewCBOR[*pmsg.PartialGMessage]()
 	msg := generateRandomPartialGMessage(b, rng)
 	data, err := encoder.Encode(msg)
 	require.NoError(b, err)
@@ -41,7 +42,7 @@ func BenchmarkCborDecoding(b *testing.B) {
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			var got gpbft.PartialGMessage
+			var got pmsg.PartialGMessage
 			require.NoError(b, encoder.Decode(data, &got))
 			requireEqualPartialMessages(b, msg, &got)
 		}
@@ -50,7 +51,7 @@ func BenchmarkCborDecoding(b *testing.B) {
 
 func BenchmarkZstdEncoding(b *testing.B) {
 	rng := rand.New(rand.NewSource(seed))
-	encoder, err := encoding.NewZSTD[*gpbft.PartialGMessage]()
+	encoder, err := encoding.NewZSTD[*pmsg.PartialGMessage]()
 	require.NoError(b, err)
 	msg := generateRandomPartialGMessage(b, rng)
 
@@ -67,7 +68,7 @@ func BenchmarkZstdEncoding(b *testing.B) {
 
 func BenchmarkZstdDecoding(b *testing.B) {
 	rng := rand.New(rand.NewSource(seed))
-	encoder, err := encoding.NewZSTD[*gpbft.PartialGMessage]()
+	encoder, err := encoding.NewZSTD[*pmsg.PartialGMessage]()
 	require.NoError(b, err)
 	msg := generateRandomPartialGMessage(b, rng)
 	data, err := encoder.Encode(msg)
@@ -77,14 +78,14 @@ func BenchmarkZstdDecoding(b *testing.B) {
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			var got gpbft.PartialGMessage
+			var got pmsg.PartialGMessage
 			require.NoError(b, encoder.Decode(data, &got))
 			requireEqualPartialMessages(b, msg, &got)
 		}
 	})
 }
 
-func requireEqualPartialMessages(b *testing.B, expected, actual *gpbft.PartialGMessage) {
+func requireEqualPartialMessages(b *testing.B, expected, actual *pmsg.PartialGMessage) {
 	// Because empty ECChain gets marshaled as null, we need to use ECChain.Eq for
 	// checking equality. Hence, the custom equality check.
 	require.Equal(b, expected.Sender, actual.Sender)
@@ -102,8 +103,8 @@ func requireEqualPartialMessages(b *testing.B, expected, actual *gpbft.PartialGM
 	}
 }
 
-func generateRandomPartialGMessage(b *testing.B, rng *rand.Rand) *gpbft.PartialGMessage {
-	var pgmsg gpbft.PartialGMessage
+func generateRandomPartialGMessage(b *testing.B, rng *rand.Rand) *pmsg.PartialGMessage {
+	var pgmsg pmsg.PartialGMessage
 	pgmsg.GMessage = generateRandomGMessage(b, rng)
 	pgmsg.GMessage.Vote.Value = nil
 	if pgmsg.Justification != nil {
