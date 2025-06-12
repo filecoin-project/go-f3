@@ -17,7 +17,6 @@ import (
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/filecoin-project/go-f3/observer"
-	"github.com/filecoin-project/go-f3/pmsg"
 	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
@@ -230,7 +229,7 @@ func aid(c *cli.Context, f3Chatter *pubsub.Topic) error {
 	}
 	fmt.Printf("⚙️ Found %d distinct senders\n", len(senders))
 
-	msgEncoding, err := encoding.NewZSTD[*pmsg.PartialGMessage]()
+	msgEncoding, err := encoding.NewZSTD[*gpbft.PartialGMessage]()
 	if err != nil {
 		return fmt.Errorf("failed to create zstd message encoding: %w", err)
 	}

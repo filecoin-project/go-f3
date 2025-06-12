@@ -1,10 +1,7 @@
 package gpbft
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -14,177 +11,11 @@ import (
 
 	"github.com/filecoin-project/go-bitfield"
 	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
-	"github.com/ipfs/go-cid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
-type Phase uint8
-
-const (
-	INITIAL_PHASE Phase = iota
-	QUALITY_PHASE
-	CONVERGE_PHASE
-	PREPARE_PHASE
-	COMMIT_PHASE
-	DECIDE_PHASE
-	TERMINATED_PHASE
-)
-
-func (p Phase) String() string {
-	switch p {
-	case INITIAL_PHASE:
-		return "INITIAL"
-	case QUALITY_PHASE:
-		return "QUALITY"
-	case CONVERGE_PHASE:
-		return "CONVERGE"
-	case PREPARE_PHASE:
-		return "PREPARE"
-	case COMMIT_PHASE:
-		return "COMMIT"
-	case DECIDE_PHASE:
-		return "DECIDE"
-	case TERMINATED_PHASE:
-		return "TERMINATED"
-	default:
-		return "UNKNOWN"
-	}
-}
-
 const DomainSeparationTag = "GPBFT"
-
-// A message in the Granite protocol.
-// The same message structure is used for all rounds and phases.
-// Note that the message is self-attesting so no separate envelope or signature is needed.
-// - The signature field fixes the included sender ID via the implied public key;
-// - The signature payload includes all fields a sender can freely choose;
-// - The ticket field is a signature of the same public key, so also self-attesting.
-type GMessage struct {
-	// ID of the sender/signer of this message (a miner actor ID).
-	Sender ActorID
-	// Vote is the payload that is signed by the signature
-	Vote Payload
-	// Signature by the sender's public key over Instance || Round || Phase || Value.
-	Signature []byte `cborgen:"maxlen=96"`
-	// VRF ticket for CONVERGE messages (otherwise empty byte array).
-	Ticket Ticket `cborgen:"maxlen=96"`
-	// Justification for this message (some messages must be justified by a strong quorum of messages from some previous phase).
-	Justification *Justification
-}
-
-type Justification struct {
-	// Vote is the payload that is signed by the signature
-	Vote Payload
-	// Indexes in the base power table of the signers (bitset)
-	Signers bitfield.BitField
-	// BLS aggregate signature of signers
-	Signature []byte `cborgen:"maxlen=96"`
-}
-
-type SupplementalData struct {
-	// Merkle-tree of instance-specific commitments. Currently empty but this will eventually
-	// include things like snark-friendly power-table commitments.
-	Commitments [32]byte `cborgen:"maxlen=32"`
-	// The DagCBOR-blake2b256 CID of the power table used to validate the next instance, taking
-	// lookback into account.
-	PowerTable cid.Cid // []PowerEntry
-}
-
-func (d *SupplementalData) Eq(other *SupplementalData) bool {
-	return d.Commitments == other.Commitments && d.PowerTable == other.PowerTable
-}
-
-// Custom JSON marshalling for SupplementalData to achieve a commitment field
-// that is a base64-encoded string.
-
-type supplementalDataSub SupplementalData
-type supplementalDataJson struct {
-	Commitments []byte
-	*supplementalDataSub
-}
-
-func (sd SupplementalData) MarshalJSON() ([]byte, error) {
-	return json.Marshal(&supplementalDataJson{
-		Commitments:         sd.Commitments[:],
-		supplementalDataSub: (*supplementalDataSub)(&sd),
-	})
-}
-
-func (sd *SupplementalData) UnmarshalJSON(b []byte) error {
-	aux := &supplementalDataJson{supplementalDataSub: (*supplementalDataSub)(sd)}
-	var err error
-	if err = json.Unmarshal(b, &aux); err != nil {
-		return err
-	}
-	if len(aux.Commitments) != 32 {
-		return errors.New("commitments must be 32 bytes")
-	}
-	copy(sd.Commitments[:], aux.Commitments)
-	return nil
-}
-
-// Fields of the message that make up the signature payload.
-type Payload struct {
-	// GossiPBFT instance (epoch) number.
-	Instance uint64
-	// GossiPBFT round number.
-	Round uint64
-	// GossiPBFT phase name.
-	Phase Phase
-	// The common data.
-	SupplementalData SupplementalData
-	// The value agreed-upon in a single instance.
-	Value *ECChain
-}
-
-func (p *Payload) Eq(other *Payload) bool {
-	if p == other {
-		return true
-	}
-	if other == nil {
-		return false
-	}
-	return p.Instance == other.Instance &&
-		p.Round == other.Round &&
-		p.Phase == other.Phase &&
-		p.SupplementalData.Eq(&other.SupplementalData) &&
-		p.Value.Eq(other.Value)
-}
-
-func (p *Payload) MarshalForSigning(nn NetworkName) []byte {
-	return p.MarshalForSigningWithValueKey(nn, p.Value.Key())
-}
-
-func (p *Payload) MarshalForSigningWithValueKey(nn NetworkName, key ECChainKey) []byte {
-	const separator = ":"
-	var buf bytes.Buffer
-	buf.Grow(len(DomainSeparationTag) +
-		len(nn) + len(separator)*2 +
-		1 + // Phase
-		8 + // Round
-		8 + // Instance
-		len(p.SupplementalData.Commitments) +
-		len(key) + // Key
-		p.SupplementalData.PowerTable.ByteLen(),
-	)
-	buf.WriteString(DomainSeparationTag)
-	buf.WriteString(separator)
-	buf.WriteString(string(nn))
-	buf.WriteString(separator)
-
-	_ = binary.Write(&buf, binary.BigEndian, p.Phase)
-	_ = binary.Write(&buf, binary.BigEndian, p.Round)
-	_ = binary.Write(&buf, binary.BigEndian, p.Instance)
-	_, _ = buf.Write(p.SupplementalData.Commitments[:])
-	_, _ = buf.Write(key[:])
-	_, _ = buf.Write(p.SupplementalData.PowerTable.Bytes())
-	return buf.Bytes()
-}
-
-func (m GMessage) String() string {
-	return fmt.Sprintf("%s{%d}(%d %s)", m.Vote.Phase, m.Vote.Instance, m.Vote.Round, m.Vote.Value)
-}
 
 // A single Granite consensus instance.
 type instance struct {

@@ -8,7 +8,6 @@ import (
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/chainexchange"
 	"github.com/filecoin-project/go-f3/gpbft"
-	"github.com/filecoin-project/go-f3/pmsg"
 	gen "github.com/whyrusleeping/cbor-gen"
 	"golang.org/x/sync/errgroup"
 )
@@ -22,6 +21,7 @@ func main() {
 			gpbft.TipSet{},
 			gpbft.LegacyECChain{},
 			gpbft.GMessage{},
+			gpbft.PartialGMessage{},
 			gpbft.SupplementalData{},
 			gpbft.Payload{},
 			gpbft.Justification{},
@@ -45,11 +45,6 @@ func main() {
 	eg.Go(func() error {
 		return gen.WriteTupleEncodersToFile("../chainexchange/cbor_gen.go", "chainexchange",
 			chainexchange.Message{},
-		)
-	})
-	eg.Go(func() error {
-		return gen.WriteTupleEncodersToFile("../pmsg/cbor_gen.go", "pmsg",
-			pmsg.PartialGMessage{},
 		)
 	})
 	if err := eg.Wait(); err != nil {
