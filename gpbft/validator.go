@@ -257,7 +257,12 @@ func (v *cachingValidator) validateMessageWithVoteValueKey(ctx context.Context, 
 	}
 
 	// Check vote signature.
-	sigPayload := msg.Vote.MarshalForSigning(v.networkName)
+	var sigPayload []byte
+	if partial {
+		sigPayload = msg.Vote.MarshalForSigningWithValueKey(v.networkName, *valueKey)
+	} else {
+		sigPayload = msg.Vote.MarshalForSigning(v.networkName)
+	}
 	if err := v.verifier.Verify(senderPubKey, sigPayload, msg.Signature); err != nil {
 		return fmt.Errorf("invalid signature on %v, %v: %w", msg, err, ErrValidationInvalid)
 	}
