@@ -2,6 +2,8 @@ module github.com/filecoin-project/go-f3
 
 go 1.23.7
 
+retract v0.8.5
+
 require (
 	github.com/consensys/gnark-crypto v0.12.1
 	github.com/filecoin-project/go-bitfield v0.2.4
