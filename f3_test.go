@@ -45,15 +45,12 @@ func init() {
 }
 
 func TestF3Simple(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2).start()
 	env.requireInstanceEventually(5, eventualCheckTimeout, true)
 	env.requireEpochFinalizedEventually(env.manifest.BootstrapEpoch, eventualCheckTimeout)
 }
 
 func TestF3WithLookback(t *testing.T) {
-	t.Parallel()
-
 	// Quiet down the logs since the test asserts a scenario that triggers
 	// OhShitStore ERROR level logs.
 	_ = logging.SetLogLevel("f3/ohshitstore", "DPANIC")
@@ -98,8 +95,6 @@ func TestF3WithLookback(t *testing.T) {
 }
 
 func TestF3PauseResumeCatchup(t *testing.T) {
-	t.Parallel()
-
 	// Quiet down the logs since the test asserts a scenario that triggers
 	// OhShitStore ERROR level logs.
 	_ = logging.SetLogLevel("f3/ohshitstore", "DPANIC")
@@ -146,7 +141,6 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 }
 
 func TestF3FailRecover(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2)
 
 	// Make it possible to fail a single write for node 0.
@@ -177,7 +171,6 @@ func TestF3FailRecover(t *testing.T) {
 }
 
 func TestF3LateBootstrap(t *testing.T) {
-	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2).start()
 
 	// Wait till we're "caught up".
