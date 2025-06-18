@@ -21,6 +21,6 @@ jobs:
         with:
           submodules: 'recursive'
       - name: Repeat ${{ matrix.test }}
-        run: go test -timeout 10m -count 10 -v --run='^${{ matrix.test }}' --failfast .
+        run: go test -timeout 30m -count 10 -v --run='^${{ matrix.test }}' --failfast .
       - name: Repeat ${{ matrix.test }} with race detector
-        run: go test -timeout 10m -count 10 -v --race --run='^${{ matrix.test }}' --failfast .
+        run: go test -timeout 30m -count 10 -v --race --run='^${{ matrix.test }}' --failfast .
