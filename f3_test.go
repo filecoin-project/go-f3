@@ -21,6 +21,7 @@ import (
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/failstore"
 	ds_sync "github.com/ipfs/go-datastore/sync"
+	logging "github.com/ipfs/go-log/v2"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	mocknet "github.com/libp2p/go-libp2p/p2p/net/mock"
@@ -29,10 +30,10 @@ import (
 )
 
 const (
-	eventualCheckInterval = 50 * time.Millisecond
+	eventualCheckInterval = 5 * time.Millisecond
 	eventualCheckTimeout  = time.Minute
-	advanceClockEvery     = 10 * time.Millisecond
-	advanceClockBy        = 200 * time.Millisecond
+	advanceClockEvery     = 5 * time.Millisecond
+	advanceClockBy        = 100 * time.Millisecond
 )
 
 func init() {
@@ -52,6 +53,10 @@ func TestF3Simple(t *testing.T) {
 
 func TestF3WithLookback(t *testing.T) {
 	t.Parallel()
+
+	// Quiet down the logs since the test asserts a scenario that triggers
+	// OhShitStore ERROR level logs.
+	_ = logging.SetLogLevel("f3/ohshitstore", "DPANIC")
 
 	mfst := base
 	mfst.EC.HeadLookback = 20
@@ -94,6 +99,11 @@ func TestF3WithLookback(t *testing.T) {
 
 func TestF3PauseResumeCatchup(t *testing.T) {
 	t.Parallel()
+
+	// Quiet down the logs since the test asserts a scenario that triggers
+	// OhShitStore ERROR level logs.
+	_ = logging.SetLogLevel("f3/ohshitstore", "DPANIC")
+
 	env := newTestEnvironment(t).withNodes(3).start()
 	env.requireInstanceEventually(1, eventualCheckTimeout, true)
 	env.requireEpochFinalizedEventually(env.manifest.BootstrapEpoch, eventualCheckTimeout)
