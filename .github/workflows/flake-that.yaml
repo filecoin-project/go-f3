@@ -5,7 +5,7 @@ on:
 
 jobs:
   test:
-    name: ${{ matrix.test }} ${{ matrix.go }}
+    name: ${{ matrix.test }} ${{ matrix.go }} with args "${{ matrix.go-test-args }}"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -15,12 +15,13 @@ jobs:
           - 1.23
         test:
           - TestF3
+        go-test-args:
+          - --race
+          - ''
 
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: 'recursive'
-      - name: Repeat ${{ matrix.test }}
-        run: go test -timeout 30m -count 10 -v --run='^${{ matrix.test }}' --failfast .
-      - name: Repeat ${{ matrix.test }} with race detector
-        run: go test -timeout 30m -count 10 -v --race --run='^${{ matrix.test }}' --failfast .
+      - name: Repeat ${{ matrix.test }} with args "${{ matrix.go-test-args }}"
+        run: go test -timeout 30m -count 10 -v ${{ matrix.go-test-args }} --run='^${{ matrix.test }}' --failfast .
