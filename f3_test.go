@@ -29,10 +29,10 @@ import (
 )
 
 const (
-	eventualCheckInterval = 100 * time.Millisecond
+	eventualCheckInterval = 50 * time.Millisecond
 	eventualCheckTimeout  = time.Minute
-	advanceClockEvery     = 5 * time.Millisecond
-	advanceClockBy        = 100 * time.Millisecond
+	advanceClockEvery     = 10 * time.Millisecond
+	advanceClockBy        = 200 * time.Millisecond
 )
 
 func init() {
