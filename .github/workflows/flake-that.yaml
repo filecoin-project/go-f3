@@ -1,0 +1,26 @@
+name: Repeat Flaky Tests
+
+on:
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.test }} ${{ matrix.go }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go:
+          - 1.22
+          - 1.23
+        test:
+          - TestF3
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - name: Repeat ${{ matrix.test }}
+        run: go test -timeout 10m -count 10 -v --run='^${{ matrix.test }}' --failfast .
+      - name: Repeat ${{ matrix.test }} with race detector
+        run: go test -timeout 10m -count 10 -v --race --run='^${{ matrix.test }}' --failfast .
