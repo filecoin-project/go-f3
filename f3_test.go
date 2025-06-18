@@ -31,7 +31,7 @@ import (
 
 const (
 	eventualCheckInterval = 5 * time.Millisecond
-	eventualCheckTimeout  = time.Minute
+	eventualCheckTimeout  = 2 * time.Minute
 	advanceClockEvery     = 5 * time.Millisecond
 	advanceClockBy        = 100 * time.Millisecond
 )
@@ -45,14 +45,14 @@ func init() {
 }
 
 func TestF3Simple(t *testing.T) {
-	//t.Parallel()
+	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2).start()
 	env.requireInstanceEventually(5, eventualCheckTimeout, true)
 	env.requireEpochFinalizedEventually(env.manifest.BootstrapEpoch, eventualCheckTimeout)
 }
 
 func TestF3WithLookback(t *testing.T) {
-	//t.Parallel()
+	t.Parallel()
 
 	// Quiet down the logs since the test asserts a scenario that triggers
 	// OhShitStore ERROR level logs.
@@ -98,7 +98,7 @@ func TestF3WithLookback(t *testing.T) {
 }
 
 func TestF3PauseResumeCatchup(t *testing.T) {
-	//t.Parallel()
+	t.Parallel()
 
 	// Quiet down the logs since the test asserts a scenario that triggers
 	// OhShitStore ERROR level logs.
@@ -146,7 +146,7 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 }
 
 func TestF3FailRecover(t *testing.T) {
-	//t.Parallel()
+	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2)
 
 	// Make it possible to fail a single write for node 0.
@@ -177,7 +177,7 @@ func TestF3FailRecover(t *testing.T) {
 }
 
 func TestF3LateBootstrap(t *testing.T) {
-	//t.Parallel()
+	t.Parallel()
 	env := newTestEnvironment(t).withNodes(2).start()
 
 	// Wait till we're "caught up".
