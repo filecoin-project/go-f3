@@ -264,11 +264,21 @@ func (i *instance) receiveOne(msg *GMessage) (bool, error) {
 		}
 	case PREPARE_PHASE:
 		msgRound.prepared.Receive(msg.Sender, msg.Vote.Value, msg.Signature)
+
+		// All PREPARE messages beyond round zero carry either justification of COMMIT
+		// for bottom or PREPARE for vote value from their previous round. Collect such
+		// justifications to potentially advance the current round at COMMIT or PREPARE
+		// by reusing the same justification as evidence of strong quorum.
+		if msg.Justification != nil {
+			msgRound.prepared.ReceiveJustification(msg.Vote.Value, msg.Justification)
+		}
+
 	case COMMIT_PHASE:
 		msgRound.committed.Receive(msg.Sender, msg.Vote.Value, msg.Signature)
-		// The only justifications that need to be stored for future propagation are for COMMITs
-		// to non-bottom values.
-		// This evidence can be brought forward to justify a CONVERGE message in the next round.
+		// The only justifications that need to be stored for future propagation are for
+		// COMMITs to non-bottom values. This evidence can be brought forward to justify
+		// a CONVERGE message in the next round, or justify progress from PREPARE in the
+		// current round.
 		if !msg.Vote.Value.IsZero() {
 			msgRound.committed.ReceiveJustification(msg.Vote.Value, msg.Justification)
 		}
@@ -296,8 +306,7 @@ func (i *instance) postReceive(roundsReceived ...uint64) {
 	// Check whether the instance should skip ahead to future round, in descending order.
 	slices.Reverse(roundsReceived)
 	for _, r := range roundsReceived {
-		round := i.getRound(r)
-		if chain, justification, skip := i.shouldSkipToRound(r, round); skip {
+		if chain, justification, skip := i.shouldSkipToRound(r); skip {
 			i.skipToRound(r, chain, justification)
 			return
 		}
@@ -309,7 +318,8 @@ func (i *instance) postReceive(roundsReceived ...uint64) {
 // proposal. Otherwise, it returns nil chain, nil justification and false.
 //
 // See: skipToRound.
-func (i *instance) shouldSkipToRound(round uint64, state *roundState) (*ECChain, *Justification, bool) {
+func (i *instance) shouldSkipToRound(round uint64) (*ECChain, *Justification, bool) {
+	state := i.getRound(round)
 	// Check if the given round is ahead of current round and this instance is not in
 	// DECIDE phase.
 	if round <= i.current.Round || i.current.Phase == DECIDE_PHASE {
@@ -497,19 +507,29 @@ func (i *instance) tryPrepare() error {
 		return fmt.Errorf("unexpected phase %s, expected %s", i.current.Phase, PREPARE_PHASE)
 	}
 
-	prepared := i.getRound(i.current.Round).prepared
+	currentRound := i.getRound(i.current.Round)
+	prepared := currentRound.prepared
 	proposalKey := i.proposal.Key()
 	foundQuorum := prepared.HasStrongQuorumFor(proposalKey)
 	quorumNotPossible := !prepared.CouldReachStrongQuorumFor(proposalKey, false)
 	phaseComplete := i.phaseTimeoutElapsed() && prepared.ReceivedFromStrongQuorum()
 
-	if foundQuorum {
+	// Check if the proposal has been justified by COMMIT messages at the current
+	// round or PREPARE/CONVERGE message from the next round. This indicates that
+	// there exists a strong quorum of PREPARE for the proposal at the current round
+	// but hasn't been seen yet by this participant.
+	nextRound := i.getRound(i.current.Round + 1)
+	foundJustification := currentRound.committed.HasJustificationOf(PREPARE_PHASE, proposalKey) ||
+		nextRound.prepared.HasJustificationOf(PREPARE_PHASE, proposalKey) ||
+		nextRound.converged.HasJustificationOf(PREPARE_PHASE, proposalKey)
+
+	if foundQuorum || foundJustification {
 		i.value = i.proposal
 	} else if quorumNotPossible || phaseComplete {
 		i.value = &ECChain{}
 	}
 
-	if foundQuorum || quorumNotPossible || phaseComplete {
+	if foundQuorum || foundJustification || quorumNotPossible || phaseComplete {
 		i.beginCommit()
 	} else if i.shouldRebroadcast() {
 		i.tryRebroadcast()
@@ -528,9 +548,18 @@ func (i *instance) beginCommit() {
 	// No justification is required for committing bottom.
 	var justification *Justification
 	if !i.value.IsZero() {
-		if quorum, ok := i.getRound(i.current.Round).prepared.FindStrongQuorumFor(i.value.Key()); ok {
+		valueKey := i.value.Key()
+		currentRound := i.getRound(i.current.Round)
+		nextRound := i.getRound(i.current.Round + 1)
+		if quorum, ok := currentRound.prepared.FindStrongQuorumFor(valueKey); ok {
 			// Found a strong quorum of PREPARE, build the justification for it.
 			justification = i.buildJustification(quorum, i.current.Round, PREPARE_PHASE, i.value)
+		} else if justifiedByCommit := currentRound.committed.GetJustificationOf(PREPARE_PHASE, valueKey); justifiedByCommit != nil {
+			justification = justifiedByCommit
+		} else if justifiedByNextPrepare := nextRound.prepared.GetJustificationOf(PREPARE_PHASE, valueKey); justifiedByNextPrepare != nil {
+			justification = justifiedByNextPrepare
+		} else if justifiedByNextConverge := nextRound.converged.GetJustificationOf(PREPARE_PHASE, valueKey); justifiedByNextConverge != nil {
+			justification = justifiedByNextConverge
 		} else {
 			panic("beginCommit with no strong quorum for non-bottom value")
 		}
@@ -549,6 +578,15 @@ func (i *instance) tryCommit(round uint64) error {
 	quorumValue, foundStrongQuorum := committed.FindStrongQuorumValue()
 	phaseComplete := i.phaseTimeoutElapsed() && committed.ReceivedFromStrongQuorum()
 
+	nextRound := i.getRound(round + 1)
+	bottomKey := bottomECChain.Key()
+	// Check for justification of COMMIT for bottom that may have been received in
+	// a message from the next round at PREPARE or CONVERGE phases. This indicates a
+	// strong quorum of COMMIT for bottom across the participants at current round
+	// even if this participant hasn't yet seen it.
+	foundJustificationForBottom := nextRound.prepared.HasJustificationOf(COMMIT_PHASE, bottomKey) ||
+		nextRound.converged.HasJustificationOf(COMMIT_PHASE, bottomKey)
+
 	switch {
 	case foundStrongQuorum && !quorumValue.IsZero():
 		// There is a strong quorum for a non-zero value; accept it. A participant may be
@@ -559,7 +597,7 @@ func (i *instance) tryCommit(round uint64) error {
 	case i.current.Round != round, i.current.Phase != COMMIT_PHASE:
 		// We are at a phase other than COMMIT or round does not match the current one;
 		// nothing else to do.
-	case foundStrongQuorum:
+	case foundStrongQuorum, foundJustificationForBottom:
 		// There is a strong quorum for bottom, carry forward the existing proposal.
 		i.beginNextRound()
 	case phaseComplete:
@@ -658,17 +696,23 @@ func (i *instance) beginNextRound() {
 	i.current.Round += 1
 	metrics.currentRound.Record(context.TODO(), int64(i.current.Round))
 
-	prevRound := i.getRound(i.current.Round - 1)
+	currentRound := i.getRound(i.current.Round)
+	previousRound := i.getRound(i.current.Round - 1)
+	bottomKey := bottomECChain.Key()
 	// Proposal was updated at the end of COMMIT phase to be some value for which
 	// this node received a COMMIT message (bearing justification), if there were any.
 	// If there were none, there must have been a strong quorum for bottom instead.
 	var justification *Justification
-	if quorum, ok := prevRound.committed.FindStrongQuorumFor(bottomECChain.Key()); ok {
+	if quorum, ok := previousRound.committed.FindStrongQuorumFor(bottomKey); ok {
 		// Build justification for strong quorum of COMMITs for bottom in the previous round.
 		justification = i.buildJustification(quorum, i.current.Round-1, COMMIT_PHASE, nil)
+	} else if bottomJustifiedByPrepare := currentRound.prepared.GetJustificationOf(COMMIT_PHASE, bottomKey); bottomJustifiedByPrepare != nil {
+		justification = bottomJustifiedByPrepare
+	} else if bottomJustifiedByConverge := currentRound.converged.GetJustificationOf(COMMIT_PHASE, bottomKey); bottomJustifiedByConverge != nil {
+		justification = bottomJustifiedByConverge
 	} else {
 		// Extract the justification received from some participant (possibly this node itself).
-		justification, ok = prevRound.committed.receivedJustification[i.proposal.Key()]
+		justification, ok = previousRound.committed.receivedJustification[i.proposal.Key()]
 		if !ok {
 			panic("beginConverge called but no justification for proposal")
 		}
@@ -1080,10 +1124,43 @@ func (q *quorumState) ReceivedFromWeakQuorum() bool {
 	return hasWeakQuorum(q.sendersTotalPower, q.powerTable.ScaledTotal)
 }
 
-// Checks whether a chain has reached a strong quorum.
+// HasStrongQuorumFor checks whether a chain has reached a strong quorum.
 func (q *quorumState) HasStrongQuorumFor(key ECChainKey) bool {
 	supportForChain, ok := q.chainSupport[key]
 	return ok && supportForChain.hasStrongQuorum
+}
+
+// HasJustificationOf checks whether a justification for a chain key exists.
+//
+// See: GetJustificationOf for details on how the key is interpreted.
+func (q *quorumState) HasJustificationOf(phase Phase, key ECChainKey) bool {
+	return q.GetJustificationOf(phase, key) != nil
+}
+
+// GetJustificationOf gets the justification for a chain or nil if no such
+// justification exists. The given key may be zero, in which case the first
+// justification for bottom that is found is returned.
+func (q *quorumState) GetJustificationOf(phase Phase, key ECChainKey) *Justification {
+
+	// The justification vote value is either zero or matches the vote value. If the
+	// given key is zero, it indicates that the ask is for the justification of
+	// bottom. Iterate through the list of received justification to find a
+	// match.
+	//
+	// Otherwise, simply use the receivedJustification map keyed by vote value.
+	if key.IsZero() {
+		for _, justification := range q.receivedJustification {
+			if justification.Vote.Value.IsZero() && justification.Vote.Phase == phase {
+				return justification
+			}
+		}
+		return nil
+	}
+	justification, found := q.receivedJustification[key]
+	if found && justification.Vote.Phase == phase {
+		return justification
+	}
+	return nil
 }
 
 // CouldReachStrongQuorumFor checks whether the given chain can possibly reach
@@ -1336,6 +1413,38 @@ func (c *convergeState) FindProposalFor(chain *ECChain) ConvergeValue {
 
 	// Default converge value is not valid
 	return ConvergeValue{}
+}
+
+// HasJustificationOf checks whether a justification for a chain key exists.
+//
+// See: GetJustificationOf for details on how the key is interpreted.
+func (c *convergeState) HasJustificationOf(phase Phase, key ECChainKey) bool {
+	return c.GetJustificationOf(phase, key) != nil
+}
+
+// GetJustificationOf gets the justification for a chain or nil if no such
+// justification exists. The given key may be zero, in which case the first
+// justification for bottom that is found is returned.
+func (c *convergeState) GetJustificationOf(phase Phase, key ECChainKey) *Justification {
+
+	// The justification vote value is either zero or matches the vote value. If the
+	// given key is zero, it indicates that the ask is for the justification of
+	// bottom. Iterate through the converge values to find a match.
+	//
+	// Otherwise, simply use the values map keyed by vote value.
+	if key.IsZero() {
+		for _, value := range c.values {
+			if value.Justification.Vote.Value.IsZero() && value.Justification.Vote.Phase == phase {
+				return value.Justification
+			}
+		}
+		return nil
+	}
+	value, found := c.values[key]
+	if found && value.Justification.Vote.Phase == phase {
+		return value.Justification
+	}
+	return nil
 }
 
 ///// General helpers /////
