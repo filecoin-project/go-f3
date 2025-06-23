@@ -568,6 +568,123 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 		driver.RequireConverge(13, instance.Proposal(), justification)
 		driver.RequireNoBroadcast() // Nothing else should be broadcast until the next alarm.
 	})
+
+	t.Run("When in PREPARE at round 0", func(t *testing.T) {
+		// Advances the instance to PREPARE at round zero.
+		whenInPrepareAtRoundZero := func(t *testing.T, instance *emulator.Instance, driver *emulator.Driver) {
+			driver.RequireStartInstance(instance.ID())
+			driver.RequireQuality()
+			driver.RequireNoBroadcast()
+			driver.RequireDeliverMessage(&gpbft.GMessage{
+				Sender: 1,
+				Vote:   instance.NewQuality(instance.Proposal()),
+			})
+			driver.RequireDeliverAlarm()
+			driver.RequirePrepare(instance.Proposal())
+			driver.RequireNoBroadcast()
+		}
+		t.Run("Justification of COMMIT completes phase", func(t *testing.T) {
+			instance, driver := newInstanceAndDriver(t)
+			whenInPrepareAtRoundZero(t, instance, driver)
+
+			// At this point, sender 0 is in PREPARE phase for the instance proposal. Now,
+			// send a COMMIT message carrying justification of PREPARE from all participants,
+			// which should complete the PREPARE phase immediately even though sender 0
+			// hasn't seen a strong quorum for the instance proposal via PREPARE messages.
+			evidenceOfPrepare := instance.NewJustification(0, gpbft.PREPARE_PHASE, instance.Proposal(), 0, 1)
+			driver.RequireDeliverMessage(&gpbft.GMessage{
+				Sender:        1,
+				Vote:          instance.NewCommit(0, instance.Proposal()),
+				Justification: evidenceOfPrepare,
+			})
+			driver.RequireCommit(0, instance.Proposal(), evidenceOfPrepare)
+		})
+		t.Run("Justification of PREPARE from next round completes phase", func(t *testing.T) {
+			instance, driver := newInstanceAndDriver(t)
+			whenInPrepareAtRoundZero(t, instance, driver)
+
+			// At this point, sender 0 is in PREPARE phase for the instance proposal. Now,
+			// send a PREPARE message from round 1 carrying justification of PREPARE from all
+			// participants in round 0, which should complete the PREPARE phase immediately
+			// even though sender 0 hasn't seen a strong quorum for the instance proposal via
+			// PREPARE messages.
+			evidenceOfPrepare := instance.NewJustification(0, gpbft.PREPARE_PHASE, instance.Proposal(), 0, 1)
+			driver.RequireDeliverMessage(&gpbft.GMessage{
+				Sender:        1,
+				Vote:          instance.NewPrepare(1, instance.Proposal()),
+				Justification: evidenceOfPrepare,
+			})
+			driver.RequireCommit(0, instance.Proposal(), evidenceOfPrepare)
+		})
+		t.Run("Justification of CONVERGE from next round completes phase", func(t *testing.T) {
+			instance, driver := newInstanceAndDriver(t)
+			whenInPrepareAtRoundZero(t, instance, driver)
+
+			// At this point, sender 0 is in PREPARE phase for the instance proposal. Now,
+			// send a CONVERGE message from round 1 carrying justification of PREPARE from all
+			// participants in round 0, which should complete the PREPARE phase immediately
+			// even though sender 0 hasn't seen a strong quorum for the instance proposal via
+			// PREPARE messages.
+			evidenceOfPrepare := instance.NewJustification(0, gpbft.PREPARE_PHASE, instance.Proposal(), 0, 1)
+			driver.RequireDeliverMessage(&gpbft.GMessage{
+				Sender:        1,
+				Vote:          instance.NewConverge(1, instance.Proposal()),
+				Ticket:        emulator.ValidTicket,
+				Justification: evidenceOfPrepare,
+			})
+			driver.RequireCommit(0, instance.Proposal(), evidenceOfPrepare)
+		})
+	})
+
+	t.Run("When in COMMIT for base at round 0", func(t *testing.T) {
+		// Advances the instance to COMMIT for base decision at round zero.
+		whenInCommitForBaseAtRoundZero := func(t *testing.T, instance *emulator.Instance, driver *emulator.Driver) {
+			driver.RequireStartInstance(instance.ID())
+			driver.RequireQuality()
+			driver.RequireNoBroadcast()
+			// Timeout QUALITY phase immediately without delivering any QUALITY messages.
+			driver.RequireDeliverAlarm()
+			// Assert PREPARE phase for base decision and progress PREPARE to commit.
+			driver.RequirePrepare(instance.Proposal().BaseChain())
+			driver.RequireDeliverMessage(&gpbft.GMessage{
+				Sender: 1,
+				Vote:   instance.NewPrepare(0, instance.Proposal().BaseChain()),
+			})
+			// Assert COMMIT phase for base decision.
+			driver.RequireCommit(0, instance.Proposal().BaseChain(), instance.NewJustification(0, gpbft.PREPARE_PHASE, instance.Proposal(), 0, 1))
+		}
+		t.Run("Justification of CONVERGE to bottom from next round completes phase", func(t *testing.T) {
+			instance, driver := newInstanceAndDriver(t)
+			whenInCommitForBaseAtRoundZero(t, instance, driver)
+
+			// At this point, sender 0 is in the COMMIT phase for the instance proposal. Now,
+			// send a CONVERGE message from the next round carrying justification as evidence
+			// of COMMIT to the bottom, which should complete the COMMIT phase immediately.
+			evidenceOfCommitToBottom := instance.NewJustification(0, gpbft.COMMIT_PHASE, &gpbft.ECChain{}, 0, 1)
+			driver.RequireDeliverMessage(&gpbft.GMessage{
+				Sender:        1,
+				Vote:          instance.NewConverge(1, instance.Proposal().BaseChain()),
+				Ticket:        emulator.ValidTicket,
+				Justification: evidenceOfCommitToBottom,
+			})
+			driver.RequireConverge(1, instance.Proposal().BaseChain(), evidenceOfCommitToBottom)
+		})
+		t.Run("Justification of PREPARE for bottom from next round completes phase", func(t *testing.T) {
+			instance, driver := newInstanceAndDriver(t)
+			whenInCommitForBaseAtRoundZero(t, instance, driver)
+
+			// At this point, sender 0 is in the COMMIT phase for the instance proposal. Now,
+			// send a PREPARE message from the next round carrying justification as evidence
+			// of COMMIT to the bottom, which should complete the COMMIT phase immediately.
+			evidenceOfCommitToBottom := instance.NewJustification(0, gpbft.COMMIT_PHASE, &gpbft.ECChain{}, 0, 1)
+			driver.RequireDeliverMessage(&gpbft.GMessage{
+				Sender:        1,
+				Vote:          instance.NewPrepare(1, instance.Proposal().BaseChain()),
+				Justification: evidenceOfCommitToBottom,
+			})
+			driver.RequireConverge(1, instance.Proposal().BaseChain(), evidenceOfCommitToBottom)
+		})
+	})
 }
 
 func TestGPBFT_WithExactOneThirdToTwoThirdPowerDistribution(t *testing.T) {

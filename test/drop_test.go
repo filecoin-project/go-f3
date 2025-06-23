@@ -48,7 +48,11 @@ func TestDrop_ReachesConsensusDespiteMessageLoss(t *testing.T) {
 					sim.WithIgnoreConsensusFor(dropAdversaryTarget))
 				sm, err := sim.NewSimulation(opts...)
 				require.NoError(t, err)
-				require.NoErrorf(t, sm.Run(instanceCount, maxRounds), "%s", sm.Describe())
+				// Run the simulation for 1 extra instance to give enough time to the drop
+				// adversary target to complete the instance. Ideally, simulation should take a
+				// function as the condition to stop the simulation. But for now a quick extra
+				// round would do the trick.
+				require.NoErrorf(t, sm.Run(instanceCount+1, maxRounds), "%s", sm.Describe())
 				chain := ecChainGenerator.GenerateECChain(instanceCount-1, &gpbft.TipSet{}, math.MaxUint64)
 				requireConsensusAtInstance(t, sm, instanceCount-1, chain.Head())
 			})

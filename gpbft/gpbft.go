@@ -272,7 +272,6 @@ func (i *instance) receiveOne(msg *GMessage) (bool, error) {
 		if msg.Justification != nil {
 			msgRound.prepared.ReceiveJustification(msg.Vote.Value, msg.Justification)
 		}
-
 	case COMMIT_PHASE:
 		msgRound.committed.Receive(msg.Sender, msg.Vote.Value, msg.Signature)
 		// The only justifications that need to be stored for future propagation are for
@@ -286,8 +285,20 @@ func (i *instance) receiveOne(msg *GMessage) (bool, error) {
 		// to a new round. Late-arriving COMMITs can still (must) cause a local decision,
 		// *in that round*. Try to complete the COMMIT phase for the round specified by
 		// the message.
+		//
+		// Otherwise, if the COMMIT message hasn't resulted in progress of the current
+		// round, continue to try the current phase. Because, the COMMIT message may
+		// justify PREPARE in the current round if the participant is currently in
+		// PREPARE phase.
 		if i.current.Phase != DECIDE_PHASE {
-			return true, i.tryCommit(msg.Vote.Round)
+			err := i.tryCommit(msg.Vote.Round)
+			// Proceed to attempt to complete the current phase only if the COMMIT message
+			// could potentially justify the current round's PREPARE phase. Otherwise,
+			// there's no point in trying to complete the current phase.
+			tryToCompleteCurrentPhase := err == nil && i.current.Phase == PREPARE_PHASE && i.current.Round == msg.Vote.Round && !msg.Vote.Value.IsZero()
+			if !tryToCompleteCurrentPhase {
+				return true, err
+			}
 		}
 	case DECIDE_PHASE:
 		i.decision.Receive(msg.Sender, msg.Vote.Value, msg.Signature)
