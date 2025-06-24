@@ -64,3 +64,28 @@ CREATE TABLE IF NOT EXISTS latest_messages (
 -- Add Key column to latest_messages table to accommodate partial messages.
 ALTER TABLE latest_messages
 ADD COLUMN IF NOT EXISTS VoteValueKey BLOB;
+
+
+CREATE TABLE IF NOT EXISTS finality_certificates (
+  Timestamp TIMESTAMP,
+  NetworkName VARCHAR,
+  Instance BIGINT,
+  ECChain STRUCT(
+    Epoch BIGINT,
+    Key BLOB,
+    Commitments BLOB,
+    PowerTable VARCHAR
+  )[],
+  SupplementalData STRUCT(
+    Commitments BLOB,
+    PowerTable VARCHAR
+  ),
+  Signers BIGINT[],
+  Signature BLOB,
+  PowerTableDelta STRUCT(
+    ParticipantID BIGINT,
+    PowerDelta BIGINT,
+    SigningKey BLOB
+  )[],
+  PRIMARY KEY (NetworkName, Instance)
+);

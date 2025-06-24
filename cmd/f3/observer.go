@@ -10,6 +10,7 @@ import (
 
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/observer"
+	"github.com/ipfs/go-cid"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -115,6 +116,15 @@ var observerCmd = cli.Command{
 			Usage: "The maximum time to wait before a batch is flushed to the database.",
 			Value: time.Minute,
 		},
+		&cli.StringFlag{
+			Name:  "initialPowerTableCID",
+			Usage: "The CID of the initial power table. If not set, no finality certificates will be captured.",
+		},
+		&cli.PathFlag{
+			Name:        "certStorePath",
+			Usage:       "The path to the directory used for intermediary finality certificate certstore. If not set, in-memory backing store will be used.",
+			DefaultText: "in-memory",
+		},
 	},
 
 	Action: func(cctx *cli.Context) error {
@@ -149,6 +159,17 @@ var observerCmd = cli.Command{
 
 		if cctx.IsSet("networkName") {
 			opts = append(opts, observer.WithNetworkName(gpbft.NetworkName(cctx.String("networkName"))))
+		}
+		if cctx.IsSet("initialPowerTableCID") {
+			initialPowerTableCID, err := cid.Decode(cctx.String("initialPowerTableCID"))
+			if err != nil {
+				return fmt.Errorf("failed to decode initial power table CID: %w", err)
+			}
+			opts = append(opts, observer.WithInitialPowerTableCID(initialPowerTableCID))
+		}
+		if cctx.IsSet("certStorePath") {
+			certStorePath := cctx.Path("certStorePath")
+			opts = append(opts, observer.WithFinalityCertsStorePath(certStorePath))
 		}
 		bCThreshold := cctx.Int("bootstrapperConnectivityThreshold")
 		if cctx.IsSet("bootstrapAddr") {
