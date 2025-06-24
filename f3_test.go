@@ -94,7 +94,7 @@ func TestF3WithLookback(t *testing.T) {
 	env.requireInstanceEventually(5, eventualCheckTimeout, true)
 }
 
-func TestF3PauseResumeCatchup(t *testing.T) {
+func TestF3StopStartCatchup(t *testing.T) {
 	// Quiet down the logs since the test asserts a scenario that triggers
 	// OhShitStore ERROR level logs.
 	_ = logging.SetLogLevel("f3/ohshitstore", "DPANIC")
@@ -104,8 +104,8 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 	env.requireEpochFinalizedEventually(env.manifest.BootstrapEpoch, eventualCheckTimeout)
 
 	// Pausing two nodes should pause the network.
-	env.pauseNode(1)
-	env.pauseNode(2)
+	env.stopNode(1)
+	env.stopNode(2)
 
 	env.requireF3NotRunningEventually(eventualCheckTimeout, nodeMatchers.byID(1, 2))
 
@@ -118,14 +118,15 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 	}, eventualCheckTimeout, eventualCheckInterval)
 
 	// Resuming node 1 should continue agreeing on instances.
-	env.resumeNode(1)
+	env.startNode(1)
+	env.connectAll()
 	env.requireF3RunningEventually(eventualCheckTimeout, nodeMatchers.byID(1))
 
 	// Wait until we're far enough that pure GPBFT catchup should be impossible.
 	targetInstance := env.nodes[1].currentGpbftInstance() + env.manifest.CommitteeLookback + 1
 	env.requireInstanceEventually(targetInstance, eventualCheckTimeout, false)
 
-	env.resumeNode(2)
+	env.startNode(2)
 	env.requireF3RunningEventually(eventualCheckTimeout, nodeMatchers.byID(2))
 
 	// Everyone should catch up eventually
@@ -133,7 +134,7 @@ func TestF3PauseResumeCatchup(t *testing.T) {
 
 	// Pause the "good" node.
 	node0failInstance := env.nodes[0].currentGpbftInstance()
-	env.pauseNode(0)
+	env.stopNode(0)
 	env.requireF3NotRunningEventually(eventualCheckTimeout, nodeMatchers.byID(0))
 
 	// We should be able to make progress with the remaining nodes.
@@ -337,12 +338,12 @@ func (n *testNode) init() *f3.F3 {
 	return n.f3
 }
 
-func (n *testNode) pause() {
-	require.NoError(n.e.t, n.f3.Pause(n.e.testCtx))
+func (n *testNode) stop() {
+	require.NoError(n.e.t, n.f3.Stop(n.e.testCtx))
 }
 
-func (n *testNode) resume() {
-	require.NoError(n.e.t, n.f3.Resume(n.e.testCtx))
+func (n *testNode) start() {
+	require.NoError(n.e.t, n.f3.Start(n.e.testCtx))
 }
 
 type testNodeStatus struct {
@@ -629,12 +630,12 @@ func (e *testEnv) withManifest(m manifest.Manifest) *testEnv {
 	return e
 }
 
-func (e *testEnv) pauseNode(i int) {
-	e.nodes[i].pause()
+func (e *testEnv) stopNode(i int) {
+	e.nodes[i].stop()
 }
 
-func (e *testEnv) resumeNode(i int) {
-	e.nodes[i].resume()
+func (e *testEnv) startNode(i int) {
+	e.nodes[i].start()
 }
 
 func (e *testEnv) injectDatastoreFailures(i int, fn func(op string) error) {
