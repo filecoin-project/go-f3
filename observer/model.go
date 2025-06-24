@@ -7,9 +7,12 @@ import (
 
 	"github.com/filecoin-project/go-bitfield"
 	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
+	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/ipfs/go-cid"
 )
+
+const maxSingers = 1 << 16
 
 var emptyCommitments [32]byte
 
@@ -50,6 +53,23 @@ type TipSet struct {
 	PowerTable  string `json:"PowerTable"`
 }
 
+type FinalityCertificate struct {
+	Timestamp        time.Time         `json:"Timestamp"`
+	NetworkName      string            `json:"NetworkName"`
+	Instance         uint64            `json:"Instance"`
+	ECChain          []TipSet          `json:"Value"`
+	SupplementalData SupplementalData  `json:"SupplementalData"`
+	Signers          []uint64          `json:"Signers"`
+	Signature        []byte            `json:"Signature"`
+	PowerTableDelta  []PowerTableDelta `json:"PowerTableDelta"`
+}
+
+type PowerTableDelta struct {
+	ParticipantID uint64 `json:"ParticipantID"`
+	PowerDelta    int64  `json:"PowerDelta"`
+	SigningKey    []byte `json:"SigningKey"`
+}
+
 func newMessage(timestamp time.Time, nn string, msg gpbft.PartialGMessage) (*Message, error) {
 	j, err := newJustification(msg.Justification)
 	if err != nil {
@@ -71,7 +91,6 @@ func newJustification(gj *gpbft.Justification) (*Justification, error) {
 	if gj == nil {
 		return nil, nil
 	}
-	const maxSingers = 1 << 16
 	signers, err := gj.Signers.All(maxSingers)
 	if err != nil {
 		return nil, err
@@ -84,15 +103,18 @@ func newJustification(gj *gpbft.Justification) (*Justification, error) {
 }
 
 func newPayload(gp gpbft.Payload) Payload {
-	var commitments []byte
-	if gp.SupplementalData.Commitments != emptyCommitments {
-		// Currently, all Commitments are always empty. For completeness and reducing
-		// future schema changes include them anyway when they are non-empty.
-		commitments = gp.SupplementalData.Commitments[:]
+	return Payload{
+		Instance:         gp.Instance,
+		Round:            gp.Round,
+		Phase:            gp.Phase.String(),
+		SupplementalData: supplementalDataFromGpbft(gp.SupplementalData),
+		Value:            tipsetsFromGpbft(gp.Value),
 	}
+}
 
-	value := make([]TipSet, gp.Value.Len())
-	for i, v := range gp.Value.TipSets {
+func tipsetsFromGpbft(chain *gpbft.ECChain) []TipSet {
+	value := make([]TipSet, chain.Len())
+	for i, v := range chain.TipSets {
 		value[i] = TipSet{
 			Epoch:      v.Epoch,
 			Key:        v.Key,
@@ -102,15 +124,19 @@ func newPayload(gp gpbft.Payload) Payload {
 			value[i].Commitments = v.Commitments[:]
 		}
 	}
-	return Payload{
-		Instance: gp.Instance,
-		Round:    gp.Round,
-		Phase:    gp.Phase.String(),
-		SupplementalData: SupplementalData{
-			Commitments: commitments,
-			PowerTable:  gp.SupplementalData.PowerTable.String(),
-		},
-		Value: value,
+	return value
+}
+
+func supplementalDataFromGpbft(sd gpbft.SupplementalData) SupplementalData {
+	var commitments []byte
+	if sd.Commitments != emptyCommitments {
+		// Currently, all Commitments are always empty. For completeness and reducing
+		// future schema changes include them anyway when they are non-empty.
+		commitments = sd.Commitments[:]
+	}
+	return SupplementalData{
+		Commitments: commitments,
+		PowerTable:  sd.PowerTable.String(),
 	}
 }
 
@@ -248,4 +274,44 @@ func phaseFromString(phase string) (gpbft.Phase, error) {
 	default:
 		return 0, fmt.Errorf("unknown phase: %s", phase)
 	}
+}
+
+func newFinalityCertificate(timestamp time.Time, nn gpbft.NetworkName, cert *certs.FinalityCertificate) (*FinalityCertificate, error) {
+	if cert == nil {
+		return nil, fmt.Errorf("cannot create FinalityCertificate with nil cert")
+	}
+
+	signers, err := cert.Signers.All(maxSingers)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list finality certificate signers: %w", err)
+	}
+
+	deltas, err := powerTableDeltaFromGpbft(cert.PowerTableDelta)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert finality certificate power table delta: %w", err)
+	}
+
+	return &FinalityCertificate{
+		Timestamp:        timestamp,
+		NetworkName:      string(nn),
+		Instance:         cert.GPBFTInstance,
+		ECChain:          tipsetsFromGpbft(cert.ECChain),
+		SupplementalData: supplementalDataFromGpbft(cert.SupplementalData),
+		Signers:          signers,
+		Signature:        cert.Signature,
+		PowerTableDelta:  deltas,
+	}, nil
+}
+
+func powerTableDeltaFromGpbft(ptd certs.PowerTableDiff) ([]PowerTableDelta, error) {
+
+	deltas := make([]PowerTableDelta, len(ptd))
+	for i, delta := range ptd {
+		deltas[i] = PowerTableDelta{
+			ParticipantID: uint64(delta.ParticipantID),
+			PowerDelta:    delta.PowerDelta.Int64(),
+			SigningKey:    delta.SigningKey,
+		}
+	}
+	return deltas, nil
 }

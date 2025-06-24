@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/filecoin-project/go-f3/blssig"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/ipfs/go-cid"
 	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -44,21 +46,36 @@ type options struct {
 
 	maxBatchSize  int
 	maxBatchDelay time.Duration
+
+	ecPeriod                          time.Duration
+	initialPowerTableCID              cid.Cid
+	finalityCertsClientRequestTimeout time.Duration
+	finalityCertsStorePath            string
+	finalityCertsVerifier             gpbft.Verifier
+	finalityCertsInitialPollInterval  time.Duration
+	finalityCertsMinPollInterval      time.Duration
+	finalityCertsMaxPollInterval      time.Duration
 }
 
 func newOptions(opts ...Option) (*options, error) {
 	opt := options{
-		messageBufferSize:         100,
-		subBufferSize:             1024,
-		connectivityCheckInterval: 10 * time.Second,
-		connectivityConcurrency:   10,
-		connectivityDHTThreshold:  5,
-		queryServerReadTimeout:    5 * time.Second,
-		rotatePath:                ".",
-		rotateInterval:            10 * time.Minute,
-		retention:                 -1,
-		maxBatchSize:              1000,
-		maxBatchDelay:             time.Minute,
+		messageBufferSize:                 100,
+		subBufferSize:                     1024,
+		connectivityCheckInterval:         10 * time.Second,
+		connectivityConcurrency:           10,
+		connectivityDHTThreshold:          5,
+		queryServerReadTimeout:            5 * time.Second,
+		rotatePath:                        ".",
+		rotateInterval:                    10 * time.Minute,
+		retention:                         -1,
+		maxBatchSize:                      1000,
+		maxBatchDelay:                     time.Minute,
+		ecPeriod:                          30 * time.Second,
+		finalityCertsClientRequestTimeout: 10 * time.Second,
+		finalityCertsVerifier:             blssig.VerifierWithKeyOnG1(),
+		finalityCertsInitialPollInterval:  10 * time.Second,
+		finalityCertsMinPollInterval:      30 * time.Second,
+		finalityCertsMaxPollInterval:      2 * time.Minute,
 	}
 	for _, apply := range opts {
 		if err := apply(&opt); err != nil {
@@ -275,6 +292,83 @@ func WithMaxBatchDelay(d time.Duration) Option {
 			return fmt.Errorf("max batch delay must be greater than or equal to 0")
 		}
 		o.maxBatchDelay = d
+		return nil
+	}
+}
+
+func WithECPeriod(d time.Duration) Option {
+	return func(o *options) error {
+		if d <= 0 {
+			return fmt.Errorf("ec period must be greater than 0")
+		}
+		o.ecPeriod = d
+		return nil
+	}
+}
+
+func WithInitialPowerTableCID(c cid.Cid) Option {
+	return func(o *options) error {
+		if c == cid.Undef {
+			return fmt.Errorf("initial power table CID must be defined")
+		}
+		o.initialPowerTableCID = c
+		return nil
+	}
+}
+
+func WithFinalityCertsClientRequestTimeout(d time.Duration) Option {
+	return func(o *options) error {
+		if d <= 0 {
+			return fmt.Errorf("finality certs client request timeout must be greater than 0")
+		}
+		o.finalityCertsClientRequestTimeout = d
+		return nil
+	}
+}
+
+func WithFinalityCertsStorePath(path string) Option {
+	return func(o *options) error {
+		o.finalityCertsStorePath = path
+		return nil
+	}
+}
+
+func WithFinalityCertsVerifier(v gpbft.Verifier) Option {
+	return func(o *options) error {
+		if v == nil {
+			return fmt.Errorf("finality certs verifier cannot be nil")
+		}
+		o.finalityCertsVerifier = v
+		return nil
+	}
+}
+
+func WithFinalityCertsInitialPollInterval(d time.Duration) Option {
+	return func(o *options) error {
+		if d <= 0 {
+			return fmt.Errorf("finality certs initial poll interval must be greater than 0")
+		}
+		o.finalityCertsInitialPollInterval = d
+		return nil
+	}
+}
+
+func WithFinalityCertsMinPollInterval(d time.Duration) Option {
+	return func(o *options) error {
+		if d <= 0 {
+			return fmt.Errorf("finality certs minimum poll interval must be greater than 0")
+		}
+		o.finalityCertsMinPollInterval = d
+		return nil
+	}
+}
+
+func WithFinalityCertsMaxPollInterval(d time.Duration) Option {
+	return func(o *options) error {
+		if d <= 0 {
+			return fmt.Errorf("finality certs maximum poll interval must be greater than 0")
+		}
+		o.finalityCertsMaxPollInterval = d
 		return nil
 	}
 }

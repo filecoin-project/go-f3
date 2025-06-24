@@ -9,15 +9,23 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/filecoin-project/go-f3/certexchange"
+	"github.com/filecoin-project/go-f3/certexchange/polling"
+	"github.com/filecoin-project/go-f3/certstore"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/encoding"
 	"github.com/filecoin-project/go-f3/internal/lotus"
 	"github.com/filecoin-project/go-f3/internal/psutil"
 	"github.com/filecoin-project/go-f3/manifest"
+	"github.com/ipfs/go-cid"
+	"github.com/ipfs/go-datastore"
+	sync2 "github.com/ipfs/go-datastore/sync"
+	leveldb "github.com/ipfs/go-ds-leveldb"
 	"github.com/ipfs/go-log/v2"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -46,10 +54,14 @@ type Observer struct {
 	msgEncoding     *encoding.ZSTD[*gpbft.PartialGMessage]
 
 	dbConnector           *duckdb.Connector
-	dbAppender            *duckdb.Appender
+	dbLatestMessages      *duckdb.Appender
 	dbConnection          driver.Conn
 	unflushedMessageCount int
-	lastFlushedAt         time.Time
+	lastFlushedMessagesAt time.Time
+
+	dbFinalityCertificates    *duckdb.Appender
+	unflushedCertificateCount int
+	lastFlushedCertificatesAt time.Time
 }
 
 func New(o ...Option) (*Observer, error) {
@@ -75,13 +87,15 @@ func (o *Observer) Start(ctx context.Context) error {
 
 	ctx, stop := context.WithCancel(ctx)
 	eg, ctx := errgroup.WithContext(ctx)
-	eg.Go(func() error { return o.observe(ctx) })
+	eg.Go(func() error { return o.observeMessages(ctx) })
+	eg.Go(func() error { return o.observeFinalityCertificates(ctx) })
 	eg.Go(func() error { return o.stayConnected(ctx) })
 	eg.Go(o.listenAndServeQueries)
 	o.stop = func() error {
 		stop()
 		return multierr.Combine(
-			o.dbAppender.Close(),
+			o.dbLatestMessages.Close(),
+			o.dbFinalityCertificates.Close(),
 			o.dbConnection.Close(),
 			o.dbConnector.Close(),
 			o.db.Close(),
@@ -154,9 +168,14 @@ func (o *Observer) initialize(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to duckdb: %w", err)
 	}
-	o.dbAppender, err = duckdb.NewAppenderFromConn(o.dbConnection, "", "latest_messages")
+	o.dbLatestMessages, err = duckdb.NewAppenderFromConn(o.dbConnection, "", "latest_messages")
 	if err != nil {
-		return fmt.Errorf("failed to create duckdb appender: %w", err)
+		return fmt.Errorf("failed to create duckdb appender for latest_messages: %w", err)
+	}
+
+	o.dbFinalityCertificates, err = duckdb.NewAppenderFromConn(o.dbConnection, "", "finality_certificates")
+	if err != nil {
+		return fmt.Errorf("failed to create duckdb appender for finality_certificates: %w", err)
 	}
 
 	// If connectivity check interval is enabled, repair connections once to avoid
@@ -189,7 +208,7 @@ func (o *Observer) createOrReplaceMessagesView(ctx context.Context, includeParqu
 	//       week or something along those lines.
 }
 
-func (o *Observer) observe(ctx context.Context) error {
+func (o *Observer) observeMessages(ctx context.Context) error {
 	rotation := time.NewTicker(o.rotateInterval)
 	flush := time.NewTicker(o.maxBatchDelay)
 	stopObserverForNetwork, err := o.startObserverFor(ctx, o.networkName)
@@ -226,6 +245,86 @@ func (o *Observer) observe(ctx context.Context) error {
 	return nil
 }
 
+func (o *Observer) observeFinalityCertificates(ctx context.Context) error {
+	if o.initialPowerTableCID == cid.Undef {
+		logger.Warn("Initial power table CID is not set. Finality certificates will not be collected.")
+		return nil
+	}
+
+	var ds datastore.Datastore
+	var err error
+	if o.finalityCertsStorePath == "" {
+		logger.Infow("Finality certificate store path is not set. Using in-memory datastore for finality certificates.")
+		ds = sync2.MutexWrap(datastore.NewMapDatastore())
+	} else {
+		ds, err = leveldb.NewDatastore(path.Clean(o.finalityCertsStorePath), nil)
+		if err != nil {
+			return fmt.Errorf("failed to create datastore for finality certificates: %w", err)
+		}
+	}
+	certsClient := certexchange.Client{
+		RequestTimeout: o.finalityCertsClientRequestTimeout,
+		Host:           o.host,
+		NetworkName:    o.networkName,
+	}
+
+	var cs *certstore.Store
+	if cs, err = certstore.OpenStore(ctx, ds); errors.Is(err, certstore.ErrNotInitialized) {
+		table, err := certexchange.FindInitialPowerTable(ctx, certsClient, o.initialPowerTableCID, o.ecPeriod)
+		if err != nil {
+			return fmt.Errorf("failed to find initial power table: %w", err)
+		}
+		cs, err = certstore.CreateStore(ctx, ds, 0, table)
+		if err != nil {
+			return fmt.Errorf("failed to create certificate store: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("failed to open certificate store: %w", err)
+	}
+
+	subscriber := polling.Subscriber{
+		Client:              certsClient,
+		Store:               cs,
+		SignatureVerifier:   o.finalityCertsVerifier,
+		InitialPollInterval: o.finalityCertsInitialPollInterval,
+		MaximumPollInterval: o.finalityCertsMaxPollInterval,
+		MinimumPollInterval: o.finalityCertsMinPollInterval,
+	}
+	if err := subscriber.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start finality certificate subscriber: %w", err)
+	}
+
+	certificates, unsubscribe := cs.Subscribe()
+	defer func() {
+		unsubscribe()
+		if err := subscriber.Stop(context.Background()); err != nil {
+			logger.Warnw("Failed to stop finality certificate subscriber", "err", err)
+		}
+		if err := ds.Close(); err != nil {
+			logger.Warnw("Failed to close datastore for finality certificates", "err", err)
+		}
+	}()
+
+	for ctx.Err() == nil {
+		select {
+		case <-ctx.Done():
+			return nil
+		case cert := <-certificates:
+			certificate, err := newFinalityCertificate(time.Now().UTC(), o.networkName, cert)
+			if err != nil {
+				logger.Errorw("Failed to convert finality certificate", "certificate", cert, "err", err)
+				continue
+			}
+			if err := o.storeFinalityCertificate(ctx, certificate); err != nil {
+				logger.Errorw("Failed to store finality certificate", "certificate", certificate, "err", err)
+				continue
+			}
+			logger.Debugw("Observed finality certificate", "certificate", certificate)
+		}
+	}
+	return nil
+}
+
 func (o *Observer) storeMessage(_ context.Context, om *Message) error {
 	var justification any
 	if om.Justification != nil {
@@ -234,7 +333,7 @@ func (o *Observer) storeMessage(_ context.Context, om *Message) error {
 		// handled.
 		justification = *om.Justification
 	}
-	if err := o.dbAppender.AppendRow(
+	if err := o.dbLatestMessages.AppendRow(
 		om.Timestamp,
 		om.NetworkName,
 		int64(om.Sender),
@@ -250,16 +349,47 @@ func (o *Observer) storeMessage(_ context.Context, om *Message) error {
 	return o.tryFlushMessages()
 }
 
+func (o *Observer) storeFinalityCertificate(_ context.Context, oc *FinalityCertificate) error {
+	if err := o.dbFinalityCertificates.AppendRow(
+		oc.Timestamp,
+		oc.NetworkName,
+		oc.Instance,
+		oc.ECChain,
+		oc.SupplementalData,
+		oc.Signers,
+		oc.Signature,
+		oc.PowerTableDelta,
+	); err != nil {
+		return fmt.Errorf("failed to append row: %w", err)
+	}
+	o.unflushedCertificateCount++
+	return o.tryFlushCertificates()
+}
+
 func (o *Observer) tryFlushMessages() error {
 	batchSizeReached := o.unflushedMessageCount >= o.maxBatchSize
-	batchDelayElapsed := !o.lastFlushedAt.IsZero() && time.Since(o.lastFlushedAt) >= o.maxBatchDelay
+	batchDelayElapsed := !o.lastFlushedMessagesAt.IsZero() && time.Since(o.lastFlushedMessagesAt) >= o.maxBatchDelay
 	if batchSizeReached || batchDelayElapsed {
-		if err := o.dbAppender.Flush(); err != nil {
+		if err := o.dbLatestMessages.Flush(); err != nil {
 			return fmt.Errorf("failed to flush appender: %w", err)
 		}
-		logger.Infow("Flushed messages to database", "count", o.unflushedMessageCount, "after", time.Since(o.lastFlushedAt))
+		logger.Infow("Flushed messages to database", "count", o.unflushedMessageCount, "after", time.Since(o.lastFlushedMessagesAt))
 		o.unflushedMessageCount = 0
-		o.lastFlushedAt = time.Now()
+		o.lastFlushedMessagesAt = time.Now()
+	}
+	return nil
+}
+
+func (o *Observer) tryFlushCertificates() error {
+	batchSizeReached := o.unflushedCertificateCount >= o.maxBatchSize
+	batchDelayElapsed := !o.lastFlushedCertificatesAt.IsZero() && time.Since(o.lastFlushedCertificatesAt) >= o.maxBatchDelay
+	if batchSizeReached || batchDelayElapsed {
+		if err := o.dbFinalityCertificates.Flush(); err != nil {
+			return fmt.Errorf("failed to flush appender: %w", err)
+		}
+		logger.Infow("Flushed finality certificates to database", "count", o.unflushedCertificateCount, "after", time.Since(o.lastFlushedCertificatesAt))
+		o.unflushedCertificateCount = 0
+		o.lastFlushedCertificatesAt = time.Now()
 	}
 	return nil
 }
