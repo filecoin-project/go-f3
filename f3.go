@@ -136,10 +136,7 @@ func computeBootstrapDelay(ts ec.TipSet, clock clock.Clock, mfst manifest.Manife
 	epochDelay := mfst.BootstrapEpoch - currentEpoch
 	start := ts.Timestamp().Add(time.Duration(epochDelay) * mfst.EC.Period)
 	delay := clock.Until(start)
-	// Add additional delay to skip over null epochs. That way we wait the full 900 epochs.
-	if delay <= 0 {
-		delay = mfst.EC.Period + delay%mfst.EC.Period
-	}
+	delay = max(delay, 0)
 	return delay
 }
 

@@ -55,16 +55,22 @@ func TestComputeBootstrapDelay(t *testing.T) {
 			want: 15 * time.Second,
 		},
 		{
-			name: "in sync - right before bootstrap (large offset)",
-			time: genesis.Add(time.Duration(bootstrapEpoch-1)*period + period + 1*time.Second),
-			ts:   tipset{genesis: genesis, epoch: int64(bootstrapEpoch - 1), period: period},
-			want: 29 * time.Second,
+			name: "in sync - right after bootstrap (offset)",
+			time: genesis.Add(time.Duration(bootstrapEpoch)*period + 1*time.Second),
+			ts:   tipset{genesis: genesis, epoch: int64(bootstrapEpoch), period: period},
+			want: 0 * time.Second,
 		},
 		{
 			name: "out of sync - way after bootstrap",
 			time: genesis.Add(time.Duration(bootstrapEpoch+100)*period + 1*time.Second),
 			ts:   tipset{genesis: genesis, epoch: int64(bootstrapEpoch - 100), period: period},
-			want: 29 * time.Second,
+			want: 0 * time.Second,
+		},
+		{
+			name: "out of sync - way before bootstrap",
+			time: genesis.Add(time.Duration(bootstrapEpoch-30)*period + 1*time.Second),
+			ts:   tipset{genesis: genesis, epoch: int64(bootstrapEpoch - 100), period: period},
+			want: 30*period - 1*time.Second,
 		},
 	}
 
