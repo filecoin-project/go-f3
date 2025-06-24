@@ -128,22 +128,17 @@ func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCerti
 
 // computeBootstrapDelay returns the time at which the F3 instance specified by
 // the passed manifest should be started.
-func (m *F3) computeBootstrapDelay() (time.Duration, error) {
-	ts, err := m.ec.GetHead(m.runningCtx)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get the EC chain head: %w", err)
-	}
-
+func computeBootstrapDelay(ts ec.TipSet, clock clock.Clock, mfst manifest.Manifest) (time.Duration, error) {
 	currentEpoch := ts.Epoch()
-	if currentEpoch >= m.mfst.BootstrapEpoch {
+	if currentEpoch >= mfst.BootstrapEpoch {
 		return 0, nil
 	}
-	epochDelay := m.mfst.BootstrapEpoch - currentEpoch
-	start := ts.Timestamp().Add(time.Duration(epochDelay) * m.mfst.EC.Period)
-	delay := m.clock.Until(start)
+	epochDelay := mfst.BootstrapEpoch - currentEpoch
+	start := ts.Timestamp().Add(time.Duration(epochDelay) * mfst.EC.Period)
+	delay := clock.Until(start)
 	// Add additional delay to skip over null epochs. That way we wait the full 900 epochs.
 	if delay <= 0 {
-		delay = m.mfst.EC.Period + delay%m.mfst.EC.Period
+		delay = mfst.EC.Period + delay%mfst.EC.Period
 	}
 	return delay, nil
 }
@@ -151,8 +146,11 @@ func (m *F3) computeBootstrapDelay() (time.Duration, error) {
 // Start the module, call Stop to exit. Canceling the past context will cancel the request to start
 // F3, it won't stop the service after it has started.
 func (m *F3) Start(startCtx context.Context) (_err error) {
-
-	initialDelay, err := m.computeBootstrapDelay()
+	ts, err := m.ec.GetHead(m.runningCtx)
+	if err != nil {
+		return fmt.Errorf("failed to get the EC chain head: %w", err)
+	}
+	initialDelay, err := computeBootstrapDelay(ts, m.clock, m.mfst)
 	if err != nil {
 		return fmt.Errorf("failed to compute bootstrap delay: %w", err)
 	}
@@ -176,7 +174,12 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 				log.Debugw("F3 start disrupted", "cause", m.runningCtx.Err())
 				return
 			case startTime := <-startTimer.C:
-				delay, err := m.computeBootstrapDelay()
+				ts, err := m.ec.GetHead(m.runningCtx)
+				if err != nil {
+					log.Errorw("failed to get the EC chain head during startup", "err" err)
+				}
+
+				delay, err := computeBootstrapDelay()
 				if err != nil {
 					log.Errorw("failed to compute bootstrap delay", "err", err)
 					return
