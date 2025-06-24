@@ -128,10 +128,10 @@ func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCerti
 
 // computeBootstrapDelay returns the time at which the F3 instance specified by
 // the passed manifest should be started.
-func computeBootstrapDelay(ts ec.TipSet, clock clock.Clock, mfst manifest.Manifest) (time.Duration, error) {
+func computeBootstrapDelay(ts ec.TipSet, clock clock.Clock, mfst manifest.Manifest) time.Duration {
 	currentEpoch := ts.Epoch()
 	if currentEpoch >= mfst.BootstrapEpoch {
-		return 0, nil
+		return 0
 	}
 	epochDelay := mfst.BootstrapEpoch - currentEpoch
 	start := ts.Timestamp().Add(time.Duration(epochDelay) * mfst.EC.Period)
@@ -140,7 +140,7 @@ func computeBootstrapDelay(ts ec.TipSet, clock clock.Clock, mfst manifest.Manife
 	if delay <= 0 {
 		delay = mfst.EC.Period + delay%mfst.EC.Period
 	}
-	return delay, nil
+	return delay
 }
 
 // Start the module, call Stop to exit. Canceling the past context will cancel the request to start
@@ -150,10 +150,7 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 	if err != nil {
 		return fmt.Errorf("failed to get the EC chain head: %w", err)
 	}
-	initialDelay, err := computeBootstrapDelay(ts, m.clock, m.mfst)
-	if err != nil {
-		return fmt.Errorf("failed to compute bootstrap delay: %w", err)
-	}
+	initialDelay := computeBootstrapDelay(ts, m.clock, m.mfst)
 
 	// Try to start immediately if there's no initial delay and pass on any start
 	// errors directly.
@@ -176,14 +173,11 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 			case startTime := <-startTimer.C:
 				ts, err := m.ec.GetHead(m.runningCtx)
 				if err != nil {
-					log.Errorw("failed to get the EC chain head during startup", "err" err)
-				}
-
-				delay, err := computeBootstrapDelay()
-				if err != nil {
-					log.Errorw("failed to compute bootstrap delay", "err", err)
+					log.Errorw("failed to get the EC chain head during startup", "err", err)
 					return
 				}
+
+				delay := computeBootstrapDelay(ts, m.clock, m.mfst)
 				if delay > 0 {
 					log.Infow("waiting for bootstrap epoch", "duration", delay.String())
 					startTimer.Reset(delay)
