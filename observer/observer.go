@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/filecoin-project/go-f3/certexchange"
 	"github.com/filecoin-project/go-f3/certexchange/polling"
 	"github.com/filecoin-project/go-f3/certstore"
+	"github.com/filecoin-project/go-f3/chainexchange"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/encoding"
 	"github.com/filecoin-project/go-f3/internal/lotus"
@@ -33,6 +35,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/marcboeker/go-duckdb"
 	"go.uber.org/multierr"
+	"golang.org/x/exp/maps"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -51,7 +54,7 @@ type Observer struct {
 	dht  *dht.IpfsDHT
 
 	messageObserved chan *Message
-	msgEncoding     *encoding.ZSTD[*gpbft.PartialGMessage]
+	gMsgEncoding    *encoding.ZSTD[*gpbft.PartialGMessage]
 
 	dbConnector           *duckdb.Connector
 	dbLatestMessages      *duckdb.Appender
@@ -62,6 +65,9 @@ type Observer struct {
 	dbFinalityCertificates    *duckdb.Appender
 	unflushedCertificateCount int
 	lastFlushedCertificatesAt time.Time
+
+	chainExchangeObserved chan *chainexchange.Message
+	ceMsgEncoding         *encoding.ZSTD[*chainexchange.Message]
 }
 
 func New(o ...Option) (*Observer, error) {
@@ -69,14 +75,22 @@ func New(o ...Option) (*Observer, error) {
 	if err != nil {
 		return nil, err
 	}
-	msgEncoding, err := encoding.NewZSTD[*gpbft.PartialGMessage]()
+	gMsgEncoding, err := encoding.NewZSTD[*gpbft.PartialGMessage]()
 	if err != nil {
 		return nil, err
 	}
+
+	ceMsgEncoding, err := encoding.NewZSTD[*chainexchange.Message]()
+	if err != nil {
+		return nil, err
+	}
+
 	return &Observer{
-		options:         opts,
-		messageObserved: make(chan *Message, opts.messageBufferSize),
-		msgEncoding:     msgEncoding,
+		options:               opts,
+		messageObserved:       make(chan *Message, opts.messageBufferSize),
+		gMsgEncoding:          gMsgEncoding,
+		chainExchangeObserved: make(chan *chainexchange.Message, opts.chainExchangeBufferSize),
+		ceMsgEncoding:         ceMsgEncoding,
 	}, nil
 }
 
@@ -88,6 +102,7 @@ func (o *Observer) Start(ctx context.Context) error {
 	ctx, stop := context.WithCancel(ctx)
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.Go(func() error { return o.observeMessages(ctx) })
+	eg.Go(func() error { return o.observeChainExchanges(ctx) })
 	eg.Go(func() error { return o.observeFinalityCertificates(ctx) })
 	eg.Go(func() error { return o.stayConnected(ctx) })
 	eg.Go(o.listenAndServeQueries)
@@ -211,7 +226,7 @@ func (o *Observer) createOrReplaceMessagesView(ctx context.Context, includeParqu
 func (o *Observer) observeMessages(ctx context.Context) error {
 	rotation := time.NewTicker(o.rotateInterval)
 	flush := time.NewTicker(o.maxBatchDelay)
-	stopObserverForNetwork, err := o.startObserverFor(ctx, o.networkName)
+	stopObserverForNetwork, err := o.startMessageObserverFor(ctx, o.networkName)
 	if err != nil {
 		return fmt.Errorf("failed to start observer for network %s: %w", o.networkName, err)
 	}
@@ -243,6 +258,103 @@ func (o *Observer) observeMessages(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (o *Observer) observeChainExchanges(ctx context.Context) error {
+	flush := time.NewTicker(o.maxBatchDelay)
+	stopObserverForNetwork, err := o.startChainExchangeObserverFor(ctx, o.networkName)
+	if err != nil {
+		return fmt.Errorf("failed to start observer for network %s: %w", o.networkName, err)
+	}
+
+	defer stopObserverForNetwork()
+
+	seenKeys := make(map[string]struct{})
+	bufferedChains := make([]*ChainExchange, 0, o.maxBatchSize)
+
+	tryStoreAllChainExchanges := func() {
+		start := time.Now()
+		if err := o.storeAllChainExchanges(ctx, bufferedChains); err != nil {
+			logger.Errorw("Failed to store chain exchanges", "count", len(bufferedChains), "err", err)
+			// Don't clear; let it retry upon the next message.
+		} else {
+			logger.Infow("Stored batch of chain exchanges", "count", len(bufferedChains), "took", time.Since(start))
+			bufferedChains = bufferedChains[:0]
+			maps.Clear(seenKeys)
+		}
+	}
+
+	for ctx.Err() == nil {
+		select {
+		case <-ctx.Done():
+			return nil
+		case oc := <-o.chainExchangeObserved:
+			timestamp := time.UnixMilli(oc.Timestamp)
+			// Only key on vote value key instead of vote value key plus instance. Because,
+			// the purpose of observing the chain exchanges is to be able to infer what a
+			// vote value key corresponds to. We can use the flow of messages captured to
+			// infer if an instance is re-using a key from previous instances.
+			allPrefixes := oc.Chain.AllPrefixes()
+			for i := len(allPrefixes) - 1; i >= 0 && ctx.Err() == nil; i-- {
+				prefix := allPrefixes[i]
+				key := prefix.Key()
+				bufferKey := string(key[:])
+				if _, exists := seenKeys[bufferKey]; exists {
+					break
+				}
+				seenKeys[bufferKey] = struct{}{}
+				exchange := newChainExchange(timestamp, o.networkName, oc.Instance, prefix)
+				bufferedChains = append(bufferedChains, exchange)
+				logger.Debugw("Observed chain exchange message", "message", exchange)
+				if len(bufferedChains) >= o.maxBatchSize {
+					tryStoreAllChainExchanges()
+				}
+			}
+		case <-flush.C:
+			tryStoreAllChainExchanges()
+		}
+	}
+	return nil
+}
+
+func (o *Observer) storeAllChainExchanges(ctx context.Context, exchanges []*ChainExchange) error {
+	tx, err := o.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	stmt, err := tx.PrepareContext(ctx, `
+        INSERT OR IGNORE INTO chain_exchanges (Timestamp, NetworkName, Instance, VoteValueKey, VoteValue)
+        VALUES (?, ?, ?, ?, ?::json)`)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("failed to prepare statement while storing chain exchanges: %w", err)
+	}
+	defer func() {
+		if err := stmt.Close(); err != nil {
+			logger.Errorw("Failed to close prepared statement while storing chain exchanges", "err", err)
+		}
+	}()
+
+	for row, cx := range exchanges {
+		voteAsJson, err := json.Marshal(cx.VoteValue)
+		if err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("failed to marshal chain exchange vote value at row %d: %w", row, err)
+		}
+		_, err = stmt.Exec(
+			cx.Timestamp,
+			cx.NetworkName,
+			cx.Instance,
+			cx.VoteValueKey,
+			string(voteAsJson),
+		)
+		if err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("failed to insert chain exchange at row %d: %w", row, err)
+		}
+	}
+	return tx.Commit()
 }
 
 func (o *Observer) observeFinalityCertificates(ctx context.Context) error {
@@ -542,7 +654,7 @@ func (o *Observer) tryConnectToBootstrapPeers(ctx context.Context) {
 	_ = eg.Wait()
 }
 
-func (o *Observer) startObserverFor(ctx context.Context, networkName gpbft.NetworkName) (_stop func(), _err error) {
+func (o *Observer) startMessageObserverFor(ctx context.Context, networkName gpbft.NetworkName) (_stop func(), _err error) {
 	topicName := manifest.PubSubTopicFromNetworkName(networkName)
 	var (
 		topic        *pubsub.Topic
@@ -564,7 +676,7 @@ func (o *Observer) startObserverFor(ctx context.Context, networkName gpbft.Netwo
 		}
 	}()
 	if !o.pubSubValidatorDisabled {
-		if err := o.pubSub.RegisterTopicValidator(topicName, o.validatePubSubMessage); err != nil {
+		if err := o.pubSub.RegisterTopicValidator(topicName, o.validatePubSubGMessage); err != nil {
 			return nil, fmt.Errorf("failed to register topic validator: %w", err)
 		}
 	} else {
@@ -621,6 +733,81 @@ func (o *Observer) startObserverFor(ctx context.Context, networkName gpbft.Netwo
 	}, nil
 }
 
+func (o *Observer) startChainExchangeObserverFor(ctx context.Context, networkName gpbft.NetworkName) (_stop func(), _err error) {
+	topicName := manifest.ChainExchangeTopicFromNetworkName(networkName)
+	var (
+		topic        *pubsub.Topic
+		subscription *pubsub.Subscription
+		err          error
+	)
+
+	defer func() {
+		if _err != nil {
+			if !o.pubSubValidatorDisabled {
+				_ = o.pubSub.UnregisterTopicValidator(topicName)
+				if topic != nil {
+					_ = topic.Close()
+				}
+			}
+			if subscription != nil {
+				subscription.Cancel()
+			}
+		}
+	}()
+	if err := o.pubSub.RegisterTopicValidator(topicName, o.validatePubSubChainExchangeMessage); err != nil {
+		return nil, fmt.Errorf("failed to register chain exchange topic validator: %w", err)
+	}
+	topic, err = o.pubSub.Join(topicName, pubsub.WithTopicMessageIdFn(psutil.ChainExchangeMessageIdFn))
+	if err != nil {
+		return nil, fmt.Errorf("failed to join topic: %w", err)
+	}
+	if err = topic.SetScoreParams(psutil.PubsubTopicScoreParams); err != nil {
+		logger.Warnw("failed to set topic score params for chain exchange", "err", err)
+	}
+	subscription, err = topic.Subscribe(pubsub.WithBufferSize(o.subBufferSize))
+	if err != nil {
+		return nil, fmt.Errorf("failed to subscribe to chain exchange topic: %w", err)
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer func() {
+			subscription.Cancel()
+			_ = topic.Close()
+			wg.Done()
+		}()
+
+		for ctx.Err() == nil {
+			msg, err := subscription.Next(ctx)
+			if err != nil && !errors.Is(err, context.Canceled) {
+				logger.Errorw("Failed to get next pubsub message from chain exchange topic", "network", networkName, "err", err)
+				continue
+			}
+			if msg == nil || msg.ValidatorData == nil {
+				continue
+			}
+
+			ceMsg, ok := msg.ValidatorData.(chainexchange.Message)
+			if !ok {
+				logger.Errorw("Received message with invalid ValidatorData type", "expected", "chainexchange.Message", "got", fmt.Sprintf("%T", msg.ValidatorData))
+				continue
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+			case o.chainExchangeObserved <- &ceMsg:
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		wg.Wait()
+	}, nil
+}
+
 func (o *Observer) anyParquetFilesPresent() (bool, error) {
 	dir, err := os.ReadDir(o.rotatePath)
 	if err != nil {
@@ -643,11 +830,35 @@ func (o *Observer) Stop(ctx context.Context) error {
 	return err
 }
 
-func (o *Observer) validatePubSubMessage(_ context.Context, _ peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
+func (o *Observer) validatePubSubGMessage(_ context.Context, _ peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
 	var pgmsg gpbft.PartialGMessage
-	if err := o.msgEncoding.Decode(msg.Data, &pgmsg); err != nil {
+	if err := o.gMsgEncoding.Decode(msg.Data, &pgmsg); err != nil {
 		return pubsub.ValidationReject
 	}
 	msg.ValidatorData = pgmsg
+	return pubsub.ValidationAccept
+}
+
+func (o *Observer) validatePubSubChainExchangeMessage(_ context.Context, _ peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
+	var ceMsg chainexchange.Message
+	if err := o.ceMsgEncoding.Decode(msg.Data, &ceMsg); err != nil {
+		logger.Debugw("Failed to decode chain exchange message", "err", err, "message", msg)
+		return pubsub.ValidationReject
+	}
+	if err := ceMsg.Chain.Validate(); err != nil {
+		logger.Debugw("Invalid chain in chain exchange message", "err", err, "message", ceMsg)
+		return pubsub.ValidationReject
+	}
+	if ceMsg.Chain.IsZero() {
+		logger.Debugw("Chain in chain exchange message is zero", "message", ceMsg)
+		return pubsub.ValidationReject
+	}
+	now := time.Now().UnixMilli()
+	lowerBound := now - o.chainExchangeMaxMessageAge.Milliseconds()
+	if lowerBound > ceMsg.Timestamp || ceMsg.Timestamp > now {
+		logger.Debugw("Timestamp too old or too far ahead", "from", msg.GetFrom(), "timestamp", ceMsg.Timestamp, "lowerBound", lowerBound)
+		return pubsub.ValidationIgnore
+	}
+	msg.ValidatorData = ceMsg
 	return pubsub.ValidationAccept
 }

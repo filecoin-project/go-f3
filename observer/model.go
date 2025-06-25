@@ -70,6 +70,14 @@ type PowerTableDelta struct {
 	SigningKey    []byte `json:"SigningKey"`
 }
 
+type ChainExchange struct {
+	Timestamp    time.Time `json:"Timestamp"`
+	NetworkName  string    `json:"NetworkName"`
+	Instance     uint64    `json:"Instance"`
+	VoteValueKey []byte    `json:"VoteValueKey"`
+	VoteValue    []TipSet  `json:"VoteValue"`
+}
+
 func newMessage(timestamp time.Time, nn string, msg gpbft.PartialGMessage) (*Message, error) {
 	j, err := newJustification(msg.Justification)
 	if err != nil {
@@ -314,4 +322,15 @@ func powerTableDeltaFromGpbft(ptd certs.PowerTableDiff) ([]PowerTableDelta, erro
 		}
 	}
 	return deltas, nil
+}
+
+func newChainExchange(timestamp time.Time, nn gpbft.NetworkName, instance uint64, chain *gpbft.ECChain) *ChainExchange {
+	key := chain.Key()
+	return &ChainExchange{
+		Timestamp:    timestamp,
+		NetworkName:  string(nn),
+		Instance:     instance,
+		VoteValueKey: key[:],
+		VoteValue:    tipsetsFromGpbft(chain),
+	}
 }
