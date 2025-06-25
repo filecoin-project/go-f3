@@ -1,6 +1,7 @@
 package f3
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -15,7 +16,7 @@ type tipset struct {
 }
 
 func (ts *tipset) String() string {
-	panic("not implemented")
+	return fmt.Sprintf("epoch %d, timestamp %s", ts.epoch, ts.Timestamp())
 }
 
 func (ts *tipset) Key() gpbft.TipSetKey {

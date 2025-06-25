@@ -136,34 +136,26 @@ func (m *F3) GetPowerTableByInstance(ctx context.Context, instance uint64) (gpbf
 
 // computeBootstrapDelay returns the time at which the F3 instance specified by
 // the passed manifest should be started.
-func (m *F3) computeBootstrapDelay() (time.Duration, error) {
-	ts, err := m.ec.GetHead(m.runningCtx)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get the EC chain head: %w", err)
-	}
-
+func computeBootstrapDelay(ts ec.TipSet, clock clock.Clock, mfst manifest.Manifest) time.Duration {
 	currentEpoch := ts.Epoch()
-	if currentEpoch >= m.mfst.BootstrapEpoch {
-		return 0, nil
+	if currentEpoch >= mfst.BootstrapEpoch {
+		return 0
 	}
-	epochDelay := m.mfst.BootstrapEpoch - currentEpoch
-	start := ts.Timestamp().Add(time.Duration(epochDelay) * m.mfst.EC.Period)
-	delay := m.clock.Until(start)
-	// Add additional delay to skip over null epochs. That way we wait the full 900 epochs.
-	if delay <= 0 {
-		delay = m.mfst.EC.Period + delay%m.mfst.EC.Period
-	}
-	return delay, nil
+	epochDelay := mfst.BootstrapEpoch - currentEpoch
+	start := ts.Timestamp().Add(time.Duration(epochDelay) * mfst.EC.Period)
+	delay := clock.Until(start)
+	delay = max(delay, 0)
+	return delay
 }
 
 // Start the module, call Stop to exit. Canceling the past context will cancel the request to start
 // F3, it won't stop the service after it has started.
 func (m *F3) Start(startCtx context.Context) (_err error) {
-
-	initialDelay, err := m.computeBootstrapDelay()
+	ts, err := m.ec.GetHead(m.runningCtx)
 	if err != nil {
-		return fmt.Errorf("failed to compute bootstrap delay: %w", err)
+		return fmt.Errorf("failed to get the EC chain head: %w", err)
 	}
+	initialDelay := computeBootstrapDelay(ts, m.clock, m.mfst)
 
 	// Try to start immediately if there's no initial delay and pass on any start
 	// errors directly.
@@ -184,11 +176,13 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 				log.Debugw("F3 start disrupted", "cause", m.runningCtx.Err())
 				return
 			case startTime := <-startTimer.C:
-				delay, err := m.computeBootstrapDelay()
+				ts, err := m.ec.GetHead(m.runningCtx)
 				if err != nil {
-					log.Errorw("failed to compute bootstrap delay", "err", err)
+					log.Errorw("failed to get the EC chain head during startup", "err", err)
 					return
 				}
+
+				delay := computeBootstrapDelay(ts, m.clock, m.mfst)
 				if delay > 0 {
 					log.Infow("waiting for bootstrap epoch", "duration", delay.String())
 					startTimer.Reset(delay)
