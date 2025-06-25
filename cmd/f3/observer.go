@@ -125,6 +125,11 @@ var observerCmd = cli.Command{
 			Usage:       "The path to the directory used for intermediary finality certificate certstore. If not set, in-memory backing store will be used.",
 			DefaultText: "in-memory",
 		},
+		&cli.DurationFlag{
+			Name:  "chainExchangeMaxMessageAge",
+			Usage: "The maximum age of the chain exchange messages to observe.",
+			Value: 3 * time.Minute,
+		},
 	},
 
 	Action: func(cctx *cli.Context) error {
@@ -138,6 +143,7 @@ var observerCmd = cli.Command{
 			observer.WithMaxConcurrentConnectionAttempts(cctx.Int("reconnectConcurrency")),
 			observer.WithMaxBatchSize(cctx.Int("maxBatchSize")),
 			observer.WithMaxBatchDelay(cctx.Duration("maxBatchDelay")),
+			observer.WithChainExchangeMaxMessageAge(cctx.Duration("chainExchangeMaxMessageAge")),
 		}
 		var identity crypto.PrivKey
 		if cctx.IsSet("identity") {

@@ -55,6 +55,9 @@ type options struct {
 	finalityCertsInitialPollInterval  time.Duration
 	finalityCertsMinPollInterval      time.Duration
 	finalityCertsMaxPollInterval      time.Duration
+
+	chainExchangeBufferSize    int
+	chainExchangeMaxMessageAge time.Duration
 }
 
 func newOptions(opts ...Option) (*options, error) {
@@ -76,6 +79,8 @@ func newOptions(opts ...Option) (*options, error) {
 		finalityCertsInitialPollInterval:  10 * time.Second,
 		finalityCertsMinPollInterval:      30 * time.Second,
 		finalityCertsMaxPollInterval:      2 * time.Minute,
+		chainExchangeBufferSize:           1000,
+		chainExchangeMaxMessageAge:        3 * time.Minute,
 	}
 	for _, apply := range opts {
 		if err := apply(&opt); err != nil {
@@ -369,6 +374,26 @@ func WithFinalityCertsMaxPollInterval(d time.Duration) Option {
 			return fmt.Errorf("finality certs maximum poll interval must be greater than 0")
 		}
 		o.finalityCertsMaxPollInterval = d
+		return nil
+	}
+}
+
+func WithChainExchangeBufferSize(size int) Option {
+	return func(o *options) error {
+		if size < 1 {
+			return fmt.Errorf("chain exchange buffer size must be at least 1")
+		}
+		o.chainExchangeBufferSize = size
+		return nil
+	}
+}
+
+func WithChainExchangeMaxMessageAge(d time.Duration) Option {
+	return func(o *options) error {
+		if d <= 0 {
+			return fmt.Errorf("chain exchange max message age must be greater than 0")
+		}
+		o.chainExchangeMaxMessageAge = d
 		return nil
 	}
 }

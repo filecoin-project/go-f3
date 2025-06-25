@@ -89,3 +89,17 @@ CREATE TABLE IF NOT EXISTS finality_certificates (
   )[],
   PRIMARY KEY (NetworkName, Instance)
 );
+
+CREATE TABLE IF NOT EXISTS chain_exchanges (
+  Timestamp TIMESTAMP,
+  NetworkName VARCHAR,
+  Instance BIGINT,
+  VoteValueKey BLOB,
+  VoteValue STRUCT(
+    Epoch BIGINT,
+    Key BLOB,
+    Commitments BLOB,
+    PowerTable VARCHAR
+  )[],
+  PRIMARY KEY (NetworkName, Instance, VoteValueKey)
+);
