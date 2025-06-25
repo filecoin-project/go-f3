@@ -65,7 +65,6 @@ CREATE TABLE IF NOT EXISTS latest_messages (
 ALTER TABLE latest_messages
 ADD COLUMN IF NOT EXISTS VoteValueKey BLOB;
 
-
 CREATE TABLE IF NOT EXISTS finality_certificates (
   Timestamp TIMESTAMP,
   NetworkName VARCHAR,
@@ -87,7 +86,6 @@ CREATE TABLE IF NOT EXISTS finality_certificates (
     PowerDelta BIGINT,
     SigningKey BLOB
   )[],
-  PRIMARY KEY (NetworkName, Instance)
 );
 
 CREATE TABLE IF NOT EXISTS chain_exchanges (

@@ -57,7 +57,7 @@ type FinalityCertificate struct {
 	Timestamp        time.Time         `json:"Timestamp"`
 	NetworkName      string            `json:"NetworkName"`
 	Instance         uint64            `json:"Instance"`
-	ECChain          []TipSet          `json:"Value"`
+	ECChain          []TipSet          `json:"ECChain"`
 	SupplementalData SupplementalData  `json:"SupplementalData"`
 	Signers          []uint64          `json:"Signers"`
 	Signature        []byte            `json:"Signature"`
