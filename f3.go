@@ -201,9 +201,9 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 }
 
 // Stop F3.
-func (m *F3) Stop(context.Context) (_err error) {
+func (m *F3) Stop(ctx context.Context) (_err error) {
 	m.cancelCtx()
-	return nil
+	return m.stopInternal(ctx)
 }
 
 func (s *f3State) stop(ctx context.Context) (err error) {
