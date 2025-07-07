@@ -136,6 +136,9 @@ func (m *F3) GetPowerTableByInstance(ctx context.Context, instance uint64) (gpbf
 
 // computeBootstrapDelay returns the time at which the F3 instance specified by
 // the passed manifest should be started.
+// It will return 0 if the manifest bootstrap epoch is greater than the current epoch.
+// It will also return 1ns if the manifest bootstrap epoch is equal to the current epoch but by
+// the time calculation, we should have already received the bootstrap tipset.
 func computeBootstrapDelay(ts ec.TipSet, clock clock.Clock, mfst manifest.Manifest) time.Duration {
 	currentEpoch := ts.Epoch()
 	if currentEpoch >= mfst.BootstrapEpoch {
@@ -144,7 +147,9 @@ func computeBootstrapDelay(ts ec.TipSet, clock clock.Clock, mfst manifest.Manife
 	epochDelay := mfst.BootstrapEpoch - currentEpoch
 	start := ts.Timestamp().Add(time.Duration(epochDelay) * mfst.EC.Period)
 	delay := clock.Until(start)
-	delay = max(delay, 0)
+	// ensure that we don't start immediately
+	// to trigger waiting for the bootstrap tipset to exist
+	delay = max(delay, 1*time.Nanosecond)
 	return delay
 }
 
@@ -185,6 +190,8 @@ func (m *F3) Start(startCtx context.Context) (_err error) {
 				delay := computeBootstrapDelay(ts, m.clock, m.mfst)
 				if delay > 0 {
 					log.Infow("waiting for bootstrap epoch", "duration", delay.String())
+					// reduce hot-looping by waiting for at least 20ms
+					delay = max(delay, 20*time.Millisecond)
 					startTimer.Reset(delay)
 				} else {
 					err = m.startInternal(m.runningCtx)
