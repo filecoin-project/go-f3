@@ -24,10 +24,9 @@ consensus protocol to finalize tipsets when voted for by more than two-thirds of
 
 ## Status
 
-**:test_tube: Under Passive Testing**
+**🚀 Live on Mainnet**
 
-The implementation of Go-F3 is complete and is currently undergoing passive testing in nv23. It has also been integrated
-into Lotus.
+Go-F3 was successfully activated on Filecoin mainnet on April 29, 2025 on epoch 4920480.
 
 ## Project Structure
 
