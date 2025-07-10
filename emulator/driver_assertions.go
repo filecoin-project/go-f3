@@ -60,11 +60,11 @@ func (d *Driver) RequirePrepareAtRound(round uint64, value *gpbft.ECChain, justi
 	d.require.NotNil(msg)
 	instance := d.host.getInstance(msg.Vote.Instance)
 	d.require.NotNil(instance)
-	d.require.Equal(gpbft.PREPARE_PHASE, msg.Vote.Phase)
-	d.require.Equal(round, msg.Vote.Round)
-	d.require.True(value.Eq(msg.Vote.Value))
-	d.require.Equal(instance.id, msg.Vote.Instance)
-	d.require.Equal(instance.supplementalData, msg.Vote.SupplementalData)
+	d.require.Equal(gpbft.PREPARE_PHASE, msg.Vote.Phase, "phase different: expected %s, got %s", gpbft.PREPARE_PHASE, msg.Vote.Phase)
+	d.require.Equal(round, msg.Vote.Round, "round different")
+	d.require.True(value.Eq(msg.Vote.Value), "value different")
+	d.require.Equal(instance.id, msg.Vote.Instance, "instance different")
+	d.require.Equal(instance.supplementalData, msg.Vote.SupplementalData, "supplemental data different")
 	d.requireEqualJustification(justification, msg.Justification)
 	d.require.Empty(msg.Ticket)
 
@@ -85,7 +85,7 @@ func (d *Driver) RequireCommit(round uint64, vote *gpbft.ECChain, justification 
 	d.require.Equal(instance.supplementalData, msg.Vote.SupplementalData)
 	d.require.Equal(instance.id, msg.Vote.Instance)
 	d.require.True(vote.Eq(msg.Vote.Value))
-	d.requireEqualJustification(justification, justification)
+	d.requireEqualJustification(justification, msg.Justification)
 	d.require.Empty(msg.Ticket)
 
 	d.require.NoError(d.deliverMessage(msg))
@@ -107,13 +107,22 @@ func (d *Driver) RequireConverge(round uint64, vote *gpbft.ECChain, justificatio
 	d.require.NoError(d.deliverMessage(msg))
 }
 
+// Must panics if err is non-nil, otherwise returns v.
+func Must[V any](v V, err error) V {
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
 func (d *Driver) requireEqualJustification(one *gpbft.Justification, other *gpbft.Justification) {
 	if one == nil || other == nil {
 		d.require.Equal(one, other)
 	} else {
-		d.require.Equal(one.Signature, other.Signature)
-		d.require.Equal(one.Signers, other.Signers)
+		d.require.Equal(Must(one.Signers.All(100000)), Must(other.Signers.All(100000)), "signers different")
+		d.require.EqualExportedValues(one.Vote, other.Vote)
 		d.require.True(one.Vote.Eq(&other.Vote))
+		d.require.Equal(one.Signature, other.Signature, "signature different")
 	}
 }
 
