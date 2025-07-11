@@ -215,7 +215,7 @@ func (o *Observer) createOrReplaceMessagesView(ctx context.Context, includeParqu
 	if includeParquet {
 		includeParquetFiles = fmt.Sprintf("UNION ALL SELECT * FROM '%s'", filepath.Join(o.rotatePath, "*.parquet"))
 	}
-	createView := fmt.Sprintf(`CREATE VIEW IF NOT EXISTS messages AS SELECT * FROM latest_messages %s`, includeParquetFiles)
+	createView := fmt.Sprintf(`CREATE OR REPLACE VIEW messages AS SELECT * FROM latest_messages %s`, includeParquetFiles)
 	_, err := o.db.ExecContext(ctx, createView)
 	return err
 
