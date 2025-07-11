@@ -1,7 +1,6 @@
 package observer
 
 import (
-	"encoding/base64"
 	"fmt"
 	"time"
 
@@ -249,17 +248,10 @@ func (j *Justification) ToGpbftJustification() (*gpbft.Justification, error) {
 		return nil, fmt.Errorf("could not convert vote to gpbft payload: %w", err)
 	}
 
-	// Embedded struct as json, hence the decode.
-	s := string(j.Signature)
-	decoded, err := base64.StdEncoding.DecodeString(s)
-	if err != nil {
-		return nil, fmt.Errorf("could not decode signature: %w", err)
-	}
-
 	return &gpbft.Justification{
 		Vote:      payload,
 		Signers:   gsigners,
-		Signature: decoded,
+		Signature: j.Signature,
 	}, nil
 }
 
