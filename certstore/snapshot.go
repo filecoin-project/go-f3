@@ -15,6 +15,8 @@ import (
 var ErrUnknownLatestCertificate = errors.New("latest certificate is not known")
 
 // ExportLatestSnapshot exports an F3 snapshot that includes the finality certificate chain until the current `latestCertificate`.
+//
+// Checkout the format specification at <https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0108.md>
 func (cs *Store) ExportLatestSnapshot(ctx context.Context, writer io.Writer) error {
 	if cs.latestCertificate == nil {
 		return ErrUnknownLatestCertificate
@@ -23,6 +25,8 @@ func (cs *Store) ExportLatestSnapshot(ctx context.Context, writer io.Writer) err
 }
 
 // ExportSnapshot exports an F3 snapshot that includes the finality certificate chain from the `Store.firstInstance` to the specified `lastInstance`.
+//
+// Checkout the format specification at <https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0108.md>
 func (cs *Store) ExportSnapshot(ctx context.Context, latestInstance uint64, writer io.Writer) error {
 	initialPowerTable, err := cs.GetPowerTable(ctx, cs.firstInstance)
 	if err != nil {

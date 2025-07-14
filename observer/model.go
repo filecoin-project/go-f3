@@ -1,7 +1,6 @@
 package observer
 
 import (
-	"encoding/base64"
 	"fmt"
 	"time"
 
@@ -151,11 +150,11 @@ func supplementalDataFromGpbft(sd gpbft.SupplementalData) SupplementalData {
 func (m Message) ToPartialMessage() (*gpbft.PartialGMessage, error) {
 	payload, err := m.Vote.ToGpbftPayload()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not convert vote to gpbft payload: %w", err)
 	}
 	gj, err := m.Justification.ToGpbftJustification()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not convert justification to gpbft justification: %w", err)
 	}
 
 	return &gpbft.PartialGMessage{
@@ -173,16 +172,16 @@ func (m Message) ToPartialMessage() (*gpbft.PartialGMessage, error) {
 func (p Payload) ToGpbftPayload() (gpbft.Payload, error) {
 	phase, err := phaseFromString(p.Phase)
 	if err != nil {
-		return gpbft.Payload{}, err
+		return gpbft.Payload{}, fmt.Errorf("could not convert phase: %w", err)
 	}
 	sd, err := p.SupplementalData.ToGpbftSupplementalData()
 	if err != nil {
-		return gpbft.Payload{}, err
+		return gpbft.Payload{}, fmt.Errorf("could not convert supplemental data: %w", err)
 	}
 
 	gv, err := ToGpbftChain(p.Value...)
 	if err != nil {
-		return gpbft.Payload{}, err
+		return gpbft.Payload{}, fmt.Errorf("could not convert value: %w", err)
 	}
 
 	return gpbft.Payload{
@@ -246,20 +245,13 @@ func (j *Justification) ToGpbftJustification() (*gpbft.Justification, error) {
 	gsigners, _ := bitfield.NewFromIter(ri)
 	payload, err := j.Vote.ToGpbftPayload()
 	if err != nil {
-		return nil, err
-	}
-
-	// Embedded struct as json, hence the decode.
-	s := string(j.Signature)
-	decoded, err := base64.StdEncoding.DecodeString(s)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not convert vote to gpbft payload: %w", err)
 	}
 
 	return &gpbft.Justification{
 		Vote:      payload,
 		Signers:   gsigners,
-		Signature: decoded,
+		Signature: j.Signature,
 	}, nil
 }
 
