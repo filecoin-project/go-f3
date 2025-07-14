@@ -126,6 +126,13 @@ func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCerti
 	return nil, ErrF3NotRunning
 }
 
+func (m *F3) GetCertStore(ctx context.Context) (*certstore.Store, error) {
+	if state := m.state.Load(); state != nil {
+		return state.cs, nil
+	}
+	return nil, ErrF3NotRunning
+}
+
 // GetPowerTableByInstance returns the power table (committee) used to validate the specified instance.
 func (m *F3) GetPowerTableByInstance(ctx context.Context, instance uint64) (gpbft.PowerEntries, error) {
 	if state := m.state.Load(); state != nil {
