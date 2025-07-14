@@ -8,15 +8,17 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-state-types/cbor"
+	"github.com/ipfs/go-datastore"
 )
 
 var ErrUnknownLatestCertificate = errors.New("latest certificate is not known")
 
 // ExportLatestSnapshot exports an F3 snapshot that includes the finality certificate chain until the current `latestCertificate`.
 //
-// Checkout the format specification at <https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0108.md>
+// Checkout the snapshot format specification at <https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0108.md>
 func (cs *Store) ExportLatestSnapshot(ctx context.Context, writer io.Writer) error {
 	if cs.latestCertificate == nil {
 		return ErrUnknownLatestCertificate
@@ -26,7 +28,7 @@ func (cs *Store) ExportLatestSnapshot(ctx context.Context, writer io.Writer) err
 
 // ExportSnapshot exports an F3 snapshot that includes the finality certificate chain from the `Store.firstInstance` to the specified `lastInstance`.
 //
-// Checkout the format specification at <https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0108.md>
+// Checkout the snapshot format specification at <https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0108.md>
 func (cs *Store) ExportSnapshot(ctx context.Context, latestInstance uint64, writer io.Writer) error {
 	initialPowerTable, err := cs.GetPowerTable(ctx, cs.firstInstance)
 	if err != nil {
@@ -44,6 +46,60 @@ func (cs *Store) ExportSnapshot(ctx context.Context, latestInstance uint64, writ
 		buffer := bytes.NewBuffer(cert)
 		if _, err := writeSnapshotBlockBytes(writer, buffer); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+type SnapshotReader interface {
+	io.Reader
+	io.ByteReader
+}
+
+// ImportSnapshotToDatastore imports an F3 snapshot into the specified Datastore
+//
+// Checkout the snapshot format specification at <https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0108.md>
+func ImportSnapshotToDatastore(ctx context.Context, snapshot SnapshotReader, ds datastore.Datastore) error {
+	return importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx, snapshot, ds, 0)
+}
+
+func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context, snapshot SnapshotReader, ds datastore.Datastore, testingPowerTableFrequency uint64) error {
+	headerBytes, err := readSnapshotBlockBytes(snapshot)
+	if err != nil {
+		return err
+	}
+	var header SnapshotHeader
+	err = header.UnmarshalCBOR(bytes.NewReader(headerBytes))
+	if err != nil {
+		return fmt.Errorf("failed to decode snapshot header: %w", err)
+	}
+	cs, err := OpenOrCreateStore(ctx, ds, header.FirstInstance, header.InitialPowerTable)
+	if testingPowerTableFrequency > 0 {
+		cs.powerTableFrequency = testingPowerTableFrequency
+	}
+	if err != nil {
+		return err
+	}
+	pt := header.InitialPowerTable
+	for {
+		certBytes, err := readSnapshotBlockBytes(snapshot)
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			return fmt.Errorf("failed to decode finality certificate: %w", err)
+		}
+		var cert certs.FinalityCertificate
+		cert.UnmarshalCBOR(bytes.NewReader(certBytes))
+		if err = cs.Put(ctx, &cert); err != nil {
+			return err
+		}
+		if pt, err = certs.ApplyPowerTableDiffs(pt, cert.PowerTableDelta); err != nil {
+			return err
+		}
+		if (cert.GPBFTInstance+1)%cs.powerTableFrequency == 0 {
+			if err := cs.putPowerTable(ctx, cert.GPBFTInstance+1, pt); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -82,4 +138,20 @@ func writeSnapshotBlockBytes(writer io.Writer, buffer *bytes.Buffer) (int64, err
 		return 0, err
 	}
 	return len1 + len2, nil
+}
+
+func readSnapshotBlockBytes(reader SnapshotReader) ([]byte, error) {
+	n1, err := binary.ReadUvarint(reader)
+	if err != nil {
+		return nil, err
+	}
+	buf := make([]byte, n1)
+	n2, err := reader.Read(buf)
+	if err != nil {
+		return nil, err
+	}
+	if n2 != int(n1) {
+		return nil, fmt.Errorf("incomplete block, %d bytes expected, %d bytes got", n1, n2)
+	}
+	return buf, nil
 }
