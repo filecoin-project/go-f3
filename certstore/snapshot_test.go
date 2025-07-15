@@ -13,9 +13,12 @@ import (
 	"github.com/filecoin-project/go-f3/internal/consensus"
 	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/filecoin-project/go-f3/sim/signing"
+	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
+	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/buffer"
+	"golang.org/x/crypto/blake2b"
 )
 
 func Test_SnapshotExportImportRoundTrip(t *testing.T) {
@@ -88,8 +91,16 @@ func Test_SnapshotExportImportRoundTrip(t *testing.T) {
 	}
 
 	snapshot := buffer.Buffer{}
-	err = cs.ExportLatestSnapshot(ctx, &snapshot)
+	c, err := cs.ExportLatestSnapshot(ctx, &snapshot)
 	require.NoError(t, err)
+	require.NotEqual(t, c, cid.Undef)
+	require.Equal(t, int(c.Prefix().Version), 1)
+	require.Equal(t, int(c.Prefix().Codec), cid.Raw)
+	require.Equal(t, int(c.Prefix().MhType), 0xb220)
+	hash := blake2b.Sum256(snapshot.Bytes())
+	mh, err := multihash.Encode(hash[:], multihash.BLAKE2B_MIN+31)
+	require.NoError(t, err)
+	require.Equal(t, c.Hash(), multihash.Multihash(mh))
 
 	ds2 := datastore.NewMapDatastore()
 	err = importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx, bytes.NewReader(snapshot.Bytes()), ds2, testingPowerTableFreqency)
