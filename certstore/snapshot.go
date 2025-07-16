@@ -23,9 +23,9 @@ var ErrUnknownLatestCertificate = errors.New("latest certificate is not known")
 // ExportLatestSnapshot exports an F3 snapshot that includes the finality certificate chain until the current `latestCertificate`.
 //
 // Checkout the snapshot format specification at <https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0108.md>
-func (cs *Store) ExportLatestSnapshot(ctx context.Context, writer io.Writer) (cid.Cid, error) {
+func (cs *Store) ExportLatestSnapshot(ctx context.Context, writer io.Writer) (cid.Cid, *SnapshotHeader, error) {
 	if cs.latestCertificate == nil {
-		return cid.Undef, ErrUnknownLatestCertificate
+		return cid.Undef, nil, ErrUnknownLatestCertificate
 	}
 	return cs.ExportSnapshot(ctx, cs.latestCertificate.GPBFTInstance, writer)
 }
@@ -33,37 +33,37 @@ func (cs *Store) ExportLatestSnapshot(ctx context.Context, writer io.Writer) (ci
 // ExportSnapshot exports an F3 snapshot that includes the finality certificate chain from the `Store.firstInstance` to the specified `lastInstance`.
 //
 // Checkout the snapshot format specification at <https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0108.md>
-func (cs *Store) ExportSnapshot(ctx context.Context, latestInstance uint64, writer io.Writer) (cid.Cid, error) {
+func (cs *Store) ExportSnapshot(ctx context.Context, latestInstance uint64, writer io.Writer) (cid.Cid, *SnapshotHeader, error) {
 	hasher, err := blake2b.New256(nil)
 	if err != nil {
-		return cid.Undef, err
+		return cid.Undef, nil, err
 	}
 	hashWriter := hashWriter{hasher, writer}
 	initialPowerTable, err := cs.GetPowerTable(ctx, cs.firstInstance)
 	if err != nil {
-		return cid.Undef, fmt.Errorf("failed to get initial power table at instance %d: %w", cs.firstInstance, err)
+		return cid.Undef, nil, fmt.Errorf("failed to get initial power table at instance %d: %w", cs.firstInstance, err)
 	}
 	header := SnapshotHeader{1, cs.firstInstance, latestInstance, initialPowerTable}
 	if _, err := header.WriteTo(hashWriter); err != nil {
-		return cid.Undef, fmt.Errorf("failed to write snapshot header: %w", err)
+		return cid.Undef, nil, fmt.Errorf("failed to write snapshot header: %w", err)
 	}
 	for i := cs.firstInstance; i <= latestInstance; i++ {
 		cert, err := cs.ds.Get(ctx, cs.keyForCert(i))
 		if err != nil {
-			return cid.Undef, fmt.Errorf("failed to get certificate at instance %d:: %w", i, err)
+			return cid.Undef, nil, fmt.Errorf("failed to get certificate at instance %d:: %w", i, err)
 		}
 		buffer := bytes.NewBuffer(cert)
 		if _, err := writeSnapshotBlockBytes(hashWriter, buffer); err != nil {
-			return cid.Undef, err
+			return cid.Undef, nil, err
 		}
 	}
 	hash := hashWriter.hasher.Sum(nil)
 	mh, err := multihash.Encode(hash, multihash.BLAKE2B_MIN+31)
 	if err != nil {
-		return cid.Undef, err
+		return cid.Undef, nil, err
 	}
 
-	return cid.NewCidV1(cid.Raw, mh), nil
+	return cid.NewCidV1(cid.Raw, mh), &header, nil
 }
 
 type hashWriter struct {

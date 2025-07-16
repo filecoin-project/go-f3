@@ -91,7 +91,7 @@ func Test_SnapshotExportImportRoundTrip(t *testing.T) {
 	}
 
 	snapshot := buffer.Buffer{}
-	c, err := cs.ExportLatestSnapshot(ctx, &snapshot)
+	c, _, err := cs.ExportLatestSnapshot(ctx, &snapshot)
 	require.NoError(t, err)
 	require.NotEqual(t, c, cid.Undef)
 	require.Equal(t, int(c.Prefix().Version), 1)
