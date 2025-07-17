@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -527,7 +529,8 @@ func (o *Observer) rotateMessages(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var foundAtLeastOneParquet bool
+	retainedSize := int64(0)
+	var retained []fs.FileInfo
 	for _, entry := range dir {
 		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".parquet" {
 			info, err := entry.Info()
@@ -541,12 +544,36 @@ func (o *Observer) rotateMessages(ctx context.Context) error {
 					logger.Infow("Removed old file", "olderThan", o.retention, "file", entry.Name())
 				}
 			} else {
-				foundAtLeastOneParquet = true
+				retainedSize += info.Size()
+				retained = append(retained, info)
 			}
 		}
 	}
 
-	return o.createOrReplaceMessagesView(ctx, foundAtLeastOneParquet)
+	logger.Infow("Retention size", "retainedSize", retainedSize, "maxRetentionSize", o.maxRetentionSize)
+
+	if retainedSize > o.maxRetentionSize {
+		logger.Infow("Retention size exceeded, deleting oldest files", "retainedSize", retainedSize, "maxRetentionSize", o.maxRetentionSize)
+		// sort retained by modification time, oldest last
+		sort.Slice(retained, func(i, j int) bool {
+			return retained[i].ModTime().After(retained[j].ModTime())
+		})
+		// iterate in reverse order to delete oldest first
+		for i := len(retained) - 1; i >= 0; i-- {
+			if retainedSize < o.maxRetentionSize {
+				break
+			}
+			if err := os.Remove(filepath.Join(o.rotatePath, retained[i].Name())); err != nil {
+				logger.Errorw("Failed to remove retention policy for file", "file", retained[i].Name(), "err", err)
+			} else {
+				logger.Infow("Removed old file", "olderThan", o.retention, "file", retained[i].Name())
+				retainedSize -= retained[i].Size()
+				retained = retained[:i]
+			}
+		}
+	}
+
+	return o.createOrReplaceMessagesView(ctx, len(retained) > 0)
 }
 
 func (o *Observer) listenAndServeQueries() error {
