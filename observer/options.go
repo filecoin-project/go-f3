@@ -3,6 +3,7 @@ package observer
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/filecoin-project/go-f3/blssig"
@@ -276,9 +277,12 @@ func WithRetention(retention time.Duration) Option {
 // This is weakly enforced, and the directory may grow larger than this
 // size. If the directory grows larger than this size, the oldest files
 // will be deleted until the directory size is below this size.
-func WithMaxRetentionSize(size int64) Option {
+func WithMaxRetentionSize(size uint64) Option {
 	return func(o *options) error {
-		o.maxRetentionSize = size
+		if size > math.MaxInt64 {
+			return fmt.Errorf("max retention size must be less than or equal to %d", math.MaxInt64)
+		}
+		o.maxRetentionSize = int64(size)
 		return nil
 	}
 }

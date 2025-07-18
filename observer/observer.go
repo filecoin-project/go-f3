@@ -541,7 +541,7 @@ func (o *Observer) rotateMessages(ctx context.Context) error {
 				if err := os.Remove(filepath.Join(o.rotatePath, entry.Name())); err != nil {
 					logger.Errorw("Failed to remove retention policy for file", "file", entry.Name(), "err", err)
 				} else {
-					logger.Infow("Removed old file", "olderThan", o.retention, "file", entry.Name())
+					logger.Infow("Removed file due to time retention policy", "olderThan", o.retention, "file", entry.Name())
 				}
 			} else {
 				retainedSize += info.Size()
@@ -552,7 +552,7 @@ func (o *Observer) rotateMessages(ctx context.Context) error {
 
 	logger.Infow("Retention size", "retainedSize", retainedSize, "maxRetentionSize", o.maxRetentionSize)
 
-	if retainedSize > o.maxRetentionSize {
+	if o.maxRetentionSize > 0 && retainedSize > o.maxRetentionSize {
 		logger.Infow("Retention size exceeded, deleting oldest files", "retainedSize", retainedSize, "maxRetentionSize", o.maxRetentionSize)
 		// sort retained by modification time, oldest last
 		sort.Slice(retained, func(i, j int) bool {
@@ -560,14 +560,17 @@ func (o *Observer) rotateMessages(ctx context.Context) error {
 		})
 		// iterate in reverse order to delete oldest first
 		for i := len(retained) - 1; i >= 0; i-- {
+			fi := retained[i]
 			if retainedSize < o.maxRetentionSize {
 				break
 			}
-			if err := os.Remove(filepath.Join(o.rotatePath, retained[i].Name())); err != nil {
-				logger.Errorw("Failed to remove retention policy for file", "file", retained[i].Name(), "err", err)
+			if err := os.Remove(filepath.Join(o.rotatePath, fi.Name())); err != nil {
+				logger.Errorw("Failed to remove retention policy for file",
+					"file", fi.Name(), "err", err)
 			} else {
-				logger.Infow("Removed old file", "olderThan", o.retention, "file", retained[i].Name())
-				retainedSize -= retained[i].Size()
+				logger.Infow("Removed file due to size retention policy",
+					"size", fi.Size(), "file", fi.Name())
+				retainedSize -= fi.Size()
 				retained = retained[:i]
 			}
 		}
