@@ -3,6 +3,7 @@ package observer
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/filecoin-project/go-f3/blssig"
@@ -13,7 +14,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
-	"github.com/multiformats/go-multiaddr-dns"
+	madns "github.com/multiformats/go-multiaddr-dns"
 )
 
 type Option func(*options) error
@@ -35,9 +36,10 @@ type options struct {
 	queryServerListenAddress string
 	queryServerReadTimeout   time.Duration
 
-	rotatePath     string
-	rotateInterval time.Duration
-	retention      time.Duration
+	rotatePath       string
+	rotateInterval   time.Duration
+	retention        time.Duration
+	maxRetentionSize int64
 
 	pubSub                  *pubsub.PubSub
 	pubSubValidatorDisabled bool
@@ -81,6 +83,7 @@ func newOptions(opts ...Option) (*options, error) {
 		finalityCertsMaxPollInterval:      2 * time.Minute,
 		chainExchangeBufferSize:           1000,
 		chainExchangeMaxMessageAge:        3 * time.Minute,
+		maxRetentionSize:                  0,
 	}
 	for _, apply := range opts {
 		if err := apply(&opt); err != nil {
@@ -266,6 +269,20 @@ func WithRotateInterval(d time.Duration) Option {
 func WithRetention(retention time.Duration) Option {
 	return func(o *options) error {
 		o.retention = retention
+		return nil
+	}
+}
+
+// WithMaxRetentionSize sets the maximum size of the retention directory.
+// This is weakly enforced, and the directory may grow larger than this
+// size. If the directory grows larger than this size, the oldest files
+// will be deleted until the directory size is below this size.
+func WithMaxRetentionSize(size uint64) Option {
+	return func(o *options) error {
+		if size > math.MaxInt64 {
+			return fmt.Errorf("max retention size must be less than or equal to %d", math.MaxInt64)
+		}
+		o.maxRetentionSize = int64(size)
 		return nil
 	}
 }
