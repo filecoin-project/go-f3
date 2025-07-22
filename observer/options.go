@@ -35,6 +35,7 @@ type options struct {
 
 	queryServerListenAddress string
 	queryServerReadTimeout   time.Duration
+	queryServerMetricsExport bool
 
 	rotatePath       string
 	rotateInterval   time.Duration
@@ -248,6 +249,12 @@ func WithQueryServerListenAddress(addr string) Option {
 func WithQueryServerReadTimeout(d time.Duration) Option {
 	return func(o *options) error {
 		o.queryServerReadTimeout = d
+		return nil
+	}
+}
+func WithQueryServerMetricsExport(export bool) Option {
+	return func(o *options) error {
+		o.queryServerMetricsExport = export
 		return nil
 	}
 }
