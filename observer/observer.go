@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -34,6 +36,11 @@ import (
 	record "github.com/libp2p/go-libp2p-record"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/marcboeker/go-duckdb"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/prometheus"
+	"go.opentelemetry.io/otel/metric"
+	smetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.uber.org/multierr"
 	"golang.org/x/exp/maps"
 	"golang.org/x/sync/errgroup"
@@ -202,7 +209,20 @@ func (o *Observer) initialize(ctx context.Context) error {
 	// Set up query server.
 	o.qs.Addr = o.queryServerListenAddress
 	o.qs.ReadTimeout = o.queryServerReadTimeout
-	o.qs.Handler = o.serveMux()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/query", o.queryHandler)
+
+	// setup metrics
+	if o.queryServerMetricsExport {
+		exporter, err := prometheus.New()
+		if err != nil {
+			return fmt.Errorf("failed to create prometheus exporter: %w", err)
+		}
+		provider := smetric.NewMeterProvider(smetric.WithReader(exporter))
+		otel.SetMeterProvider(provider)
+		mux.Handle("/debug/metrics", promhttp.Handler())
+	}
+	o.qs.Handler = mux
 
 	return nil
 }
@@ -243,13 +263,18 @@ func (o *Observer) observeMessages(ctx context.Context) error {
 			return nil
 		case om := <-o.messageObserved:
 			if err := o.storeMessage(ctx, om); err != nil {
+				metrics.msgsReceived.Add(ctx, 1, metric.WithAttributes(attrErrorType.String("storeMessage")))
 				logger.Errorw("Failed to store message", "message", om, "err", err)
 				continue
 			}
+			metrics.msgsReceived.Add(ctx, 1)
 			logger.Debugw("Observed message", "message", om)
 		case <-rotation.C:
 			if err := o.rotateMessages(ctx); err != nil {
+				metrics.rotations.Add(ctx, 1, metric.WithAttributes(attrErrorType.String("rotateMessages")))
 				logger.Errorw("Failed to rotate latest messages", "err", err)
+			} else {
+				metrics.rotations.Add(ctx, 1)
 			}
 		case <-flush.C:
 			if err := o.tryFlushMessages(); err != nil {
@@ -527,7 +552,8 @@ func (o *Observer) rotateMessages(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var foundAtLeastOneParquet bool
+	retainedSize := int64(0)
+	var retained []fs.FileInfo
 	for _, entry := range dir {
 		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".parquet" {
 			info, err := entry.Info()
@@ -538,15 +564,42 @@ func (o *Observer) rotateMessages(ctx context.Context) error {
 				if err := os.Remove(filepath.Join(o.rotatePath, entry.Name())); err != nil {
 					logger.Errorw("Failed to remove retention policy for file", "file", entry.Name(), "err", err)
 				} else {
-					logger.Infow("Removed old file", "olderThan", o.retention, "file", entry.Name())
+					logger.Infow("Removed file due to time retention policy", "olderThan", o.retention, "file", entry.Name())
 				}
 			} else {
-				foundAtLeastOneParquet = true
+				retainedSize += info.Size()
+				retained = append(retained, info)
 			}
 		}
 	}
 
-	return o.createOrReplaceMessagesView(ctx, foundAtLeastOneParquet)
+	logger.Infow("Retention size", "retainedSize", retainedSize, "maxRetentionSize", o.maxRetentionSize)
+
+	if o.maxRetentionSize > 0 && retainedSize > o.maxRetentionSize {
+		logger.Infow("Retention size exceeded, deleting oldest files", "retainedSize", retainedSize, "maxRetentionSize", o.maxRetentionSize)
+		// sort retained by modification time, oldest last
+		sort.Slice(retained, func(i, j int) bool {
+			return retained[i].ModTime().After(retained[j].ModTime())
+		})
+		// iterate in reverse order to delete oldest first
+		for i := len(retained) - 1; i >= 0; i-- {
+			fi := retained[i]
+			if retainedSize < o.maxRetentionSize {
+				break
+			}
+			if err := os.Remove(filepath.Join(o.rotatePath, fi.Name())); err != nil {
+				logger.Errorw("Failed to remove retention policy for file",
+					"file", fi.Name(), "err", err)
+			} else {
+				logger.Infow("Removed file due to size retention policy",
+					"size", fi.Size(), "file", fi.Name())
+				retainedSize -= fi.Size()
+				retained = retained[:i]
+			}
+		}
+	}
+
+	return o.createOrReplaceMessagesView(ctx, len(retained) > 0)
 }
 
 func (o *Observer) listenAndServeQueries() error {

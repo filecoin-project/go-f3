@@ -66,6 +66,11 @@ var observerCmd = cli.Command{
 			Usage: "The maximum length of time to keep the rotated files.",
 			Value: 2 * 7 * 24 * time.Hour,
 		},
+		&cli.Uint64Flag{
+			Name:  "retentionSize",
+			Usage: "The maximum size of the rotated files in megabytes. If not set, no limit is applied.",
+			Value: 0,
+		},
 		&cli.StringFlag{
 			Name:        "dataSourceName",
 			Usage:       "The observer database DSN",
@@ -144,7 +149,10 @@ var observerCmd = cli.Command{
 			observer.WithMaxBatchSize(cctx.Int("maxBatchSize")),
 			observer.WithMaxBatchDelay(cctx.Duration("maxBatchDelay")),
 			observer.WithChainExchangeMaxMessageAge(cctx.Duration("chainExchangeMaxMessageAge")),
+			observer.WithMaxRetentionSize(cctx.Uint64("retentionSize") * 1024 * 1024),
+			observer.WithQueryServerMetricsExport(true),
 		}
+
 		var identity crypto.PrivKey
 		if cctx.IsSet("identity") {
 			marshaledKey, err := os.ReadFile(cctx.String("identity"))
