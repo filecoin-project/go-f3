@@ -36,6 +36,11 @@ import (
 	record "github.com/libp2p/go-libp2p-record"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/marcboeker/go-duckdb"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/prometheus"
+	"go.opentelemetry.io/otel/metric"
+	smetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.uber.org/multierr"
 	"golang.org/x/exp/maps"
 	"golang.org/x/sync/errgroup"
@@ -204,7 +209,20 @@ func (o *Observer) initialize(ctx context.Context) error {
 	// Set up query server.
 	o.qs.Addr = o.queryServerListenAddress
 	o.qs.ReadTimeout = o.queryServerReadTimeout
-	o.qs.Handler = o.serveMux()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/query", o.queryHandler)
+
+	// setup metrics
+	if o.queryServerMetricsExport {
+		exporter, err := prometheus.New()
+		if err != nil {
+			return fmt.Errorf("failed to create prometheus exporter: %w", err)
+		}
+		provider := smetric.NewMeterProvider(smetric.WithReader(exporter))
+		otel.SetMeterProvider(provider)
+		mux.Handle("/debug/metrics", promhttp.Handler())
+	}
+	o.qs.Handler = mux
 
 	return nil
 }
@@ -245,13 +263,18 @@ func (o *Observer) observeMessages(ctx context.Context) error {
 			return nil
 		case om := <-o.messageObserved:
 			if err := o.storeMessage(ctx, om); err != nil {
+				metrics.msgsReceived.Add(ctx, 1, metric.WithAttributes(attrErrorType.String("storeMessage")))
 				logger.Errorw("Failed to store message", "message", om, "err", err)
 				continue
 			}
+			metrics.msgsReceived.Add(ctx, 1)
 			logger.Debugw("Observed message", "message", om)
 		case <-rotation.C:
 			if err := o.rotateMessages(ctx); err != nil {
+				metrics.rotations.Add(ctx, 1, metric.WithAttributes(attrErrorType.String("rotateMessages")))
 				logger.Errorw("Failed to rotate latest messages", "err", err)
+			} else {
+				metrics.rotations.Add(ctx, 1)
 			}
 		case <-flush.C:
 			if err := o.tryFlushMessages(); err != nil {

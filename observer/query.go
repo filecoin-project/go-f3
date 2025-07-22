@@ -13,12 +13,6 @@ type QueryRequest struct {
 	Query string `json:"Query"`
 }
 
-func (o *Observer) serveMux() *http.ServeMux {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/query", o.queryHandler)
-	return mux
-}
-
 func (o *Observer) queryHandler(w http.ResponseWriter, r *http.Request) {
 	const (
 		contentTypeJson = "application/json"

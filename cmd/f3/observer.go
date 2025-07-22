@@ -150,6 +150,7 @@ var observerCmd = cli.Command{
 			observer.WithMaxBatchDelay(cctx.Duration("maxBatchDelay")),
 			observer.WithChainExchangeMaxMessageAge(cctx.Duration("chainExchangeMaxMessageAge")),
 			observer.WithMaxRetentionSize(cctx.Uint64("retentionSize") * 1024 * 1024),
+			observer.WithQueryServerMetricsExport(true),
 		}
 
 		var identity crypto.PrivKey
