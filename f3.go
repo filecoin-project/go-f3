@@ -113,25 +113,35 @@ func (m *F3) Broadcast(ctx context.Context, signatureBuilder *gpbft.SignatureBui
 }
 
 func (m *F3) GetLatestCert(context.Context) (*certs.FinalityCertificate, error) {
-	if state := m.state.Load(); state != nil {
-		return state.cs.Latest(), nil
+	cs, err := m.GetCertStore()
+	if err != nil {
+		return nil, err
 	}
-	return nil, ErrF3NotRunning
+	return cs.Latest(), nil
 }
 
 func (m *F3) GetCert(ctx context.Context, instance uint64) (*certs.FinalityCertificate, error) {
-	if state := m.state.Load(); state != nil {
-		return state.cs.Get(ctx, instance)
+	cs, err := m.GetCertStore()
+	if err != nil {
+		return nil, err
+	}
+	return cs.Get(ctx, instance)
+}
+
+func (m *F3) GetCertStore() (*certstore.Store, error) {
+	if state := m.state.Load(); state != nil && state.cs != nil {
+		return state.cs, nil
 	}
 	return nil, ErrF3NotRunning
 }
 
 // GetPowerTableByInstance returns the power table (committee) used to validate the specified instance.
 func (m *F3) GetPowerTableByInstance(ctx context.Context, instance uint64) (gpbft.PowerEntries, error) {
-	if state := m.state.Load(); state != nil {
-		return state.cs.GetPowerTable(ctx, instance)
+	cs, err := m.GetCertStore()
+	if err != nil {
+		return nil, err
 	}
-	return nil, ErrF3NotRunning
+	return cs.GetPowerTable(ctx, instance)
 }
 
 // computeBootstrapDelay returns the time at which the F3 instance specified by
