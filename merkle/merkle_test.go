@@ -13,8 +13,6 @@ import (
 func TestHashTree(t *testing.T) {
 	for i := 1; i < 256; i++ {
 		t.Run(fmt.Sprintf("Length/%d", i), func(t *testing.T) {
-			t.Parallel()
-
 			test := make([][]byte, i)
 			for j := range test {
 				test[j] = []byte{byte(j)}

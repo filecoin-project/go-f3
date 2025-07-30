@@ -225,7 +225,7 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 			Vote:   instance.NewCommit(0, &gpbft.ECChain{}),
 		})
 
-		evidenceOfCommitForBottom := instance.NewJustification(0, gpbft.COMMIT_PHASE, &gpbft.ECChain{}, 0, 1)
+		evidenceOfCommitForBottom := instance.NewJustification(0, gpbft.COMMIT_PHASE, nil, 0, 1)
 
 		driver.RequireConverge(1, baseChain, evidenceOfCommitForBottom)
 		driver.RequireDeliverMessage(&gpbft.GMessage{
@@ -342,7 +342,7 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 		driver.RequireStartInstance(futureInstance.ID())
 		driver.RequireQuality()
 		driver.RequirePrepare(futureInstance.Proposal())
-		driver.RequireCommit(0, futureInstance.Proposal(), instance.NewJustification(0, gpbft.PREPARE_PHASE, futureInstance.Proposal(), 0, 1))
+		driver.RequireCommit(0, futureInstance.Proposal(), futureInstance.NewJustification(0, gpbft.PREPARE_PHASE, futureInstance.Proposal(), 0, 1))
 	})
 
 	t.Run("Rebroadcasts selected messages on timeout", func(t *testing.T) {
@@ -379,7 +379,7 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 		})
 
 		// Expect progress to COMMIT with strong evidence of PREPARE.
-		evidenceOfPrepare := instance.NewJustification(0, gpbft.PREPARE_PHASE, instance.Proposal(), 0, 1)
+		evidenceOfPrepare := instance.NewJustification(0, gpbft.PREPARE_PHASE, baseChain, 0, 1)
 		driver.RequireCommit(0, baseChain, evidenceOfPrepare)
 
 		// Expect no messages until the rebroadcast timeout has expired.
@@ -463,6 +463,7 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 
 		futureRoundProposal := instance.Proposal().Extend(tipSet4.Key)
 		evidenceOfPrepareAtRound76 := instance.NewJustification(76, gpbft.PREPARE_PHASE, futureRoundProposal, 0, 1)
+		evidenceOfPrepareAtRound77 := instance.NewJustification(77, gpbft.PREPARE_PHASE, futureRoundProposal, 0, 1)
 
 		// Send Prepare messages to facilitate weak quorum of prepare at future round.
 		driver.RequireDeliverMessage(&gpbft.GMessage{
@@ -480,7 +481,7 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 		// Expect skip to round.
 		driver.RequireConverge(77, futureRoundProposal, evidenceOfPrepareAtRound76)
 		driver.RequirePrepareAtRound(77, futureRoundProposal, evidenceOfPrepareAtRound76)
-		driver.RequireCommit(77, futureRoundProposal, evidenceOfPrepareAtRound76)
+		driver.RequireCommit(77, futureRoundProposal, evidenceOfPrepareAtRound77)
 		// Expect no messages until the rebroadcast timeout has expired.
 		driver.RequireNoBroadcast()
 		// Trigger rebroadcast alarm.
@@ -492,7 +493,7 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 		//
 		// See: https://github.com/filecoin-project/go-f3/issues/595
 		driver.RequireQuality()
-		driver.RequireCommit(77, futureRoundProposal, evidenceOfPrepareAtRound76)
+		driver.RequireCommit(77, futureRoundProposal, evidenceOfPrepareAtRound77)
 		driver.RequirePrepareAtRound(77, futureRoundProposal, evidenceOfPrepareAtRound76)
 		driver.RequireConverge(77, futureRoundProposal, evidenceOfPrepareAtRound76)
 		driver.RequireNoBroadcast()
@@ -501,7 +502,7 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 		driver.RequireDeliverMessage(&gpbft.GMessage{
 			Sender:        1,
 			Vote:          instance.NewCommit(77, futureRoundProposal),
-			Justification: evidenceOfPrepareAtRound76,
+			Justification: evidenceOfPrepareAtRound77,
 		})
 
 		// Expect DECIDE with strong evidence of COMMIT.
@@ -651,7 +652,7 @@ func TestGPBFT_WithEvenPowerDistribution(t *testing.T) {
 				Vote:   instance.NewPrepare(0, instance.Proposal().BaseChain()),
 			})
 			// Assert COMMIT phase for base decision.
-			driver.RequireCommit(0, instance.Proposal().BaseChain(), instance.NewJustification(0, gpbft.PREPARE_PHASE, instance.Proposal(), 0, 1))
+			driver.RequireCommit(0, instance.Proposal().BaseChain(), instance.NewJustification(0, gpbft.PREPARE_PHASE, instance.Proposal().BaseChain(), 0, 1))
 		}
 		t.Run("Justification of CONVERGE to bottom from next round completes phase", func(t *testing.T) {
 			instance, driver := newInstanceAndDriver(t)
@@ -783,7 +784,7 @@ func TestGPBFT_WithExactOneThirdToTwoThirdPowerDistribution(t *testing.T) {
 				Vote:   instance.NewPrepare(0, baseChain),
 			},
 		)
-		driver.RequireCommit(0, baseChain, instance.NewJustification(0, gpbft.PREPARE_PHASE, baseChain, 1, 0))
+		driver.RequireCommit(0, baseChain, instance.NewJustification(0, gpbft.PREPARE_PHASE, baseChain, 1))
 
 		// Trigger timeout of COMMIT phase to force a scheduled re-broadcast.
 		driver.RequireDeliverAlarm()

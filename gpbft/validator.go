@@ -338,9 +338,81 @@ func (v *cachingValidator) validateJustification(ctx context.Context, valueKey *
 	partial := valueKey != nil
 	cacheNamespace := validationNamespaces.justification(partial)
 
-	// It doesn't matter whether the justification is partial or not. Because, namespace
-	// separates the two.
-	cacheKey, err := v.getCacheKey(msg.Justification)
+	// Check that the justification is for the same instance.
+	if msg.Vote.Instance != msg.Justification.Vote.Instance {
+		return fmt.Errorf("message with instanceID %v has evidence from instanceID: %v", msg.Vote.Instance, msg.Justification.Vote.Instance)
+	}
+	if !msg.Vote.SupplementalData.Eq(&msg.Justification.Vote.SupplementalData) {
+		return fmt.Errorf("message and justification have inconsistent supplemental data: %v != %v", msg.Vote.SupplementalData, msg.Justification.Vote.SupplementalData)
+	}
+
+	// Check that justification vote value is a valid chain.
+	if err := msg.Justification.Vote.Value.Validate(); err != nil {
+		return fmt.Errorf("has invalid justification vote value chain: %w", err)
+	}
+
+	zeroKey := (&ECChain{}).Key()
+	msgKey := valueKey
+	if !partial {
+		key := msg.Vote.Value.Key()
+		msgKey = &key
+	}
+
+	// Check every remaining field of the justification, according to the phase requirements.
+	// This map goes from the message phase to the expected justification phase(s),
+	// to the required vote values for justification by that phase.
+	// Anything else is disallowed.
+	expectations := map[Phase]map[Phase]struct {
+		Round uint64
+		Key   *ECChainKey
+	}{
+		// CONVERGE is justified by a strong quorum of COMMIT for bottom,
+		// or a strong quorum of PREPARE for the same value, from the previous round.
+		CONVERGE_PHASE: {
+			COMMIT_PHASE:  {msg.Vote.Round - 1, &zeroKey},
+			PREPARE_PHASE: {msg.Vote.Round - 1, msgKey},
+		},
+		// PREPARE is justified by the same rules as CONVERGE (in rounds > 0).
+		PREPARE_PHASE: {
+			COMMIT_PHASE:  {msg.Vote.Round - 1, &zeroKey},
+			PREPARE_PHASE: {msg.Vote.Round - 1, msgKey},
+		},
+		// COMMIT is justified by a strong quorum of PREPARE from the same round with the same value.
+		COMMIT_PHASE: {
+			PREPARE_PHASE: {msg.Vote.Round, msgKey},
+		},
+		// DECIDE is justified by a strong quorum of COMMIT with the same value.
+		// The DECIDE message doesn't specify a round.
+		DECIDE_PHASE: {
+			COMMIT_PHASE: {math.MaxUint64, msgKey},
+		},
+	}
+
+	var expectedVoteValueKey ECChainKey
+	if expectedPhases, ok := expectations[msg.Vote.Phase]; ok {
+		if expected, ok := expectedPhases[msg.Justification.Vote.Phase]; ok {
+			if msg.Justification.Vote.Round != expected.Round && expected.Round != math.MaxUint64 {
+				return fmt.Errorf("message %v has justification from wrong round %d", msg, msg.Justification.Vote.Round)
+			}
+
+			// The key can be either the value key or the zero key.
+			// Depending on which type of justification we are dealing with,
+			// if message is not partial, then check the justification Value is same as the expected Value
+			expectedVoteValueKey = *expected.Key
+			if !partial {
+				justificationVoteValueKey := msg.Justification.Vote.Value.Key()
+				if !bytes.Equal(justificationVoteValueKey[:], expected.Key[:]) {
+					return fmt.Errorf("message %v has justification for a different value: %v", msg, msg.Justification.Vote.Value)
+				}
+			}
+		} else {
+			return fmt.Errorf("message %v has justification with unexpected phase: %v", msg, msg.Justification.Vote.Phase)
+		}
+	} else {
+		return fmt.Errorf("message %v has unexpected phase for justification", msg)
+	}
+
+	cacheKey, err := v.getCacheKey(msg.Justification, expectedVoteValueKey[:])
 	var alreadyValidated bool
 	if err != nil {
 		log.Warnw("failed to get cache key for justification", "partial", partial, "err", err)
@@ -361,94 +433,9 @@ func (v *cachingValidator) validateJustification(ctx context.Context, valueKey *
 		}
 	}
 
-	// Check that the justification is for the same instance.
-	if msg.Vote.Instance != msg.Justification.Vote.Instance {
-		return fmt.Errorf("message with instanceID %v has evidence from instanceID: %v", msg.Vote.Instance, msg.Justification.Vote.Instance)
-	}
-	if !msg.Vote.SupplementalData.Eq(&msg.Justification.Vote.SupplementalData) {
-		return fmt.Errorf("message and justification have inconsistent supplemental data: %v != %v", msg.Vote.SupplementalData, msg.Justification.Vote.SupplementalData)
-	}
-	// Check that justification vote value is a valid chain.
-	if err := msg.Justification.Vote.Value.Validate(); err != nil {
-		return fmt.Errorf("invalid justification vote value chain: %w", err)
-	}
-
-	// Check every remaining field of the justification, according to the phase requirements.
-	// This map goes from the message phase to the expected justification phase(s),
-	// to the required vote values for justification by that phase.
-	// Anything else is disallowed.
-	expectations := map[Phase]map[Phase]struct {
-		Round uint64
-		Value *ECChain
-	}{
-		// CONVERGE is justified by a strong quorum of COMMIT for bottom,
-		// or a strong quorum of PREPARE for the same value, from the previous round.
-		CONVERGE_PHASE: {
-			COMMIT_PHASE:  {msg.Vote.Round - 1, &ECChain{}},
-			PREPARE_PHASE: {msg.Vote.Round - 1, msg.Vote.Value},
-		},
-		// PREPARE is justified by the same rules as CONVERGE (in rounds > 0).
-		PREPARE_PHASE: {
-			COMMIT_PHASE:  {msg.Vote.Round - 1, &ECChain{}},
-			PREPARE_PHASE: {msg.Vote.Round - 1, msg.Vote.Value},
-		},
-		// COMMIT is justified by a strong quorum of PREPARE from the same round with the same value.
-		COMMIT_PHASE: {
-			PREPARE_PHASE: {msg.Vote.Round, msg.Vote.Value},
-		},
-		// DECIDE is justified by a strong quorum of COMMIT with the same value.
-		// The DECIDE message doesn't specify a round.
-		DECIDE_PHASE: {
-			COMMIT_PHASE: {math.MaxUint64, msg.Vote.Value},
-		},
-	}
-
-	var expectedVoteValueKey ECChainKey
-	if expectedPhases, ok := expectations[msg.Vote.Phase]; ok {
-		if expected, ok := expectedPhases[msg.Justification.Vote.Phase]; ok {
-			if msg.Justification.Vote.Round != expected.Round && expected.Round != math.MaxUint64 {
-				return fmt.Errorf("message %v has justification from wrong round %d", msg, msg.Justification.Vote.Round)
-			}
-
-			// There are 4 possible cases:
-			// 1. The justification is from a complete message with a non-zero value
-			// 2. The justification is from a complete message with a zero value
-			// 3. The justification is from a partial message with non-zero value key
-			// 4. The justification is from a partial message with zero value key
-			//
-			// In cases 1 and 2, the justification vote value must match the expected value
-			// exactly.
-			//
-			// Whereas in cases 3 and 4, the justification vote can't directly be checked and
-			// instead we rely on asserting the value via signature verification. Because the
-			// signing payload uses the value key only.
-			if partial {
-				expectedVoteValueKey = *valueKey
-			} else {
-				if !msg.Justification.Vote.Value.Eq(expected.Value) {
-					return fmt.Errorf("message %v has justification for a different value: %v", msg, msg.Justification.Vote.Value)
-				}
-				expectedVoteValueKey = expected.Value.Key()
-			}
-		} else {
-			return fmt.Errorf("message %v has justification with unexpected phase: %v", msg, msg.Justification.Vote.Phase)
-		}
-	} else {
-		return fmt.Errorf("message %v has unexpected phase for justification", msg)
-	}
-
-	// Check justification power and signature.
-	justificationPower, signers, err := msg.Justification.GetSigners(comt.PowerTable)
+	err = v.validateJustificationSignature(comt, msg.Justification, expectedVoteValueKey)
 	if err != nil {
-		return fmt.Errorf("failed to get justification signers: %w", err)
-	}
-	if !IsStrongQuorum(justificationPower, comt.PowerTable.ScaledTotal) {
-		return fmt.Errorf("message %v has justification with insufficient power: %v :%w", msg, justificationPower, ErrValidationInvalid)
-	}
-
-	payload := msg.Justification.Vote.MarshalForSigningWithValueKey(v.networkName, expectedVoteValueKey)
-	if err := comt.AggregateVerifier.VerifyAggregate(signers, payload, msg.Justification.Signature); err != nil {
-		return fmt.Errorf("verification of the aggregate failed: %+v: %w", msg.Justification, err)
+		return fmt.Errorf("internal justification validation failed: %w", err)
 	}
 
 	if len(cacheKey) > 0 {
@@ -461,6 +448,27 @@ func (v *cachingValidator) validateJustification(ctx context.Context, valueKey *
 	return nil
 }
 
+func (v *cachingValidator) validateJustificationSignature(comt *Committee, justif *Justification, expectedVoteValueKey ECChainKey) error {
+	// It doesn't matter whether the justification is partial or not. Because, namespace
+	// separates the two.
+
+	// Check justification power and signature.
+	justificationPower, signers, err := justif.GetSigners(comt.PowerTable)
+	if err != nil {
+		return fmt.Errorf("failed to get justification signers: %w", err)
+	}
+	if !IsStrongQuorum(justificationPower, comt.PowerTable.ScaledTotal) {
+		return fmt.Errorf("has justification with insufficient power: %v :%w", justificationPower, ErrValidationInvalid)
+	}
+
+	payload := justif.Vote.MarshalForSigningWithValueKey(v.networkName, expectedVoteValueKey)
+	if err := comt.AggregateVerifier.VerifyAggregate(signers, payload, justif.Signature); err != nil {
+		return fmt.Errorf("verification of the aggregate failed: %+v: %w", justif, err)
+	}
+
+	return nil
+}
+
 func (v *cachingValidator) isAlreadyValidated(group uint64, namespace validatorNamespace, cacheKey []byte) (bool, error) {
 	alreadyValidated, err := v.cache.Contains(group, namespace, cacheKey)
 	if err != nil {
@@ -469,10 +477,13 @@ func (v *cachingValidator) isAlreadyValidated(group uint64, namespace validatorN
 	return alreadyValidated, nil
 }
 
-func (v *cachingValidator) getCacheKey(msg cbor.Marshaler) ([]byte, error) {
+func (v *cachingValidator) getCacheKey(msg cbor.Marshaler, additionalFields ...[]byte) ([]byte, error) {
 	var buf bytes.Buffer
 	if err := msg.MarshalCBOR(&buf); err != nil {
 		return nil, fmt.Errorf("failed to get cache key: %w", err)
+	}
+	for _, field := range additionalFields {
+		_, _ = buf.Write(field)
 	}
 	return buf.Bytes(), nil
 }

@@ -992,7 +992,7 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 			wantErr: "has justification from wrong round",
 		},
 		{
-			name: "justification with invalid value is error",
+			name: "justification with different value is error",
 			msg: func(subject *participantTestSubject) *gpbft.GMessage {
 				subject.mockValidSignature(somePowerEntry.PubKey, signature)
 				return &gpbft.GMessage{
@@ -1007,13 +1007,14 @@ func TestParticipant_ValidateMessage(t *testing.T) {
 					Justification: &gpbft.Justification{
 						Vote: gpbft.Payload{
 							Instance:         initialInstanceNumber,
+							Phase:            gpbft.PREPARE_PHASE,
 							Value:            &gpbft.ECChain{TipSets: []*gpbft.TipSet{subject.canonicalChain.Base(), {PowerTable: subject.supplementalData.PowerTable}}},
 							SupplementalData: *subject.supplementalData,
 						},
 					},
 				}
 			},
-			wantErr: "invalid justification vote value chain",
+			wantErr: "has invalid justification vote value chain",
 		},
 	}
 	for _, test := range tests {
