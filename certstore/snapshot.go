@@ -110,7 +110,7 @@ func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context
 	if err != nil {
 		return err
 	}
-	pt := header.InitialPowerTable
+	ptm := certs.PowerTableArrayToMap(header.InitialPowerTable)
 	for {
 		certBytes, err := readSnapshotBlockBytes(snapshot)
 		if err == io.EOF {
@@ -123,10 +123,11 @@ func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context
 		if err = cs.Put(ctx, &cert); err != nil {
 			return err
 		}
-		if pt, err = certs.ApplyPowerTableDiffs(pt, cert.PowerTableDelta); err != nil {
+		if ptm, err = certs.ApplyPowerTableDiffsToMap(ptm, cert.PowerTableDelta); err != nil {
 			return err
 		}
 		if (cert.GPBFTInstance+1)%cs.powerTableFrequency == 0 {
+			pt := certs.PowerTableMapToArray(ptm)
 			if err := cs.putPowerTable(ctx, cert.GPBFTInstance+1, pt); err != nil {
 				return err
 			}

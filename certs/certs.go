@@ -236,15 +236,38 @@ func MakePowerTableDiff(oldPowerTable, newPowerTable gpbft.PowerEntries) PowerTa
 	return diff
 }
 
+func PowerTableArrayToMap(pt gpbft.PowerEntries) map[gpbft.ActorID]gpbft.PowerEntry {
+	ptm := make(map[gpbft.ActorID]gpbft.PowerEntry, len(pt))
+	for _, pe := range pt {
+		ptm[pe.ID] = pe
+	}
+	return ptm
+}
+
+func PowerTableMapToArray(ptm map[gpbft.ActorID]gpbft.PowerEntry) gpbft.PowerEntries {
+	pt := make(gpbft.PowerEntries, 0, len(ptm))
+	for _, pe := range ptm {
+		pt = append(pt, pe)
+	}
+	sort.Sort(pt)
+	return pt
+}
+
 // Apply a set of power table diffs to the passed power table.
 //
 // - The delta must be sorted by participant ID, ascending.
 // - The returned power table is sorted by power, descending.
 func ApplyPowerTableDiffs(prevPowerTable gpbft.PowerEntries, diffs ...PowerTableDiff) (gpbft.PowerEntries, error) {
-	powerTableMap := make(map[gpbft.ActorID]gpbft.PowerEntry, len(prevPowerTable))
-	for _, pe := range prevPowerTable {
-		powerTableMap[pe.ID] = pe
+	powerTableMap := PowerTableArrayToMap(prevPowerTable)
+	powerTableMap, err := ApplyPowerTableDiffsToMap(powerTableMap, diffs...)
+	if err != nil {
+		return nil, err
 	}
+	newPowerTable := PowerTableMapToArray(powerTableMap)
+	return newPowerTable, nil
+}
+
+func ApplyPowerTableDiffsToMap(powerTableMap map[gpbft.ActorID]gpbft.PowerEntry, diffs ...PowerTableDiff) (map[gpbft.ActorID]gpbft.PowerEntry, error) {
 	for j, diff := range diffs {
 		var lastActorId gpbft.ActorID
 		for i, d := range diff {
@@ -298,17 +321,10 @@ func ApplyPowerTableDiffs(prevPowerTable gpbft.PowerEntries, diffs ...PowerTable
 			default: // if the power becomes negative, something went wrong
 				return nil, fmt.Errorf("diff %d resulted in negative power for participant %d", j, pe.ID)
 			}
-
 		}
 	}
 
-	newPowerTable := make(gpbft.PowerEntries, 0, len(powerTableMap))
-	for _, pe := range powerTableMap {
-		newPowerTable = append(newPowerTable, pe)
-	}
-
-	sort.Sort(newPowerTable)
-	return newPowerTable, nil
+	return powerTableMap, nil
 }
 
 // MakePowerTableCID returns the DagCBOR-blake2b256 CID of the given power entries. This method does
