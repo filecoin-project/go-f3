@@ -14,6 +14,7 @@ import (
 	"github.com/filecoin-project/go-state-types/cbor"
 	cid "github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
+	"github.com/ipfs/go-datastore/autobatch"
 	"github.com/multiformats/go-multihash"
 	"golang.org/x/crypto/blake2b"
 )
@@ -86,11 +87,11 @@ type SnapshotReader interface {
 // ImportSnapshotToDatastore imports an F3 snapshot into the specified Datastore
 //
 // Checkout the snapshot format specification at <https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0108.md>
-func ImportSnapshotToDatastore(ctx context.Context, snapshot SnapshotReader, ds datastore.Datastore) error {
+func ImportSnapshotToDatastore(ctx context.Context, snapshot SnapshotReader, ds datastore.Batching) error {
 	return importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx, snapshot, ds, 0)
 }
 
-func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context, snapshot SnapshotReader, ds datastore.Datastore, testingPowerTableFrequency uint64) error {
+func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context, snapshot SnapshotReader, ds datastore.Batching, testingPowerTableFrequency uint64) error {
 	headerBytes, err := readSnapshotBlockBytes(snapshot)
 	if err != nil {
 		return err
@@ -100,7 +101,9 @@ func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context
 	if err != nil {
 		return fmt.Errorf("failed to decode snapshot header: %w", err)
 	}
-	cs, err := OpenOrCreateStore(ctx, ds, header.FirstInstance, header.InitialPowerTable)
+	dsb := autobatch.NewAutoBatching(ds, 1000)
+	defer dsb.Flush(ctx)
+	cs, err := OpenOrCreateStore(ctx, dsb, header.FirstInstance, header.InitialPowerTable)
 	if testingPowerTableFrequency > 0 {
 		cs.powerTableFrequency = testingPowerTableFrequency
 	}
