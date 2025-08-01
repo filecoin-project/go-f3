@@ -173,7 +173,7 @@ func readSnapshotBlockBytes(reader SnapshotReader) ([]byte, error) {
 		return nil, err
 	}
 	buf := make([]byte, n1)
-	n2, err := reader.Read(buf)
+	n2, err := io.ReadFull(reader, buf)
 	if err != nil {
 		return nil, err
 	}
