@@ -104,28 +104,42 @@ func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context
 	dsb := autobatch.NewAutoBatching(ds, 1000)
 	defer dsb.Flush(ctx)
 	cs, err := OpenOrCreateStore(ctx, dsb, header.FirstInstance, header.InitialPowerTable)
-	if testingPowerTableFrequency > 0 {
-		cs.powerTableFrequency = testingPowerTableFrequency
-	}
 	if err != nil {
 		return err
 	}
+	if testingPowerTableFrequency > 0 {
+		cs.powerTableFrequency = testingPowerTableFrequency
+	}
 	ptm := certs.PowerTableArrayToMap(header.InitialPowerTable)
-	for {
+	for i := header.FirstInstance; ; i += 1 {
 		certBytes, err := readSnapshotBlockBytes(snapshot)
 		if err == io.EOF {
 			break
 		} else if err != nil {
 			return fmt.Errorf("failed to decode finality certificate: %w", err)
 		}
+
 		var cert certs.FinalityCertificate
-		cert.UnmarshalCBOR(bytes.NewReader(certBytes))
-		if err = cs.Put(ctx, &cert); err != nil {
+		if err = cert.UnmarshalCBOR(bytes.NewReader(certBytes)); err != nil {
 			return err
 		}
+
+		if i != cert.GPBFTInstance {
+			return fmt.Errorf("the certificate of instance %d is missing", i)
+		}
+
+		if i > header.LatestInstance {
+			return fmt.Errorf("certificate of instance %d is found, expected latest instance %d", i, header.LatestInstance)
+		}
+
+		if err := cs.ds.Put(ctx, cs.keyForCert(cert.GPBFTInstance), certBytes); err != nil {
+			return err
+		}
+
 		if ptm, err = certs.ApplyPowerTableDiffsToMap(ptm, cert.PowerTableDelta); err != nil {
 			return err
 		}
+
 		if (cert.GPBFTInstance+1)%cs.powerTableFrequency == 0 {
 			pt := certs.PowerTableMapToArray(ptm)
 			if err := cs.putPowerTable(ctx, cert.GPBFTInstance+1, pt); err != nil {
@@ -133,7 +147,8 @@ func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context
 			}
 		}
 	}
-	return nil
+
+	return cs.writeInstanceNumber(ctx, certStoreLatestKey, header.LatestInstance)
 }
 
 type SnapshotHeader struct {
