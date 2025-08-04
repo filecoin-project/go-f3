@@ -110,6 +110,7 @@ func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context
 	if testingPowerTableFrequency > 0 {
 		cs.powerTableFrequency = testingPowerTableFrequency
 	}
+	var latestCert *certs.FinalityCertificate
 	ptm := certs.PowerTableArrayToMap(header.InitialPowerTable)
 	for i := header.FirstInstance; ; i += 1 {
 		certBytes, err := readSnapshotBlockBytes(snapshot)
@@ -123,6 +124,7 @@ func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context
 		if err = cert.UnmarshalCBOR(bytes.NewReader(certBytes)); err != nil {
 			return err
 		}
+		latestCert = &cert
 
 		if i != cert.GPBFTInstance {
 			return fmt.Errorf("the certificate of instance %d is missing", i)
@@ -142,13 +144,32 @@ func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context
 
 		if (cert.GPBFTInstance+1)%cs.powerTableFrequency == 0 {
 			pt := certs.PowerTableMapToArray(ptm)
+			if err = checkPowerTable(pt, cert.SupplementalData.PowerTable); err != nil {
+				return err
+			}
 			if err := cs.putPowerTable(ctx, cert.GPBFTInstance+1, pt); err != nil {
 				return err
 			}
 		}
 	}
 
+	pt := certs.PowerTableMapToArray(ptm)
+	if err = checkPowerTable(pt, latestCert.SupplementalData.PowerTable); err != nil {
+		return err
+	}
+
 	return cs.writeInstanceNumber(ctx, certStoreLatestKey, header.LatestInstance)
+}
+
+func checkPowerTable(pt gpbft.PowerEntries, expectedCid cid.Cid) error {
+	ptCid, err := certs.MakePowerTableCID(pt)
+	if err != nil {
+		return err
+	}
+	if ptCid != expectedCid {
+		return fmt.Errorf("new power table differs from expected power table: %s != %s", ptCid, expectedCid)
+	}
+	return nil
 }
 
 type SnapshotHeader struct {
