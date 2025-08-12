@@ -19,7 +19,10 @@ import (
 	"golang.org/x/crypto/blake2b"
 )
 
-var ErrUnknownLatestCertificate = errors.New("latest certificate is not known")
+var (
+	ErrUnknownLatestCertificate = errors.New("latest certificate is not known")
+	ErrNoCertificateExtracted   = errors.New("no certificate is found in the snapshot")
+)
 
 // ExportLatestSnapshot exports an F3 snapshot that includes the finality certificate chain until the current `latestCertificate`.
 //
@@ -151,6 +154,14 @@ func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context
 				return err
 			}
 		}
+	}
+
+	if latestCert == nil {
+		return ErrNoCertificateExtracted
+	}
+
+	if latestCert.GPBFTInstance != header.LatestInstance {
+		return fmt.Errorf("extracted latest instance %d, but %d is expected", latestCert.GPBFTInstance, header.LatestInstance)
 	}
 
 	pt := certs.PowerTableMapToArray(ptm)
