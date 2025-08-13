@@ -19,7 +19,10 @@ import (
 	"golang.org/x/crypto/blake2b"
 )
 
-var ErrUnknownLatestCertificate = errors.New("latest certificate is not known")
+var (
+	ErrUnknownLatestCertificate = errors.New("latest certificate is not known")
+	ErrNoCertificateExtracted   = errors.New("no certificate is found in the snapshot")
+)
 
 // ExportLatestSnapshot exports an F3 snapshot that includes the finality certificate chain until the current `latestCertificate`.
 //
@@ -104,33 +107,78 @@ func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context
 	dsb := autobatch.NewAutoBatching(ds, 1000)
 	defer dsb.Flush(ctx)
 	cs, err := OpenOrCreateStore(ctx, dsb, header.FirstInstance, header.InitialPowerTable)
-	if testingPowerTableFrequency > 0 {
-		cs.powerTableFrequency = testingPowerTableFrequency
-	}
 	if err != nil {
 		return err
 	}
-	pt := header.InitialPowerTable
-	for {
+	if testingPowerTableFrequency > 0 {
+		cs.powerTableFrequency = testingPowerTableFrequency
+	}
+	var latestCert *certs.FinalityCertificate
+	ptm := certs.PowerTableArrayToMap(header.InitialPowerTable)
+	for i := header.FirstInstance; ; i += 1 {
 		certBytes, err := readSnapshotBlockBytes(snapshot)
 		if err == io.EOF {
 			break
 		} else if err != nil {
 			return fmt.Errorf("failed to decode finality certificate: %w", err)
 		}
+
 		var cert certs.FinalityCertificate
-		cert.UnmarshalCBOR(bytes.NewReader(certBytes))
-		if err = cs.Put(ctx, &cert); err != nil {
+		if err = cert.UnmarshalCBOR(bytes.NewReader(certBytes)); err != nil {
 			return err
 		}
-		if pt, err = certs.ApplyPowerTableDiffs(pt, cert.PowerTableDelta); err != nil {
+		latestCert = &cert
+
+		if i != cert.GPBFTInstance {
+			return fmt.Errorf("the certificate of instance %d is missing", i)
+		}
+
+		if i > header.LatestInstance {
+			return fmt.Errorf("certificate of instance %d is found, expected latest instance %d", i, header.LatestInstance)
+		}
+
+		if err := cs.ds.Put(ctx, cs.keyForCert(cert.GPBFTInstance), certBytes); err != nil {
 			return err
 		}
+
+		if ptm, err = certs.ApplyPowerTableDiffsToMap(ptm, cert.PowerTableDelta); err != nil {
+			return err
+		}
+
 		if (cert.GPBFTInstance+1)%cs.powerTableFrequency == 0 {
+			pt := certs.PowerTableMapToArray(ptm)
+			if err = checkPowerTable(pt, cert.SupplementalData.PowerTable); err != nil {
+				return err
+			}
 			if err := cs.putPowerTable(ctx, cert.GPBFTInstance+1, pt); err != nil {
 				return err
 			}
 		}
+	}
+
+	if latestCert == nil {
+		return ErrNoCertificateExtracted
+	}
+
+	if latestCert.GPBFTInstance != header.LatestInstance {
+		return fmt.Errorf("extracted latest instance %d, but %d is expected", latestCert.GPBFTInstance, header.LatestInstance)
+	}
+
+	pt := certs.PowerTableMapToArray(ptm)
+	if err = checkPowerTable(pt, latestCert.SupplementalData.PowerTable); err != nil {
+		return err
+	}
+
+	return cs.writeInstanceNumber(ctx, certStoreLatestKey, header.LatestInstance)
+}
+
+func checkPowerTable(pt gpbft.PowerEntries, expectedCid cid.Cid) error {
+	ptCid, err := certs.MakePowerTableCID(pt)
+	if err != nil {
+		return err
+	}
+	if ptCid != expectedCid {
+		return fmt.Errorf("new power table differs from expected power table: %s != %s", ptCid, expectedCid)
 	}
 	return nil
 }
