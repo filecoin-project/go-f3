@@ -1,6 +1,6 @@
 module github.com/filecoin-project/go-f3
 
-go 1.23.7
+go 1.24
 
 require (
 	github.com/consensys/gnark-crypto v0.12.1
