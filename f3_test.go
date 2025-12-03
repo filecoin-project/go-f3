@@ -99,15 +99,15 @@ func TestF3StopStartCatchup(t *testing.T) {
 	// OhShitStore ERROR level logs.
 	_ = logging.SetLogLevel("f3/ohshitstore", "DPANIC")
 
-	env := newTestEnvironment(t).withNodes(3).start()
+	env := newTestEnvironment(t).withNodes(4).start()
 	env.requireInstanceEventually(1, eventualCheckTimeout, true)
 	env.requireEpochFinalizedEventually(env.manifest.BootstrapEpoch, eventualCheckTimeout)
 
 	// Pausing two nodes should pause the network.
-	env.stopNode(1)
 	env.stopNode(2)
+	env.stopNode(3)
 
-	env.requireF3NotRunningEventually(eventualCheckTimeout, nodeMatchers.byID(1, 2))
+	env.requireF3NotRunningEventually(eventualCheckTimeout, nodeMatchers.byID(2, 3))
 
 	// Wait until node 0 stops progressing
 	require.Eventually(t, func() bool {
@@ -118,16 +118,16 @@ func TestF3StopStartCatchup(t *testing.T) {
 	}, eventualCheckTimeout, eventualCheckInterval)
 
 	// Resuming node 1 should continue agreeing on instances.
-	env.startNode(1)
+	env.startNode(2)
 	env.connectAll()
-	env.requireF3RunningEventually(eventualCheckTimeout, nodeMatchers.byID(1))
+	env.requireF3RunningEventually(eventualCheckTimeout, nodeMatchers.byID(2))
 
 	// Wait until we're far enough that pure GPBFT catchup should be impossible.
-	targetInstance := env.nodes[1].currentGpbftInstance() + env.manifest.CommitteeLookback + 1
+	targetInstance := env.nodes[2].currentGpbftInstance() + env.manifest.CommitteeLookback + 1
 	env.requireInstanceEventually(targetInstance, eventualCheckTimeout, false)
 
-	env.startNode(2)
-	env.requireF3RunningEventually(eventualCheckTimeout, nodeMatchers.byID(2))
+	env.startNode(3)
+	env.requireF3RunningEventually(eventualCheckTimeout, nodeMatchers.byID(3))
 
 	// Everyone should catch up eventually
 	env.requireInstanceEventually(targetInstance, eventualCheckTimeout, true)
