@@ -11,6 +11,7 @@ import (
 
 	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
+	"github.com/filecoin-project/go-f3/manifest"
 	"github.com/filecoin-project/go-state-types/cbor"
 	cid "github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
@@ -87,14 +88,14 @@ type SnapshotReader interface {
 	io.ByteReader
 }
 
-// ImportSnapshotToDatastore imports an F3 snapshot into the specified Datastore
-//
+// ImportSnapshotToDatastore imports an F3 snapshot into the specified Datastore.
+// This function optionally validates the F3 snapshot against the manifest if provided.
 // Checkout the snapshot format specification at <https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0108.md>
-func ImportSnapshotToDatastore(ctx context.Context, snapshot SnapshotReader, ds datastore.Batching) error {
-	return importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx, snapshot, ds, 0)
+func ImportSnapshotToDatastore(ctx context.Context, snapshot SnapshotReader, ds datastore.Batching, m *manifest.Manifest) error {
+	return importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx, snapshot, ds, m, 0)
 }
 
-func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context, snapshot SnapshotReader, ds datastore.Batching, testingPowerTableFrequency uint64) error {
+func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context, snapshot SnapshotReader, ds datastore.Batching, m *manifest.Manifest, testingPowerTableFrequency uint64) error {
 	headerBytes, err := readSnapshotBlockBytes(snapshot)
 	if err != nil {
 		return err
@@ -103,6 +104,20 @@ func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context
 	err = header.UnmarshalCBOR(bytes.NewReader(headerBytes))
 	if err != nil {
 		return fmt.Errorf("failed to decode snapshot header: %w", err)
+	}
+	// validate the header against the manifest if provided
+	if m != nil {
+		if m.BootstrapEpoch != int64(header.FirstInstance) {
+			return fmt.Errorf("F3 bootstrap epoch in the snapshot(%d) does not match that in the manifest(%d)", header.FirstInstance, m.BootstrapEpoch)
+		}
+		if m.InitialPowerTable.Defined() {
+			ptCid, err := certs.MakePowerTableCID(header.InitialPowerTable)
+			if err != nil {
+				return fmt.Errorf("failed to make initial power table CID: %w", err)
+			} else if m.InitialPowerTable != ptCid {
+				return fmt.Errorf("F3 initial power table CID in the snapshot(%s) does not match that in the manifest(%s)", ptCid, m.InitialPowerTable)
+			}
+		}
 	}
 	dsb := autobatch.NewAutoBatching(ds, 1000)
 	defer dsb.Flush(ctx)

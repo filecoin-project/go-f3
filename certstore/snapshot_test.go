@@ -103,13 +103,13 @@ func Test_SnapshotExportImportRoundTrip(t *testing.T) {
 	require.Equal(t, c.Hash(), multihash.Multihash(mh))
 
 	ds2 := datastore.NewMapDatastore()
-	err = importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx, bytes.NewReader(snapshot.Bytes()), ds2, testingPowerTableFreqency)
+	err = importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx, bytes.NewReader(snapshot.Bytes()), ds2, nil, testingPowerTableFreqency)
 	require.NoError(t, err)
 
 	require.Equal(t, ds1, ds2)
 
 	ds3 := datastore.NewMapDatastore()
-	err = ImportSnapshotToDatastore(ctx, bytes.NewReader(snapshot.Bytes()), ds3)
+	err = ImportSnapshotToDatastore(ctx, bytes.NewReader(snapshot.Bytes()), ds3, nil)
 	require.NoError(t, err)
 
 	require.NotEqual(t, ds1, ds3)
