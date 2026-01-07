@@ -107,6 +107,9 @@ func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context
 	}
 	// validate the header against the manifest if provided
 	if m != nil {
+		if m.InitialInstance != header.FirstInstance {
+			return fmt.Errorf("F3 initial instance in the snapshot(%d) does not match that in the manifest(%d)", header.FirstInstance, m.InitialInstance)
+		}
 		if m.InitialPowerTable.Defined() {
 			ptCid, err := certs.MakePowerTableCID(header.InitialPowerTable)
 			if err != nil {
@@ -150,7 +153,7 @@ func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context
 			if cert.ECChain == nil || len(cert.ECChain.TipSets) == 0 {
 				return fmt.Errorf("invalid certificate at first instance %d", cert.GPBFTInstance)
 			}
-			snapshotBootstrapEpoch := cert.ECChain.TipSets[0].Epoch
+			snapshotBootstrapEpoch := cert.ECChain.Base().Epoch
 			if m.BootstrapEpoch != snapshotBootstrapEpoch {
 				// Delete entries that are written in `OpenOrCreateStore` above.
 				// Note that if the provided database is non-empty, `OpenOrCreateStore` should

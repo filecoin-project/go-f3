@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-f3/certchain"
+	"github.com/filecoin-project/go-f3/certs"
 	"github.com/filecoin-project/go-f3/gpbft"
 	"github.com/filecoin-project/go-f3/internal/clock"
 	"github.com/filecoin-project/go-f3/internal/consensus"
@@ -41,6 +42,9 @@ func Test_SnapshotExportImportRoundTrip(t *testing.T) {
 		return signVerifier.Allow(int(id))
 	}
 	initialPowerTable := generatePowerTable(t, rng, generatePublicKey, nil)
+	ptCid, err := certs.MakePowerTableCID(initialPowerTable)
+	require.NoError(t, err)
+	m.InitialPowerTable = ptCid
 
 	ec := consensus.NewFakeEC(
 		consensus.WithClock(clk),
@@ -80,6 +84,7 @@ func Test_SnapshotExportImportRoundTrip(t *testing.T) {
 
 	generatedChain, err := subject.Generate(ctx, certChainLength)
 	require.NoError(t, err)
+	m.BootstrapEpoch = generatedChain[0].ECChain.Base().Epoch
 
 	ds1 := datastore.NewMapDatastore()
 	cs, err := OpenOrCreateStore(ctx, ds1, generatedChain[0].GPBFTInstance, initialPowerTable)
@@ -103,16 +108,38 @@ func Test_SnapshotExportImportRoundTrip(t *testing.T) {
 	require.Equal(t, c.Hash(), multihash.Multihash(mh))
 
 	ds2 := datastore.NewMapDatastore()
-	err = importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx, bytes.NewReader(snapshot.Bytes()), ds2, nil, testingPowerTableFreqency)
+	err = importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx, bytes.NewReader(snapshot.Bytes()), ds2, &m, testingPowerTableFreqency)
 	require.NoError(t, err)
 
 	require.Equal(t, ds1, ds2)
 
 	ds3 := datastore.NewMapDatastore()
-	err = ImportSnapshotToDatastore(ctx, bytes.NewReader(snapshot.Bytes()), ds3, nil)
+	err = ImportSnapshotToDatastore(ctx, bytes.NewReader(snapshot.Bytes()), ds3, &m)
 	require.NoError(t, err)
 
 	require.NotEqual(t, ds1, ds3)
+
+	// Test manifest validation logic
+	ds4 := datastore.NewMapDatastore()
+	m2 := manifest.LocalDevnetManifest()
+
+	// bad bootstrap epoch
+	m2.InitialInstance = m.InitialInstance
+	m2.BootstrapEpoch = m.BootstrapEpoch + 1
+	err = ImportSnapshotToDatastore(ctx, bytes.NewReader(snapshot.Bytes()), ds4, &m2)
+	require.ErrorContains(t, err, "bootstrap epoch")
+
+	// bad initial instance
+	m2.BootstrapEpoch = m.BootstrapEpoch
+	m2.InitialInstance = m.InitialInstance + 1
+	err = ImportSnapshotToDatastore(ctx, bytes.NewReader(snapshot.Bytes()), ds4, &m2)
+	require.ErrorContains(t, err, "initial instance")
+
+	// bad InitialPowerTable
+	m2.InitialInstance = m.InitialInstance
+	m2.InitialPowerTable = generatedChain[1].ECChain.Head().PowerTable
+	err = ImportSnapshotToDatastore(ctx, bytes.NewReader(snapshot.Bytes()), ds4, &m2)
+	require.ErrorContains(t, err, "initial power table CID")
 }
 
 func generatePowerTable(t *testing.T, rng *rand.Rand, generatePublicKey func(id gpbft.ActorID) gpbft.PubKey, previousEntries gpbft.PowerEntries) gpbft.PowerEntries {
