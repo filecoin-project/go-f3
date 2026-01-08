@@ -84,7 +84,6 @@ func Test_SnapshotExportImportRoundTrip(t *testing.T) {
 
 	generatedChain, err := subject.Generate(ctx, certChainLength)
 	require.NoError(t, err)
-	m.BootstrapEpoch = generatedChain[0].ECChain.Base().Epoch + m.EC.Finality
 
 	ds1 := datastore.NewMapDatastore()
 	cs, err := OpenOrCreateStore(ctx, ds1, generatedChain[0].GPBFTInstance, initialPowerTable)
@@ -123,14 +122,7 @@ func Test_SnapshotExportImportRoundTrip(t *testing.T) {
 	ds4 := datastore.NewMapDatastore()
 	m2 := manifest.LocalDevnetManifest()
 
-	// bad bootstrap epoch
-	m2.InitialInstance = m.InitialInstance
-	m2.BootstrapEpoch = m.BootstrapEpoch + 1
-	err = ImportSnapshotToDatastore(ctx, bytes.NewReader(snapshot.Bytes()), ds4, &m2)
-	require.ErrorContains(t, err, "bootstrap epoch")
-
 	// bad initial instance
-	m2.BootstrapEpoch = m.BootstrapEpoch
 	m2.InitialInstance = m.InitialInstance + 1
 	err = ImportSnapshotToDatastore(ctx, bytes.NewReader(snapshot.Bytes()), ds4, &m2)
 	require.ErrorContains(t, err, "initial instance")

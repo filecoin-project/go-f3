@@ -148,21 +148,6 @@ func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context
 			return fmt.Errorf("the certificate of instance %d is missing", i)
 		}
 
-		// validate the header against the manifest if provided
-		if m != nil && cert.GPBFTInstance == header.FirstInstance {
-			if cert.ECChain == nil || len(cert.ECChain.TipSets) == 0 {
-				return fmt.Errorf("invalid certificate at first instance %d", cert.GPBFTInstance)
-			}
-			snapshotBootstrapEpoch := cert.ECChain.Base().Epoch + m.EC.Finality
-			if m.BootstrapEpoch != snapshotBootstrapEpoch {
-				// Delete entries that are written in `OpenOrCreateStore` above.
-				// Note that if the provided database is non-empty, `OpenOrCreateStore` should
-				// fail early and `DeleteAll` below won't be executed.
-				cs.DeleteAll(ctx)
-				return fmt.Errorf("F3 bootstrap epoch in the snapshot(%d) does not match that in the manifest(%d)", snapshotBootstrapEpoch, m.BootstrapEpoch)
-			}
-		}
-
 		if i > header.LatestInstance {
 			return fmt.Errorf("certificate of instance %d is found, expected latest instance %d", i, header.LatestInstance)
 		}
