@@ -84,7 +84,7 @@ func Test_SnapshotExportImportRoundTrip(t *testing.T) {
 
 	generatedChain, err := subject.Generate(ctx, certChainLength)
 	require.NoError(t, err)
-	m.BootstrapEpoch = generatedChain[0].ECChain.Base().Epoch
+	m.BootstrapEpoch = generatedChain[0].ECChain.Base().Epoch + m.EC.Finality
 
 	ds1 := datastore.NewMapDatastore()
 	cs, err := OpenOrCreateStore(ctx, ds1, generatedChain[0].GPBFTInstance, initialPowerTable)

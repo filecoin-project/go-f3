@@ -153,7 +153,7 @@ func importSnapshotToDatastoreWithTestingPowerTableFrequency(ctx context.Context
 			if cert.ECChain == nil || len(cert.ECChain.TipSets) == 0 {
 				return fmt.Errorf("invalid certificate at first instance %d", cert.GPBFTInstance)
 			}
-			snapshotBootstrapEpoch := cert.ECChain.Base().Epoch
+			snapshotBootstrapEpoch := cert.ECChain.Base().Epoch + m.EC.Finality
 			if m.BootstrapEpoch != snapshotBootstrapEpoch {
 				// Delete entries that are written in `OpenOrCreateStore` above.
 				// Note that if the provided database is non-empty, `OpenOrCreateStore` should
