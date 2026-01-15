@@ -966,6 +966,9 @@ func (i *instance) alarmAfterSynchrony() time.Time {
 func (i *instance) alarmAfterSynchronyWithMulti(multi float64) time.Time {
 	delta := time.Duration(float64(i.participant.delta) * multi *
 		math.Pow(i.participant.deltaBackOffExponent, float64(i.current.Round)))
+	if delta > i.participant.deltaBackOffMax {
+		delta = i.participant.deltaBackOffMax
+	}
 	timeout := i.participant.host.Time().Add(2 * delta)
 	i.participant.host.SetAlarm(timeout)
 	return timeout

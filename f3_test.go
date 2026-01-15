@@ -261,6 +261,7 @@ var base = manifest.Manifest{
 	Gpbft: manifest.GpbftConfig{
 		Delta:                      3 * time.Second,
 		DeltaBackOffExponent:       1.3,
+		DeltaBackOffMax:            1 * time.Hour,
 		QualityDeltaMultiplier:     1.0,
 		MaxLookaheadRounds:         5,
 		ChainProposedLength:        30,
