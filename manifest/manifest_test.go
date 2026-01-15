@@ -16,8 +16,9 @@ var base = manifest.Manifest{
 	NetworkName:       "test",
 	CommitteeLookback: 10,
 	Gpbft: manifest.GpbftConfig{
-		Delta:                      10,
+		Delta:                      10 * time.Second,
 		DeltaBackOffExponent:       1.2,
+		DeltaBackOffMax:            1 * time.Hour,
 		QualityDeltaMultiplier:     1.0,
 		MaxLookaheadRounds:         5,
 		ChainProposedLength:        gpbft.ChainDefaultLen,
