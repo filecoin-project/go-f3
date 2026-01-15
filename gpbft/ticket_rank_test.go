@@ -2,6 +2,7 @@ package gpbft
 
 import (
 	"bytes"
+	"crypto/rand"
 	"math"
 	"math/big"
 	"runtime"
@@ -9,7 +10,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/exp/rand"
 )
 
 func TestTicketRank_BigLog2(t *testing.T) {
