@@ -7,7 +7,7 @@ import (
 	"math"
 	"math/bits"
 
-	"golang.org/x/crypto/sha3"
+	"github.com/filecoin-project/go-keccak"
 )
 
 // DigestLength is the length of a Digest in number of bytes.
@@ -29,13 +29,13 @@ func TreeWithProofs(values [][]byte) (Digest, [][]Digest) {
 		proofs[i] = make([]Digest, 0, depth)
 	}
 
-	hasher := sha3.NewLegacyKeccak256()
+	hasher := keccak.NewLegacyKeccak256()
 	return buildTree(depth, values, proofs, hasher), proofs
 }
 
 // Tree returns a the root of the merkle-tree of the given values.
 func Tree(values [][]byte) Digest {
-	hasher := sha3.NewLegacyKeccak256()
+	hasher := keccak.NewLegacyKeccak256()
 	return buildTree(depth(len(values)), values, nil, hasher)
 }
 
@@ -52,7 +52,7 @@ func VerifyProof(root Digest, index int, value []byte, proof []Digest) (valid bo
 		return false, false
 	}
 
-	hasher := sha3.NewLegacyKeccak256()
+	hasher := keccak.NewLegacyKeccak256()
 
 	digest := leafHash(value, hasher)
 	for i, uncle := range proof {
@@ -152,7 +152,7 @@ func BatchTree(values [][]byte) []Digest {
 
 	memo := make(map[memoKey]Digest)
 
-	hasher := sha3.NewLegacyKeccak256()
+	hasher := keccak.NewLegacyKeccak256()
 
 	leafHashes := make([]Digest, n)
 	for i := 0; i < n; i++ {

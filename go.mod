@@ -6,6 +6,7 @@ require (
 	github.com/consensys/gnark-crypto v0.18.1
 	github.com/filecoin-project/go-bitfield v0.2.4
 	github.com/filecoin-project/go-clock v0.1.0
+	github.com/filecoin-project/go-keccak v0.1.0
 	github.com/filecoin-project/go-state-types v0.17.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/ipfs/go-cid v0.6.0
@@ -33,7 +34,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.28.0
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.1
-	golang.org/x/crypto v0.43.0
+	golang.org/x/crypto v0.47.0
 	golang.org/x/exp v0.0.0-20250606033433-dcc06ee1d476
 	golang.org/x/sync v0.19.0
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da
@@ -144,13 +145,13 @@ require (
 	go.uber.org/dig v1.19.0 // indirect
 	go.uber.org/fx v1.24.0 // indirect
 	go.uber.org/mock v0.5.2 // indirect
-	golang.org/x/mod v0.30.0 // indirect
-	golang.org/x/net v0.46.0 // indirect
+	golang.org/x/mod v0.31.0 // indirect
+	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
-	golang.org/x/telemetry v0.0.0-20251111182119-bc8e575c7b54 // indirect
-	golang.org/x/text v0.31.0 // indirect
+	golang.org/x/telemetry v0.0.0-20251203150158-8fff8a5912fc // indirect
+	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
-	golang.org/x/tools v0.38.0 // indirect
+	golang.org/x/tools v0.40.0 // indirect
 	gonum.org/v1/gonum v0.15.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
