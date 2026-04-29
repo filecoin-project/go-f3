@@ -234,3 +234,10 @@ type PartialGMessage struct {
 	*GMessage
 	VoteValueKey ECChainKey `cborgen:"maxlen=32"`
 }
+
+// HasChainValue reports whether the partial message carries a chain value that
+// must be resolved via chainexchange before it can be fully validated. Messages
+// with a zero VoteValueKey (e.g. COMMIT for bottom) have no chain to resolve.
+func (p *PartialGMessage) HasChainValue() bool {
+	return p != nil && p.GMessage != nil && !p.VoteValueKey.IsZero()
+}
