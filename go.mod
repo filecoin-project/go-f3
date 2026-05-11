@@ -28,9 +28,9 @@ require (
 	github.com/urfave/cli/v2 v2.25.5
 	github.com/whyrusleeping/cbor-gen v0.3.1
 	go.dedis.ch/kyber/v4 v4.0.0-pre2.0.20240924132404-4de33740016e
-	go.opentelemetry.io/otel v1.39.0
+	go.opentelemetry.io/otel v1.41.0
 	go.opentelemetry.io/otel/exporters/prometheus v0.50.0
-	go.opentelemetry.io/otel/metric v1.39.0
+	go.opentelemetry.io/otel/metric v1.41.0
 	go.opentelemetry.io/otel/sdk/metric v1.28.0
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.1
@@ -141,7 +141,7 @@ require (
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/sdk v1.34.0 // indirect
-	go.opentelemetry.io/otel/trace v1.39.0 // indirect
+	go.opentelemetry.io/otel/trace v1.41.0 // indirect
 	go.uber.org/dig v1.19.0 // indirect
 	go.uber.org/fx v1.24.0 // indirect
 	go.uber.org/mock v0.5.2 // indirect
