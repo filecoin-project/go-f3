@@ -144,23 +144,33 @@ func (m *F3) GetPowerTableByInstance(ctx context.Context, instance uint64) (gpbf
 	return cs.GetPowerTable(ctx, instance)
 }
 
-// computeBootstrapDelay returns the time at which the F3 instance specified by
-// the passed manifest should be started.
-// It will return 0 if the manifest bootstrap epoch is greater than the current epoch.
-// It will also return 1ns if the manifest bootstrap epoch is equal to the current epoch but by
-// the time calculation, we should have already received the bootstrap tipset.
+// computeBootstrapDelay returns how long F3 should wait before attempting to start.
+// It returns 0 once the observed chain head has reached the manifest bootstrap epoch.
+// If the bootstrap epoch has not been observed but is estimated to have already
+// happened, it returns a retry delay based on how far the observed head is from bootstrap.
 func computeBootstrapDelay(ts ec.TipSet, clock clock.Clock, mfst manifest.Manifest) time.Duration {
 	currentEpoch := ts.Epoch()
 	if currentEpoch >= mfst.BootstrapEpoch {
 		return 0
 	}
+
+	// We did not observe the bootstrap epoch yet.
 	epochDelay := mfst.BootstrapEpoch - currentEpoch
 	start := ts.Timestamp().Add(time.Duration(epochDelay) * mfst.EC.Period)
 	delay := clock.Until(start)
-	// ensure that we don't start immediately
-	// to trigger waiting for the bootstrap tipset to exist
-	delay = max(delay, 1*time.Nanosecond)
-	return delay
+	if delay > 0 {
+		return delay
+	}
+
+	const shortRange = 10
+	// But by our estimate the bootstrap epoch should have already happened.
+	if mfst.BootstrapEpoch-currentEpoch < shortRange {
+		// Within the shortRange, start checking more frequently. Start applies
+		// a minimum 20ms retry delay after the initial timer fires.
+		return time.Nanosecond
+	}
+	// Otherwise, poll twice over the short-range window.
+	return shortRange * mfst.EC.Period / 2
 }
 
 // Start the module, call Stop to exit. Canceling the past context will cancel the request to start
