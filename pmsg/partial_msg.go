@@ -395,9 +395,8 @@ func (pmm *PartialMessageManager) CompleteMessage(ctx context.Context, pgmsg *gp
 		// For sanity assert that the message isn't nil.
 		return nil, false
 	}
-	if pgmsg.VoteValueKey.IsZero() {
-		// A zero VoteValueKey indicates that there's no partial chain value, for
-		// example, COMMIT for bottom. Return the message as is.
+	if !pgmsg.HasChainValue() {
+		// for example COMMIT for bottom
 		return pgmsg.GMessage, true
 	}
 
