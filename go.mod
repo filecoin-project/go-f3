@@ -3,7 +3,7 @@ module github.com/filecoin-project/go-f3
 go 1.25.7
 
 require (
-	github.com/consensys/gnark-crypto v0.18.1
+	github.com/consensys/gnark-crypto v0.19.2
 	github.com/filecoin-project/go-bitfield v0.2.4
 	github.com/filecoin-project/go-clock v0.1.0
 	github.com/filecoin-project/go-keccak v0.1.0
@@ -27,7 +27,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/urfave/cli/v2 v2.25.5
 	github.com/whyrusleeping/cbor-gen v0.3.1
-	go.dedis.ch/kyber/v4 v4.0.0-pre2.0.20240924132404-4de33740016e
+	go.dedis.ch/kyber/v4 v4.0.2
 	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/exporters/prometheus v0.50.0
 	go.opentelemetry.io/otel/metric v1.43.0
@@ -44,7 +44,7 @@ require (
 	github.com/apache/arrow/go/v17 v17.0.0 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/bits-and-blooms/bitset v1.20.0 // indirect
+	github.com/bits-and-blooms/bitset v1.24.4 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.4 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -147,7 +147,7 @@ require (
 	go.uber.org/mock v0.5.2 // indirect
 	golang.org/x/mod v0.34.0 // indirect
 	golang.org/x/net v0.52.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260311193753-579e4da9a98c // indirect
 	golang.org/x/text v0.36.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
