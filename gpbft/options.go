@@ -11,6 +11,7 @@ import (
 const (
 	defaultDelta                        = 3 * time.Second
 	defaultDeltaBackOffExponent         = 2.0
+	defaultDeltaBackOffMax              = 1 * time.Hour
 	defaultMaxCachedInstances           = 10
 	defaultMaxCachedMessagesPerInstance = 25_000
 	defaultCommitteeLookback            = 10
@@ -22,6 +23,7 @@ type Option func(*options) error
 type options struct {
 	delta                time.Duration
 	deltaBackOffExponent float64
+	deltaBackOffMax      time.Duration
 
 	qualityDeltaMulti float64
 
@@ -41,6 +43,7 @@ func newOptions(o ...Option) (*options, error) {
 	opts := &options{
 		delta:                            defaultDelta,
 		deltaBackOffExponent:             defaultDeltaBackOffExponent,
+		deltaBackOffMax:                  defaultDeltaBackOffMax,
 		qualityDeltaMulti:                1.0,
 		committeeLookback:                defaultCommitteeLookback,
 		rebroadcastAfter:                 defaultRebroadcastAfter,
@@ -83,6 +86,20 @@ func WithDeltaBackOffExponent(e float64) Option {
 			return errors.New("delta backoff exponent cannot be less than zero")
 		}
 		o.deltaBackOffExponent = e
+		return nil
+	}
+}
+
+// WithDeltaBackOffMax sets the delta back-off max for each round.
+// Defaults to 1h if unspecified. It must be larger than zero.
+//
+// See: https://github.com/filecoin-project/FIPs/blob/master/FIPS/fip-0086.md#synchronization-of-participants-in-the-current-instance
+func WithDeltaBackOffMax(d time.Duration) Option {
+	return func(o *options) error {
+		if d < 0 {
+			return errors.New("delta duration max cannot be less than zero")
+		}
+		o.deltaBackOffMax = d
 		return nil
 	}
 }

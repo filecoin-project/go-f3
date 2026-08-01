@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -313,6 +314,20 @@ func (p *Participant) trace(format string, args ...any) {
 	if p.tracingEnabled() {
 		p.tracer.Log(format, args...)
 	}
+}
+
+// Sets an alarm to be delivered after a synchrony delay including a multiplier on the duration.
+// The delay duration increases with each round.
+// Returns the absolute time at which the alarm will fire.
+func (p *Participant) AlarmAfterSynchronyWithMulti(round uint64, multi float64) time.Time {
+	delta := time.Duration(float64(p.delta) * multi *
+		math.Pow(p.deltaBackOffExponent, float64(round)))
+	if delta > p.deltaBackOffMax {
+		delta = p.deltaBackOffMax
+	}
+	timeout := p.host.Time().Add(2 * delta)
+	p.host.SetAlarm(timeout)
+	return timeout
 }
 
 // A collection of messages queued for delivery for a future instance.
