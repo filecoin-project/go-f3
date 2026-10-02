@@ -964,11 +964,7 @@ func (i *instance) alarmAfterSynchrony() time.Time {
 // The delay duration increases with each round.
 // Returns the absolute time at which the alarm will fire.
 func (i *instance) alarmAfterSynchronyWithMulti(multi float64) time.Time {
-	delta := time.Duration(float64(i.participant.delta) * multi *
-		math.Pow(i.participant.deltaBackOffExponent, float64(i.current.Round)))
-	timeout := i.participant.host.Time().Add(2 * delta)
-	i.participant.host.SetAlarm(timeout)
-	return timeout
+	return i.participant.AlarmAfterSynchronyWithMulti(i.current.Round, multi)
 }
 
 // Builds a justification for a value from a quorum result.

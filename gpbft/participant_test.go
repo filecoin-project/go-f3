@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"sync"
 	"testing"
@@ -54,6 +55,7 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 	const (
 		delta                = 2 * time.Second
 		deltaBackOffExponent = 1.3
+		deltaBackOffMax      = 30 * time.Second
 	)
 
 	rng := rand.New(rand.NewSource(seed))
@@ -89,7 +91,7 @@ func newParticipantTestSubject(t *testing.T, seed int64, instance uint64) *parti
 	subject.Participant, err = gpbft.NewParticipant(subject.host,
 		gpbft.WithTracer(subject),
 		gpbft.WithDelta(delta),
-		gpbft.WithDeltaBackOffExponent(deltaBackOffExponent))
+		gpbft.WithDeltaBackOffExponent(deltaBackOffExponent), gpbft.WithDeltaBackOffMax(deltaBackOffMax))
 	require.NoError(t, err)
 	subject.requireNotStarted()
 	return subject
@@ -483,6 +485,54 @@ func TestParticipant(t *testing.T) {
 			}
 		})
 	})
+}
+
+func TestParticipant_alarmAfterSynchronyWithMulti(t *testing.T) {
+	const (
+		seed                 = 894651320
+		delta                = 2 * time.Second
+		deltaBackOffExponent = 1.2
+		deltaBackOffMax      = 30 * time.Second
+	)
+
+	now := time.Now()
+
+	tests := []struct {
+		name    string
+		round   uint64
+		multi   float64
+		timeout time.Duration
+	}{
+		{
+			name:  "uncapped",
+			round: 3,
+			multi: 1,
+			timeout: 2 * time.Duration(float64(delta)*1*
+				math.Pow(deltaBackOffExponent, float64(3))),
+		},
+		{
+			name:    "capped",
+			round:   30,
+			multi:   1,
+			timeout: 2 * deltaBackOffMax,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			host := gpbft.NewMockHost(t)
+			host.On("NetworkName").Return(gpbft.NetworkName("testnetnet")).Maybe()
+			host.On("Time").Return(now)
+			host.On("SetAlarm", mock.Anything)
+			p, err := gpbft.NewParticipant(host,
+				gpbft.WithDelta(delta),
+				gpbft.WithDeltaBackOffExponent(deltaBackOffExponent), gpbft.WithDeltaBackOffMax(deltaBackOffMax))
+			require.NoError(t, err)
+			require.NotNil(t, p)
+			timeout := p.AlarmAfterSynchronyWithMulti(test.round, test.multi)
+			require.Equal(t, timeout, now.Add(test.timeout))
+		})
+	}
 }
 
 func TestParticipant_ValidateMessage(t *testing.T) {

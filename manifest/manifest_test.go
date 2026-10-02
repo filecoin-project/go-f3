@@ -16,8 +16,9 @@ var base = manifest.Manifest{
 	NetworkName:       "test",
 	CommitteeLookback: 10,
 	Gpbft: manifest.GpbftConfig{
-		Delta:                      10,
+		Delta:                      10 * time.Second,
 		DeltaBackOffExponent:       1.2,
+		DeltaBackOffMax:            1 * time.Hour,
 		QualityDeltaMultiplier:     1.0,
 		MaxLookaheadRounds:         5,
 		ChainProposedLength:        gpbft.ChainDefaultLen,
@@ -113,8 +114,8 @@ func TestManifest_CID(t *testing.T) {
 	t.Parallel()
 
 	const (
-		wantLocalDevnetCid = "baguqfiheaiqgpujeb5upzhbblchkuc2sxeis2y5upbsefktyspqqmjrcr27fiua"
-		wantAfterUpdateCid = "baguqfiheaiqaixtgfxvyaqdkdy6nsdybpvwjw7vgtw22enjg24kunho3b5nrduq"
+		wantLocalDevnetCid = "baguqfiheaiqkwe3ngxsexltkudtgs3ssqdeney2gxugqmw3jskkdmg56laxwzxq"
+		wantAfterUpdateCid = "baguqfiheaiqpmprgeaqongk4wunqi5rez2jpvsxhg3cebi5pvtjpbyz5gfrfvgq"
 	)
 	subject := manifest.LocalDevnetManifest()
 	// Use a fixed network name for deterministic CID calculation.
