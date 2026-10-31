@@ -36,6 +36,7 @@ var (
 	DefaultGpbftConfig = GpbftConfig{
 		Delta:                      6 * time.Second,
 		DeltaBackOffExponent:       2.0,
+		DeltaBackOffMax:            1 * time.Hour,
 		QualityDeltaMultiplier:     1.0,
 		MaxLookaheadRounds:         5,
 		ChainProposedLength:        gpbft.ChainDefaultLen,
@@ -114,6 +115,7 @@ func (c *CxConfig) Validate() error {
 type GpbftConfig struct {
 	Delta                  time.Duration
 	DeltaBackOffExponent   float64
+	DeltaBackOffMax        time.Duration
 	QualityDeltaMultiplier float64
 	MaxLookaheadRounds     uint64
 
@@ -131,6 +133,9 @@ func (g *GpbftConfig) Validate() error {
 	}
 	if g.DeltaBackOffExponent < 1.0 {
 		return fmt.Errorf("gpbft backoff exponent must be at least 1.0, was %f", g.DeltaBackOffExponent)
+	}
+	if g.DeltaBackOffMax < g.Delta {
+		return fmt.Errorf("gpbft delta backoff max must be no less than Delta, was %s", g.DeltaBackOffMax)
 	}
 
 	if g.QualityDeltaMultiplier < 0 {
@@ -161,6 +166,7 @@ func (g *GpbftConfig) ToOptions() []gpbft.Option {
 	return []gpbft.Option{
 		gpbft.WithDelta(g.Delta),
 		gpbft.WithDeltaBackOffExponent(g.DeltaBackOffExponent),
+		gpbft.WithDeltaBackOffMax(g.DeltaBackOffMax),
 		gpbft.WithQualityDeltaMultiplier(g.QualityDeltaMultiplier),
 		gpbft.WithMaxLookaheadRounds(g.MaxLookaheadRounds),
 		gpbft.WithRebroadcastBackoff(
