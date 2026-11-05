@@ -260,7 +260,7 @@ func (p *PubSubChainExchange) validatePubSubMessage(ctx context.Context, _ peer.
 
 func (p *PubSubChainExchange) cacheAsDiscoveredChain(ctx context.Context, cmsg Message) {
 
-	wanted := p.getChainsDiscoveredAt(ctx, cmsg.Instance)
+	wanted := p.getChainsWantedAt(ctx, cmsg.Instance)
 	discovered := p.getChainsDiscoveredAt(ctx, cmsg.Instance)
 
 	allPrefixes := cmsg.Chain.AllPrefixes()
